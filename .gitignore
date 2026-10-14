@@ -1,0 +1,5 @@
+Manifest.toml
+*/Manifest.toml
+build/voxelfit.*
+__pycache__/
+*.egg-info/

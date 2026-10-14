@@ -1,0 +1,9 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+NonlinearSolve = "8913a72c-1f9b-4ce2-8d82-65094dcecaec"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+VoxelFit = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
+
+[sources]
+VoxelFit = {path = ".."}
