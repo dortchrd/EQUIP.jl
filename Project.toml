@@ -1,4 +1,4 @@
-name = "VoxelFit"
+name = "MRISignalModels"
 uuid = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
 version = "0.3.0-DEV"
 authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
@@ -8,10 +8,12 @@ CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
 [compat]
 CommonSolve = "0.2"
 ForwardDiff = "0.10, 1"
 LinearAlgebra = "1"
 StaticArrays = "1.5"
+StatsAPI = "1"
 julia = "1.10"

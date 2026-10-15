@@ -1,4 +1,4 @@
-# VoxelFit design (lean, 0.3)
+# MRISignalModels design (0.3)
 
 The design decisions, recorded so the code and the discussion share one reference.
 
@@ -16,7 +16,7 @@ Decisions behind this:
 - **The acquisition lives in the model struct** (TI, TD, flip angles, ...), next to options
   such as `magnitude`.
   - The model alone then defines the forward model f(θ): `signal(m, p)`, `init(m)` and
-    `fit_maps(m, data)` need no extra argument.
+    `fit(m, data)` need no extra argument.
   - The struct documents which acquisition a model needs, and a missing field fails at
     construction.
   - Protocol optimization just builds a new model per candidate, which costs nothing.
@@ -40,6 +40,13 @@ Decisions behind this:
 - **The supertype is `MRIModel`**, not `AbstractModel`. The generic name is used by other
   packages (e.g. AbstractMCMC.jl), and exporting the same name from two packages forces users
   to qualify it.
+- **One function, `fit`, chosen by the shape of the data.** `fit(m, y::AbstractVector)` fits one
+  voxel and returns plain numbers; `fit(m, data::AbstractArray)` fits every voxel (observations
+  last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
+  and `status`. `init` + `fit!` remain for user-written loops.
+- **Standard function names are shared, not redefined.** `fit`, `fit!` and `nobs` are StatsAPI's
+  functions (the interface behind StatsBase, GLM, Distributions) and `init` is CommonSolve's
+  (SciML). We add methods for our types, so loading those packages alongside causes no clash.
 
 ## Writing a model
 
@@ -95,11 +102,12 @@ the data, a fixed map or a start map marks that voxel invalid (status 6).
 2. `init` checks the acquisition lengths (`nobs`) and rebuilds the model with its numeric
    vectors converted to the working precision. Together with solver options and buffers this
    gives a `FitCache`, one per thread.
-3. `fit!` handles one voxel: pick its map values, build θ0 (and the `:scale` start), run LM.
+3. `fit!` handles one voxel (`fit(m, y)` with a vector is `fit!(init(m), y)`): pick its map
+   values, build θ0 (and the `:scale` start), run LM.
    Each LM evaluation does `p = resolve_ties(merge(NamedTuple{F}(seeded duals), fixed))`, then
    `signal!(buf, m, p)`, then sums SSE, JᵀJ and Jᵀr from `buf`. The m×P Jacobian is never
    stored and nothing is allocated.
-4. `fit_maps` reshapes the data to voxels × observations (a view) and turns the mask into an
+4. `fit(m, data)` reshapes the data to voxels × observations (a view) and turns the mask into an
    index list. It splits the list into about 64 chunks per thread (at least 16 voxels each) and
    fits each chunk in a task with its own cache. Many small chunks keep threads busy when slow
    voxels are clustered; the floor keeps the ~1 µs per-task overhead negligible. It returns
@@ -113,10 +121,47 @@ bounds by projection with an active set, Cholesky without exceptions.
 0 not fitted (mask), 1–3 converged (step, cost, gradient), 4 max iterations,
 5 failed (non-finite model at the start), 6 invalid input.
 
-## Scope of the lean version
+## Package structure and name
+
+**One package, in layers.** Each layer only uses the layers before it:
+
+```
+src/
+  MRISignalModels.jl   the module: dependencies, exports, includes
+  models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
+                       builtin.jl + one file per model
+  fit/                 lm.jl (solver), setup.jl (roles -> FitSpec), cache.jl (init, fit!),
+                       fit.jl (fit: one voxel or a dataset, threaded)
+  analysis/            (later) CRLB, Monte Carlo, sensitivity
+  design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
+ext/                   (later) package extensions: OptimExt (optimize_protocol), NIfTIExt (file I/O)
+```
+
+- Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
+  need the model, its Jacobian and the fitter. Separate packages would mean keeping versions
+  in step while the API is still changing, and none of these features adds a heavy dependency.
+- Heavy optional dependencies (an optimizer, file formats) go in package extensions (Julia ≥
+  1.9): their code loads only when the user also loads that package.
+- The protocol objectives stay in the core: the signal can already be differentiated with
+  respect to TI/TD (dual numbers pass through the model's vectors), so any optimizer can use
+  them.
+- Python and MATLAB wrappers will be separate, thin packages (PyPI, MATLAB toolbox).
+- When to split later: if another project wants only the models (e.g. model-based
+  reconstruction), or loading time becomes a problem. The layering makes that a move of
+  folders, following the one-repository-several-packages pattern of KomaMRI (KomaMRIBase,
+  KomaMRICore, ...) and MRIReco (MRIBase, ...).
+
+**Name.** `MRISignalModels`: the signal model is what fitting, CRLB, Monte Carlo, sensitivity
+analysis and protocol design have in common. It follows Julia's conventions (CamelCase, plural
+for a package built around its own types) and the `MRI…` names of the MRI ecosystem. Checked
+against the General registry (Oct 2026): unregistered. `QuantitativeMRI` is taken
+(aTrotier/QuantitativeMRI.jl).
+
+## Scope so far
 
 In: the interface above, five models (ExpDecay, InversionRecovery, SaturationRecovery, MFA,
-SIRFSE), Float64/Float32, bounds, masks, per-voxel maps, ties, threads, tests.
+SIRFSE), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
 CLI / Python / MATLAB, GPU, model-specific and neighbour starting values, standard errors,

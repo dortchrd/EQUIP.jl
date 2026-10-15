@@ -1,26 +1,25 @@
-# VoxelFit.jl (lean)
+# MRISignalModels.jl
 
-Fast voxel-wise nonlinear least-squares fitting of MRI signal models, for parametric maps
-(T1, T2, qMT, ...). Built for millions of small fits: fewer than 10 parameters and fewer than
-100 observations per voxel. A custom Levenberg–Marquardt solver with automatic derivatives
-fits one voxel in a few microseconds without allocating memory, and threads spread the voxels
-over your CPU cores.
+MRI signal models and fast voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...). Built
+for millions of small fits: fewer than 10 parameters and fewer than 100 observations per voxel.
+A custom Levenberg–Marquardt solver with automatic derivatives fits one voxel in a few
+microseconds without allocating memory, and threads spread the voxels over your CPU cores.
 
-This is the **lean** version: only the core, so that it is easy to read and understand. CLI,
-Python/MATLAB, GPU, data-driven starting values and uncertainty estimates come later (see
+The signal model is the center of the package. Fitting comes first; CRLB, Monte Carlo,
+sensitivity analysis and protocol optimization will build on the same models (see
 [Roadmap](#roadmap)).
 
 ## Install and test
 
 ```julia
-] dev /path/to/VoxelFit.jl
+] dev /path/to/MRISignalModels.jl
 ```
 
 ```sh
 julia -t auto --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-Start Julia with threads (`julia -t auto`) so `fit_maps` uses all cores.
+Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
 ## Two inputs
 
@@ -35,24 +34,39 @@ stands for all of them, e.g. `MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times
 ## Quick start
 
 ```julia
-using VoxelFit
+using MRISignalModels
 
 m = SIRFSE(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
 # Simulate. Fixed parameters (kmf, R1m, Sm) take their defaults unless you give them.
 y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
 
-# Fit one voxel with a reusable cache.
-cache = init(m)
-r = fit!(cache, y)
+# Fit one voxel: y is a vector.
+r = fit(m, y)
 r.params            # (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
 r.status            # ConvergedX
 
-# Fit a whole dataset: data are X×Y×Z×M (observations last), maps come back X×Y×Z.
-res = fit_maps(m, data; mask)
-res.params.PSR      # the PSR map
+# Fit a whole dataset: observations along the LAST dimension (voxels × M, X×Y×M, X×Y×Z×M, ...).
+res = fit(m, data; mask)
+res.params.PSR      # the PSR map, with the spatial size of data
 res.status          # FitStatus codes per voxel
 ```
+
+`fit` chooses by the shape of the data: a vector is one voxel and gives plain numbers; a
+matrix or N-d array is many voxels and gives maps. A matrix is voxels × observations, one row
+per voxel.
+
+For your own loops (simulations, Monte Carlo), make a reusable cache once:
+
+```julia
+cache = init(m; fixed = (kmf = 15.0,))
+for y in curves
+    r = fit!(cache, y)          # no memory allocation per fit
+end
+```
+
+`fit`, `fit!` and `nobs` are the same functions as in StatsBase/GLM (from StatsAPI.jl), and
+`init` is SciML's (from CommonSolve.jl), so loading those packages alongside causes no clash.
 
 ## Free and fixed parameters
 
@@ -76,18 +90,18 @@ parameters(::SIRFSE) = (
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie, i.e. a
   function of the other parameters such as `p -> p.R1f`.
 
-Any fit can change the roles with three keywords, accepted by `init` and `fit_maps`:
+Any fit can change the roles with three keywords, accepted by `fit` and `init`:
 
 ```julia
-fit_maps(m, data; fixed = (kmf = 15.0,))              # change a fixed value
-fit_maps(m, data; fixed = (Sm = sm_map,))             # a per-voxel map
-fit_maps(m, data; free = (:kmf,))                     # estimate kmf (starts at 12.5)
-fit_maps(m, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
-fit_maps(m, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
-fit_maps(m, data; start = (R1f = r1_map,))            # starting values: numbers or maps
+fit(m, data; fixed = (kmf = 15.0,))              # change a fixed value
+fit(m, data; fixed = (Sm = sm_map,))             # a per-voxel map
+fit(m, data; free = (:kmf,))                     # estimate kmf (starts at 12.5)
+fit(m, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
+fit(m, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
+fit(m, data; start = (R1f = r1_map,))            # starting values: numbers or maps
 
 mfa = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
-fit_maps(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
+fit(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
 ```
 
 Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
@@ -97,7 +111,10 @@ marks that voxel invalid (status 6) instead of producing a meaningless fit.
 
 ## Outputs
 
-`fit_maps` returns a named tuple of arrays with the spatial size of the data:
+One voxel, `fit(m, y)`: a `VoxelResult` with `params` (named tuple of numbers), `sse`,
+`iterations` and `status`.
+
+A dataset, `fit(m, data)`: a named tuple of arrays with the spatial size of the data:
 
 - `params`: one map per free parameter (`res.params.T1`). You can pass it back as
   `start = res.params` to refit.
@@ -123,8 +140,8 @@ Voxels that are not fitted hold NaN.
 A model is a struct, a `parameters` method and a `signal!` method:
 
 ```julia
-using VoxelFit
-import VoxelFit: parameters, signal!     # we add methods to these functions
+using MRISignalModels
+import MRISignalModels: parameters, signal!     # we add methods to these functions
 
 @kwdef struct T2Offset{A<:AbstractVector} <: MRIModel
     TE::A                                # echo times (s), one per observation
@@ -157,6 +174,9 @@ m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
   fitter passes dual numbers to get derivatives. Unpack `p` by name, never by position: its
   order depends on which parameters are free in a given fit. It never needs to know which
   parameters are free or fixed.
+- **`nobs`** (the number of observations) works for every model automatically: it is the common
+  length of the model's vector fields. A model with other kinds of vector fields can define its
+  own method.
 
 ## How it works
 
@@ -164,22 +184,34 @@ m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
 parameters(m) + fixed/free/start  ──setup──▶  FitSpec   free names, bounds, starts, fixed values
 FitSpec + model + buffers         ──init───▶  FitCache  made once (one copy per thread)
 one voxel's data                  ──fit!───▶  VoxelResult
-all voxels                        ──fit_maps─▶ maps      threads over chunks of voxels
+a dataset                         ──fit────▶  maps      threads over chunks of voxels
 ```
 
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
-and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored. The
-code is in `src/`, roughly in reading order: `interface.jl`, `models.jl`, `fit.jl`, `lm.jl`,
-`maps.jl`. `docs/design.md` records the design decisions.
+and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
+
+The code is in layers; each only uses the ones before it:
+
+```
+src/
+  MRISignalModels.jl      the module: dependencies, exports, includes
+  models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl, one file per model
+  fit/                    lm.jl (solver), setup.jl (roles -> FitSpec), cache.jl (init, fit!), fit.jl (fit)
+```
+
+`docs/design.md` records the design decisions.
 
 ## Roadmap
 
-Deferred on purpose. Earlier implementations exist on the `api-v0.2` and `main` branches.
+Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
+`main` branches.
 
-- Uncertainty: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
-  Eqs. 3–6), Monte Carlo with Gaussian/Rician noise
+- **analysis/**: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
+  Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis
+- **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
+  (best TI/TD), with an Optim.jl package extension
 - Model-specific data-driven starting values; starts from neighbouring voxels
-- Command line (NIfTI/npy), Python and MATLAB front ends
+- File I/O (NIfTI, as a package extension), command line, Python and MATLAB front ends
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models (diffusion, IVIM, multi-exponential, DCE)

@@ -64,7 +64,7 @@ isconverged(s::Integer) = isconverged(FitStatus(s))
 """
     LMOptions{T}(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
 
-Solver settings (keywords of `init` and `fit_maps`). Default tolerances depend on precision:
+Solver settings (keywords of `init` and `fit`). Default tolerances depend on precision:
 `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for Float64; `1e-5, 1e-6, 1e-5` for Float32.
 
 - `xtol`: stop when the (scaled) step is smaller than `xtol` × the (scaled) parameters.
@@ -119,13 +119,13 @@ end
 VoxelProblem{F}(model::M, y::Y, fixed::X) where {F,M,Y,X} = VoxelProblem{F,M,Y,X}(model, y, fixed)
 
 # A unique "tag" type for our dual numbers, so they never mix with duals from other code.
-struct VoxelFitTag end
+struct FitTag end
 
 # Turn θ = (θ₁, …, θ_P) into dual numbers seeded with the identity: dual j has value θⱼ and
 # partials eⱼ (1 in slot j, 0 elsewhere). Any function evaluated on them then returns
 # value f(θ) with partials (∂f/∂θ₁, …, ∂f/∂θ_P): one pass gives a full row of the Jacobian.
 @inline function _seed(θ::SVector{P,T}) where {P,T}
-    return SVector(ntuple(j -> Dual{VoxelFitTag}(θ[j], ntuple(k -> ifelse(k == j, one(T), zero(T)), Val(P))),
+    return SVector(ntuple(j -> Dual{FitTag}(θ[j], ntuple(k -> ifelse(k == j, one(T), zero(T)), Val(P))),
                           Val(P)))
 end
 # `ntuple(f, Val(P))` builds the tuple (f(1), …, f(P)) with P known at compile time, so it is
@@ -250,7 +250,7 @@ end
     lm_fit(prob, θ0, lower, upper, opts, buf) -> LMResult
 
 Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper` (all
-`SVector{P,T}`). `buf` holds one `Dual{VoxelFitTag,T,P}` per observation. Does not allocate.
+`SVector{P,T}`). `buf` holds one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
 function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
                 opts::LMOptions{T}, buf) where {P,T}

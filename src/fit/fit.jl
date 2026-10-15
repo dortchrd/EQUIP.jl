@@ -1,11 +1,21 @@
 # =================================================================================================
-# fit_maps: fit every voxel of a dataset, in parallel
+# fit: the one function users call
 #
-# Data layout: observations along the LAST dimension, X×Y×Z×M (as NIfTI and MATLAB store them;
-# any number of spatial dimensions works, including a plain voxels×M matrix).
+# Two methods, chosen by the shape of the data (multiple dispatch):
 #
-# The dataset is never copied. `reshape(data, nvox, M)` is a 2-D *view* of the same memory:
-# row v holds voxel v's M observations. A mask becomes a list of voxel indices.
+#   fit(m, y::AbstractVector)    one voxel  -> VoxelResult: r.params.T2 is a number
+#   fit(m, data::AbstractArray)  many voxels, observations along the LAST dimension
+#                                (voxels × M, X×Y×M, X×Y×Z×M, ...) -> maps: r.params.T2 is an array
+#
+# A Vector matches both signatures; Julia picks the more specific one (AbstractVector), so 1-D
+# data always means "one voxel".
+#
+# `fit` and `fit!` are not our own functions: they belong to StatsAPI.jl (the interface package
+# behind StatsBase, GLM, Distributions). We add methods for our types, so `using MRISignalModels,
+# StatsBase` works without a name clash.
+#
+# Many voxels: the dataset is never copied. `reshape(data, nvox, M)` is a 2-D *view* of the same
+# memory: row v holds voxel v's M observations. A mask becomes a list of voxel indices.
 #
 # Threads: the list of voxels is cut into chunks; each chunk runs as a task with its own copy of
 # the cache (its own buffers). Many chunks per thread balance the load when some voxels need
@@ -13,10 +23,28 @@
 # =================================================================================================
 
 """
-    fit_maps(model, data; mask = nothing, fixed, free, start, precision, maxiter, ...)
+    fit(model, y::AbstractVector; fixed, free, start, precision, maxiter, ...) -> VoxelResult
 
-Fit `model` to every voxel of `data` (observations along the last dimension). Returns a named
-tuple of arrays with the spatial size of `data`:
+Fit one voxel: `y` has one value per observation. Returns a [`VoxelResult`](@ref) with plain
+numbers, e.g. `r.params.T1`, `r.status`. Keywords as for [`init`](@ref).
+
+For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
+
+```julia
+m = SIRFSE(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
+r = fit(m, y; fixed = (kmf = 15.0,))
+r.params.PSR
+```
+"""
+fit(model::MRIModel, y::AbstractVector; kwargs...) = fit!(init(model; kwargs...), y)
+
+"""
+    fit(model, data::AbstractArray; mask = nothing, fixed, free, start, precision, maxiter, ...)
+
+Fit every voxel of `data`, an array with the observations along the LAST dimension: voxels × M,
+X×Y×M, X×Y×Z×M, ... (as NIfTI and MATLAB store volumes). A matrix is voxels × observations: one
+row per voxel. Returns a named tuple of arrays with the spatial size of `data` (all dimensions
+but the last):
 
 - `params`: one map per free parameter, e.g. `res.params.T1`
 - `sse`: sum of squared residuals
@@ -31,11 +59,11 @@ Voxels that are not fitted hold `NaN`. Keywords:
 `res.params` can be passed back as `start` to refit from a previous result.
 
 ```julia
-res = fit_maps(MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
+res = fit(MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
 res.params.T1
 ```
 """
-function fit_maps(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
+function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     cache = init(model; kwargs...)                   # setup once; all other keywords go to init
     spatial = Base.front(size(data))                 # size without the last dimension
     nvox = prod(spatial)

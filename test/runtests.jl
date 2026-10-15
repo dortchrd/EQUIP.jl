@@ -1,7 +1,7 @@
-# Tests for VoxelFit. Run with threads so the parallel path is exercised:
+# Tests for MRISignalModels. Run with threads so the parallel path is exercised:
 #     julia -t 4 --project=. -e 'using Pkg; Pkg.test()'
-using VoxelFit
-using VoxelFit: setup, freenames      # internal functions that the tests inspect
+using MRISignalModels
+using MRISignalModels: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
 using Test
@@ -34,7 +34,7 @@ function sir_eq1(TI, TD; PSR, R1f, Sf, M0f, kmf, R1m, Sm, magnitude = true)
     end
 end
 
-@testset "VoxelFit" begin
+@testset "MRISignalModels" begin
 
     @testset "noise-free recovery from default starts: $(nameof(typeof(m)))" for (m, truth) in CASES
         y = signal(m, truth)
@@ -143,20 +143,20 @@ end
         # untie R1m by fixing it to a number
         y2 = signal(m, merge(truth, (kmf = 12.5, R1m = 2.0)))
         @test fit!(init(m; fixed = (R1m = 2.0,)), y2).params.R1f ≈ 1.0 rtol = 1e-6
-        # per-voxel Sm map through fit_maps (data: voxels × observations)
+        # per-voxel Sm map through fit on a dataset (data: voxels × observations)
         n = 50
         sm = 0.75 .+ 0.15 .* rand(MersenneTwister(4), n)
         Y = reduce(vcat, [signal(m, merge(truth, (kmf = 12.5, Sm = sm[v])))' for v in 1:n])
-        res = fit_maps(m, Y; fixed = (Sm = sm,))
+        res = fit(m, Y; fixed = (Sm = sm,))
         @test res.params.PSR ≈ fill(0.12, n) rtol = 1e-5
         # a NaN in a map marks only that voxel invalid
         sm[7] = NaN
-        res = fit_maps(m, Y; fixed = (Sm = sm,))
-        @test res.status[7] == UInt8(VoxelFit.InvalidData) && isnan(res.params.PSR[7])
+        res = fit(m, Y; fixed = (Sm = sm,))
+        @test res.status[7] == UInt8(MRISignalModels.InvalidData) && isnan(res.params.PSR[7])
         @test all(isconverged, res.status[setdiff(1:n, 7)])
     end
 
-    @testset "fit_maps: 3-D data, mask, threads, invalid data, start maps" begin
+    @testset "fit on a dataset: 3-D data, mask, threads, invalid data, start maps" begin
         rng = MersenneTwister(1)
         nx, ny, nz = 20, 16, 4
         te = collect(0.01:0.01:0.32)
@@ -167,12 +167,12 @@ end
         mask = rand(rng, nx, ny, nz) .> 0.3
         data[1, 1, 1, 5] = NaN; mask[1, 1, 1] = true            # one bad voxel inside the mask
 
-        res = fit_maps(m, data; mask)
+        res = fit(m, data; mask)
         @test keys(res) == (:params, :sse, :status) && keys(res.params) == (:S0, :T2)
         @test size(res.params.T2) == (nx, ny, nz)
-        @test res.status[1, 1, 1] == UInt8(VoxelFit.InvalidData)
+        @test res.status[1, 1, 1] == UInt8(MRISignalModels.InvalidData)
         @test all(isnan, res.params.T2[.!mask]) && all(==(0), res.status[.!mask])
-        good = mask .& (res.status .!= UInt8(VoxelFit.InvalidData))
+        good = mask .& (res.status .!= UInt8(MRISignalModels.InvalidData))
         @test all(isconverged, res.status[good])
         @test maximum(abs.(res.params.T2[good] .- T2[good]) ./ T2[good]) < 0.05
 
@@ -183,14 +183,14 @@ end
         end
 
         # Float32 data and outputs; starting from the previous result's maps
-        res32 = fit_maps(m, Float32.(data); mask, precision = Float32, start = res.params)
+        res32 = fit(m, Float32.(data); mask, precision = Float32, start = res.params)
         @test eltype(res32.params.T2) == Float32
         @test res32.params.T2[good] ≈ res.params.T2[good] rtol = 1e-3
 
         # size mistakes are caught
-        @test_throws DimensionMismatch fit_maps(ExpDecay(TE = te[1:5]), data)
-        @test_throws DimensionMismatch fit_maps(m, data; mask = mask[:, :, 1])
-        @test_throws DimensionMismatch fit_maps(m, data; start = (T2 = T2[:, :, 1],))
+        @test_throws DimensionMismatch fit(ExpDecay(TE = te[1:5]), data)
+        @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
+        @test_throws DimensionMismatch fit(m, data; start = (T2 = T2[:, :, 1],))
     end
 
     @testset "MFA with a per-voxel B1 map" begin
@@ -202,9 +202,39 @@ end
         for I in CartesianIndices(B1)
             data[I, :] = signal(m, (M0 = 1000.0, T1 = T1[I], B1 = B1[I]))
         end
-        with = fit_maps(m, data; fixed = (B1 = B1,))
-        without = fit_maps(m, data)                          # B1 = 1 everywhere: biased
+        with = fit(m, data; fixed = (B1 = B1,))
+        without = fit(m, data)                     # B1 = 1 everywhere: biased
         @test with.params.T1 ≈ T1 rtol = 1e-6
         @test maximum(abs.(without.params.T1 .- T1) ./ T1) > 0.1
+    end
+
+    @testset "fit: one voxel (vector) or a dataset with any number of spatial dimensions" begin
+        rng = MersenneTwister(5)
+        m = ExpDecay(TE = collect(0.01:0.01:0.32))
+        curve(T2) = signal(m, (S0 = 1000.0, T2 = T2))
+        # a vector is ONE voxel: plain numbers, same as init + fit!
+        r = fit(m, curve(0.08))
+        @test r isa VoxelResult && isconverged(r)
+        @test r.params.T2 ≈ 0.08 rtol = 1e-6
+        @test r.params == fit!(init(m), curve(0.08)).params
+        @test fit(m, curve(0.08); fixed = (S0 = 1000.0,)).params.T2 ≈ 0.08 rtol = 1e-6
+        # matrices and N-d arrays: observations last, maps with the spatial size
+        for sz in ((40,), (8, 5), (6, 5, 3), (4, 3, 3, 2))
+            T2 = 0.04 .+ 0.08 .* rand(rng, sz...)
+            data = zeros(sz..., nobs(m))
+            for I in CartesianIndices(T2)
+                data[I, :] = curve(T2[I])
+            end
+            res = fit(m, data)
+            @test size(res.params.T2) == sz && size(res.status) == sz
+            @test res.params.T2 ≈ T2 rtol = 1e-6
+        end
+    end
+
+    @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
+        @test nameof(parentmodule(fit)) == :StatsAPI
+        @test nameof(parentmodule(fit!)) == :StatsAPI
+        @test nameof(parentmodule(nobs)) == :StatsAPI
+        @test nameof(parentmodule(init)) == :CommonSolve
     end
 end

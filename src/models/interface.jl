@@ -48,7 +48,7 @@ end
 abstract type MRIModel end
 # `abstract type` declares a type that has no instances of its own; it only groups concrete
 # types. `struct ExpDecay <: MRIModel` says "ExpDecay is a kind of MRIModel", so any function
-# written for `m::MRIModel` (like `signal` and `fit_maps`) works for it.
+# written for `m::MRIModel` (like `signal` and `fit`) works for it.
 #
 # `@kwdef` (built into Julia) in front of `struct` adds a keyword constructor, so a model is made
 # with `ExpDecay(TE = [...])`. A field written with a default, `magnitude::Bool = true`, becomes
@@ -164,6 +164,10 @@ function nobs(m::MRIModel)
         throw(DimensionMismatch("$name: the per-observation fields have different lengths, $lens"))
     return lens[1]
 end
+# `nobs` is StatsAPI's function (imported in MRISignalModels.jl); this adds a method for every
+# MRIModel. A specific model can add its own, more specific method, e.g.
+# `nobs(m::T2Spectrum) = length(m.TE)`, and Julia will pick that one for it.
+#
 # `cond && expr` runs `expr` only if `cond` is true; `cond || expr` only if it is false. They are
 # common shorthands for "if ... throw an error".
 
