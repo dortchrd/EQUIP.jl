@@ -1,8 +1,9 @@
 # Levenberg–Marquardt for small, dense problems (P ≲ 10 parameters, m ≲ a few hundred points).
 #
 # Design choices, all aimed at running millions of independent fits:
-# - JᵀWJ (P×P), JᵀWr (P) and the SSE are accumulated observation by observation into
-#   StaticArrays, so the m×P Jacobian is never stored and nothing touches the heap.
+# - The model's signal! is evaluated with dual numbers into a per-thread buffer; JᵀWJ (P×P),
+#   JᵀWr (P) and the SSE are then accumulated from it into StaticArrays, so the m×P Jacobian
+#   is never stored and nothing touches the heap.
 # - Every trial point is evaluated with derivatives. Most LM steps are accepted, and an
 #   accepted step then already has its normal equations, so each iteration costs one pass.
 # - Marquardt scaling with MINPACK's monotone diagonal D = max(D, diag(JᵀJ)) makes damping
@@ -25,7 +26,7 @@ Per-voxel outcome, stored as `UInt8` in the status map:
 | 3    | `ConvergedG`    | scaled gradient below `gtol` (or SSE == 0)         |
 | 4    | `MaxIterations` | hit `maxiter`                                      |
 | 5    | `Failed`        | model or derivatives not finite at the start point |
-| 6    | `InvalidData`   | data contain NaN or Inf                            |
+| 6    | `InvalidData`   | data or a fixed-map value is NaN or Inf            |
 """
 @enum FitStatus::UInt8 begin
     NotFitted = 0
@@ -91,39 +92,44 @@ isconverged(r::LMResult) = isconverged(r.status)
 # ---------------------------------------------------------------------------------------------
 # Normal equations: (SSE, JᵀWJ, JᵀWr) at θ, with r = f(θ) - y.
 
+struct VoxelFitTag end
+
+@inline function _seed(θ::SVector{P,T}) where {P,T}
+    SVector(ntuple(j -> Dual{VoxelFitTag}(θ[j], ntuple(k -> ifelse(k == j, one(T), zero(T)), Val(P))),
+                   Val(P)))
+end
+
 @inline _weight(::Nothing, i, ::Type{T}) where {T} = one(T)
 @inline _weight(w, i, ::Type{T}) where {T} = @inbounds T(w[i])
 
-@inline normal_equations(m::AbstractModel, x, y, w, θ, ws) =
-    _normal_equations(modelstyle(m), m, x, y, w, θ, ws)
+"""
+    VoxelProblem{F}(model, acq, y, w, fixed)
 
-@inline function _normal_equations(::Pointwise, m::AbstractModel{P}, x, y, w,
-                                   θ::SVector{P,T}, ws) where {P,T}
-    A = zero(SMatrix{P,P,T})
-    g = zero(SVector{P,T})
-    sse = zero(T)
-    @inbounds for i in 1:length(y)
-        f, J = value_gradient(m, x[i], θ)
-        wi = _weight(w, i, T)
-        r = f - T(y[i])
-        wJ = wi * J
-        A += wJ * J'
-        g += r * wJ
-        sse += wi * r * r
-    end
-    return sse, A, g
+One voxel's least-squares problem: estimated parameter names `F`, protocol, data `y`, weights
+`w` (or `nothing`) and the voxel's fixed values (numbers and ties).
+"""
+struct VoxelProblem{F,M,A,Y,W,FX}
+    model::M
+    acq::A
+    y::Y
+    w::W
+    fixed::FX
 end
+VoxelProblem{F}(model::M, acq::A, y::Y, w::W, fixed::FX) where {F,M,A,Y,W,FX} =
+    VoxelProblem{F,M,A,Y,W,FX}(model, acq, y, w, fixed)
 
-@inline function _normal_equations(::Curve, m::AbstractModel{P}, x, y, w,
-                                   θ::SVector{P,T}, ws) where {P,T}
-    _curve!(ws, m, x, _seed(θ))
+@inline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
+    p = _params(Val(F), _seed(θ), prob.fixed)
+    signal!(buf, prob.model, prob.acq, p)
     A = zero(SMatrix{P,P,T})
     g = zero(SVector{P,T})
     sse = zero(T)
-    @inbounds for i in 1:length(y)
-        f, J = _vg(ws[i], Val(P), T)
+    y, w = prob.y, prob.w
+    @inbounds for i in eachindex(buf)
+        d = buf[i]
+        J = SVector{P,T}(partials(d).values)
         wi = _weight(w, i, T)
-        r = f - T(y[i])
+        r = T(value(d)) - T(y[i])
         wJ = wi * J
         A += wJ * J'
         g += r * wJ
@@ -203,16 +209,15 @@ end
 end
 
 """
-    lm_fit(model, x, y, θ0, lower, upper, opts::LMOptions[, w, workspace]) -> LMResult
+    lm_fit(prob::VoxelProblem, θ0, lower, upper, opts::LMOptions, buf) -> LMResult
 
-Levenberg–Marquardt fit of one signal curve. All vectors of length P are `SVector{P,T}`; `y` and
-`w` (weights, or `nothing`) are any indexable vectors of length `length(x)`. Allocation-free and
-GPU-compatible for pointwise models.
+Levenberg–Marquardt fit of one voxel. `θ0`, `lower`, `upper` are `SVector{P,T}`; `buf` is a
+vector of `Dual{VoxelFitTag,T,P}` with one entry per observation. Allocation-free.
 """
-function lm_fit(m::AbstractModel{P}, x, y, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                opts::LMOptions{T}, w=nothing, ws=nothing) where {P,T}
+function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
+                opts::LMOptions{T}, buf) where {P,T}
     θ = clamp.(θ0, lo, hi)
-    sse, A, g = normal_equations(m, x, y, w, θ, ws)
+    sse, A, g = normal_equations(prob, θ, buf)
     if !(isfinite(sse) && _allfinite(g) && _allfinite(diag(A)))
         return LMResult(θ, sse, A, Int32(0), Failed)
     end
@@ -244,7 +249,7 @@ function lm_fit(m::AbstractModel{P}, x, y, θ0::SVector{P,T}, lo::SVector{P,T}, 
             status = ConvergedX
             break
         end
-        ssen, An, gn = normal_equations(m, x, y, w, θn, ws)
+        ssen, An, gn = normal_equations(prob, θn, buf)
         pred = -(2 * dot(g, s) + dot(s, A * s))        # predicted SSE reduction
         actual = sse - ssen
         if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0

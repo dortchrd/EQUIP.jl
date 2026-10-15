@@ -7,9 +7,12 @@
     res = voxelfit.fit("MonoExp", te, data, mask=mask)  # data: (..., n_echoes)
     t2 = res["T2"]                                      # same spatial shape as data[..., 0]
 
-Julia runs in-process through juliacall. Data and outputs are shared with Julia without
-copying: inputs are read in place (after at most one conversion to a C-contiguous array with
-the observation axis last) and Julia writes the parameter maps straight into NumPy arrays.
+    acq = {"TI": ti, "TD": 2.5}                         # protocol: arrays per observation, scalars constant
+    res = voxelfit.fit("SIRFSE", acq, data, fixed={"kmf": 12.5, "Sm": sm_map}, free=["R1m"])
+
+Julia runs in-process through juliacall. Data, masks and maps are shared with Julia without
+copying (after at most one conversion to a C-contiguous array with the observation axis last),
+and Julia writes the parameter maps straight into NumPy arrays.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from typing import Optional, Sequence, Union
 
 import numpy as np
 
-__all__ = ["fit", "Expr", "FitResult", "models", "STATUS", "julia"]
+__all__ = ["fit", "Expr", "Estimate", "FitResult", "models", "STATUS", "julia"]
 
 STATUS = {
     0: "not fitted (outside mask)",
@@ -29,7 +32,7 @@ STATUS = {
     3: "converged (gradient)",
     4: "max iterations",
     5: "failed",
-    6: "invalid data",
+    6: "invalid data or fixed-map value",
 }
 
 _JL = None
@@ -45,26 +48,35 @@ def julia():
         from juliacall import Main as jl
 
         jl.seval("using VoxelFit")
+        jl.seval("_vf_estimate(n, s, l, u) = Symbol(n) => VoxelFit.Estimate(s === nothing ? :auto : Float64(s); lower = l, upper = u)")
+        jl.seval("_vf_tuple(xs...) = xs")
         _JL = jl
     return _JL
 
 
 @dataclass
-class Expr:
-    """A custom model written as a Julia expression.
+class Estimate:
+    """Estimate a parameter, with a starting value (None: from the model's guess) and bounds."""
 
-    Expr("S0 * exp(-TE / T2) + C", params=["S0", "T2", "C"], x="TE",
+    start: Optional[float] = None
+    lower: float = -np.inf
+    upper: float = np.inf
+
+
+@dataclass
+class Expr:
+    """A custom model written as a Julia expression for the signal at one observation.
+
+    Expr("S0 * exp(-TE / T2) + C", params=["S0", "T2", "C"], protocol=["TE"],
          p0=[1000, 50, 0], lower=[0, 0, 0])
 
-    `x` names the acquisition variable (a list of names if each observation has several
-    settings and `x` is passed to `fit` as an (n_obs, k) array). `covariates` names per-voxel
-    maps passed to `fit(..., covariates=...)`. The expression is compiled as Julia code.
+    `protocol` names the acquisition settings used in the expression. The expression is
+    compiled as Julia code.
     """
 
     expr: str
     params: Sequence[str]
-    x: Union[str, Sequence[str]] = "x"
-    covariates: Sequence[str] = ()
+    protocol: Sequence[str] = ("x",)
     p0: Optional[Sequence[float]] = None
     lower: Optional[Sequence[float]] = None
     upper: Optional[Sequence[float]] = None
@@ -110,33 +122,51 @@ def _strings(jl, xs):
 
 def _model(jl, model):
     if isinstance(model, Expr):
-        x = model.x if isinstance(model.x, str) else jl.Tuple(_strings(jl, model.x))
         f = lambda v: None if v is None else np.asarray(v, dtype=np.float64)
-        return jl.VoxelFit.expr_model(model.expr, params=_strings(jl, model.params), x=x,
-                                      covariates=_strings(jl, model.covariates),
+        return jl.VoxelFit.expr_model(model.expr, params=_strings(jl, model.params),
+                                      protocol=jl._vf_tuple(*[str(p) for p in model.protocol]),
                                       p0=f(model.p0), lower=f(model.lower), upper=f(model.upper))
     if isinstance(model, str):
         return jl.VoxelFit.parse_model(model)
     return model  # assume an already-constructed Julia model
 
 
-def fit(model, x, data, *, mask=None, axis: int = -1, init=None, lower=None, upper=None,
-        covariates=None, weights=None, precision: str = "float64", stderr: bool = False,
-        maxiter: int = 100, xtol=None, ftol=None, gtol=None, chunksize: int = 128) -> FitResult:
+def _free(jl, free):
+    if free is None:
+        return jl._vf_tuple()
+    if isinstance(free, str):
+        free = [free]
+    if isinstance(free, dict):
+        items = []
+        for name, est in free.items():
+            if est is None:
+                items.append(name)
+            else:
+                est = est if isinstance(est, Estimate) else Estimate(*est)
+                items.append(jl._vf_estimate(name, est.start, float(est.lower), float(est.upper)))
+        free = items
+    return jl._vf_tuple(*free)
+
+
+def fit(model, acq, data, *, mask=None, axis: int = -1, fixed=None, free=None, start=None,
+        weights=None, precision: str = "float64", stderr: bool = False, maxiter: int = 100,
+        xtol=None, ftol=None, gtol=None, chunksize: int = 128) -> FitResult:
     """Fit `model` to every voxel of `data`.
 
-    model      built-in model name ("MonoExp", "SPGR(TR=15)", "IVIM", ...; see `models()`) or
-               an `Expr`.
-    x          acquisition values, shape (n_obs,) or (n_obs, k).
+    model      built-in model name ("MonoExp", "SIRFSE", "SIRFSE(magnitude=false)", ...; see
+               `models()`) or an `Expr`.
+    acq        protocol: a dict of acquisition settings (arrays with one value per observation,
+               scalars constant), e.g. {"TI": ti, "TD": 2.5}, or one array for one-setting models.
     data       array with the observations along `axis` (default: last).
-    mask       boolean/int array with the spatial shape; zero voxels are skipped.
-    init       None (data-driven per voxel), P values for all voxels, or an array of shape
-               (*spatial, P).
-    lower, upper  bounds, P values each (use np.inf for none). Defaults come from the model.
-    covariates per-voxel known maps passed to the model, shape spatial or (*spatial, K)
-               (e.g. a relative B1 map for SPGR).
-    weights    per-observation weights, shape (n_obs,).
-    precision  "float64" or "float32" (half the memory, about twice as fast).
+    mask       array with the spatial shape; zero voxels are skipped.
+    fixed      dict of parameters to hold fixed: numbers, or arrays with the spatial shape
+               (per-voxel maps such as {"B1": b1map}). A non-finite map value marks the voxel invalid.
+    free       parameters to also estimate: a list of names, or a dict name -> Estimate(start,
+               lower, upper) (or a (start, lower, upper) tuple).
+    start      dict of starting values (numbers or spatial maps) for estimated parameters, or a
+               previous FitResult.
+    weights    per-observation weights.
+    precision  "float64" or "float32" (half the memory, faster).
     stderr     also return standard-error maps.
 
     CPU threads come from PYTHON_JULIACALL_THREADS (default "auto") at the first call.
@@ -148,61 +178,51 @@ def fit(model, x, data, *, mask=None, axis: int = -1, init=None, lower=None, upp
         data = data.astype(dt)
     data = np.ascontiguousarray(np.moveaxis(data, axis, -1))
     spatial = data.shape[:-1]
-    nobs = data.shape[-1]
-    x = np.asarray(x, dtype=np.float64)
-    if x.shape[0] != nobs:
-        raise ValueError(f"x has {x.shape[0]} entries but data have {nobs} observations")
 
     jmodel = _model(jl, model)
-    names = [str(n) for n in jl.VoxelFit.paramnames(jmodel)]
-    P = len(names)
+    keep = []  # keep converted inputs alive during the call
 
-    def spatial_map(a, name, dtype=None):
-        a = np.asarray(a, dtype=dtype)
+    def spatial_map(a, name):
+        a = np.asarray(a)
         if a.shape != spatial:
             raise ValueError(f"{name} has shape {a.shape}, expected {spatial}")
-        return np.ascontiguousarray(a)
+        if a.dtype.kind not in "biuf" or a.dtype.byteorder == ">":
+            a = a.astype(np.float64)
+        a = np.ascontiguousarray(a)
+        keep.append(a)
+        return _wrap(jl, a)
 
-    def stacked_map(a, name, k=None):
-        # (*spatial, K) -> (K, *spatial) so that Julia sees (spatial..., K) after axis reversal.
-        a = np.asarray(a, dtype=dt)
-        if a.shape == spatial:
-            return np.ascontiguousarray(a)
-        if a.shape[:-1] != spatial or (k is not None and a.shape[-1] != k):
-            raise ValueError(f"{name} has shape {a.shape}, expected {spatial} + (K,)")
-        return np.ascontiguousarray(np.moveaxis(a, -1, 0))
+    def value_or_map(v, name):
+        return float(v) if np.ndim(v) == 0 else spatial_map(v, name)
 
-    keep = []  # keep converted inputs alive during the call
-    kw = dict(maxiter=int(maxiter), xtol=xtol, ftol=ftol, gtol=gtol, chunksize=int(chunksize))
-    if mask is not None:
-        m = spatial_map(mask, "mask")
-        if m.dtype.kind not in "biuf":
-            m = m.astype(np.uint8)
-        keep.append(m)
-        kw["mask"] = _wrap(jl, m)
-    if init is not None:
-        a = np.asarray(init, dtype=np.float64)
-        if a.ndim == 1:
-            kw["init"] = a
-        else:
-            a = stacked_map(a, "init", P)
-            keep.append(a)
-            kw["init"] = _wrap(jl, a)
-    if covariates is not None:
-        c = stacked_map(covariates, "covariates")
-        keep.append(c)
-        kw["covariates"] = _wrap(jl, c)
-    for k, v in (("lower", lower), ("upper", upper), ("weights", weights)):
-        if v is not None:
-            kw[k] = np.asarray(v, dtype=np.float64)
+    if isinstance(acq, dict):
+        jacq = jl.VoxelFit.named(**{k: (float(v) if np.ndim(v) == 0 else np.asarray(v, dtype=np.float64))
+                                    for k, v in acq.items()})
+    else:
+        jacq = np.asarray(acq, dtype=np.float64)
 
+    jfixed = jl.VoxelFit.named(**{k: value_or_map(v, f"fixed[{k!r}]") for k, v in (fixed or {}).items()})
+    jfree = _free(jl, free)
+    if isinstance(start, FitResult):
+        start = start.params
+    jstart = jl.VoxelFit.named(**{k: value_or_map(v, f"start[{k!r}]") for k, v in (start or {}).items()})
+
+    names = [str(n) for n in jl.VoxelFit.free_names(jmodel, fixed=jfixed, free=jfree)]
+    P = len(names)
     stack = np.full((P,) + spatial, np.nan, dtype=dt)
     sse = np.full(spatial, np.nan, dtype=dt)
     iterations = np.zeros(spatial, dtype=np.int32)
     status = np.zeros(spatial, dtype=np.uint8)
     se = np.full((P,) + spatial, np.nan, dtype=dt) if stderr else None
 
-    jl.VoxelFit.fit_into_b(jmodel, x, _wrap(jl, data), _wrap(jl, stack), _wrap(jl, sse),
+    kw = dict(fixed=jfixed, free=jfree, start=jstart, maxiter=int(maxiter), xtol=xtol, ftol=ftol,
+              gtol=gtol, chunksize=int(chunksize))
+    if mask is not None:
+        kw["mask"] = spatial_map(np.asarray(mask) != 0, "mask")
+    if weights is not None:
+        kw["weights"] = np.asarray(weights, dtype=np.float64)
+
+    jl.VoxelFit.fit_into_b(jmodel, jacq, _wrap(jl, data), _wrap(jl, stack), _wrap(jl, sse),
                            _wrap(jl, iterations), _wrap(jl, status),
                            None if se is None else _wrap(jl, se), **kw)
     del keep
@@ -213,9 +233,14 @@ def fit(model, x, data, *, mask=None, axis: int = -1, init=None, lower=None, upp
 
 
 def models() -> dict:
-    """Built-in model names and their parameters."""
+    """Built-in models: protocol settings and parameters with their default roles."""
     jl = julia()
-    d = jl.seval(
-        "Dict(k => [string(p) for p in VoxelFit.paramnames(k == \"SPGR\" ? v(TR=1.0) : v())]"
-        " for (k, v) in VoxelFit.BUILTIN_MODELS)")
-    return {str(k): [str(p) for p in v] for k, v in d.items()}
+    out = {}
+    for name in jl.seval("sort!(collect(keys(VoxelFit.BUILTIN_MODELS)))"):
+        m = jl.VoxelFit.parse_model(str(name))
+        roles = jl.seval("m -> [string(k) => VoxelFit._roledesc(v) for (k, v) in pairs(VoxelFit.parameters(m))]")(m)
+        out[str(name)] = {
+            "protocol": [str(p) for p in jl.VoxelFit.protocol(m)],
+            "parameters": {str(k): str(v) for k, v in roles},
+        }
+    return out

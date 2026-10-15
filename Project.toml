@@ -1,9 +1,10 @@
 name = "VoxelFit"
 uuid = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
-version = "0.1.0"
+version = "0.2.0-DEV"
 authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
 
 [deps]
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
@@ -11,15 +12,9 @@ NIfTI = "a3a9e032-41b5-5fc4-967a-a6b7a19844d3"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
-[weakdeps]
-KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-
-[extensions]
-VoxelFitKernelAbstractionsExt = "KernelAbstractions"
-
 [compat]
+CommonSolve = "0.2"
 ForwardDiff = "0.10, 1"
-KernelAbstractions = "0.9, 0.10"
 LinearAlgebra = "1"
 Mmap = "1"
 NIfTI = "0.6"

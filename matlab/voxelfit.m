@@ -1,44 +1,49 @@
-function res = voxelfit(model, x, data, varargin)
+function res = voxelfit(model, acq, data, varargin)
 %VOXELFIT  Voxel-wise nonlinear least-squares fitting of MRI data with VoxelFit.jl.
 %
-%   res = voxelfit(model, x, data)
-%   res = voxelfit(model, x, data, 'Name', Value, ...)
+%   res = voxelfit(model, acq, data)
+%   res = voxelfit(model, acq, data, 'Name', Value, ...)
 %
-%   model  Built-in model name, e.g. 'MonoExp', 'SPGR(TR=15)', 'IVIM', 'InversionRecovery'
-%          (run "voxelfit('models')" to list them), or a struct describing a custom model
-%          as a Julia expression:
-%             m.expr   = 'S0*exp(-TE/T2) + C';
-%             m.params = {'S0','T2','C'};
-%             m.xname  = 'TE';              % optional, default 'x' (cellstr for several)
-%             m.covariates = {'B1'};        % optional names for 'Covariates'
-%   x      Acquisition values, one row per observation (nobs x 1, or nobs x k).
+%   model  Built-in model name, e.g. 'MonoExp', 'SPGR', 'SIRFSE', 'SIRFSE(magnitude=false)'
+%          (run "voxelfit('models')" to list them with their protocol and parameters), or a
+%          struct describing a custom model as a Julia expression for one observation:
+%             m.expr     = 'S0*exp(-TE/T2) + C';
+%             m.params   = {'S0','T2','C'};
+%             m.protocol = {'TE'};           % optional, default {'x'}
+%   acq    Protocol (acquisition settings). A vector for one-setting models (e.g. echo
+%          times for MonoExp), or a struct whose fields are vectors (one value per
+%          observation) or scalars (constant), e.g. acq.TI = [...]; acq.TD = 2.5;
 %   data   Array with the observations along the LAST dimension, e.g. X x Y x Z x nobs.
 %
 %   Options (name/value):
-%     'Mask'        array of size(data) without the last dimension; zeros are skipped
-%     'Covariates'  per-voxel maps passed to the model: spatial size, or [spatial K]
-%                   (e.g. a relative B1 map for SPGR)
-%     'P0'          initial guess for every voxel (1 x P); default: data-driven per voxel
-%     'Lower', 'Upper'  bounds (1 x P, use -Inf/Inf for none)
-%     'Weights'     per-observation weights (nobs x 1)
-%     'Precision'   'single' (default) or 'double'
-%     'StdErr'      true to also return standard-error maps (default false)
+%     'Mask'      array of size(data) without the last dimension; zeros are skipped
+%     'Fixed'     struct of parameters to hold fixed: scalars, or per-voxel maps with the
+%                 spatial size, e.g. struct('kmf', 12.5, 'Sm', smMap) or struct('B1', b1)
+%     'Free'      parameters the model fixes by default that should be estimated,
+%                 e.g. {'kmf'}
+%     'Start'     struct of starting values (scalars or maps) for estimated parameters
+%     'Bounds'    struct of [lower upper] per estimated parameter, e.g. struct('kmf', [1 50])
+%     'P0', 'Lower', 'Upper'   starting values and bounds for an expression model (1 x P)
+%     'Weights'   per-observation weights (nobs x 1)
+%     'Precision' 'single' (default) or 'double'
+%     'StdErr'    true to also return standard-error maps (default false)
 %     'MaxIter', 'XTol', 'FTol', 'GTol'   solver settings
-%     'Backend'     'cpu' (default), 'cuda', 'amdgpu', 'metal'
-%     'Threads'     number of Julia threads or 'auto' (default)
-%     'Julia'       julia executable (default: $VOXELFIT_JULIA or 'julia')
-%     'Project'     path to VoxelFit.jl (default: the folder above this file)
-%     'Sysimage'    optional system image for fast start-up
-%     'Verbose'     print the Julia summary (default true)
+%     'Threads'   number of Julia threads or 'auto' (default)
+%     'Julia'     julia executable (default: $VOXELFIT_JULIA or 'julia')
+%     'Project'   path to VoxelFit.jl (default: the folder above this file)
+%     'Sysimage'  optional system image for fast start-up
+%     'Verbose'   print the Julia summary (default true)
 %
-%   res    struct with one field per parameter (maps of size(data) without the last
-%          dimension), plus sse, iterations, status, names and, with 'StdErr', stderr.
-%          status: 0 not fitted, 1-3 converged, 4 max iterations, 5 failed, 6 invalid data.
+%   res    struct with one field per estimated parameter (maps of size(data) without the
+%          last dimension), plus sse, iterations, status, names and, with 'StdErr', stderr.
+%          status: 0 not fitted, 1-3 converged, 4 max iterations, 5 failed,
+%          6 invalid data or fixed-map value.
 %
-%   Example:
-%     te  = (10:10:320)';
-%     res = voxelfit('MonoExp', te, img, 'Mask', brain);
-%     imagesc(res.T2(:,:,10), [0 150]); axis image; colorbar
+%   Examples:
+%     res = voxelfit('MonoExp', (10:10:320)', img, 'Mask', brain);
+%     acq = struct('TI', ti, 'TD', td);
+%     res = voxelfit('SIRFSE', acq, img, 'Fixed', struct('kmf', 12.5), 'Mask', brain);
+%     res = voxelfit('SPGR', struct('FA', fa, 'TR', 15), vfa, 'Fixed', struct('B1', b1));
 %
 %   Data are exchanged through temporary .npy files and Julia is started for each call
 %   (about 1-3 s of overhead), so fit whole volumes per call rather than single voxels.
@@ -57,59 +62,63 @@ cleaner = onCleanup(@() rmdir_quiet(tmp));
 sz = size(data);
 nobs = sz(end);
 spatial = sz(1:end-1);
-if size(x, 1) ~= nobs
-    if isvector(x) && numel(x) == nobs
-        x = x(:);
-    else
-        error('voxelfit:x', 'x has %d rows but data have %d observations', size(x, 1), nobs);
-    end
-end
 if ~isa(data, 'single') && ~isa(data, 'double') && ~isinteger(data)
     data = double(data);
 end
 args = {'fit', '--data', write_npy(fullfile(tmp, 'data.npy'), data), ...
-        '--x-file', write_txt(fullfile(tmp, 'x.txt'), x), ...
         '--out', fullfile(tmp, 'out'), '--format', 'npy', '--precision', opts.precision};
 
+% protocol
+if isstruct(acq)
+    names = fieldnames(acq);
+    for i = 1:numel(names)
+        v = acq.(names{i});
+        if ~isscalar(v) && numel(v) ~= nobs
+            error('voxelfit:acq', 'acq.%s has %d values but data have %d observations', ...
+                  names{i}, numel(v), nobs);
+        end
+        args = [args, {'--acq', [names{i} '=' num_list(v)]}]; %#ok<AGROW>
+    end
+else
+    if numel(acq) ~= nobs
+        error('voxelfit:acq', 'acq has %d values but data have %d observations', numel(acq), nobs);
+    end
+    args = [args, {'--x-file', write_txt(fullfile(tmp, 'x.txt'), acq(:))}];
+end
+
+% model
 if isstruct(model)
     args = [args, {'--expr', model.expr, '--params', join_list(model.params)}];
-    if isfield(model, 'xname'), args = [args, {'--xname', join_list(model.xname)}]; end
-    if isfield(model, 'covariates')
-        args = [args, {'--covariate-names', join_list(model.covariates)}];
-    end
+    if isfield(model, 'protocol'), args = [args, {'--protocol', join_list(model.protocol)}]; end
 else
     args = [args, {'--model', model}];
 end
-if ~isempty(opts.mask)
-    check_spatial(opts.mask, spatial, 'Mask');
-    args = [args, {'--mask', write_npy(fullfile(tmp, 'mask.npy'), uint8(opts.mask ~= 0))}];
-end
-if ~isempty(opts.covariates)
-    C = opts.covariates;
-    csz = size(C);
-    if isequal(csz(1:min(end, numel(spatial))), spatial) && numel(C) > prod(spatial)
-        K = csz(end);
-        C = reshape(C, [prod(spatial), K]);
-    else
-        check_spatial(C, spatial, 'Covariates');
-        K = 1;
-        C = C(:);
-    end
-    for k = 1:K
-        f = write_npy(fullfile(tmp, sprintf('cov%d.npy', k)), reshape(double(C(:, k)), [spatial 1]));
-        args = [args, {'--covariate', f}]; %#ok<AGROW>
+
+% parameters
+args = [args, value_args('--fixed', opts.fixed, spatial, tmp, 'fixed')];
+args = [args, value_args('--start', opts.start, spatial, tmp, 'start')];
+if ~isempty(opts.free), args = [args, {'--free', join_list(opts.free)}]; end
+if ~isempty(opts.bounds)
+    names = fieldnames(opts.bounds);
+    for i = 1:numel(names)
+        args = [args, {'--bounds', [names{i} '=' num_list(opts.bounds.(names{i}))]}]; %#ok<AGROW>
     end
 end
 if ~isempty(opts.p0),      args = [args, {'--p0', num_list(opts.p0)}]; end
 if ~isempty(opts.lower),   args = [args, {'--lower', num_list(opts.lower)}]; end
 if ~isempty(opts.upper),   args = [args, {'--upper', num_list(opts.upper)}]; end
+
+% other options
+if ~isempty(opts.mask)
+    check_spatial(opts.mask, spatial, 'Mask');
+    args = [args, {'--mask', write_npy(fullfile(tmp, 'mask.npy'), uint8(opts.mask ~= 0))}];
+end
 if ~isempty(opts.weights), args = [args, {'--weights', write_txt(fullfile(tmp, 'w.txt'), opts.weights(:))}]; end
 if opts.stderr,            args = [args, {'--stderr'}]; end
 if ~isempty(opts.maxiter), args = [args, {'--maxiter', sprintf('%d', opts.maxiter)}]; end
 if ~isempty(opts.xtol),    args = [args, {'--xtol', num_list(opts.xtol)}]; end
 if ~isempty(opts.ftol),    args = [args, {'--ftol', num_list(opts.ftol)}]; end
 if ~isempty(opts.gtol),    args = [args, {'--gtol', num_list(opts.gtol)}]; end
-if ~strcmpi(opts.backend, 'cpu'), args = [args, {'--backend', opts.backend}]; end
 if ~opts.verbose,          args = [args, {'--quiet'}]; end
 
 run_cli(opts, args, opts.verbose);
@@ -137,9 +146,9 @@ end
 
 function opts = default_opts()
 here = fileparts(mfilename('fullpath'));
-opts = struct('mask', [], 'covariates', [], 'p0', [], 'lower', [], 'upper', [], ...
-    'weights', [], 'precision', 'single', 'stderr', false, 'maxiter', [], 'xtol', [], ...
-    'ftol', [], 'gtol', [], 'backend', 'cpu', 'threads', 'auto', 'julia', '', ...
+opts = struct('mask', [], 'fixed', [], 'free', [], 'start', [], 'bounds', [], 'p0', [], ...
+    'lower', [], 'upper', [], 'weights', [], 'precision', 'single', 'stderr', false, ...
+    'maxiter', [], 'xtol', [], 'ftol', [], 'gtol', [], 'threads', 'auto', 'julia', '', ...
     'project', fileparts(here), 'sysimage', '', 'verbose', true);
 j = getenv('VOXELFIT_JULIA');
 if isempty(j), j = 'julia'; end
@@ -158,6 +167,23 @@ for i = 1:2:numel(args)
     opts.(name) = args{i+1};
 end
 if isnumeric(opts.threads), opts.threads = sprintf('%d', opts.threads); end
+end
+
+% Turn a struct of scalars / per-voxel maps into repeated NAME=VALUE (or NAME=file.npy) options.
+function args = value_args(flag, s, spatial, tmp, tag)
+args = {};
+if isempty(s), return; end
+names = fieldnames(s);
+for i = 1:numel(names)
+    v = s.(names{i});
+    if isscalar(v)
+        args = [args, {flag, [names{i} '=' num_list(v)]}]; %#ok<AGROW>
+    else
+        check_spatial(v, spatial, [tag '.' names{i}]);
+        f = write_npy(fullfile(tmp, sprintf('%s_%s.npy', tag, names{i})), double(v));
+        args = [args, {flag, [names{i} '=' f]}]; %#ok<AGROW>
+    end
+end
 end
 
 function run_cli(opts, args, verbose)

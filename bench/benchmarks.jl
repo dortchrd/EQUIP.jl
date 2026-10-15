@@ -8,7 +8,7 @@
 # whole-map throughput with all threads.
 
 using VoxelFit, LsqFit, NonlinearSolve, StaticArrays, Random, Printf, LinearAlgebra
-using VoxelFit: lm_fit, LMOptions, _svec
+using VoxelFit: setup, freenames, prepare_protocol
 using Base.Threads
 
 BLAS.set_num_threads(1)
@@ -31,10 +31,10 @@ function monoexp_problem()
     x = collect(10.0:10.0:320.0)
     m = MonoExp()
     Y = reduce(hcat, [begin
-        θ = SVector(800 + 400rand(), 40 + 80rand())
-        [m(t, θ) + 5randn() for t in x]
+        θ = (S0 = 800 + 400rand(), T2 = 40 + 80rand())
+        signal(m, x, θ) .+ 5 .* randn(length(x))
     end for _ in 1:NVOX])
-    θ0 = reduce(hcat, [Vector(initial_guess(m, x, view(Y, :, v))) for v in 1:NVOX])
+    θ0 = reduce(hcat, [collect(initial_guess(m, prepare_protocol(m, x, Float64), view(Y, :, v), (;))) for v in 1:NVOX])
     f!(F, t, p) = (@. F = p[1] * exp(-t / p[2]); F)
     function j!(J, t, p)
         @. J[:, 1] = exp(-t / p[2])
@@ -49,10 +49,10 @@ function ivim_problem()
     x = [0, 10, 20, 40, 80, 110, 140, 170, 200, 300, 400, 500, 600, 700, 800, 1000.0]
     m = IVIM()
     Y = reduce(hcat, [begin
-        θ = SVector(1000 + 200rand(), 0.05 + 0.15rand(), 0.01 + 0.04rand(), 0.6e-3 + 1.2e-3rand())
-        [m(b, θ) + 10randn() for b in x]
+        θ = (S0 = 1000 + 200rand(), f = 0.05 + 0.15rand(), Dp = 0.01 + 0.04rand(), D = 0.6e-3 + 1.2e-3rand())
+        signal(m, x, θ) .+ 10 .* randn(length(x))
     end for _ in 1:NVOX])
-    θ0 = reduce(hcat, [Vector(initial_guess(m, x, view(Y, :, v))) for v in 1:NVOX])
+    θ0 = reduce(hcat, [collect(initial_guess(m, prepare_protocol(m, x, Float64), view(Y, :, v), (;))) for v in 1:NVOX])
     f!(F, b, p) = (@. F = p[1] * (p[2] * exp(-b * p[3]) + (1 - p[2]) * exp(-b * p[4])); F)
     function j!(J, b, p)
         @. J[:, 1] = p[2] * exp(-b * p[3]) + (1 - p[2]) * exp(-b * p[4])
@@ -70,14 +70,17 @@ end
 
 run_voxelfit(p::Problem) = _run_voxelfit(p.model, p.x, p.Y, p.θ0)   # function barrier
 
-function _run_voxelfit(m::AbstractModel{P}, x, Y, θ0) where {P}
-    lo, hi = _svec(lower_bounds(m), Val(P), Float64), _svec(upper_bounds(m), Val(P), Float64)
-    opts = LMOptions{Float64}()
+function _run_voxelfit(m, x, Y, θ0)
+    # Same starting values as the other solvers, passed as per-voxel start maps.
+    names = freenames(setup(m))
+    c = init(m, x; start = NamedTuple{names}(Tuple(θ0[j, :] for j in eachindex(names))))
     out = similar(θ0)
     function go()
         for v in 1:NVOX
-            r = lm_fit(m, x, view(Y, :, v), SVector{P}(ntuple(j -> θ0[j, v], Val(P))), lo, hi, opts)
-            out[:, v] .= r.θ
+            r = fit!(c, view(Y, :, v); voxel = v)
+            for (j, val) in enumerate(r.params)
+                out[j, v] = val
+            end
         end
     end
     go()
@@ -87,8 +90,8 @@ end
 
 function run_lsqfit(p::Problem; analytic::Bool)
     P = size(p.θ0, 1)
-    lo = collect(Float64, lower_bounds(p.model))
-    hi = collect(Float64, upper_bounds(p.model))
+    lo = collect(setup(p.model).lower)
+    hi = collect(setup(p.model).upper)
     out = similar(p.θ0)
     function go()
         for v in 1:NVOX
@@ -185,7 +188,7 @@ let nsub = 100_000, Y = reshape(Float64.(data), nv, :)
     function go(n)
         @threads for v in 1:n
             y = Y[v, :]
-            curve_fit(f!, j!, te, y, Vector(initial_guess(MonoExp(), te, y)); inplace=true,
+            curve_fit(f!, j!, te, y, collect(initial_guess(MonoExp(), (TE = te,), y, (;))); inplace=true,
                       lower=[0.0, 1e-6], upper=[Inf, Inf])
         end
     end

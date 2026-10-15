@@ -1,212 +1,170 @@
 # VoxelFit.jl
 
 Fast, memory-efficient nonlinear least-squares fitting of MRI signal models, voxel by voxel, for
-building parametric maps (T1, T2, T2\*, ADC, kurtosis, IVIM, ...). It is written in Julia and can be
-used from Julia, the terminal, Python and MATLAB.
+building parametric maps (T1, T2, T2\*, ADC, kurtosis, IVIM, SIR qMT, ...). It is written in Julia
+and can be used from Julia, the terminal, Python and MATLAB.
 
-- **Fast**: a custom Levenberg–Marquardt that allocates nothing. It takes about 1.5 µs per voxel for
-  a 2-parameter, 32-echo T2 fit and ~9 µs for 4-parameter IVIM on one core, 4–15× faster than
-  LsqFit.jl and 11–400× faster than NonlinearSolve.jl here (see [Benchmarks](#benchmarks)).
-  It fits about 1.9 M voxels/s on 4 threads in `Float32`.
-- **Memory-efficient**: no per-voxel heap allocation, no transposed copy of the dataset, inputs
-  of any numeric type read in place (memory-mapped for `.nii`/`.npy`), and masks skip background.
-- **Parallel**: threaded CPU fitting with dynamic load balancing. GPU fitting goes through
-  KernelAbstractions (CUDA, AMDGPU, Metal, oneAPI) and uses the *same* solver code.
-- **Callable from everywhere**: Julia API, a CLI (NIfTI/NumPy in and out), a Python package
-  (in-process via juliacall, zero-copy NumPy) and a MATLAB function.
+- **Fast**: a custom Levenberg–Marquardt solver that allocates no memory per voxel. About 1.4 µs
+  per voxel for a 2-parameter, 32-echo T2 fit on one core, and about 2.6 million voxels/s on
+  4 threads in `Float32`. That is 8–17× faster than LsqFit.jl and 17–400× faster than
+  NonlinearSolve.jl here (see [Benchmarks](#benchmarks)).
+- **Flexible parameters**: every parameter in a signal equation can be estimated, fixed to a
+  constant, given as a per-voxel map (e.g. B1), or tied to another parameter, chosen for each fit
+  without changing the model.
+- **Easy to extend**: a model is a struct, a list of its parameters and one `signal!` function.
+- **Callable from everywhere**: Julia API, a command-line tool (NIfTI/NumPy in and out), a
+  Python package (in-process, zero-copy NumPy) and a MATLAB function.
 
 ```julia
 using VoxelFit
-te  = 10.0:10.0:320.0                                       # echo times (ms)
-res = fit_maps(MonoExp(), te, data; mask=brain, precision=Float32)   # data: X×Y×Z×nTE
-res[:T2]                                                    # X×Y×Z T2 map
+te  = 10.0:10.0:320.0                                           # echo times (ms)
+res = fit_maps(MonoExp(), te, data; mask = brain, precision = Float32)   # data: X×Y×Z×nTE
+res[:T2]                                                        # X×Y×Z T2 map
+
+acq = (TI = ti, TD = td)                                        # SIR-FSE protocol (s)
+res = fit_maps(SIRFSE(), acq, data; mask = brain, fixed = (kmf = 12.5,))
 ```
+
+The design and its reasoning are in [`docs/design.md`](docs/design.md).
 
 ## Contents
 
-- [Design](#design)
-- [Installation](#installation)
-- [Julia API](#julia-api) · [Built-in models](#built-in-models) · [Custom models](#custom-models)
-- [Command line](#command-line) · [Python](#python) · [MATLAB](#matlab) · [GPU](#gpu)
-- [Benchmarks](#benchmarks) · [Tests](#tests) · [Limitations and next steps](#limitations-and-next-steps)
+- [Concepts](#concepts) · [Writing a model](#writing-a-model) · [Fitting](#fitting) · [Built-in models](#built-in-models)
+- [Command line](#command-line) · [Python](#python) · [MATLAB](#matlab)
+- [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Tests](#tests) · [Roadmap](#roadmap)
 
-## Design
+## Concepts
 
-These problems have fewer than 10 parameters and fewer than ~100 observations, repeated millions
-of times. That changes what matters compared with a general-purpose least-squares library.
+A fit combines four kinds of input:
 
-**Why a custom LM instead of LsqFit.jl or NonlinearSolve.jl.** Both are general solvers built
-around heap-allocated residual vectors and Jacobian matrices, convergence objects and options
-structs. For a 2-parameter fit the bookkeeping costs more than the arithmetic. LsqFit allocates
-8–14 KiB per fit. NonlinearSolve can reuse a cache (`init`/`reinit!`), but its least-squares
-stopping rules test the residual norm, which never reaches zero with noisy data, so its LM takes
-~135 iterations per voxel until stall detection fires. Its `SimpleNonlinearSolve` static-array
-solvers need the residual as an `SVector{m}`, which is impractical for m = 32–100. Neither runs
-inside a GPU kernel for this problem shape. Both remain useful references: the benchmark script
-checks that all three reach the same estimates (median relative difference ~1e-9).
+| | varies across voxels? | examples | given as |
+|---|---|---|---|
+| **Model** | no | magnitude or signed data | the model struct: `SIRFSE(magnitude = true)` |
+| **Protocol** | no | TE, TI, TD, flip angles, TR | a named tuple `acq`: vectors are per observation, scalars constant. A plain vector works for one-setting models. |
+| **Parameters** | each one: estimated, constant, per-voxel map, or tied | PSR, kmf, R1f, B1, Sm | the model's defaults, overridden with `free`, `fixed` and `start` |
+| **Data** | yes | the images | an N-d array, observations along one dimension |
 
-**Solver** (`src/lm.jl`):
+## Writing a model
 
-1. *Normal equations streamed per observation.* The model is evaluated one observation at a
-   time, `f(x_i, θ)`. Each value and its gradient (from `ForwardDiff.Dual` numbers seeded on an
-   `SVector`, or an analytic override) are accumulated straight into `JᵀWJ` (an `SMatrix{P,P}`),
-   `JᵀWr` and the SSE. The m×P Jacobian is never stored, so all state lives in registers,
-   whatever the number of observations.
-2. *One pass per iteration.* Every trial point is evaluated with derivatives. Most LM steps are
-   accepted, and an accepted step then already has its normal equations.
-3. *Scale invariance.* Marquardt scaling with MINPACK's monotone diagonal `D = max(D, diag(JᵀJ))`,
-   scaled step/gradient stopping tests, and Nielsen's damping update. Parameters of very different
-   magnitudes (S0 ~ 10³, D ~ 10⁻³) need no rescaling.
-4. *Box constraints.* Steps are projected onto the bounds. Parameters pinned at a bound by the
-   gradient leave the linear solve (projected-gradient active set), which avoids the stalls of
-   plain clamping.
-5. *No exceptions, no allocation, no dynamic dispatch.* A hand-written Cholesky returns a
-   success flag instead of throwing, so the same function compiles for GPU kernels (verified by
-   compiling it for an NVIDIA PTX target and by running it through KernelAbstractions' POCL
-   device backend in the test suite).
-
-**Initial guesses** (`src/builtin_models.jl`) are closed-form linearizations, e.g. log-linear
-weighted regression for exponentials, segmented fits for IVIM, the null point for inversion
-recovery and the DESPOT1 regression for VFA. They are computed in one pass without allocation, and
-usually start LM within a few iterations of the solution.
-
-**Driver** (`src/driver.jl`):
-
-- *Layouts without copies.* NIfTI/MATLAB data are X×Y×Z×M, so a voxel's curve is strided by the
-  number of voxels. Each task copies a block of voxels into a small M×128 buffer while reading
-  the source contiguously (a blocked transpose) and fits from the buffer. Observation-first data
-  (C-ordered NumPy arrays as seen from Julia) are fitted in place.
-- *Load balancing.* A fixed pool of tasks pulls 128-voxel chunks from an atomic counter. Each task
-  allocates its scratch once, and only masked voxels are queued.
-- *Precision.* `Float64` or `Float32` throughout (outputs too). `Float32` is about 1.6× faster on
-  CPU, halves memory, and is the natural choice on GPUs.
-- *Precompiled.* A PrecompileTools workload covers every built-in model in both precisions and
-  both layouts, so a fresh process fits immediately (first-call overhead ≈ 0.2 s).
-
-**GPU** (`ext/VoxelFitKernelAbstractionsExt.jl`): one work item per voxel runs the same
-`lm_fit`. Data are staged in voxel-major batches, so neighbouring work items read neighbouring
-addresses (coalesced). Batching (`batchsize`, default 2¹⁸ voxels) bounds device memory for any
-dataset size.
-
-## Installation
-
-Julia ≥ 1.10. Until the package is registered:
+A model is three pieces. Here is the SIR-FSE model that ships with the package (abridged):
 
 ```julia
-using Pkg
-Pkg.develop(path="/path/to/VoxelFit.jl")     # or Pkg.add(url="<git url>")
+struct SIRFSE <: AbstractModel                 # 1. settings, the same for every voxel
+    magnitude::Bool
+end
+
+VoxelFit.parameters(::SIRFSE) = (              # 2. every parameter, with its default role
+    pmf = Estimate(0.1;   lower = 0,    upper = 1),
+    R1f = Estimate(1.0;   lower = 0.05, upper = 10),
+    Sf  = Estimate(-0.95; lower = -1.2, upper = 0),
+    M0f = Estimate(:auto; lower = 0),          # :auto -> initial_guess
+    kmf = Fixed(12.5),
+    R1m = Fixed(p -> p.R1f),                   # tied to R1f
+    Sm  = Fixed(0.83),
+)
+VoxelFit.protocol(::SIRFSE) = (:TI, :TD)       # settings it reads (checked before fitting)
+
+function VoxelFit.signal!(out, m::SIRFSE, acq, p)  # 3. one voxel's signal at every observation
+    (; pmf, R1f, Sf, M0f, kmf, R1m, Sm) = p        # parameters by name, whatever their role
+    ...
+    for j in eachindex(out)
+        (; TI, TD) = obs(acq, j)                    # observation j's settings
+        ...
+        out[j] = m.magnitude ? abs(s) : s
+    end
+    return out
+end
+
+VoxelFit.initial_guess(::SIRFSE, acq, y, p) = (M0f = maximum(abs, y),)   # optional
 ```
 
-Start Julia with threads for parallel CPU fitting: `julia -t auto`.
+Rules for `signal!`: compute the noise-free signal for every observation, read parameters by
+name, and write it generically so dual numbers can pass through (derivatives are automatic). It
+must not contain noise or state.
 
-## Julia API
+For quick experiments, `FunctionModel(f!, roles)` wraps a plain function, and `expr_model`
+builds a model from a string:
 
 ```julia
-res = fit_maps(model, x, data;
-    obsdim    = ndims(data),   # dimension holding the observations (last or first: no copy)
-    mask      = nothing,       # spatial array; zero = skip
-    init      = :auto,         # :auto (per-voxel guess), P values, or a (spatial..., P) array
-    lower     = nothing,       # P bounds (±Inf for none); defaults from the model
-    upper     = nothing,
-    covariates= nothing,       # per-voxel known maps, spatial or (spatial..., K), e.g. B1
-    weights   = nothing,       # per-observation weights
-    precision = Float64,       # or Float32
-    stderr    = false,         # also return standard-error maps
+m = expr_model("S0 * exp(-TE / T2) + C"; params = (:S0, :T2, :C), protocol = (:TE,),
+               p0 = (1000, 50, 0), lower = (0, 0, 0))
+```
+
+## Fitting
+
+```julia
+res = fit_maps(model, acq, data;
+    obsdim    = ndims(data),    # dimension holding the observations (last or first: no copy)
+    mask      = nothing,        # spatial array; zero = skip
+    fixed     = (;),            # e.g. (kmf = 12.5, Sm = sm_map, R1m = p -> p.R1f)
+    free      = (),             # e.g. (:kmf,) or (:kmf => Estimate(20.0; lower = 5, upper = 50),)
+    start     = (;),            # starting values or maps, e.g. (pmf = 0.1,), or a previous MapResult
+    weights   = nothing,        # per-observation weights
+    precision = Float64,        # or Float32
+    stderr    = false,          # also return standard-error maps
     maxiter = 100, xtol, ftol, gtol, damping,     # see ?LMOptions
-    ntasks  = Threads.nthreads(), chunksize = 128,
-    backend = nothing, batchsize = 2^18)          # GPU: backend = CUDABackend() etc.
+    ntasks = Threads.nthreads(), chunksize = 128)
 
-res[:T2]          # parameter map (a view)
-res.params        # (spatial..., P);  res.names
-res.sse           # weighted residual sum of squares
-res.iterations, res.status   # status: see ?FitStatus (1–3 converged)
-res.stderr        # (spatial..., P) or nothing
-
-fit_maps!(res, model, x, data; ...)    # into preallocated/memory-mapped outputs
-r = fit_voxel(model, x, y; ...)        # one curve -> LMResult (θ, sse, JtJ, iterations, status)
+res[:pmf]                       # map of an estimated parameter (a view)
+res.names, res.params           # (spatial..., P)
+res.sse, res.iterations, res.status, res.stderr
 ```
 
-`x` holds one acquisition setting per observation (TE, b, TI, flip angle). Use an
-`nobs × k` matrix when each observation has several settings (e.g. TE and TR).
+- **Fixed maps:** a per-voxel map must have the data's spatial size. A NaN or Inf in a fixed map
+  marks that voxel invalid (status 6), as does non-finite data.
+- **Single voxels:** a reusable cache fits one voxel at a time without allocating:
 
-Status codes: 0 outside mask, 1 converged (step), 2 converged (cost), 3 converged
-(gradient), 4 max iterations, 5 failed (non-finite model at the start), 6 non-finite data.
+  ```julia
+  cache = init(SIRFSE(), acq; fixed = (kmf = 12.5,))
+  r = fit!(cache, y)            # r.params.pmf, r.sse, r.status, standard_errors(r, length(y))
+  ```
 
-Standard errors are √diag(σ̂²(JᵀWJ)⁻¹) with σ̂² = SSE/(m−P). On synthetic data their z-scores have
-unit spread (checked in the tests).
+- **Simulation:** `signal(model, acq, p)` gives the noise-free signal for any full parameter set.
+
+Status codes: 0 outside mask, 1 converged (step), 2 converged (cost), 3 converged (gradient),
+4 max iterations, 5 failed (non-finite model at the start), 6 invalid (non-finite data or
+fixed-map value). Start Julia with threads (`julia -t auto`) for parallel fitting.
 
 ## Built-in models
 
-| model | signal | parameters | `x` |
-|---|---|---|---|
-| `MonoExp()` | S0·exp(−t/T2) | S0, T2 | echo time |
-| `MonoExpOffset()` | S0·exp(−t/T2) + C | S0, T2, C | echo time |
-| `BiExp()` | A1·exp(−t/T2a) + A2·exp(−t/T2b) | A1, T2a, A2, T2b | echo time |
-| `ADC()` | S0·exp(−bD) | S0, D | b-value |
-| `Kurtosis()` | S0·exp(−bD + b²D²K/6) | S0, D, K | b-value |
-| `IVIM(bthresh=200)` | S0·(f·exp(−bDp) + (1−f)·exp(−bD)) | S0, f, Dp, D | b-value |
-| `InversionRecovery(magnitude=true)` | \|S0·(1 − B·exp(−TI/T1))\| | S0, B, T1 | inversion time |
-| `SaturationRecovery()` | S0·(1 − exp(−t/T1)) | S0, T1 | recovery time |
-| `SPGR(TR=…)` | M0·sin α·(1−E1)/(1−cos α·E1), α = B1·FA | M0, T1 | flip angle (deg); optional B1 covariate |
+| model | signal | protocol | estimated by default | fixed by default |
+|---|---|---|---|---|
+| `MonoExp()` | S0·exp(−TE/T2) | `TE` | S0, T2 | |
+| `MonoExpOffset()` | S0·exp(−TE/T2) + C | `TE` | S0, T2, C | |
+| `BiExp()` | A1·exp(−TE/T2a) + A2·exp(−TE/T2b) | `TE` | A1, T2a, A2, T2b | |
+| `ADC()` | S0·exp(−bD) | `b` | S0, D | |
+| `Kurtosis()` | S0·exp(−bD + b²D²K/6) | `b` | S0, D, K | |
+| `IVIM(bthresh=200)` | S0·(f·exp(−bDp) + (1−f)·exp(−bD)) | `b` | S0, f, Dp, D | |
+| `InversionRecovery(magnitude=true)` | \|S0·(1 − B·exp(−TI/T1))\| | `TI` | S0, B, T1 | |
+| `SaturationRecovery()` | S0·(1 − exp(−t/T1)) | `t` | S0, T1 | |
+| `SPGR()` | M0·sin α·(1−E1)/(1−cos α·E1), α = B1·FA | `FA` (deg), `TR` | M0, T1 | B1 = 1 |
+| `SIRFSE(magnitude=true)` | two-pool SIR-FSE (Eq. 1 of Dortch et al., MRM 2018) | `TI`, `TD` (s) | pmf, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83 |
 
-Units pass through, so time constants come out in the units of `x`. `MonoExp` and `ADC` have
-analytic gradients; the rest use automatic differentiation.
-
-## Custom models
-
-Any of these work in the threaded CPU path; the first three also run on GPUs.
-
-```julia
-# 1. A function (θ is an SVector; write it generically so dual numbers pass through)
-m = PointModel((t, θ) -> θ[1] * exp(-(t / θ[2])^θ[3]), (:S0, :tau, :beta);
-               p0 = (1000, 60, 1), lower = (0, 1e-3, 0.1), upper = (Inf, Inf, 2))
-
-# 2. A type, with data-driven start, bounds and optionally an analytic gradient
-struct T2Star <: AbstractModel{2} end
-(::T2Star)(t, θ) = θ[1] * exp(-t / θ[2])
-VoxelFit.paramnames(::T2Star) = (:S0, :T2s)
-VoxelFit.lower_bounds(::T2Star) = (0.0, 1e-6)
-VoxelFit.initial_guess(::T2Star, t, y) = SVector(maximum(y), 20.0)
-# VoxelFit.value_gradient(::T2Star, t, θ) = (f, SVector(∂f/∂S0, ∂f/∂T2s))   # optional
-
-# 3. A string (what the CLI, Python and MATLAB front ends use)
-m = expr_model("S0 * exp(-TE / T2) * (1 - exp(-TR / T1))"; params = (:S0, :T2, :T1),
-               x = (:TE, :TR), p0 = (1000, 60, 1000))          # x: nobs × 2 matrix
-
-# 4. Per-voxel covariates: define the 3-argument form; pass covariates = map
-(m::MyModel)(x, θ, c) = ...           # c::SVector{K}
-
-# 5. Whole-curve models (e.g. EPG, DCE convolution): CPU only
-struct MyCurve <: AbstractCurveModel{3} ... end
-VoxelFit.curve!(out, m::MyCurve, x, θ) = ...   # fill out[i] for all observations
-```
-
-`examples/dce_tofts_curve_model.jl` implements the extended Tofts model as a curve model: an
-O(m) recursive convolution instead of O(m²) pointwise.
+Units pass through: time constants come out in the units of the protocol's times.
 
 ## Command line
 
 ```bash
-bin/voxelfit fit --model MonoExp --x-file te.txt --data echoes.nii.gz --mask brain.nii.gz \
-                 --out maps/sub01 [--stderr] [--precision double] [--backend cuda]
-bin/voxelfit fit --model 'SPGR(TR=15)' --x 3,10,20 --data vfa.nii.gz --covariate b1.nii.gz --out maps/t1
-bin/voxelfit fit --expr 'S0*exp(-TE/T2)+C' --params S0,T2,C --xname TE --p0 1000,50,0 ...
-bin/voxelfit models          # list built-in models
+bin/voxelfit fit --model MonoExp --x-file te.txt --data echoes.nii.gz --mask brain.nii.gz --out maps/sub01
+bin/voxelfit fit --model SIRFSE --acq TI=0.01,0.05,0.056,0.277,0.843 --acq TD=3.27,4.489,1.652,2.922,0.01 \
+                 --data sir.nii.gz --fixed kmf=12.5 --out maps/sir
+bin/voxelfit fit --model SPGR --acq FA=3,10,20 --acq TR=15 --fixed B1=b1.nii.gz --data vfa.nii.gz --out maps/t1
+bin/voxelfit fit --model SIRFSE --acq-file protocol.txt --free kmf --bounds kmf=1,50 --data sir.nii.gz --out maps/sir5
+bin/voxelfit models          # built-in models with their protocol and parameters
 bin/voxelfit help
 ```
 
-- Input: `.nii`, `.nii.gz` or `.npy`; observations along the last axis (`--obs-axis first`
+- **Protocol:** `--x`/`--x-file` for one setting, `--acq NAME=VALUES` (repeatable), or
+  `--acq-file` (a text table whose header names the columns).
+- **Parameters:** `--fixed NAME=VALUE` or `NAME=map.nii.gz`, `--free NAMES`,
+  `--start NAME=VALUE|FILE`, `--bounds NAME=LO,HI`.
+- **Input:** `.nii`, `.nii.gz` or `.npy`, observations along the last axis (`--obs-axis first`
   otherwise). `.nii` and `.npy` inputs are memory-mapped.
-- Output: `PREFIX_<param>`, `PREFIX_sse`, `PREFIX_iterations`, `PREFIX_status` (and
-  `PREFIX_stderr_<param>`) in the input's format (`--format` to change). NIfTI outputs copy the
-  input header (affine, voxel size). `.npy` outputs keep the input's memory order and add
-  `PREFIX_params.txt`.
-- `bin/voxelfit` runs `julia -t auto --project=<package>`; with Julia ≥ 1.12 you can also run
-  `julia -t auto --project=/path/to/VoxelFit.jl -m VoxelFit fit ...`.
-- Fitting a 96×96×20×32-echo NIfTI (129k masked voxels) takes 2.6 s end to end, about 2 s of
-  which is Julia start-up and package loading. With a system image it takes 1.2 s:
-  `julia --project=build build/build_sysimage.jl` once, then
-  `export VOXELFIT_SYSIMAGE=$PWD/build/voxelfit.so` (rebuild after updating VoxelFit or Julia).
+- **Output:** `PREFIX_<param>`, `PREFIX_sse`, `PREFIX_iterations`, `PREFIX_status` (and
+  `PREFIX_stderr_<param>`) in the input's format. NIfTI outputs copy the input header.
+- **Start-up:** about 2.5 s end to end for a typical slab. Build a system image once to cut that
+  to about 1 s: `julia --project=build build/build_sysimage.jl`, then
+  `export VOXELFIT_SYSIMAGE=$PWD/build/voxelfit.so`.
 
 ## Python
 
@@ -218,120 +176,108 @@ pip install -e /path/to/VoxelFit.jl/python   # pulls juliacall; Julia is install
 import numpy as np, voxelfit
 
 res = voxelfit.fit("MonoExp", te, data, mask=mask, precision="float32")   # data: (..., n_echoes)
-res["T2"], res.status, res.converged
-res = voxelfit.fit("SPGR(TR=15)", fa, vfa, covariates=b1)
-res = voxelfit.fit(voxelfit.Expr("S0*exp(-TE/T2)+C", params=["S0", "T2", "C"], x="TE",
-                                 p0=[1000, 50, 0], lower=[0, 0, 0]), te, data)
+res = voxelfit.fit("SIRFSE", {"TI": ti, "TD": td}, data, fixed={"kmf": 12.5, "Sm": sm_map})
+res = voxelfit.fit("SIRFSE", {"TI": ti, "TD": td}, data, free={"kmf": voxelfit.Estimate(20, 5, 50)})
+res = voxelfit.fit("SPGR", {"FA": fa, "TR": 15.0}, vfa, fixed={"B1": b1}, start=previous_result)
+res["pmf"], res.status, res.converged
 voxelfit.models()
 ```
 
-Julia runs inside the Python process. The data array is wrapped, not copied (after at most one
-conversion to C-contiguous with observations last), and Julia writes results directly into NumPy
-arrays. Threads come from `PYTHON_JULIACALL_THREADS` (defaults to `auto`). To use an existing
-Julia, set `PYTHON_JULIAPKG_EXE=/path/to/julia`. Tests: `python python/tests/test_voxelfit.py`.
+Julia runs inside the Python process; data, masks and maps are wrapped, not copied, and Julia
+writes results directly into NumPy arrays. Threads come from `PYTHON_JULIACALL_THREADS`
+(default `auto`). To use an existing Julia, set `PYTHON_JULIAPKG_EXE=/path/to/julia`. Tests:
+`python python/tests/test_voxelfit.py`.
 
 If Julia fails to start with an OpenSSL/libcurl symbol-version error (`OPENSSL_3.x not found`),
 Python has already loaded a system OpenSSL older than the one Julia's libcurl needs. Preload
-Julia's copies, e.g. `LD_PRELOAD=$JULIA_DIR/lib/libssl.so.3:$JULIA_DIR/lib/libcrypto.so.3`
-(this was needed with a conda-forge Julia on the development machine).
+Julia's copies, e.g. `LD_PRELOAD=$JULIA_DIR/lib/libssl.so.3:$JULIA_DIR/lib/libcrypto.so.3`.
 
 ## MATLAB
 
 ```matlab
 addpath /path/to/VoxelFit.jl/matlab
-res = voxelfit('MonoExp', te, img, 'Mask', brain);           % img: X×Y×Z×nTE
-imagesc(res.T2(:,:,10), [0 150]); axis image; colorbar
-res = voxelfit('SPGR(TR=15)', fa, vfa, 'Covariates', b1map, 'Precision', 'double');
-m = struct('expr', 'S0*exp(-TE/T2)+C', 'params', {{'S0','T2','C'}}, 'xname', 'TE');
-res = voxelfit(m, te, img, 'P0', [1000 50 0], 'StdErr', true);
+res = voxelfit('MonoExp', te, img, 'Mask', brain);                        % img: X×Y×Z×nTE
+acq = struct('TI', ti, 'TD', td);
+res = voxelfit('SIRFSE', acq, img, 'Fixed', struct('kmf', 12.5, 'Sm', smMap), 'Mask', brain);
+res = voxelfit('SIRFSE', acq, img, 'Free', {'kmf'}, 'Bounds', struct('kmf', [1 50]));
+res = voxelfit('SPGR', struct('FA', fa, 'TR', 15), vfa, 'Fixed', struct('B1', b1map));
 ```
 
-The wrapper writes Fortran-ordered `.npy` files (MATLAB's own memory layout, so nothing is
-permuted), runs the CLI, and reads the maps back. No toolboxes are needed and it also runs in
-GNU Octave (`matlab/test_voxelfit.m` passes in Octave 10). Each call starts Julia: about 3 s
-of overhead, 0.7 s with `'Sysimage', '/path/to/voxelfit.so'`. So fit whole volumes per call. Options: `'Threads'`, `'Julia'`
-(or env `VOXELFIT_JULIA`), `'Backend'`, `'MaxIter'`, `'XTol'`, `'Lower'`, `'Upper'`, `'Weights'`.
+The wrapper writes Fortran-ordered `.npy` files (MATLAB's own memory layout), runs the
+command-line tool and reads the maps back. No toolboxes are needed, and it also runs in GNU
+Octave (`matlab/test_voxelfit.m` passes in Octave 10). Each call starts Julia: about 3 s, or
+0.7 s with `'Sysimage', '/path/to/voxelfit.so'`. So fit whole volumes per call.
 
-## GPU
+## How it works
 
-```julia
-using VoxelFit, CUDA          # or AMDGPU (ROCBackend()), Metal (MetalBackend()), oneAPI
-res = fit_maps(MonoExp(), te, data; mask, precision=Float32, backend=CUDABackend())
-```
-
-The KernelAbstractions extension loads automatically with any GPU package. Pointwise models
-(built-in, `PointModel`, `expr_model`, your own `isbits` types) are supported; curve models are
-CPU-only. Use `Float32` on consumer GPUs. Data stay on the host and stream through in batches.
-
-**Validation status.** The kernel is tested through KernelAbstractions' POCL backend
-(OpenCL/SPIR-V device compilation, including argument conversion and buffer reuse across
-batches), and the solver compiles for the NVIDIA PTX target with no allocations or runtime calls
-for every built-in model. It has **not** yet been run on CUDA/ROCm hardware: do that before
-relying on it, and benchmark `batchsize` and work-group size there.
+- **Solver** (`src/lm.jl`): for each iteration, the voxel's full parameter set is assembled
+  (estimates as dual numbers, fixed values, resolved ties) and `signal!` is called into a
+  per-thread buffer. SSE, JᵀJ and Jᵀr are accumulated from that buffer into static arrays, so the
+  m×P Jacobian is never stored. The step is Levenberg–Marquardt with Marquardt scaling (MINPACK's
+  monotone diagonal), Nielsen's damping update, scale-free stopping tests, and box constraints
+  by projection with an active set. A hand-written Cholesky returns a flag instead of throwing.
+- **Parameter roles** (`src/cache.jl`): `init` resolves the model's defaults plus `free`,
+  `fixed` and `start` once. The names of estimated parameters become a compile-time constant, so
+  assembling a voxel's parameters costs nothing at run time (measured).
+- **Driver** (`src/driver.jl`): data stay in their N-d shape. Each thread copies a block of 128
+  voxels into a small buffer while reading the source contiguously (a blocked transpose); data
+  with observations first are fitted in place. A fixed pool of tasks, each with its own cache,
+  pulls chunks of the masked voxel list from an atomic counter.
+- **Starting values**: model guesses come from closed-form linearizations (log-linear fits,
+  DESPOT1, null-point, segmented IVIM), computed in one pass without allocation.
+- **Precompiled**: a workload covers every built-in model in both precisions and both layouts,
+  so a fresh process fits immediately.
 
 ## Benchmarks
 
 `julia -t auto --project=bench bench/benchmarks.jl` (Julia 1.13, 4 vCPU Xeon @ 2.8 GHz). Each
 solver fits the same 2000 noisy voxels from the same starting points.
 
-**MonoExp (2 params, 32 echoes)**, one thread:
-
-| solver | µs/voxel | heap/voxel | VoxelFit speed-up | rel. diff vs VoxelFit |
-|---|---:|---:|---:|---|
-| **VoxelFit** | **1.47** | **0** | 1× | — |
-| LsqFit, ForwardDiff Jacobian | 22.6 | 10.0 KiB | 15× | 6e-10 median |
-| LsqFit, analytic Jacobian | 16.9 | 7.9 KiB | 12× | 6e-10 median |
-| NonlinearSolve LevenbergMarquardt (cached) | 606 | 105 KiB | 412× | 6e-10 median |
-| NonlinearSolve TrustRegion (cached) | 42.7 | 80 B | 29× | 5e-10 median |
-
-**IVIM (4 params, 16 b-values)**, one thread:
-
-| solver | µs/voxel | heap/voxel | VoxelFit speed-up | rel. diff vs VoxelFit |
-|---|---:|---:|---:|---|
-| **VoxelFit** | **8.70** | **0** | 1× | — |
-| LsqFit, ForwardDiff Jacobian | 38.9 | 13.9 KiB | 4× | 6e-8 median |
-| LsqFit, analytic Jacobian | 31.7 | 11.5 KiB | 4× | 6e-8 median |
-| NonlinearSolve LevenbergMarquardt (cached) | 1206 | 133 KiB | 139× | 8e-8 median (worst 2e-2) |
-| NonlinearSolve TrustRegion (cached) | 96.7 | 96 B | 11× | 8e-8 median (worst 0.2) |
-
-(NonlinearSolve has no bound constraints, so on a few IVIM voxels it settles in a different
-local minimum.)
-
-**Whole map**, 128×128×64 = 1,048,576 voxels, 32 echoes:
-
-| configuration | time | voxels/s |
+| per voxel, one thread | MonoExp (2 params, 32 echoes) | IVIM (4 params, 16 b-values) |
 |---|---:|---:|
-| VoxelFit Float64, 1 thread | 2.89 s | 3.6e5 |
-| VoxelFit Float64, 4 threads | 0.82 s | 1.3e6 |
-| VoxelFit Float32, 1 thread | 1.76 s | 6.0e5 |
-| VoxelFit Float32, 4 threads | 0.56 s | 1.9e6 |
-| LsqFit (analytic Jacobian), 4 threads | (27 s extrapolated) | 3.9e4 |
+| **VoxelFit** (no heap allocation) | **1.35 µs** | **4.95 µs** |
+| LsqFit, analytic Jacobian | 15.7 µs (12×), 7.9 KiB | 40.0 µs (8×), 11.6 KiB |
+| LsqFit, ForwardDiff Jacobian | 23–96 µs across runs, 10 KiB | 42.4 µs (9×), 14 KiB |
+| NonlinearSolve TrustRegion (cached) | 37.2 µs (28×) | 83.9 µs (17×) |
+| NonlinearSolve LevenbergMarquardt (cached) | 553 µs (410×), 105 KiB | 1215 µs (245×), 136 KiB |
+
+All solvers agree with VoxelFit to a median relative difference of about 1e-9 (MonoExp) and 1e-7
+(IVIM). The one IVIM voxel where some differ has identical SSE for both answers: its
+pseudo-diffusion term has decayed to zero by the first nonzero b-value, so Dp is not
+identifiable. NonlinearSolve's LM is slow here because its stopping rule waits for the residual
+to reach zero, which never happens with noisy data.
+
+Whole map, 128×128×64 = 1,048,576 voxels, 32 echoes: 2.12 s (Float64) and 1.67 s (Float32) on
+one thread; 0.68 s and **0.41 s (2.6 million voxels/s)** on 4 threads. LsqFit on 4 threads
+manages about 47,000 voxels/s.
 
 ## Tests
 
 ```bash
-julia -t 4 --project=. -e 'using Pkg; Pkg.test()'      # 164 tests
-python python/tests/test_voxelfit.py                    # Python front end
-octave-cli matlab/test_voxelfit.m                       # MATLAB front end (or run in MATLAB)
+julia -t 4 --project=. -e 'using Pkg; Pkg.test()'       # 175 tests
+python python/tests/test_voxelfit.py                     # Python front end
+octave-cli matlab/test_voxelfit.m                        # MATLAB front end (or run in MATLAB)
 ```
 
-The tests cover noise-free recovery for every model in both precisions, zero allocation, analytic
-vs AD gradients, layout equivalence (obs first/middle/last, 1 vs many threads), masks, NaN/Inf
-data, integer inputs, warm starts, active bounds, weights, calibrated standard errors, B1
-covariates, custom/expression/multi-setting/curve models, the KernelAbstractions backend, `.npy`
-I/O and the CLI (NIfTI and NumPy).
+The tests cover:
+- noise-free recovery for every model in both precisions, with no memory allocation;
+- SIRFSE against Eq. 1 of the 2018 paper (matrix exponential), for magnitude and signed data;
+- parameter roles: defaults, `fixed`, `free`, ties, error messages;
+- per-voxel maps, including invalid map values, and B1 correction;
+- data layouts and thread counts, masks, NaN/Inf and integer data;
+- warm starts, active bounds, weights, and calibrated standard errors;
+- custom, expression and multi-setting models;
+- `.npy` I/O and the command-line tool (NIfTI and NumPy, `--acq`, `--fixed` maps, `--free`,
+  `--bounds`).
 
-## Limitations and next steps
+## Roadmap
 
-- **Rician noise.** Least squares on magnitude images is biased at low SNR (e.g. late echoes).
-  `MonoExpOffset` absorbs a noise floor. A Rician likelihood or noise-floor-corrected model is a
-  natural addition.
-- **Multi-modal models** (IVIM, bi-exponential). LM finds the local minimum nearest the start.
-  Variable projection (eliminating linear amplitudes) and a coarse grid/dictionary start
-  would make these more robust; both fit the current design (grid search is also GPU-friendly).
-- **GPU** hardware validation and tuning (see above).
-- **MATLAB start-up.** The file-based CLI costs ~1–3 s per call. A MEX/C-ABI library
-  (PackageCompiler `create_library`, or `juliac --trim` on Julia ≥ 1.12) or a persistent server
-  process would remove it.
-- **Complex data, per-voxel `x`** (e.g. per-voxel b-vectors) and robust losses are not yet
-  supported.
+See [`docs/design.md`](docs/design.md). Next:
+1. **CRLB for unbiased and biased estimators**, following Dortch et al., MRM 2018: Fisher
+   information, MSE = b² + [(I + ∇b)F⁻¹(I + ∇b)ᵀ] for constrained models such as fixed kmf, the
+   protocol-design objective and sensitivity efficiency. Plus `simulate` with Gaussian or Rician
+   noise and a Monte Carlo summary.
+2. **Starting values from neighbours** (candidate starts and a second refit pass) and linearized
+   sensitivity maps (e.g. ∂PSR/∂kmf).
+3. **Later:** GPU fitting (removed in 0.2; the 0.1 KernelAbstractions version is in the git
+   history), coarse-to-fine starts, Rician-likelihood fitting.
