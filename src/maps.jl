@@ -13,7 +13,7 @@
 # =================================================================================================
 
 """
-    fit_maps(model, acq, data; mask = nothing, fixed, free, start, precision, maxiter, ...)
+    fit_maps(model, data; mask = nothing, fixed, free, start, precision, maxiter, ...)
 
 Fit `model` to every voxel of `data` (observations along the last dimension). Returns a named
 tuple of arrays with the spatial size of `data`:
@@ -31,17 +31,17 @@ Voxels that are not fitted hold `NaN`. Keywords:
 `res.params` can be passed back as `start` to refit from a previous result.
 
 ```julia
-res = fit_maps(MFA(), (FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
+res = fit_maps(MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
 res.params.T1
 ```
 """
-function fit_maps(model::AbstractModel, acq::NamedTuple, data::AbstractArray; mask = nothing, kwargs...)
-    cache = init(model, acq; kwargs...)              # setup once; all other keywords go to init
+function fit_maps(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
+    cache = init(model; kwargs...)                   # setup once; all other keywords go to init
     spatial = Base.front(size(data))                 # size without the last dimension
     nvox = prod(spatial)
     m = size(data, ndims(data))
     m == length(cache.y) ||
-        throw(DimensionMismatch("the acquisition has $(length(cache.y)) observations, the data have $m"))
+        throw(DimensionMismatch("the model has $(length(cache.y)) observations, the data have $m"))
     _check_maps(cache.spec.fixed, nvox, "fixed")
     _check_maps(cache.spec.start, nvox, "start")
     voxels = if mask === nothing
@@ -63,7 +63,7 @@ end
 
 # The work, behind a "function barrier": the cache's concrete type is known inside this
 # function, so the loops below compile to fast specialized code.
-function _fit_maps(cache::FitCache{M,A,S,T}, Y, voxels, spatial) where {M,A,S,T}
+function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
     F = freenames(cache.spec)
     # Outputs: NaN / NotFitted everywhere, overwritten for the fitted voxels.
     params = NamedTuple{F}(ntuple(_ -> fill(T(NaN), spatial), length(F)))

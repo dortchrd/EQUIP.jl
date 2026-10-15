@@ -6,7 +6,7 @@
 #        ▼  setup        merge the user's choices into the model's default roles, then split the
 #   FitSpec              parameters into Free (estimated) and Fixed. Done ONCE per fit call.
 #        │
-#        ▼  init         FitSpec + acquisition + solver options + work buffers
+#        ▼  init         FitSpec + model + solver options + work buffers
 #   FitCache             reusable state, like LsqFit's OnceDifferentiable. Made ONCE (per thread).
 #        │
 #        ▼  fit!         copy one voxel's data in, pick its map values, run LM.
@@ -77,7 +77,7 @@ and fixed:
   named tuple of roles (`(kmf = Free(12.5; lower = 0),)`).
 - `start`: named tuple of starting values for free parameters: numbers or per-voxel maps.
 """
-function setup(model::AbstractModel, ::Type{T} = Float64; fixed = (;), free = (), start = (;)) where {T}
+function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), start = (;)) where {T}
     # 1. The model's defaults, e.g. (PSR = Free(0.1; ...), ..., kmf = Fixed(12.5), ...).
     roles = parameters(model)
     names = keys(roles)
@@ -129,32 +129,32 @@ end
 """
     FitCache
 
-Reusable state for fitting voxels with one model, acquisition and set of roles: the
-[`FitSpec`](@ref), solver options and work buffers. Make it with [`init`](@ref), use it with
-[`fit!`](@ref). Not thread-safe: use one cache per thread (`fit_maps` does this for you).
+Reusable state for fitting voxels with one model and one set of roles: the model (its
+acquisition converted to the working precision), the [`FitSpec`](@ref), solver options and work
+buffers. Make it with [`init`](@ref), use it with [`fit!`](@ref). Not thread-safe: use one
+cache per thread (`fit_maps` does this for you).
 """
-struct FitCache{M,A,S<:FitSpec,T,B}
-    model::M
-    acq::A              # acquisition, converted to precision T
+struct FitCache{M,S<:FitSpec,T,B}
+    model::M            # the model, its acquisition vectors converted to precision T
     spec::S
     opts::LMOptions{T}
     buf::B              # Vector{Dual{VoxelFitTag,T,P}}: the model output, one per observation
     y::Vector{T}        # the current voxel's data
 end
 
-function Base.show(io::IO, c::FitCache{M,A,S,T}) where {M,A,S,T}
-    print(io, "FitCache(", c.model, "; free ", freenames(c.spec), ", fixed ", keys(c.spec.fixed),
+function Base.show(io::IO, c::FitCache{M,S,T}) where {M,S,T}
+    print(io, "FitCache(", nameof(M), "; free ", freenames(c.spec), ", fixed ", keys(c.spec.fixed),
           ", ", length(c.y), " observations, ", T, ")")
 end
-# Adding a method to `Base.show` controls how the object prints in the REPL.
+# Adding a method to `Base.show` controls how the object prints in the REPL. `nameof(M)` is the
+# model's bare type name, e.g. `SIRFSE`.
 
 """
-    init(model, acq; fixed = (;), free = (), start = (;), precision = Float64,
+    init(model; fixed = (;), free = (), start = (;), precision = Float64,
          maxiter = 100, xtol, ftol, gtol, damping) -> FitCache
 
 Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 
-- `acq`: the acquisition, a named tuple, e.g. `(TI = [...], TD = [...])`.
 - `fixed`, `free`, `start`: override the model's parameter roles (see [`setup`](@ref)).
   Maps (arrays) are indexed by the `voxel` keyword of `fit!`.
 - `precision`: `Float64` or `Float32`.
@@ -162,23 +162,22 @@ Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 
 `init` is `CommonSolve.init`, the SciML convention, so it does not clash with other packages.
 """
-function CommonSolve.init(model::AbstractModel, acq::NamedTuple; fixed = (;), free = (),
-                          start = (;), precision::Type{<:AbstractFloat} = Float64, kwargs...)
+function CommonSolve.init(model::MRIModel; fixed = (;), free = (), start = (;),
+                          precision::Type{<:AbstractFloat} = Float64, kwargs...)
     T = precision
-    a = _convert_acq(acq, T)
-    m = nobs(a)
+    n = nobs(model)                                # also checks the acquisition's lengths
     spec = setup(model, T; fixed, free, start)    # `; fixed` is short for `; fixed = fixed`
     opts = LMOptions{T}(; kwargs...)               # remaining keywords go to the solver
-    return _cache(model, a, spec, opts, m)
+    return _cache(_with_precision(model, T), spec, opts, n)
 end
 
 # A separate function so that P (the number of free parameters) is available as a type
 # parameter, to allocate the dual-number buffer with the right type.
-_cache(model, acq, spec::FitSpec{F,P,T}, opts, m) where {F,P,T} =
-    FitCache(model, acq, spec, opts, Vector{Dual{VoxelFitTag,T,P}}(undef, m), Vector{T}(undef, m))
+_cache(model, spec::FitSpec{F,P,T}, opts, n) where {F,P,T} =
+    FitCache(model, spec, opts, Vector{Dual{VoxelFitTag,T,P}}(undef, n), Vector{T}(undef, n))
 
 # Same setup, fresh buffers: one per thread.
-_copycache(c::FitCache) = FitCache(c.model, c.acq, c.spec, c.opts, similar(c.buf), similar(c.y))
+_copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y))
 
 # =================================================================================================
 # Fitting one voxel
@@ -206,14 +205,14 @@ Fit one voxel's data `y` (one value per observation). `voxel` is the voxel's lin
 any per-voxel maps given as `fixed` or `start` values. Does not allocate.
 
 ```julia
-cache = init(SIRFSE(), acq; fixed = (kmf = 15.0,))
+cache = init(SIRFSE(TI = TI, TD = TD); fixed = (kmf = 15.0,))
 r = fit!(cache, y)
 r.params.PSR
 ```
 """
 function fit!(c::FitCache, y::AbstractVector; voxel::Integer = 1)
     length(y) == length(c.y) ||
-        throw(DimensionMismatch("data have $(length(y)) values, the acquisition has $(length(c.y))"))
+        throw(DimensionMismatch("data have $(length(y)) values, the model has $(length(c.y)) observations"))
     copyto!(c.y, y)                    # into the cache: contiguous and in precision T
     return _fit_voxel(c, c.spec, voxel)
 end
@@ -242,7 +241,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
     if !(all(isfinite, c.y) && all(_finite, values(fixed)) && all(isfinite, θ0))
         return _invalid(spec)
     end
-    prob = VoxelProblem{F}(c.model, c.acq, c.y, fixed)
+    prob = VoxelProblem{F}(c.model, c.y, fixed)
     # 4. A `Free(:scale)` parameter starts at the value that best matches the data's scale.
     if spec.scale > 0
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
@@ -257,7 +256,7 @@ end
 # The model is evaluated with plain numbers; storing them in the dual buffer just sets the
 # derivative parts to zero, so no extra buffer is needed.
 function _scale_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, k, lo, hi, buf) where {F,P,T}
-    signal!(buf, prob.model, prob.acq, _params(Val(F), θ0, prob.fixed))
+    signal!(buf, prob.model, _params(Val(F), θ0, prob.fixed))
     sy = zero(T)
     ss = zero(T)
     @inbounds for i in eachindex(buf)

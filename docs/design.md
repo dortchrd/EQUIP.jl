@@ -6,32 +6,50 @@ The design decisions, recorded so the code and the discussion share one referenc
 
 | input | varies across voxels? | Julia form | example |
 |---|---|---|---|
-| **Model**: which physics + options | no | a struct `<: AbstractModel` | `SIRFSE(magnitude = true)` |
-| **Acquisition**: how the experiment was run | no | a named tuple; vectors per observation, scalars constant | `(TI = [...], TD = 2.5)` |
-| **Parameters**: every quantity in the signal equation | each one can be free, a constant, a per-voxel map or a tie | a named tuple of roles, `parameters(m)` | PSR, R1f, kmf, B1, Sm |
+| **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `SIRFSE(TI = [...], TD = 2.5, magnitude = true)` |
+| **Parameters**: every quantity in the signal equation | each one can be free, a constant, a per-voxel map or a tie | values: a named tuple `p`; default roles: `parameters(m)` | PSR, R1f, kmf, B1, Sm |
 | **Fit configuration**: which parameters are estimated in this fit | no | keywords `fixed`, `free`, `start` | `free = (:kmf,)` |
 | **Data** | yes | N-d array, observations last | X×Y×Z×M |
 
 Decisions behind this:
 
-- The model struct holds physics options only, never parameter values. One model object is
-  reused for millions of voxels, while the values change at every LM step.
-- The acquisition is separate from the model. Protocol optimization (CRLB, Eq. 5 of the 2018
-  paper) varies the acquisition with the model fixed, and front ends can build it from named
-  fields without knowing each model's constructor. It is a named tuple rather than a struct per
-  model, so a model author writes one type, not two.
-- A parameter keeps its place in the model whether it is fixed or estimated. Its role
+- **The acquisition lives in the model struct** (TI, TD, flip angles, ...), next to options
+  such as `magnitude`.
+  - The model alone then defines the forward model f(θ): `signal(m, p)`, `init(m)` and
+    `fit_maps(m, data)` need no extra argument.
+  - The struct documents which acquisition a model needs, and a missing field fails at
+    construction.
+  - Protocol optimization just builds a new model per candidate, which costs nothing.
+  - Front ends can build any model from named fields through the `@kwdef` keyword
+    constructor.
+- **The model never holds parameter values.** One model object is reused for millions of
+  voxels, while `p` changes at every LM step.
+- **A parameter keeps its place in the model whether it is fixed or estimated.** Its role
   (`Free(init; lower, upper)` / `Fixed(value)`) sits next to it, so the starting value, the
   bounds and the default value live in one place. A fit changes roles through keywords, so
   sensitivity analyses (e.g. fix kmf at different values) never edit the model.
+- **Model structs use `@kwdef`**, with one type parameter per vector field and no inner
+  constructors (no Parameters.jl):
+  - The only invariant, equal lengths of the per-observation vectors, is checked generically
+    by `nobs(m)` when `init` and `signal` run.
+  - A field that may be one number for all observations (TD, TR) gets a one-line method that
+    fills it to a vector. So `signal!` always indexes vectors (`TD[j]`), and any other code
+    reading the protocol (scan time, plots) sees vectors too.
+- **`signal!` unpacks by name**: `(; TI, TD, magnitude) = m` and `(; PSR, ...) = p`. Never by
+  position, because the order of `p` depends on which parameters are free.
+- **The supertype is `MRIModel`**, not `AbstractModel`. The generic name is used by other
+  packages (e.g. AbstractMCMC.jl), and exporting the same name from two packages forces users
+  to qualify it.
 
 ## Writing a model
 
 ```julia
-struct SIRFSE <: AbstractModel                 # 1. options, the same for every voxel
-    magnitude::Bool
+@kwdef struct SIRFSE{A<:AbstractVector,B<:AbstractVector} <: MRIModel   # 1. acquisition + options
+    TI::A
+    TD::B
+    magnitude::Bool = true
 end
-SIRFSE(; magnitude = true) = SIRFSE(magnitude)
+SIRFSE(TI, TD::Real, magnitude) = SIRFSE(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
 parameters(::SIRFSE) = (                       # 2. every parameter with its default role
     PSR = Free(0.1; lower = 0, upper = 1),
@@ -43,14 +61,16 @@ parameters(::SIRFSE) = (                       # 2. every parameter with its def
     Sm  = Fixed(0.83),
 )
 
-function signal!(out, m::SIRFSE, acq, p)       # 3. one voxel's signal at every observation
-    ...                                        #    p.PSR, p.kmf, ...; (; TI, TD) = obs(acq, j)
+function signal!(out, m::SIRFSE, p)            # 3. one voxel's signal at every observation
+    (; TI, TD, magnitude) = m
+    (; PSR, R1f, Sf, M0f, kmf, R1m, Sm) = p
+    ...                                        #    loop j over observations: TI[j], TD[j]
 end
 ```
 
 Rules for `signal!`: no allocation, no state, generic in the number type of `p` (dual numbers
-pass through it), parameters accessed by name. `signal(m, acq, p)` (provided) allocates the
-output and fills in fixed defaults, for simulation.
+pass through it). `signal(m, p)` (provided) allocates the output and fills in fixed defaults,
+for simulation.
 
 ## Parameter roles
 
@@ -72,12 +92,13 @@ the data, a fixed map or a start map marks that voxel invalid (status 6).
    a `FitSpec{F,P,T}`. The free names `F` and their count `P` are type parameters, so the
    compiler generates code specialized to them. Without that, building
    `NamedTuple{F}(θ)` from a run-time list of names would be type-unstable and slow.
-2. `init` adds the acquisition (converted to the working precision), solver options and
-   buffers, giving a `FitCache`. One cache per thread.
+2. `init` checks the acquisition lengths (`nobs`) and rebuilds the model with its numeric
+   vectors converted to the working precision. Together with solver options and buffers this
+   gives a `FitCache`, one per thread.
 3. `fit!` handles one voxel: pick its map values, build θ0 (and the `:scale` start), run LM.
    Each LM evaluation does `p = resolve_ties(merge(NamedTuple{F}(seeded duals), fixed))`, then
-   `signal!(buf, m, acq, p)`, then sums SSE, JᵀJ and Jᵀr from `buf`. The m×P Jacobian is
-   never stored and nothing is allocated.
+   `signal!(buf, m, p)`, then sums SSE, JᵀJ and Jᵀr from `buf`. The m×P Jacobian is never
+   stored and nothing is allocated.
 4. `fit_maps` reshapes the data to voxels × observations (a view), turns the mask into an index
    list, splits it into about 8 chunks per thread, and fits each chunk in a task with its own
    cache. It returns `(params = (name = map, ...), sse, status)`.
@@ -110,7 +131,9 @@ weights, other data layouts, precompilation, more models.
      MSE(θ̂ⱼ) = bⱼ² + [(I + ∇b) F⁻¹ (I + ∇b)ᵀ]ⱼⱼ, with bⱼ = E[θ̂ⱼ] − θⱼ and ∇b = ∂b/∂θ. As in
      the paper, b and ∇b come from fits to noise-free data with the constrained parameter at
      its assumed value, repeated with each true parameter perturbed (finite differences).
-   - Protocol design helpers: the minimax objective (Eq. 5) and sensitivity efficiency (Eq. 6).
+   - Protocol design helpers: the minimax objective (Eq. 5) and sensitivity efficiency
+     (Eq. 6). The acquisition can be differentiated too, since `signal` accepts dual numbers
+     in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
 2. **Starting values**: model-specific guesses, neighbour/previous-voxel starts with quality

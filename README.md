@@ -3,8 +3,8 @@
 Fast voxel-wise nonlinear least-squares fitting of MRI signal models, for parametric maps
 (T1, T2, qMT, ...). Built for millions of small fits: fewer than 10 parameters and fewer than
 100 observations per voxel. A custom Levenberg–Marquardt solver with automatic derivatives
-fits one voxel in about 2 µs without allocating memory, and threads spread the voxels over
-your CPU cores.
+fits one voxel in a few microseconds without allocating memory, and threads spread the voxels
+over your CPU cores.
 
 This is the **lean** version: only the core, so that it is easy to read and understand. CLI,
 Python/MATLAB, GPU, data-driven starting values and uncertainty estimates come later (see
@@ -22,35 +22,34 @@ julia -t auto --project=. -e 'using Pkg; Pkg.test()'
 
 Start Julia with threads (`julia -t auto`) so `fit_maps` uses all cores.
 
-## Three inputs, three homes
+## Two inputs
 
 | input | what it is | Julia form | example |
 |---|---|---|---|
-| **model** | which physics, plus options | a struct | `SIRFSE(magnitude = true)` |
-| **acquisition** | how the experiment was run | a named tuple | `(TI = [...], TD = [...])` |
+| **model** | the physics: acquisition + options, the same for every voxel | a struct | `SIRFSE(TI = [...], TD = 2.5)` |
 | **parameters** | tissue/model values | a named tuple | `(PSR = 0.1, R1f = 1.0, ...)` |
 
-In the acquisition, vector fields have one value per observation and scalar fields apply to
-all of them, e.g. `(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
+Acquisition fields have one value per observation. Where it makes sense, a single number
+stands for all of them, e.g. `MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
 
 ## Quick start
 
 ```julia
 using VoxelFit
 
-acq = (TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
+m = SIRFSE(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
 # Simulate. Fixed parameters (kmf, R1m, Sm) take their defaults unless you give them.
-y = signal(SIRFSE(), acq, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
+y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
 
 # Fit one voxel with a reusable cache.
-cache = init(SIRFSE(), acq)
+cache = init(m)
 r = fit!(cache, y)
 r.params            # (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
 r.status            # ConvergedX
 
 # Fit a whole dataset: data are X×Y×Z×M (observations last), maps come back X×Y×Z.
-res = fit_maps(SIRFSE(), acq, data; mask)
+res = fit_maps(m, data; mask)
 res.params.PSR      # the PSR map
 res.status          # FitStatus codes per voxel
 ```
@@ -80,18 +79,21 @@ parameters(::SIRFSE) = (
 Any fit can change the roles with three keywords, accepted by `init` and `fit_maps`:
 
 ```julia
-fit_maps(SIRFSE(), acq, data; fixed = (kmf = 15.0,))              # change a fixed value
-fit_maps(SIRFSE(), acq, data; fixed = (Sm = sm_map,))             # a per-voxel map
-fit_maps(SIRFSE(), acq, data; free = (:kmf,))                     # estimate kmf (starts at 12.5)
-fit_maps(SIRFSE(), acq, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
-fit_maps(SIRFSE(), acq, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
-fit_maps(SIRFSE(), acq, data; start = (R1f = r1_map,))            # starting values: numbers or maps
-fit_maps(MFA(), acq, data; fixed = (B1 = b1map,))                 # B1-corrected T1 mapping
+fit_maps(m, data; fixed = (kmf = 15.0,))              # change a fixed value
+fit_maps(m, data; fixed = (Sm = sm_map,))             # a per-voxel map
+fit_maps(m, data; free = (:kmf,))                     # estimate kmf (starts at 12.5)
+fit_maps(m, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
+fit_maps(m, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
+fit_maps(m, data; start = (R1f = r1_map,))            # starting values: numbers or maps
+
+mfa = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+fit_maps(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
 ```
 
-Mistakes such as misspelled names, a parameter in both `fixed` and `free`, or wrong map sizes
-raise an error before any fitting starts. A NaN or Inf in a voxel's data, maps or starts marks
-that voxel invalid (status 6) instead of producing a meaningless fit.
+Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
+`fixed` and `free`, a missing acquisition field, acquisition vectors of different lengths,
+or maps whose size doesn't match the data. A NaN or Inf in a voxel's data, maps or starts
+marks that voxel invalid (status 6) instead of producing a meaningless fit.
 
 ## Outputs
 
@@ -108,13 +110,13 @@ Voxels that are not fitted hold NaN.
 
 ## Built-in models
 
-| model | signal | acquisition | free | fixed |
-|---|---|---|---|---|
-| `ExpDecay()` | S0·exp(−TE/T2) | `TE` | S0, T2 | |
-| `InversionRecovery(; magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | `TI` | M0, B, T1 | |
-| `SaturationRecovery()` | M0·(1 − exp(−TD/T1)) | `TD` | M0, T1 | |
-| `MFA()` | spoiled gradient echo, flip angle B1·FA | `FA` (deg), `TR` | M0, T1 | B1 = 1 |
-| `SIRFSE(; magnitude = true)` | two-pool qMT (Dortch et al., MRM 2018, Eq. 1) | `TI`, `TD` | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83 |
+| model | signal | free | fixed |
+|---|---|---|---|
+| `ExpDecay(TE = ...)` | S0·exp(−TE/T2) | S0, T2 | |
+| `InversionRecovery(TI = ..., magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
+| `SaturationRecovery(TD = ...)` | M0·(1 − exp(−TD/T1)) | M0, T1 | |
+| `MFA(FA = ..., TR = ...)` | spoiled gradient echo, flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
+| `SIRFSE(TI = ..., TD = ..., magnitude = true)` | two-pool qMT (Dortch et al., MRM 2018, Eq. 1); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83 |
 
 ## Writing a model
 
@@ -124,7 +126,9 @@ A model is a struct, a `parameters` method and a `signal!` method:
 using VoxelFit
 import VoxelFit: parameters, signal!     # we add methods to these functions
 
-struct T2Offset <: AbstractModel end     # options would be fields; this model has none
+@kwdef struct T2Offset{A<:AbstractVector} <: MRIModel
+    TE::A                                # echo times (s), one per observation
+end
 
 parameters(::T2Offset) = (
     S0 = Free(:scale; lower = 0),
@@ -132,24 +136,33 @@ parameters(::T2Offset) = (
     C  = Free(0.0; lower = 0),           # a noise floor
 )
 
-function signal!(out, ::T2Offset, acq, p)
-    (; S0, T2, C) = p                    # every parameter by name, as numbers
+function signal!(out, m::T2Offset, p)
+    (; TE) = m                           # unpack the acquisition by name ...
+    (; S0, T2, C) = p                    # ... and the parameters
     for j in eachindex(out)
-        (; TE) = obs(acq, j)             # this observation's settings
-        out[j] = S0 * exp(-TE / T2) + C
+        out[j] = S0 * exp(-TE[j] / T2) + C
     end
     return out
 end
+
+m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
 ```
 
-`signal!` must not allocate, and must work for any number type, because the fitter passes dual
-numbers to get derivatives. It never needs to know which parameters are free or fixed.
+- **Fields.** Each vector field gets its own type parameter (`A`, `B`, ...), so any kind of
+  vector works, and `init` converts it to plain floats in the working precision. Options with
+  defaults (`magnitude::Bool = true`) become optional keywords.
+- **Optional single values.** To let one number stand for every observation, add a one-line
+  method, as `MFA` does for TR: `MFA(FA, TR::Real) = MFA(FA, fill(TR, length(FA)))`.
+- **Rules for `signal!`.** It must not allocate, and must work for any number type, because the
+  fitter passes dual numbers to get derivatives. Unpack `p` by name, never by position: its
+  order depends on which parameters are free in a given fit. It never needs to know which
+  parameters are free or fixed.
 
 ## How it works
 
 ```
 parameters(m) + fixed/free/start  ──setup──▶  FitSpec   free names, bounds, starts, fixed values
-FitSpec + acquisition + buffers   ──init───▶  FitCache  made once (one copy per thread)
+FitSpec + model + buffers         ──init───▶  FitCache  made once (one copy per thread)
 one voxel's data                  ──fit!───▶  VoxelResult
 all voxels                        ──fit_maps─▶ maps      threads over chunks of voxels
 ```
@@ -157,8 +170,8 @@ all voxels                        ──fit_maps─▶ maps      threads over ch
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored. The
-code is in `src/`, roughly in reading order: `interface.jl`, `fit.jl`, `lm.jl`, `maps.jl`,
-`models.jl`. `docs/design.md` records the design decisions.
+code is in `src/`, roughly in reading order: `interface.jl`, `models.jl`, `fit.jl`, `lm.jl`,
+`maps.jl`. `docs/design.md` records the design decisions.
 
 ## Roadmap
 

@@ -104,21 +104,19 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    VoxelProblem{F}(model, acq, y, fixed)
+    VoxelProblem{F}(model, y, fixed)
 
 Everything needed to evaluate one voxel's residuals: the free parameter names `F` (a tuple of
-Symbols, stored in the TYPE so the compiler knows them), the model, the acquisition, the data
-`y` and this voxel's fixed values (numbers and ties).
+Symbols, stored in the TYPE so the compiler knows them), the model (with its acquisition), the
+data `y` and this voxel's fixed values (numbers and ties).
 """
-struct VoxelProblem{F,M,A,Y,X}
+struct VoxelProblem{F,M,Y,X}
     model::M
-    acq::A
     y::Y
     fixed::X
 end
 # Constructor that takes F explicitly and lets Julia infer the other type parameters.
-VoxelProblem{F}(model::M, acq::A, y::Y, fixed::X) where {F,M,A,Y,X} =
-    VoxelProblem{F,M,A,Y,X}(model, acq, y, fixed)
+VoxelProblem{F}(model::M, y::Y, fixed::X) where {F,M,Y,X} = VoxelProblem{F,M,Y,X}(model, y, fixed)
 
 # A unique "tag" type for our dual numbers, so they never mix with duals from other code.
 struct VoxelFitTag end
@@ -149,7 +147,7 @@ SSE, JᵀJ (P×P) and Jᵀr (P) from it.
 """
 @inline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
     p = _params(Val(F), _seed(θ), prob.fixed)   # every parameter; the free ones are duals
-    signal!(buf, prob.model, prob.acq, p)       # the model fills buf[i] = (fᵢ, ∂fᵢ/∂θ)
+    signal!(buf, prob.model, p)                 # the model fills buf[i] = (fᵢ, ∂fᵢ/∂θ)
     A = zero(SMatrix{P,P,T})                     # JᵀJ
     g = zero(SVector{P,T})                       # Jᵀr
     sse = zero(T)

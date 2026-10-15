@@ -1,49 +1,58 @@
 # =================================================================================================
 # The model interface
 #
-# Everything a model author needs: the supertype `AbstractModel`, the two parameter roles
-# `Free` and `Fixed`, and the two functions every model defines, `parameters` and `signal!`.
-# Plus helpers for the acquisition (`obs`, `nobs`) and the simulation wrapper `signal`.
+# Everything a model author needs: the supertype `MRIModel`, the two parameter roles `Free` and
+# `Fixed`, and the two functions every model defines, `parameters` and `signal!`. Plus `nobs`
+# (number of observations) and the simulation wrapper `signal`.
 #
-# Three separate inputs reach a signal equation, and each has its own home:
+# Two separate inputs reach a signal equation:
 #
-#   model  m    WHICH physics, plus options       a struct:      SIRFSE(magnitude = true)
-#   acq         HOW the experiment was run        a NamedTuple:  (TI = [...], TD = [...])
-#   p           the tissue/model parameter VALUES a NamedTuple:  (PSR = 0.1, R1f = 1.0, ...)
+#   model  m    the physics: acquisition + options    a struct:      SIRFSE(TI = [...], TD = 2.5)
+#   p           the tissue/model parameter VALUES     a NamedTuple:  (PSR = 0.1, R1f = 1.0, ...)
 #
-# The model never stores parameter values: the same model object is reused for millions of
-# voxels, while `p` changes at every step of every fit.
+# The model holds everything that is the same for every voxel. It never stores parameter values:
+# the same model object is reused for millions of voxels, while `p` changes at every step of
+# every fit.
 # =================================================================================================
 
 """
-    AbstractModel
+    MRIModel
 
 Supertype of all signal models. A model is three pieces:
 
-1. A struct `<: AbstractModel` holding options that are the same for every voxel
-   (e.g. `magnitude::Bool`). Many models have no options and so no fields.
+1. A struct `<: MRIModel` holding everything that is the same for every voxel: the acquisition
+   (one value per observation, e.g. `TE`) and options (e.g. `magnitude::Bool`).
 2. [`parameters`](@ref)`(m)`: every parameter of the signal equation with its default role,
    [`Free`](@ref) or [`Fixed`](@ref), as a named tuple.
-3. [`signal!`](@ref)`(out, m, acq, p)`: one voxel's signal at every observation.
+3. [`signal!`](@ref)`(out, m, p)`: one voxel's signal at every observation.
 
 Example (see `src/models.jl` for more):
 
 ```julia
-struct ExpDecay <: AbstractModel end
-parameters(::ExpDecay) = (S0 = Free(1.0; lower = 0), T2 = Free(0.05; lower = 1e-6))
-function signal!(out, ::ExpDecay, acq, p)
+@kwdef struct ExpDecay{A<:AbstractVector} <: MRIModel
+    TE::A                          # echo times (s), one per observation
+end
+
+parameters(::ExpDecay) = (S0 = Free(:scale; lower = 0), T2 = Free(0.05; lower = 1e-6))
+
+function signal!(out, m::ExpDecay, p)
+    (; TE) = m                     # unpack the acquisition by name ...
+    (; S0, T2) = p                 # ... and the parameters
     for j in eachindex(out)
-        (; TE) = obs(acq, j)
-        out[j] = p.S0 * exp(-TE / p.T2)
+        out[j] = S0 * exp(-TE[j] / T2)
     end
     return out
 end
 ```
 """
-abstract type AbstractModel end
+abstract type MRIModel end
 # `abstract type` declares a type that has no instances of its own; it only groups concrete
-# types. `struct ExpDecay <: AbstractModel` says "ExpDecay is a kind of AbstractModel", so any
-# function written for `m::AbstractModel` (like `signal` and `fit_maps`) works for it.
+# types. `struct ExpDecay <: MRIModel` says "ExpDecay is a kind of MRIModel", so any function
+# written for `m::MRIModel` (like `signal` and `fit_maps`) works for it.
+#
+# `@kwdef` (built into Julia) in front of `struct` adds a keyword constructor, so a model is made
+# with `ExpDecay(TE = [...])`. A field written with a default, `magnitude::Bool = true`, becomes
+# an optional keyword; a field without one is required (leaving it out is an error).
 
 # -------------------------------------------------------------------------------------------------
 # Parameter roles
@@ -106,7 +115,7 @@ Every parameter of model `m` with its default role, [`Free`](@ref) or [`Fixed`](
 is the order of the outputs. A fit can override the roles with the `free` and `fixed` keywords.
 
 ```julia
-parameters(::SaturationRecovery) = (M0 = Free(1.0; lower = 0), T1 = Free(1.0; lower = 1e-6))
+parameters(::SaturationRecovery) = (M0 = Free(:scale; lower = 0), T1 = Free(1.0; lower = 1e-6))
 ```
 """
 function parameters end
@@ -116,14 +125,15 @@ function parameters end
 # we do not need to look at".
 
 """
-    signal!(out, m, acq, p) -> out
+    signal!(out, m, p) -> out
 
 Write one voxel's signal at every observation into `out` and return `out`.
 
-- `m`: the model (its options, e.g. `m.magnitude`).
-- `acq`: the acquisition, a named tuple. Vector fields have one value per observation, scalar
-  fields are the same for all; `(; TI, TD) = obs(acq, j)` gives observation `j`'s values.
+- `m`: the model: its acquisition (e.g. `m.TI`, one value per observation) and options.
 - `p`: every parameter by name (`p.T1`, `p.B1`, ...), free and fixed alike, as plain numbers.
+
+Unpack both by name at the top: `(; TI, TD, magnitude) = m` and `(; PSR, R1f, ...) = p`. (Do
+not rely on the ORDER of `p`: it depends on which parameters are free in a given fit.)
 
 Rules: no allocation, no state, and generic in the number type of `p`. The fitter calls it
 with dual numbers (value + derivatives), so do not force values to `Float64`.
@@ -132,45 +142,45 @@ function signal! end
 # The `!` is a Julia naming convention: the function modifies (one of) its arguments, here `out`.
 
 # -------------------------------------------------------------------------------------------------
-# The acquisition
+# The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------
 
-"""
-    obs(acq, j) -> NamedTuple
-
-The acquisition settings of observation `j`: vector fields are indexed, scalars passed through.
-
-```julia
-acq = (FA = [2, 5, 10], TR = 0.015)
-obs(acq, 2)        # (FA = 5, TR = 0.015)
-```
-"""
-@inline obs(acq::NamedTuple, j) = map(v -> v isa AbstractVector ? (@inbounds v[j]) : v, acq)
-# `map(f, namedtuple)` applies f to every value and keeps the names. Because the field types are
-# known to the compiler, this compiles to plain field reads: no loop, no allocation.
-# `@inline` asks the compiler to paste the body into the caller (it is tiny and called in the
-# innermost loop). `@inbounds` skips the index bounds check (safe: `nobs` checked the lengths).
+# The model's fields as a tuple, e.g. (TI vector, TD vector, magnitude) for SIRFSE.
+# `fieldnames(typeof(m))` lists the field names; `getfield(m, f)` reads one.
+_fields(m) = map(f -> getfield(m, f), fieldnames(typeof(m)))
 
 """
-    nobs(acq) -> Int
+    nobs(m) -> Int
 
-Number of observations: the common length of the vector fields of `acq`.
+Number of observations: the common length of the model's vector fields (its per-observation
+acquisition settings, e.g. `TI` and `TD`). Throws an error if they differ. A model with vector
+fields of another kind can define its own method.
 """
-function nobs(acq::NamedTuple)
-    lens = [length(v) for v in values(acq) if v isa AbstractVector]
-    isempty(lens) && throw(ArgumentError("the acquisition has no per-observation (vector) settings"))
+function nobs(m::MRIModel)
+    lens = [length(x) for x in _fields(m) if x isa AbstractVector]
+    name = nameof(typeof(m))
+    isempty(lens) && throw(ArgumentError("$name has no per-observation (vector) fields; define `nobs` for it"))
     all(==(lens[1]), lens) ||
-        throw(DimensionMismatch("acquisition vectors have different lengths: $lens"))
+        throw(DimensionMismatch("$name: the per-observation fields have different lengths, $lens"))
     return lens[1]
 end
 # `cond && expr` runs `expr` only if `cond` is true; `cond || expr` only if it is false. They are
 # common shorthands for "if ... throw an error".
 
-# Convert the acquisition's numbers to the working precision T (Float64 or Float32), so the
-# signal is computed in one precision. Vectors are copied; anything else is passed through.
-_convert_acq(acq::NamedTuple, ::Type{T}) where {T} =
-    map(v -> v isa AbstractVector{<:Real} ? Vector{T}(v) : v isa Real ? T(v) : v, acq)
-# `::Type{T}` with `where {T}` means "this argument is a type, call it T", so `T(v)` converts.
+# The model with its numeric vectors converted to Vector{T}, so that a Float32 fit computes in
+# Float32 (and ranges or integer vectors become plain float vectors). Every other field (e.g.
+# `magnitude`) is kept. The struct is rebuilt with its positional constructor:
+# `Base.typename(typeof(m)).wrapper` is the bare type, e.g. `SIRFSE` without the `{...}` part,
+# so Julia picks the type parameters for the converted fields itself.
+function _with_precision(m::MRIModel, ::Type{T}) where {T}
+    return Base.typename(typeof(m)).wrapper(map(x -> _to_precision(x, T), _fields(m))...)
+end
+_to_precision(x::AbstractVector{<:Real}, ::Type{T}) where {T} = Vector{T}(x)
+_to_precision(x::AbstractVector{Bool}, ::Type{T}) where {T} = x     # flags stay flags
+_to_precision(x, ::Type{T}) where {T} = x
+# `::Type{T}` with `where {T}` means "this argument is a type, call it T". When several methods
+# match, Julia picks the most specific one: a Vector{Bool} matches the second method.
+# `f(xs...)` "splats" a tuple: its elements become separate arguments.
 
 # -------------------------------------------------------------------------------------------------
 # Building the complete parameter set
@@ -182,6 +192,8 @@ _convert_acq(acq::NamedTuple, ::Type{T}) where {T} =
 @inline _resolve1(x::Function, p) = x(p)
 @inline _resolve1(x, p) = x
 @inline _resolve(p::NamedTuple) = map(x -> _resolve1(x, p), p)
+# `map(f, namedtuple)` applies f to every value and keeps the names. Because the field types are
+# known to the compiler, this compiles to plain field reads: no loop, no allocation.
 
 function _check_names(kind, given, known)
     for n in given
@@ -191,7 +203,7 @@ end
 
 # Every parameter of `m`, in model order: values given in `p`, the `Fixed` defaults of
 # `parameters(m)` for the rest, ties resolved. Used by `signal` (simulation), not by the fitter.
-function _allparams(m::AbstractModel, p::NamedTuple)
+function _allparams(m::MRIModel, p::NamedTuple)
     roles = parameters(m)
     _check_names("p", keys(p), keys(roles))
     vals = map(keys(roles)) do n          # `do n ... end` is the body of an anonymous function n -> ...
@@ -203,21 +215,24 @@ function _allparams(m::AbstractModel, p::NamedTuple)
 end
 
 """
-    signal(m, acq, p) -> Vector
+    signal(m, p) -> Vector
 
 Simulate one voxel's signal. Allocating version of [`signal!`](@ref), for simulation and
 plotting. `p` must give the Free parameters; Fixed ones default to their values in
 [`parameters`](@ref)`(m)` and can be overridden; ties are resolved.
 
 ```julia
-signal(SIRFSE(), (TI = TI, TD = TD), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0))
-signal(SIRFSE(), (TI = TI, TD = TD), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 15.0))
+m = SIRFSE(TI = [0.01, 0.1, 1.0], TD = 2.5)
+signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0))
+signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 15.0))   # override a fixed one
 ```
 """
-function signal(m::AbstractModel, acq::NamedTuple, p::NamedTuple)
+function signal(m::MRIModel, p::NamedTuple)
     q = _allparams(m, p)
+    n = nobs(m)                                    # also checks the acquisition's lengths
     # Element type of the output: wide enough for every parameter and acquisition value
     # (e.g. Float64; or a dual number if someone differentiates through `signal`).
-    T = float(promote_type(map(typeof, values(q))..., map(eltype, values(acq))...))
-    return signal!(Vector{T}(undef, nobs(acq)), m, acq, q)
+    vectors = filter(x -> x isa AbstractVector, _fields(m))
+    T = float(promote_type(map(typeof, values(q))..., map(eltype, vectors)...))
+    return signal!(Vector{T}(undef, n), m, q)
 end
