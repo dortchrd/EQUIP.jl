@@ -8,7 +8,7 @@
 # row v holds voxel v's M observations. A mask becomes a list of voxel indices.
 #
 # Threads: the list of voxels is cut into chunks; each chunk runs as a task with its own copy of
-# the cache (its own buffers). Several chunks per thread balance the load when some voxels need
+# the cache (its own buffers). Many chunks per thread balance the load when some voxels need
 # more iterations than others. Start Julia with threads (`julia -t auto`) to use them.
 # =================================================================================================
 
@@ -72,7 +72,15 @@ function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
 
     n = length(voxels)
     if n > 0
-        chunksize = cld(n, 8 * Threads.nthreads())   # about 8 chunks per thread
+        # Chunk size: about 64 chunks per thread, but at least 16 voxels per chunk.
+        # - Many chunks: the run ends when the last chunk ends, so the wait at the end is about
+        #   one chunk's duration. Small chunks keep that short when slow voxels (noise,
+        #   background) are clustered in one region.
+        # - Not too small: each task costs ~1 µs to create and schedule, compared with a few µs
+        #   per voxel fit, so a chunk needs at least a few dozen voxels.
+        # (Measured, 4 threads, 200k voxels with a clustered slow quarter: 1 chunk/thread 546 ms,
+        # 8/thread 258 ms, 64/thread 218 ms; 2k voxels with 1 voxel/chunk: 2.4× slower.)
+        chunksize = max(16, cld(n, 64 * Threads.nthreads()))
         # `@sync` waits for every task `Threads.@spawn`ed inside it. Each task writes different
         # voxels of the output arrays, so they never write to the same element.
         @sync for chunk in Iterators.partition(voxels, chunksize)

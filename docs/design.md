@@ -99,9 +99,11 @@ the data, a fixed map or a start map marks that voxel invalid (status 6).
    Each LM evaluation does `p = resolve_ties(merge(NamedTuple{F}(seeded duals), fixed))`, then
    `signal!(buf, m, p)`, then sums SSE, JᵀJ and Jᵀr from `buf`. The m×P Jacobian is never
    stored and nothing is allocated.
-4. `fit_maps` reshapes the data to voxels × observations (a view), turns the mask into an index
-   list, splits it into about 8 chunks per thread, and fits each chunk in a task with its own
-   cache. It returns `(params = (name = map, ...), sse, status)`.
+4. `fit_maps` reshapes the data to voxels × observations (a view) and turns the mask into an
+   index list. It splits the list into about 64 chunks per thread (at least 16 voxels each) and
+   fits each chunk in a task with its own cache. Many small chunks keep threads busy when slow
+   voxels are clustered; the floor keeps the ~1 µs per-task overhead negligible. It returns
+   `(params = (name = map, ...), sse, status)`.
 
 LM details: Marquardt scaling with a monotone diagonal (MINPACK), Nielsen damping updates,
 bounds by projection with an active set, Cholesky without exceptions.
