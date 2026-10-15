@@ -1,32 +1,46 @@
-# Levenberg–Marquardt for small, dense problems (P ≲ 10 parameters, m ≲ a few hundred points).
+# =================================================================================================
+# Levenberg–Marquardt (LM) for ONE voxel
 #
-# Design choices, all aimed at running millions of independent fits:
-# - The model's signal! is evaluated with dual numbers into a per-thread buffer; JᵀWJ (P×P),
-#   JᵀWr (P) and the SSE are then accumulated from it into StaticArrays, so the m×P Jacobian
-#   is never stored and nothing touches the heap.
-# - Every trial point is evaluated with derivatives. Most LM steps are accepted, and an
-#   accepted step then already has its normal equations, so each iteration costs one pass.
-# - Marquardt scaling with MINPACK's monotone diagonal D = max(D, diag(JᵀJ)) makes damping
-#   invariant to parameter units (S0 ~ 1e3 next to T2 ~ 1e-2 is the norm in MRI).
-# - Nielsen's damping update (Madsen, Nielsen & Tingleff 2004, Alg. 3.16).
-# - Box constraints by projection; parameters held at a bound by the gradient are removed from
-#   the step (projected-gradient active set), which avoids the stalls of plain clamping.
-# - No exceptions, no allocation, no dynamic dispatch: the same code compiles for GPU kernels.
+# Problem: find the P free parameters θ that minimize  SSE(θ) = Σᵢ rᵢ(θ)²,  rᵢ = fᵢ(θ) − yᵢ,
+# where f is the model signal and y the voxel's data (m observations).
+#
+# Each LM iteration solves the damped "normal equations"
+#
+#       (JᵀJ + μ·D) h = −Jᵀr
+#
+# for a step h, where J is the m×P Jacobian (∂fᵢ/∂θⱼ), D a diagonal scaling and μ ≥ 0 the
+# damping. Small μ gives a Gauss–Newton step (fast near the solution); large μ a short
+# gradient-descent step (safe far from it). μ shrinks after good steps and grows after bad ones.
+#
+# Why a custom solver: the fit is tiny (P < 10, m < 100) but repeated millions of times, so the
+# overheads of general-purpose solvers (allocation, generic linear algebra) dominate. Here:
+#
+# - Derivatives come from dual numbers (ForwardDiff): the model's `signal!` is evaluated once
+#   with duals and every output carries its value AND its P partial derivatives.
+# - JᵀJ (P×P), Jᵀr (P) and SSE are summed directly from those outputs into StaticArrays, which
+#   live on the stack. The m×P Jacobian is never stored and nothing is allocated on the heap.
+# - Marquardt scaling D = diag(JᵀJ) (never decreasing, as in MINPACK) makes the damping
+#   independent of parameter units (M0 ~ 1000 next to T2 ~ 0.05 is the norm in MRI).
+# - Bounds by projection: a step that leaves the box is clipped onto it, and a parameter
+#   sitting on a bound that the gradient pushes outward is frozen for that step.
+# =================================================================================================
 
 """
     FitStatus
 
-Per-voxel outcome, stored as `UInt8` in the status map:
+Outcome of one voxel fit, stored as a `UInt8` code in the `status` map:
 
-| code | name            | meaning                                            |
-|-----:|:----------------|:---------------------------------------------------|
-| 0    | `NotFitted`     | outside the mask                                   |
-| 1    | `ConvergedX`    | relative parameter step below `xtol`               |
-| 2    | `ConvergedF`    | relative SSE reduction below `ftol`                |
-| 3    | `ConvergedG`    | scaled gradient below `gtol` (or SSE == 0)         |
-| 4    | `MaxIterations` | hit `maxiter`                                      |
-| 5    | `Failed`        | model or derivatives not finite at the start point |
-| 6    | `InvalidData`   | data or a fixed-map value is NaN or Inf            |
+| code | name            | meaning                                               |
+|-----:|:----------------|:------------------------------------------------------|
+| 0    | `NotFitted`     | outside the mask                                      |
+| 1    | `ConvergedX`    | the parameter step became tiny (`xtol`)               |
+| 2    | `ConvergedF`    | the SSE stopped decreasing (`ftol`)                   |
+| 3    | `ConvergedG`    | the gradient became tiny (`gtol`), or SSE == 0        |
+| 4    | `MaxIterations` | reached `maxiter` without converging                  |
+| 5    | `Failed`        | model or derivatives not finite at the starting point |
+| 6    | `InvalidData`   | data, a fixed-map value or a start value is NaN/Inf   |
+
+`FitStatus(code)` converts a code back to its name.
 """
 @enum FitStatus::UInt8 begin
     NotFitted = 0
@@ -37,22 +51,26 @@ Per-voxel outcome, stored as `UInt8` in the status map:
     Failed = 5
     InvalidData = 6
 end
+# `@enum` makes a type whose values are named constants; `::UInt8` stores them in one byte.
 
+"""
+    isconverged(status) -> Bool
+
+True for the three "converged" codes (1–3). Accepts a `FitStatus`, a code, or a `VoxelResult`.
+"""
 isconverged(s::FitStatus) = s == ConvergedX || s == ConvergedF || s == ConvergedG
 isconverged(s::Integer) = isconverged(FitStatus(s))
 
 """
-    LMOptions{T}(; maxiter=100, xtol, ftol, gtol, damping=1e-3)
+    LMOptions{T}(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
 
-Solver settings. Tolerances default by precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10`
-for `Float64` and `xtol = 1e-5, ftol = 1e-6, gtol = 1e-5` for `Float32`.
+Solver settings (keywords of `init` and `fit_maps`). Default tolerances depend on precision:
+`xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for Float64; `1e-5, 1e-6, 1e-5` for Float32.
 
-- `xtol`: stop when ‖D·step‖ ≤ xtol·‖D·θ‖ (scaled, so unit-independent).
-- `ftol`: stop when the actual and predicted relative SSE reductions are both ≤ `ftol`.
-- `gtol`: stop when max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) ≤ `gtol` (MINPACK's scale-free gradient test).
-- `damping`: initial Marquardt parameter relative to diag(JᵀJ).
-
-For parameter maps, `xtol = 1e-4` is usually plenty and saves iterations.
+- `xtol`: stop when the (scaled) step is smaller than `xtol` × the (scaled) parameters.
+- `ftol`: stop when the relative SSE decrease, actual and predicted, is below `ftol`.
+- `gtol`: stop when the scale-free gradient max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) is below `gtol`.
+- `damping`: starting μ, relative to diag(JᵀJ).
 """
 struct LMOptions{T<:AbstractFloat}
     maxiter::Int32
@@ -64,92 +82,104 @@ end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
 _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
-_default_tols(::Type{T}) where {T} = (sqrt(eps(T)), eps(T)^(3 // 4), sqrt(eps(T)))
 
-function LMOptions{T}(; maxiter::Integer=100, xtol=nothing, ftol=nothing, gtol=nothing,
-                      damping=1e-3) where {T}
+# Keyword constructor. `something(a, b)` returns `a` unless it is `nothing`, then `b`.
+function LMOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothing, gtol = nothing,
+                      damping = 1e-3) where {T}
     dx, df, dg = _default_tols(T)
-    LMOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
-                 T(something(gtol, dg)), T(damping))
+    return LMOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
+                        T(something(gtol, dg)), T(damping))
 end
 
-"""
-    LMResult
-
-Result of one fit: `θ` (SVector), `sse` (weighted sum of squared residuals), `JtJ` (Gauss–Newton
-Hessian at `θ`), `iterations`, and `status::FitStatus`.
-"""
-struct LMResult{P,T,L}
+# Internal result of `lm_fit` (the public one, `VoxelResult`, adds parameter names).
+struct LMResult{P,T}
     θ::SVector{P,T}
     sse::T
-    JtJ::SMatrix{P,P,T,L}
     iterations::Int32
     status::FitStatus
 end
 
-isconverged(r::LMResult) = isconverged(r.status)
-
-# ---------------------------------------------------------------------------------------------
-# Normal equations: (SSE, JᵀWJ, JᵀWr) at θ, with r = f(θ) - y.
-
-struct VoxelFitTag end
-
-@inline function _seed(θ::SVector{P,T}) where {P,T}
-    SVector(ntuple(j -> Dual{VoxelFitTag}(θ[j], ntuple(k -> ifelse(k == j, one(T), zero(T)), Val(P))),
-                   Val(P)))
-end
-
-@inline _weight(::Nothing, i, ::Type{T}) where {T} = one(T)
-@inline _weight(w, i, ::Type{T}) where {T} = @inbounds T(w[i])
+# -------------------------------------------------------------------------------------------------
+# One voxel's problem, and its normal equations
+# -------------------------------------------------------------------------------------------------
 
 """
-    VoxelProblem{F}(model, acq, y, w, fixed)
+    VoxelProblem{F}(model, acq, y, fixed)
 
-One voxel's least-squares problem: estimated parameter names `F`, protocol, data `y`, weights
-`w` (or `nothing`) and the voxel's fixed values (numbers and ties).
+Everything needed to evaluate one voxel's residuals: the free parameter names `F` (a tuple of
+Symbols, stored in the TYPE so the compiler knows them), the model, the acquisition, the data
+`y` and this voxel's fixed values (numbers and ties).
 """
-struct VoxelProblem{F,M,A,Y,W,FX}
+struct VoxelProblem{F,M,A,Y,X}
     model::M
     acq::A
     y::Y
-    w::W
-    fixed::FX
+    fixed::X
 end
-VoxelProblem{F}(model::M, acq::A, y::Y, w::W, fixed::FX) where {F,M,A,Y,W,FX} =
-    VoxelProblem{F,M,A,Y,W,FX}(model, acq, y, w, fixed)
+# Constructor that takes F explicitly and lets Julia infer the other type parameters.
+VoxelProblem{F}(model::M, acq::A, y::Y, fixed::X) where {F,M,A,Y,X} =
+    VoxelProblem{F,M,A,Y,X}(model, acq, y, fixed)
 
+# A unique "tag" type for our dual numbers, so they never mix with duals from other code.
+struct VoxelFitTag end
+
+# Turn θ = (θ₁, …, θ_P) into dual numbers seeded with the identity: dual j has value θⱼ and
+# partials eⱼ (1 in slot j, 0 elsewhere). Any function evaluated on them then returns
+# value f(θ) with partials (∂f/∂θ₁, …, ∂f/∂θ_P): one pass gives a full row of the Jacobian.
+@inline function _seed(θ::SVector{P,T}) where {P,T}
+    return SVector(ntuple(j -> Dual{VoxelFitTag}(θ[j], ntuple(k -> ifelse(k == j, one(T), zero(T)), Val(P))),
+                          Val(P)))
+end
+# `ntuple(f, Val(P))` builds the tuple (f(1), …, f(P)) with P known at compile time, so it is
+# fully unrolled with no allocation.
+
+# Build the complete parameter set for the model from the free values θ and the fixed values:
+#   NamedTuple{F}(Tuple(θ))   -> (PSR = θ₁, R1f = θ₂, Sf = θ₃, M0f = θ₄)
+#   merge(..., fixed)         -> (PSR = θ₁, ..., kmf = 12.5, R1m = p -> p.R1f, Sm = 0.83)
+#   _resolve(...)             -> ties evaluated: R1m = θ₂
+# Because F is a compile-time constant (passed as Val(F)), this compiles to moving numbers into
+# a stack-allocated record; no names are looked up at run time.
+@inline _params(::Val{F}, θ, fixed) where {F} = _resolve(merge(NamedTuple{F}(Tuple(θ)), fixed))
+
+"""
+    normal_equations(prob, θ, buf) -> (sse, JᵀJ, Jᵀr)
+
+Evaluate the model at θ with dual numbers into `buf` (one dual per observation) and sum the
+SSE, JᵀJ (P×P) and Jᵀr (P) from it.
+"""
 @inline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
-    p = _params(Val(F), _seed(θ), prob.fixed)
-    signal!(buf, prob.model, prob.acq, p)
-    A = zero(SMatrix{P,P,T})
-    g = zero(SVector{P,T})
+    p = _params(Val(F), _seed(θ), prob.fixed)   # every parameter; the free ones are duals
+    signal!(buf, prob.model, prob.acq, p)       # the model fills buf[i] = (fᵢ, ∂fᵢ/∂θ)
+    A = zero(SMatrix{P,P,T})                     # JᵀJ
+    g = zero(SVector{P,T})                       # Jᵀr
     sse = zero(T)
-    y, w = prob.y, prob.w
+    y = prob.y
     @inbounds for i in eachindex(buf)
         d = buf[i]
-        J = SVector{P,T}(partials(d).values)
-        wi = _weight(w, i, T)
-        r = T(value(d)) - T(y[i])
-        wJ = wi * J
-        A += wJ * J'
-        g += r * wJ
-        sse += wi * r * r
+        J = SVector{P,T}(partials(d).values)     # row i of the Jacobian
+        r = T(value(d)) - T(y[i])                # residual i
+        A += J * J'                              # outer product, P×P
+        g += r * J
+        sse += r * r
     end
     return sse, A, g
 end
 
-# ---------------------------------------------------------------------------------------------
-# Small dense SPD solves without exceptions (non-SPD input returns ok = false).
+# -------------------------------------------------------------------------------------------------
+# Small linear solves: Cholesky factorization of a P×P symmetric positive-definite matrix.
+# Written out by hand so that a non-positive-definite matrix returns `ok = false` instead of
+# throwing an exception (exceptions are slow and we want the fit to just carry on).
+# -------------------------------------------------------------------------------------------------
 
 @inline function _cholesky(M::SMatrix{P,P,T}) where {P,T}
-    L = MMatrix{P,P,T}(M)
+    L = MMatrix{P,P,T}(M)                        # mutable copy, still on the stack
     @inbounds for j in 1:P
         s = L[j, j]
         for k in 1:j-1
             s -= L[j, k] * L[j, k]
         end
-        s > zero(T) || return SMatrix(L), false   # also catches NaN
-        ljj = @fastmath sqrt(s)
+        s > zero(T) || return SMatrix(L), false  # not positive definite (also catches NaN)
+        ljj = sqrt(s)
         L[j, j] = ljj
         il = inv(ljj)
         for i in j+1:P
@@ -160,19 +190,20 @@ end
             L[i, j] = t * il
         end
     end
-    return SMatrix(L), true
+    return SMatrix(L), true                      # lower triangle holds L, with M = L Lᵀ
 end
 
+# Solve (L Lᵀ) x = b by forward then backward substitution.
 @inline function _chol_solve(L::SMatrix{P,P,T}, b::SVector{P,T}) where {P,T}
     z = MVector{P,T}(b)
-    @inbounds for i in 1:P              # L z = b
+    @inbounds for i in 1:P                       # L z = b
         t = z[i]
         for k in 1:i-1
             t -= L[i, k] * z[k]
         end
         z[i] = t / L[i, i]
     end
-    @inbounds for i in P:-1:1           # Lᵀ h = z
+    @inbounds for i in P:-1:1                    # Lᵀ x = z
         t = z[i]
         for k in i+1:P
             t -= L[k, i] * z[k]
@@ -182,92 +213,107 @@ end
     return SVector(z)
 end
 
-# ---------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# Small helpers for the main loop
+# -------------------------------------------------------------------------------------------------
 
 @inline _allfinite(v::StaticArray) = all(isfinite, v)
 
-# Parameters pinned at a bound with the descent direction pointing outward are not free.
-@inline _free(θ, g, lo, hi) = map((t, gi, l, h) -> !((t <= l && gi > 0) || (t >= h && gi < 0)), θ, g, lo, hi)
+# Which parameters may move this step: not those sitting on a bound with the gradient pointing
+# outward (the descent direction is −g, so g > 0 at the lower bound pushes further down).
+@inline _movable(θ, g, lo, hi) = map((t, gi, l, h) -> !((t <= l && gi > 0) || (t >= h && gi < 0)), θ, g, lo, hi)
 
-@inline function _gradient_small(A, g, free, sse, gtol)
-    sse > 0 || return true
+# Scale-free gradient test (MINPACK): max_j |Jⱼᵀr| / (‖Jⱼ‖ ‖r‖) ≤ gtol, over movable parameters.
+@inline function _gradient_small(A, g, movable, sse, gtol)
+    sse > 0 || return true                       # perfect fit
     T = typeof(sse)
     gmax = zero(T)
     @inbounds for j in eachindex(g)
-        a = A[j, j]
-        if free[j] && a > 0
-            gmax = max(gmax, abs(g[j]) / @fastmath(sqrt(a * sse)))
+        a = A[j, j]                              # ‖Jⱼ‖²
+        if movable[j] && a > 0
+            gmax = max(gmax, abs(g[j]) / sqrt(a * sse))
         end
     end
     return gmax <= gtol
 end
 
-@inline function _xsmall(s, θ, d, xtol)
-    ds = @fastmath sqrt(sum(d .* s .* s))     # d > 0, so the sums are non-negative
-    dθ = @fastmath sqrt(sum(d .* θ .* θ))
+# Step test in scaled units: ‖D^½ s‖ ≤ xtol (‖D^½ θ‖ + xtol).
+@inline function _step_small(s, θ, d, xtol)
+    ds = sqrt(sum(d .* s .* s))
+    dθ = sqrt(sum(d .* θ .* θ))
     return ds <= xtol * (dθ + xtol)
 end
 
-"""
-    lm_fit(prob::VoxelProblem, θ0, lower, upper, opts::LMOptions, buf) -> LMResult
+# -------------------------------------------------------------------------------------------------
+# The solver
+# -------------------------------------------------------------------------------------------------
 
-Levenberg–Marquardt fit of one voxel. `θ0`, `lower`, `upper` are `SVector{P,T}`; `buf` is a
-vector of `Dual{VoxelFitTag,T,P}` with one entry per observation. Allocation-free.
+"""
+    lm_fit(prob, θ0, lower, upper, opts, buf) -> LMResult
+
+Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper` (all
+`SVector{P,T}`). `buf` holds one `Dual{VoxelFitTag,T,P}` per observation. Does not allocate.
 """
 function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
                 opts::LMOptions{T}, buf) where {P,T}
+    # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)
     if !(isfinite(sse) && _allfinite(g) && _allfinite(diag(A)))
-        return LMResult(θ, sse, A, Int32(0), Failed)
+        return LMResult(θ, sse, Int32(0), Failed)
     end
-    floorT = floatmin(T) / eps(T)
-    d = max.(diag(A), floorT)
-    μ = opts.damping
-    ν = T(2)
+    d = max.(diag(A), floatmin(T) / eps(T))     # Marquardt scaling (kept strictly positive)
+    μ = opts.damping                            # damping
+    ν = T(2)                                    # growth factor of μ after rejected steps
     iter = Int32(0)
     status = MaxIterations
-    if _gradient_small(A, g, _free(θ, g, lo, hi), sse, opts.gtol)
-        return LMResult(θ, sse, A, iter, ConvergedG)
-    end
+    _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) &&
+        return LMResult(θ, sse, iter, ConvergedG)
+
     while iter < opts.maxiter
         iter += Int32(1)
-        free = _free(θ, g, lo, hi)
-        fm = map(b -> ifelse(b, one(T), zero(T)), free)
-        # Damped normal equations restricted to the free parameters.
+
+        # --- solve the damped normal equations for the movable parameters ---------------------
+        # `fm` is 1 for movable, 0 for frozen parameters. Masking rows/columns of the matrix
+        # and putting 1 on the frozen diagonal gives step 0 for frozen parameters.
+        fm = map(b -> ifelse(b, one(T), zero(T)), _movable(θ, g, lo, hi))
         M = (fm * fm') .* (A + Diagonal(μ * d)) + Diagonal(one(T) .- fm)
         L, ok = _cholesky(M)
-        if !ok
+        if !ok                                   # numerically singular: damp more, retry
             μ *= ν
             ν *= 2
             continue
         end
         h = _chol_solve(L, -(fm .* g))
-        θn = clamp.(θ + h, lo, hi)
+        θn = clamp.(θ + h, lo, hi)               # trial point, projected onto the bounds
         s = θn - θ
-        if _xsmall(s, θ, d, opts.xtol)
+        if _step_small(s, θ, d, opts.xtol)
             status = ConvergedX
             break
         end
+
+        # --- evaluate the trial point and compare actual vs predicted SSE decrease ------------
         ssen, An, gn = normal_equations(prob, θn, buf)
-        pred = -(2 * dot(g, s) + dot(s, A * s))        # predicted SSE reduction
+        pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
         actual = sse - ssen
         if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0
-            ρ = actual / pred
+            # accept the step
+            ρ = actual / pred                    # ≈ 1 when the linear model is accurate
             fsmall = actual <= opts.ftol * sse && pred <= opts.ftol * sse
             θ, sse, A, g = θn, ssen, An, gn
             d = max.(d, diag(A))
-            μ = max(μ * max(T(1 / 3), 1 - (2ρ - 1)^3), eps(T))
+            μ = max(μ * max(T(1 / 3), 1 - (2ρ - 1)^3), eps(T))   # Nielsen's update: shrink μ
             ν = T(2)
             if fsmall
                 status = ConvergedF
                 break
-            elseif _gradient_small(A, g, _free(θ, g, lo, hi), sse, opts.gtol)
+            elseif _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol)
                 status = ConvergedG
                 break
             end
         else
-            if pred > 0 && pred <= opts.ftol * sse
+            # reject the step: keep θ, damp more (shorter, more gradient-like steps)
+            if pred > 0 && pred <= opts.ftol * sse   # nothing left to gain
                 status = ConvergedF
                 break
             end
@@ -275,23 +321,5 @@ function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             ν *= 2
         end
     end
-    return LMResult(θ, sse, A, iter, status)
-end
-
-"""
-    standard_errors(r::LMResult, nobs) -> SVector
-
-Asymptotic standard errors √diag(σ̂² (JᵀWJ)⁻¹) with σ̂² = SSE / (nobs - P). Returns NaN where
-the information matrix is singular. With known noise σ and unit weights, the Cramér–Rao bound is
-σ·√diag((JᵀJ)⁻¹).
-"""
-function standard_errors(r::LMResult{P,T}, nobs::Integer) where {P,T}
-    L, ok = _cholesky(r.JtJ)
-    ok || return SVector{P,T}(ntuple(_ -> T(NaN), Val(P)))
-    σ2 = nobs > P ? r.sse / (nobs - P) : T(NaN)
-    return SVector{P,T}(ntuple(Val(P)) do j
-        e = SVector{P,T}(ntuple(k -> T(k == j), Val(P)))
-        v = σ2 * _chol_solve(L, e)[j]
-        ifelse(v >= 0, @fastmath(sqrt(abs(v))), T(NaN))
-    end)
+    return LMResult(θ, sse, iter, status)
 end

@@ -1,44 +1,44 @@
 """
     VoxelFit
 
-Fast, allocation-free nonlinear least-squares fitting of MRI signal models, voxel by voxel,
-for building parametric maps (T1, T2, T2*, ADC, IVIM, qMT, ...).
+Fast voxel-wise nonlinear least-squares fitting of MRI signal models, for parametric maps.
 
-A model is a struct (settings), [`parameters`](@ref) (every parameter with its default role,
-[`Estimate`](@ref) or [`Fixed`](@ref)) and [`signal!`](@ref) (the signal equation). See
-`docs/design.md`.
+A model is three pieces (see [`AbstractModel`](@ref)):
+
+1. a struct (options that are the same for every voxel, e.g. `magnitude`),
+2. [`parameters`](@ref)`(m)`: every parameter with its default role, [`Free`](@ref) or [`Fixed`](@ref),
+3. [`signal!`](@ref)`(out, m, acq, p)`: the signal equation.
 
 Main entry points:
 
-- [`fit_maps`](@ref) / [`fit_maps!`](@ref): fit every voxel of an N-d dataset (threaded).
-- [`init`](@ref) + [`fit!`](@ref): a reusable cache for fitting single voxels.
-- [`signal`](@ref): simulate a model's signal.
+- [`signal`](@ref)`(m, acq, p)`: simulate one voxel's signal.
+- [`init`](@ref)`(m, acq; ...)` + [`fit!`](@ref)`(cache, y)`: fit single voxels with a reusable cache.
+- [`fit_maps`](@ref)`(m, acq, data; ...)`: fit every voxel of a dataset (threaded).
 """
 module VoxelFit
 
-using LinearAlgebra
-using StaticArrays
-using ForwardDiff
-using ForwardDiff: Dual, value, partials
-using Mmap
-using PrecompileTools
-import CommonSolve
-using CommonSolve: init
+# --- Dependencies -------------------------------------------------------------------------------
+# `using X` makes X's exported names available here. `import X` only makes the module name
+# available, which we need when we *add methods* to a function owned by another package
+# (here `CommonSolve.init`).
+using LinearAlgebra                    # dot, Diagonal, diag
+using StaticArrays                     # SVector / SMatrix: small fixed-size arrays on the stack
+using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
+import CommonSolve                     # owner of the generic function `init` (SciML convention)
+using CommonSolve: init                # so that `init` can be re-exported below
 
-export AbstractModel, Estimate, Fixed, parameters, protocol, signal!, signal, obs, initial_guess
-export FunctionModel, expr_model
-export MonoExp, MonoExpOffset, BiExp, ADC, Kurtosis, IVIM, InversionRecovery,
-       SaturationRecovery, SPGR, SIRFSE
-export FitStatus, LMOptions, VoxelResult, MapResult, init, fit!, fit_maps, fit_maps!
-export standard_errors, isconverged, parse_model
+# --- Public names -------------------------------------------------------------------------------
+# `export` lists the names a user gets with `using VoxelFit`. Everything else is still reachable
+# as `VoxelFit.name` (e.g. `VoxelFit.setup`), just not brought into scope automatically.
+export AbstractModel, Free, Fixed, parameters, signal!, signal, obs, nobs  # model interface
+export init, fit!, fit_maps, VoxelResult, FitStatus, isconverged            # fitting
+export ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE         # built-in models
 
-include("models.jl")
-include("lm.jl")
-include("cache.jl")
-include("builtin_models.jl")
-include("driver.jl")
-include("npy.jl")
-include("cli.jl")
-include("precompile.jl")
+# --- Source files, in dependency order ----------------------------------------------------------
+include("interface.jl")   # AbstractModel, Free, Fixed, parameters, signal!, signal, obs, nobs
+include("lm.jl")          # the Levenberg–Marquardt solver for one voxel
+include("fit.jl")         # setup (roles -> FitSpec), init (-> FitCache), fit! (one voxel)
+include("maps.jl")        # fit_maps: all voxels of a dataset, with threads
+include("models.jl")      # the built-in models
 
 end # module
