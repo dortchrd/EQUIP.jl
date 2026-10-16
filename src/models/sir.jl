@@ -43,6 +43,11 @@ default.
   `R1m` tied to `R1f`, `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse),
   `Mzf_td0 = Mzm_td0 = 0`
 
+`kmf` must be > 0. With `kmf = 0` there is no exchange: PSR has no effect on the signal, and the
+two recovery rates are equal, so the closed-form solution divides by zero and the signal is NaN.
+To simulate no exchange, use a tiny value such as `kmf = 1e-12`: it gives single-pool inversion
+recovery (accurate down to at least `kmf = 1e-100`).
+
 ```julia
 m = SIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 m = SIR(TI = [0.010, 0.050, 0.277, 1.0], TD = 2.5)        # one TD for all

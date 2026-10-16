@@ -107,6 +107,10 @@ end
         # no macromolecular pool (PSR = 0): single-pool inversion recovery (Li et al. 2010, Eq. 1)
         @test signal(m, merge(θ0, (PSR = 0.0, Mzf_td0 = 0.1))) ≈
               @. 1000 * (-0.95 * (1 - 0.9 * exp(-TD5)) * exp(-TI5) + 1 - exp(-TI5))
+        # exchange off: a tiny kmf gives single-pool inversion recovery; kmf = 0 gives NaN
+        @test signal(m, merge(θ0, (kmf = 1e-12,))) ≈
+              @. 1000 * (-0.95 * (1 - exp(-TD5)) * exp(-TI5) + 1 - exp(-TI5))
+        @test all(isnan, signal(m, merge(θ0, (kmf = 0.0,))))
         # start at equilibrium and no inversion: nothing changes
         @test signal(m, merge(θ0, (Sf = 1.0, Sm = 1.0, Mzf_td0 = 1.0, Mzm_td0 = 1.0))) ≈ fill(1000.0, 5)
     end
