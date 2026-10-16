@@ -141,11 +141,16 @@ src/
                        builtin.jl + one file per model
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
-  analysis/            (later) CRLB, Monte Carlo, sensitivity
+  sim/                 (later) simulate (noise models), digital phantoms, tissue presets
+  analysis/            (later) compare (fit vs truth), Monte Carlo, CRLB, sensitivity
   design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
 ext/                   (later) package extensions: OptimExt (optimize_protocol), and one per file
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
+test/                  correctness and deterministic performance checks (no allocation, type
+                       stability); no timings
+bench/                 (later) own Project.toml (BenchmarkTools, LsqFit): speed suite + accuracy
+                       studies, results.md
 ```
 
 - Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
@@ -213,11 +218,40 @@ weights, other data layouts, precompilation, more models.
      `fitted(res)` / `residuals(res)` (StatsAPI names) rebuild a single voxel's curve, and
      allows refitting with the same settings,
    - a summary display (model, voxels, % converged, free and fixed parameters).
-   With the uncertainty work (2): JᵀJ for a single voxel, optional standard-error maps for
+   With the uncertainty work (3): JᵀJ for a single voxel, optional standard-error maps for
    datasets, a flag for parameters that ended at a bound, and StatsAPI queries (`coef`,
    `coefnames`, `rss`, `stderror`, `vcov`, `informationmatrix`). The internal `SolverResult`
    stays as it is; the solver already computes JᵀJ at the solution.
-2. **Uncertainty** (formulation from Dortch et al., Magn Reson Med 2018;80:1824):
+2. **Simulation, digital phantoms and benchmarks**: one simulation layer (`sim/`) shared by
+   Monte Carlo, benchmarks, accuracy studies and tests, and useful to users directly.
+   - `simulate(m, truth; noise = :rician | :gaussian, snr or σ, rng)`: noisy data, observations
+     last. `truth` is a named tuple like `p` in `signal(m, p)`: numbers (one tissue) or maps
+     (a phantom). The SNR definition is stated explicitly (e.g. relative to M0).
+   - Digital phantoms: maps of tissue parameters with spatial structure. `phantom(labels,
+     tissues)` turns an integer label image into parameter maps (optional smooth variation,
+     partial volume, a B1 field, lesions, background); `phantom(:shapes, size; tissues)` makes
+     synthetic geometry with no external data. Later, brain-like phantoms from tissue
+     segmentations (BrainWeb, or the brain phantom KomaMRI uses, read from file) and real data
+     (qMRLab's OSF datasets).
+   - Tissue presets: the Table 1 classes of the 2018 paper for SIR; literature T1/T2 for
+     WM/GM/CSF.
+   - `compare(res, truth; mask, labels)`: bias, RMSE, % converged and time, overall and per
+     tissue label.
+   - Monte Carlo vs phantoms: Monte Carlo (independent noisy copies of chosen tissues) gives
+     bias/SD/RMSE against the CRLB and accuracy vs SNR; phantoms are needed for everything that
+     uses neighbours or geometry (neighbour starts, outlier detection, masks) and for realistic
+     whole-volume speed, where hard voxels cluster.
+   - Where things live: `test/` gets a tiny seeded phantom (e.g. 8×8×2) for an end-to-end check
+     (simulate → fit → compare) with loose accuracy limits, plus `@inferred` checks next to the
+     allocation checks; timings never go in tests. `bench/` (own Project.toml) gets the speed
+     suite as `const SUITE = BenchmarkGroup()` (the convention PkgBenchmark.jl and
+     AirspeedVelocity.jl use to compare commits), timed with BenchmarkTools (`@btime` /
+     `@belapsed` with `$` interpolation; `evals = 1, samples = 5` for whole-dataset passes): one
+     fit per model, `signal!` alone, dataset throughput on threads, bounds vs no bounds, scaling
+     with P, LsqFit comparison. Accuracy studies are scripts there too (starting-value
+     strategies, bounds, accuracy vs SNR, protocol comparisons), each writing a table to
+     `bench/results.md` with machine, Julia version and thread count.
+3. **Uncertainty** (formulation from Dortch et al., Magn Reson Med 2018;80:1824):
    - Fisher information for Gaussian noise (Eq. 4): F = JᵀJ/σ², with J the derivatives of
      the signal at the true parameters with respect to the free ones. This is the JᵀJ the
      solver already accumulates.
@@ -231,7 +265,7 @@ weights, other data layouts, precompilation, more models.
      in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
-3. **Starting values and outliers**:
+4. **Starting values and outliers**:
    - Starting values: model-specific guesses, neighbour/previous-voxel starts with quality
      gates.
    - Outlier detection after a dataset fit, from what the fit already reports: status (hit
@@ -246,7 +280,7 @@ weights, other data layouts, precompilation, more models.
      nothing for good voxels (2.98 vs 3.00 µs, same iterations and results) and make bad ones
      faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
      values outside [0, 1]). Unbounded fits remain possible per fit via `free`.
-4. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+5. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -283,9 +317,9 @@ weights, other data layouts, precompilation, more models.
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-5. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+6. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-6. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
+7. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
    a second method of the same function, chosen by dispatch on the argument types:
    `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts, work::LevmarWorkspace)`, with a
    workspace allocated once per thread (JᵀJ, Jᵀr, step, Cholesky factor) and in-place
@@ -293,4 +327,4 @@ weights, other data layouts, precompilation, more models.
    parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
    method at no run-time cost. Derivatives may need chunked dual numbers
    (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
-7. **Later**: GPU, Rician-likelihood fitting, more models.
+8. **Later**: GPU, Rician-likelihood fitting, more models.

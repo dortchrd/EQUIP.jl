@@ -213,6 +213,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   and status (as names, e.g. `ConvergedX`), plus the model and settings used (for provenance,
   fitted curves and refits) and a summary display; later JᵀJ / standard errors and StatsAPI
   queries (`coef`, `stderror`, `vcov`, ...)
+- **sim/**: `simulate` (Rician/Gaussian noise), digital phantoms (label images → parameter maps,
+  synthetic shapes, later brain-like segmentations), tissue presets (the 2018 paper's Table 1
+  for SIR), and `compare` against the truth; shared by Monte Carlo, benchmarks and tests
+- **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
+  (starting values, bounds, accuracy vs SNR), with recorded results
 - **analysis/**: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
   Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
