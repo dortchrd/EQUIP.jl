@@ -1,16 +1,21 @@
 # =================================================================================================
-# static_levmar: Levenberg–Marquardt (LM) for ONE voxel, with static (fixed-size) arrays
+# levmar: Levenberg–Marquardt (LM) for ONE voxel
 #
-# "static" as in StaticArrays: the number of free parameters P is part of the types, so the
-# compiler knows every array size and unrolls the arithmetic. ("levmar" is the usual short name
-# for Levenberg–Marquardt; LsqFit.jl's general solver is called `levenberg_marquardt`.)
+# One function, `levmar`, whose method is chosen by the types of its arguments (multiple
+# dispatch), like `cholesky` in Julia's LinearAlgebra, which has one method for StaticArrays
+# matrices and another for ordinary ones. The method below is for STATIC arrays (`SVector`,
+# `SMatrix` from StaticArrays): the number of free parameters P is part of the types, so the
+# compiler knows every array size and unrolls the arithmetic; nothing is allocated. ("levmar" is
+# the usual short name for Levenberg–Marquardt; LsqFit.jl's general solver is called
+# `levenberg_marquardt`.)
 #
-# Scaling, measured (DKI-like model, 3 observations per parameter, no allocation at any size):
-#   P = 7: 2.4 µs per fit,  P = 15: 25 µs,  P = 22 (full DKI): 64 µs,  P = 28: 74 µs,
-#   3.5–19× faster than LsqFit on the same problems. What grows is compile time (≈1 s at P = 7,
-#   ≈8 s at P = 28, once per session per model and set of free parameters). Beyond ~30–40 free
-#   parameters a solver with preallocated ordinary arrays (`mul!`, `cholesky!`), a future
-#   `levmar`, would be the better choice.
+# Scaling of this static method, measured (DKI-like model, 3 observations per parameter, no
+# allocation at any size): P = 7: 2.4 µs per fit, P = 15: 25 µs, P = 22 (full DKI): 64 µs,
+# P = 28: 74 µs; 3.5–19× faster than LsqFit on the same problems. What grows is compile time
+# (≈1 s at P = 7, ≈8 s at P = 28, once per session per model and set of free parameters).
+# Beyond ~30–40 free parameters, a second method for ordinary arrays (`Vector`/`Matrix` with a
+# preallocated workspace, `mul!`, `cholesky!`) would be better; `setup` would choose the array
+# type from P once per fit (see the roadmap in docs/design.md).
 #
 # Problem: find the P free parameters θ that minimize  SSE(θ) = Σᵢ rᵢ(θ)²,  rᵢ = fᵢ(θ) − yᵢ,
 # where f is the model signal and y the voxel's data (m observations).
@@ -102,7 +107,7 @@ function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothi
                         T(something(gtol, dg)), T(damping))
 end
 
-# Internal result of `static_levmar` (the public one, `VoxelResult`, adds parameter names).
+# Internal result of `levmar` (the public one, `VoxelResult`, adds parameter names).
 struct SolverResult{P,T}
     θ::SVector{P,T}
     sse::T
@@ -258,13 +263,15 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    static_levmar(prob, θ0, lower, upper, opts, buf) -> SolverResult
+    levmar(prob, θ0, lower, upper, opts, buf) -> SolverResult
 
-Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper` (all
-`SVector{P,T}`). `buf` holds one `Dual{FitTag,T,P}` per observation. Does not allocate.
+Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper`.
+
+This method is for static arrays: `θ0`, `lower` and `upper` are `SVector{P,T}`, and `buf` holds
+one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
-function static_levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                       opts::SolverOptions{T}, buf) where {P,T}
+function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
+                opts::SolverOptions{T}, buf) where {P,T}
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)

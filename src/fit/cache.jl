@@ -6,7 +6,7 @@
 #        ▼  init         FitSpec + model + solver options + work buffers
 #   FitCache             reusable state, like LsqFit's OnceDifferentiable. Made ONCE (per thread).
 #        │
-#        ▼  fit!         copy one voxel's data in, pick its map values, run LM (static_levmar.jl).
+#        ▼  fit!         copy one voxel's data in, pick its map values, run LM (levmar.jl).
 #   VoxelResult          Called once per voxel; allocates nothing.
 # =================================================================================================
 
@@ -132,7 +132,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end
     # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...).
-    r = static_levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
+    r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
     return VoxelResult(NamedTuple{F}(Tuple(r.θ)), r.sse, r.iterations, r.status)
 end
 

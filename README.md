@@ -198,7 +198,7 @@ The code is in layers; each only uses the ones before it:
 src/
   MRISignalModels.jl      the module: dependencies, exports, includes
   models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl, one file per model
-  fit/                    static_levmar.jl (solver), setup.jl (roles -> FitSpec),
+  fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec),
                           cache.jl (init, fit!), fit.jl (fit)
 ```
 
@@ -224,5 +224,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings
 - Command line, Python and MATLAB front ends, built on io/
+- A `levmar` method for ordinary arrays, for models with more than ~30–40 free parameters
+  (chosen by dispatch; the current method uses static arrays and is faster below that)
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models (diffusion, IVIM, multi-exponential, DCE)

@@ -139,7 +139,7 @@ src/
   MRISignalModels.jl   the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
                        builtin.jl + one file per model
-  fit/                 static_levmar.jl (solver), setup.jl (roles -> FitSpec),
+  fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
   analysis/            (later) CRLB, Monte Carlo, sensitivity
   design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
@@ -181,11 +181,11 @@ against the General registry (Oct 2026): unregistered. `QuantitativeMRI` is take
   ~180× slower than the closed form and cannot take dual numbers; with StaticArrays 2×2 matrices
   it is ~3× slower and works with duals. A reasonable fallback for models without a convenient
   closed form.
-- **Solver size limits** (`static_levmar`, StaticArrays): no allocation and faster than LsqFit
+- **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
   (≈1 s → ≈8 s, once per model and set of free parameters). Beyond ~30–40 free parameters, add
-  a `levmar` with preallocated ordinary arrays (`mul!`, `cholesky!`); the model interface does
+  a `levmar` method for ordinary arrays (`mul!`, `cholesky!`); the model interface does
   not change.
 - **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
   voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
@@ -272,4 +272,12 @@ weights, other data layouts, precompilation, more models.
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
 5. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-6. **Later**: GPU, Rician-likelihood fitting, more models.
+6. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
+   a second method of the same function, chosen by dispatch on the argument types:
+   `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts, work::LevmarWorkspace)`, with a
+   workspace allocated once per thread (JᵀJ, Jᵀr, step, Cholesky factor) and in-place
+   `mul!`/`cholesky!`/`ldiv!`. `setup` picks static or ordinary arrays from the number of free
+   parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
+   method at no run-time cost. Derivatives may need chunked dual numbers
+   (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
+7. **Later**: GPU, Rician-likelihood fitting, more models.
