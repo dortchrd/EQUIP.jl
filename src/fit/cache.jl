@@ -118,7 +118,7 @@ end
 # `spec` is passed separately (not read from `c` inside) so that its type parameters F, P, T
 # can be named in the method signature and used below.
 function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
-    # 1. This voxel's fixed values: (kmf = 12.5, R1m = p -> p.R1f, Sm = sm_map[v]).
+    # 1. This voxel's fixed values: (kmf = 12.5, R1m = Fixed(:R1f), Sm = sm_map[v]).
     fixed = map(x -> _pick(x, v, T), spec.fixed)
     # 2. This voxel's starting point, as an SVector in the order F.
     θ0 = SVector{P,T}(Tuple(map(x -> _pick(x, v, T), spec.start)))

@@ -37,7 +37,7 @@ freenames(::FitSpec{F}) where {F} = F       # read the names back out of the typ
 
 # --- How each kind of user input becomes a role --------------------------------------------------
 
-# `fixed = (kmf = 15.0, B1 = b1map, R1m = p -> p.R1f)`: plain values become Fixed(value).
+# `fixed = (kmf = 15.0, B1 = b1map, R1m = :R1f)`: plain values become Fixed(value).
 _asfixed(x::Fixed) = x
 _asfixed(x::Free) = throw(ArgumentError("use `free` (not `fixed`) to estimate a parameter"))
 _asfixed(x) = Fixed(x)
@@ -58,8 +58,10 @@ _tofree(r::Free, n) = r
 _tofree(r::Fixed{<:Real}, n) = Free(r.value)
 _tofree(r::Fixed, n) = throw(ArgumentError("give `$n` a starting value: free = ($n = Free(init),)"))
 
-# Numbers are converted to the working precision; maps and ties are kept as they are.
+# Numbers are converted to the working precision; a tie by name becomes a `_Tie` (see
+# models/interface.jl); maps and function ties are kept as they are.
 _value(x::Real, ::Type{T}) where {T} = T(x)
+_value(x::Symbol, ::Type{T}) where {T} = _Tie(x)
 _value(x, ::Type{T}) where {T} = x
 
 """
@@ -68,7 +70,8 @@ _value(x, ::Type{T}) where {T} = x
 Combine the model's default roles with the user's choices and split the parameters into free
 and fixed:
 
-- `fixed`: named tuple of parameters to hold fixed: numbers, per-voxel maps or ties.
+- `fixed`: named tuple of parameters to hold fixed: numbers, per-voxel maps, or ties (the
+  name of another parameter, `R1m = :R1f`, or a function, `R1m = p -> 0.8 * p.R1f`).
 - `free`: parameters to estimate that the model fixes by default: names (`(:kmf,)`) or a
   named tuple of roles (`(kmf = Free(12.5; lower = 0),)`).
 - `start`: named tuple of starting values for free parameters: numbers or per-voxel maps.
@@ -97,6 +100,8 @@ function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), sta
     X = Tuple(n for n in names if roles[n] isa Fixed)    # e.g. (:kmf, :R1m, :Sm)
     isempty(F) && throw(ArgumentError("no free parameters: everything is fixed"))
     P = length(F)
+    # A tie by name (R1m = :R1f) must name a parameter that is not itself a tie.
+    _check_ties(map(r -> r isa Fixed ? r.value : r, roles))
 
     # 5. Starting values: each Free role's `init`, overridden by the `start` keyword. A `:scale`
     #    parameter gets the placeholder 1 here; `_fit_voxel` replaces it voxel by voxel.

@@ -79,7 +79,7 @@ parameters(::SIRFSE) = (
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
     M0f = Free(:scale; lower = 0),
     kmf = Fixed(12.5),
-    R1m = Fixed(p -> p.R1f),     # a tie
+    R1m = Fixed(:R1f),           # a tie: always equal to R1f
     Sm  = Fixed(0.83),
 )
 ```
@@ -87,8 +87,9 @@ parameters(::SIRFSE) = (
 - `Free(init; lower, upper)`: estimated, starting at `init` and kept within the bounds.
   `init = :scale` is for the parameter that scales the whole signal (S0, M0). It starts at
   the least-squares value given the other starts, so raw data need no normalization.
-- `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie, i.e. a
-  function of the other parameters such as `p -> p.R1f`.
+- `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
+  parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
+  `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie.
 
 Any fit can change the roles with three keywords, accepted by `fit` and `init`:
 

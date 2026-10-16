@@ -94,6 +94,32 @@ end
         @test_throws DimensionMismatch signal(SIRFSE(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
     end
 
+    @testset "ties: by name (Fixed(:R1f)) and by function" begin
+        m = SIRFSE(TI = TI5, TD = TD5)
+        @test parameters(m).R1m == Fixed(:R1f)                       # the default for SIRFSE
+        @test setup(m).fixed.R1m isa MRISignalModels._Tie{:R1f}       # name known to the compiler
+        free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
+        # simulation: tie by name == tie by function == the value written out
+        @test signal(m, free) == signal(m, merge(free, (R1m = p -> p.R1f,))) ==
+              signal(m, merge(free, (R1m = 1.1,)))
+        # fitting: the override forms give the same fit as the default
+        y = signal(m, free)
+        r = fit(m, y)
+        @test r.params == fit(m, y; fixed = (R1m = :R1f,)).params
+        @test r.params.PSR ≈ fit(m, y; fixed = (R1m = p -> p.R1f,)).params.PSR rtol = 1e-10
+        # a tie can follow a per-voxel map: an R1 map fixes R1f, and R1m follows it
+        r1 = [0.7, 1.0, 1.4]
+        Y = reduce(vcat, [permutedims(signal(m, merge(free, (R1f = v,)))) for v in r1])
+        res = fit(m, Y; fixed = (R1f = r1,))
+        @test keys(res.params) == (:PSR, :Sf, :M0f)
+        @test res.params.PSR ≈ fill(0.12, 3) rtol = 1e-6
+        # mistakes are caught before fitting
+        @test_throws ArgumentError setup(m; fixed = (R1m = :R1F,))   # not a parameter
+        @test_throws ArgumentError setup(m; fixed = (R1m = :R1m,))   # tied to itself
+        @test_throws ArgumentError setup(m; fixed = (Sm = :R1m,))    # tied to a tie
+        @test_throws ArgumentError signal(m, merge(free, (R1m = :nope,)))
+    end
+
     @testset "parameter roles (setup)" begin
         m = SIRFSE(TI = TI5, TD = TD5)
         s = setup(m)

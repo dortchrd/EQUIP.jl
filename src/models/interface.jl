@@ -97,16 +97,18 @@ Role of a parameter that is not estimated. `value` is
 
 - a number, the same for every voxel: `Fixed(12.5)`
 - a per-voxel map, an array with one value per voxel (e.g. a B1 map): `Fixed(b1map)`
-- a tie, a function of the other parameters: `Fixed(p -> p.R1f)`. A tie may use free or
-  fixed parameters, but not another tie.
+- a tie to another parameter, given by its name: `Fixed(:R1f)` ("always equal to R1f")
+- a tie given by a function of the other parameters: `Fixed(p -> 0.8 * p.R1f)`
+
+A tie may use free or fixed parameters (including per-voxel maps), but not another tie.
 """
 struct Fixed{T}
     value::T
 end
 # `Fixed{T}` is a *parametric* type: T is the type of `value`, so `Fixed(12.5)` is a
-# `Fixed{Float64}`, `Fixed(b1map)` a `Fixed{Matrix{Float64}}`, `Fixed(p -> p.R1f)` a
-# `Fixed{var"#1#2"}` (every anonymous function has its own type). Keeping the exact type lets
-# the compiler generate fast, specialized code for each case.
+# `Fixed{Float64}`, `Fixed(b1map)` a `Fixed{Matrix{Float64}}`, `Fixed(:R1f)` a `Fixed{Symbol}`
+# and `Fixed(p -> 0.8 * p.R1f)` a `Fixed{var"#1#2"}` (every anonymous function has its own type).
+# Keeping the exact type lets the compiler generate fast, specialized code for each case.
 
 """
     parameters(m) -> NamedTuple
@@ -190,14 +192,43 @@ _to_precision(x, ::Type{T}) where {T} = x
 # Building the complete parameter set
 # -------------------------------------------------------------------------------------------------
 
-# Ties are resolved by calling the function with the parameter set itself:
-# `(R1f = 1.2, R1m = p -> p.R1f)` becomes `(R1f = 1.2, R1m = 1.2)`.
-# Two methods of `_resolve1`: Julia picks the first when `x` is a Function, the second otherwise.
+# A tie by name, `Fixed(:R1f)`, is turned into `_Tie{:R1f}()` before fitting. The name is a
+# *type parameter* (like F in FitSpec), so the compiler knows which field to read: resolving the
+# tie is a plain field access. (Reading a field whose name is only known at run time would be
+# slow, because the compiler could not know its type.)
+struct _Tie{S} end
+_Tie(name::Symbol) = _Tie{name}()
+Base.show(io::IO, ::_Tie{S}) where {S} = print(io, "Fixed(:", S, ")")
+
+# Ties are resolved with the parameter set itself:
+# `(R1f = 1.2, R1m = _Tie{:R1f}())` and `(R1f = 1.2, R1m = p -> p.R1f)` both become
+# `(R1f = 1.2, R1m = 1.2)`. Julia picks the `_resolve1` method by the type of `x`.
+@inline _resolve1(::_Tie{S}, p) where {S} = getfield(p, S)
 @inline _resolve1(x::Function, p) = x(p)
 @inline _resolve1(x, p) = x
 @inline _resolve(p::NamedTuple) = map(x -> _resolve1(x, p), p)
 # `map(f, namedtuple)` applies f to every value and keeps the names. Because the field types are
 # known to the compiler, this compiles to plain field reads: no loop, no allocation.
+
+# Ties by name are turned into `_Tie`s; everything else is kept as it is.
+_tie(x::Symbol) = _Tie(x)
+_tie(x) = x
+
+_istie(x) = x isa Union{Symbol,_Tie,Function}
+
+# Check the ties among the values `vals` (a named tuple of parameter values or fixed values):
+# a tie by name must name another parameter that is not itself a tie. (Function ties cannot be
+# checked before they run.)
+function _check_ties(vals::NamedTuple)
+    for (n, v) in pairs(vals)
+        v isa Symbol || continue
+        v === n && throw(ArgumentError("`$n` cannot be tied to itself"))
+        haskey(vals, v) ||
+            throw(ArgumentError("`$n` is tied to `$v`, which is not a parameter; the parameters are $(keys(vals))"))
+        _istie(vals[v]) &&
+            throw(ArgumentError("`$n` is tied to `$v`, which is itself a tie; tie `$n` to what `$v` is tied to"))
+    end
+end
 
 function _check_names(kind, given, known)
     for n in given
@@ -215,7 +246,9 @@ function _allparams(m::MRIModel, p::NamedTuple)
         roles[n] isa Fixed ? roles[n].value :
         throw(ArgumentError("`p` must give `$n`: it is Free and has no fixed default"))
     end
-    return _resolve(NamedTuple{keys(roles)}(vals))
+    q = NamedTuple{keys(roles)}(vals)
+    _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
+    return _resolve(map(_tie, q))
 end
 
 """

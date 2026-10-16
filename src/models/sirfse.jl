@@ -38,7 +38,7 @@ parameters(::SIRFSE) = (
     Sf = Free(-0.95; lower = -1.2, upper = 0),
     M0f = Free(:scale; lower = 0),
     kmf = Fixed(12.5),
-    R1m = Fixed(p -> p.R1f),            # tie: R1m equals R1f (the paper's assumption)
+    R1m = Fixed(:R1f),                  # tie: R1m equals R1f (the paper's assumption)
     Sm = Fixed(0.83),
 )
 

@@ -64,7 +64,7 @@ parameters(::SIRFSE) = (                       # 2. every parameter with its def
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
     M0f = Free(:scale; lower = 0),             # starts at the least-squares signal scale
     kmf = Fixed(12.5),
-    R1m = Fixed(p -> p.R1f),                   # tie
+    R1m = Fixed(:R1f),                         # tie: always equal to R1f
     Sm  = Fixed(0.83),
 )
 
@@ -85,9 +85,18 @@ for simulation.
   multiplies the whole signal. A `:scale` parameter starts, per voxel, at
   (s·y)/(s·s), where s is the signal at scale 1 given the other starts. This one generic rule
   replaces data normalization. Model-specific guesses are deferred.
-- `Fixed(value)`: not estimated. `value` is a number, a per-voxel map, or a tie (a function of
-  the other parameters, resolved after the free values are merged in, so derivatives flow
-  through it). A tie may not refer to another tie.
+- `Fixed(value)`: not estimated. `value` is a number, a per-voxel map, or a tie, resolved after
+  the free values are merged in, so derivatives flow through it. A tie may not refer to another
+  tie.
+  - **By name**, `Fixed(:R1f)`: always equal to R1f. The common case. It is checked in `setup`
+    (the name must exist and must not be a tie), can be written in config files and on a command
+    line later, and becomes `_Tie{:R1f}()`, so resolving it is a field read whose name the
+    compiler knows.
+  - **By function**, `Fixed(p -> 0.8 * p.R1f)`: for real relations; a named function for long
+    ones. Cannot be checked before it runs.
+  - An R1 map as a constraint on SIR needs no extra feature: with R1m = R1f the slow two-pool
+    rate is exactly R1f, so `fixed = (R1f = r1map,)` does it. (A formula R1f(R1obs, …) would
+    only be needed if R1m ≠ R1f; that would require auxiliary per-voxel inputs. Not planned.)
 
 Fit-time overrides: `fixed = (name = value, ...)`; `free = (:name, ...)` or
 `free = (name = Free(...), ...)`; `start = (name = number_or_map, ...)`. A non-finite value in
