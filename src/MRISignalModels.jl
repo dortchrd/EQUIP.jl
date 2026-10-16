@@ -42,13 +42,13 @@ export ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE         # bu
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
 
 # models: the interface every model implements, and the built-in models
-include("models/interface.jl")   # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
-include("models/builtin.jl")     # ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE
+include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
+include("models/builtin.jl")           # ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE
 
 # fit: from a model and data to fitted parameters
-include("fit/lm.jl")             # the Levenberg–Marquardt solver for one voxel
-include("fit/setup.jl")          # parameter roles + fixed/free/start -> FitSpec
-include("fit/cache.jl")          # init -> FitCache; fit! -> one voxel
-include("fit/fit.jl")            # fit: one voxel, or every voxel of a dataset (threaded)
+include("fit/levenberg_marquardt.jl")  # the solver for one voxel
+include("fit/setup.jl")                # parameter roles + fixed/free/start -> FitSpec
+include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
+include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
 
 end # module

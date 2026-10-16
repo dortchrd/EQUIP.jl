@@ -198,7 +198,8 @@ The code is in layers; each only uses the ones before it:
 src/
   MRISignalModels.jl      the module: dependencies, exports, includes
   models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl, one file per model
-  fit/                    lm.jl (solver), setup.jl (roles -> FitSpec), cache.jl (init, fit!), fit.jl (fit)
+  fit/                    levenberg_marquardt.jl (solver), setup.jl (roles -> FitSpec),
+                          cache.jl (init, fit!), fit.jl (fit)
 ```
 
 `docs/design.md` records the design decisions.

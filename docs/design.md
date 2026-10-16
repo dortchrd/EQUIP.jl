@@ -139,8 +139,8 @@ src/
   MRISignalModels.jl   the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
                        builtin.jl + one file per model
-  fit/                 lm.jl (solver), setup.jl (roles -> FitSpec), cache.jl (init, fit!),
-                       fit.jl (fit: one voxel or a dataset, threaded)
+  fit/                 levenberg_marquardt.jl (solver), setup.jl (roles -> FitSpec),
+                       cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
   analysis/            (later) CRLB, Monte Carlo, sensitivity
   design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader

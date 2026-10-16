@@ -6,7 +6,7 @@
 #        ▼  init         FitSpec + model + solver options + work buffers
 #   FitCache             reusable state, like LsqFit's OnceDifferentiable. Made ONCE (per thread).
 #        │
-#        ▼  fit!         copy one voxel's data in, pick its map values, run LM (lm.jl).
+#        ▼  fit!         copy one voxel's data in, pick its map values, run LM (levenberg_marquardt.jl).
 #   VoxelResult          Called once per voxel; allocates nothing.
 # =================================================================================================
 
@@ -21,7 +21,7 @@ cache per thread (`fit` on a dataset does this for you).
 struct FitCache{M,S<:FitSpec,T,B}
     model::M            # the model, its acquisition vectors converted to precision T
     spec::S
-    opts::LMOptions{T}
+    opts::SolverOptions{T}
     buf::B              # Vector{Dual{FitTag,T,P}}: the model output, one per observation
     y::Vector{T}        # the current voxel's data
 end
@@ -42,7 +42,7 @@ Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 - `fixed`, `free`, `start`: override the model's parameter roles (see [`setup`](@ref)).
   Maps (arrays) are indexed by the `voxel` keyword of `fit!`.
 - `precision`: `Float64` or `Float32`.
-- `maxiter`, `xtol`, `ftol`, `gtol`, `damping`: solver settings ([`LMOptions`](@ref)).
+- `maxiter`, `xtol`, `ftol`, `gtol`, `damping`: solver settings ([`SolverOptions`](@ref)).
 
 `init` is `CommonSolve.init`, the SciML convention, so it does not clash with other packages.
 """
@@ -51,7 +51,7 @@ function CommonSolve.init(model::MRIModel; fixed = (;), free = (), start = (;),
     T = precision
     n = nobs(model)                                # also checks the acquisition's lengths
     spec = setup(model, T; fixed, free, start)    # `; fixed` is short for `; fixed = fixed`
-    opts = LMOptions{T}(; kwargs...)               # remaining keywords go to the solver
+    opts = SolverOptions{T}(; kwargs...)               # remaining keywords go to the solver
     return _cache(_with_precision(model, T), spec, opts, n)
 end
 
@@ -132,7 +132,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end
     # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...).
-    r = lm_fit(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
+    r = levenberg_marquardt(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
     return VoxelResult(NamedTuple{F}(Tuple(r.θ)), r.sse, r.iterations, r.status)
 end
 

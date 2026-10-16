@@ -62,7 +62,7 @@ isconverged(s::FitStatus) = s == ConvergedX || s == ConvergedF || s == Converged
 isconverged(s::Integer) = isconverged(FitStatus(s))
 
 """
-    LMOptions{T}(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
+    SolverOptions{T}(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
 
 Solver settings (keywords of `init` and `fit`). Default tolerances depend on precision:
 `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for Float64; `1e-5, 1e-6, 1e-5` for Float32.
@@ -72,7 +72,7 @@ Solver settings (keywords of `init` and `fit`). Default tolerances depend on pre
 - `gtol`: stop when the scale-free gradient max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) is below `gtol`.
 - `damping`: starting μ, relative to diag(JᵀJ).
 """
-struct LMOptions{T<:AbstractFloat}
+struct SolverOptions{T<:AbstractFloat}
     maxiter::Int32
     xtol::T
     ftol::T
@@ -84,15 +84,15 @@ _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
 _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 
 # Keyword constructor. `something(a, b)` returns `a` unless it is `nothing`, then `b`.
-function LMOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothing, gtol = nothing,
+function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothing, gtol = nothing,
                       damping = 1e-3) where {T}
     dx, df, dg = _default_tols(T)
-    return LMOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
+    return SolverOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
                         T(something(gtol, dg)), T(damping))
 end
 
-# Internal result of `lm_fit` (the public one, `VoxelResult`, adds parameter names).
-struct LMResult{P,T}
+# Internal result of `levenberg_marquardt` (the public one, `VoxelResult`, adds parameter names).
+struct SolverResult{P,T}
     θ::SVector{P,T}
     sse::T
     iterations::Int32
@@ -247,18 +247,18 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    lm_fit(prob, θ0, lower, upper, opts, buf) -> LMResult
+    levenberg_marquardt(prob, θ0, lower, upper, opts, buf) -> SolverResult
 
 Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper` (all
 `SVector{P,T}`). `buf` holds one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
-function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                opts::LMOptions{T}, buf) where {P,T}
+function levenberg_marquardt(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T},
+                             hi::SVector{P,T}, opts::SolverOptions{T}, buf) where {P,T}
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)
     if !(isfinite(sse) && _allfinite(g) && _allfinite(diag(A)))
-        return LMResult(θ, sse, Int32(0), Failed)
+        return SolverResult(θ, sse, Int32(0), Failed)
     end
     d = max.(diag(A), floatmin(T) / eps(T))     # Marquardt scaling (kept strictly positive)
     μ = opts.damping                            # damping
@@ -266,7 +266,7 @@ function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
     iter = Int32(0)
     status = MaxIterations
     _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) &&
-        return LMResult(θ, sse, iter, ConvergedG)
+        return SolverResult(θ, sse, iter, ConvergedG)
 
     while iter < opts.maxiter
         iter += Int32(1)
@@ -319,5 +319,5 @@ function lm_fit(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             ν *= 2
         end
     end
-    return LMResult(θ, sse, iter, status)
+    return SolverResult(θ, sse, iter, status)
 end
