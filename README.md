@@ -218,6 +218,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
 - Model-specific data-driven starting values; starts from neighbouring voxels
+- Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
+  neighbouring voxels), then a refit from neighbour starts or replacement by a neighbourhood
+  average, marked in the status map
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file

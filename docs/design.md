@@ -231,8 +231,21 @@ weights, other data layouts, precompilation, more models.
      in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
-3. **Starting values**: model-specific guesses, neighbour/previous-voxel starts with quality
-   gates, refitting failed voxels.
+3. **Starting values and outliers**:
+   - Starting values: model-specific guesses, neighbour/previous-voxel starts with quality
+     gates.
+   - Outlier detection after a dataset fit, from what the fit already reports: status (hit
+     `maxiter`, failed, invalid), a parameter that ended at a bound (the `FitResult` flag of
+     item 1), and a large deviation from the local neighbourhood (e.g. distance from the
+     median of the surrounding voxels, in units of a robust spread such as the MAD).
+   - Then, per outlier, either refit starting from its neighbours' values (keep the refit if
+     it converges, within bounds, with a lower SSE), or replace it with a neighbourhood
+     average. Mark replaced voxels in the status map, so they are never mistaken for fitted
+     values.
+   - Bounds stay on by default: measured on SIR-FSE (5-point scheme, SNR 100), they cost
+     nothing for good voxels (2.98 vs 3.00 µs, same iterations and results) and make bad ones
+     faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
+     values outside [0, 1]). Unbounded fits remain possible per fit via `free`.
 4. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
