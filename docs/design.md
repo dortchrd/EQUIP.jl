@@ -157,6 +157,23 @@ for a package built around its own types) and the `MRI…` names of the MRI ecos
 against the General registry (Oct 2026): unregistered. `QuantitativeMRI` is taken
 (aTrotier/QuantitativeMRI.jl).
 
+## Performance notes
+
+- **SIRFSE `signal!` stays in its step-by-step form** (recover over TD, invert, recover over
+  TI), which follows the paper's derivation. A rearranged version was tested: all parameter-only
+  work folded into six coefficients, so each observation needs `s = M0f + A·exp(-R1⁺·TI) +
+  B·exp(-R1⁻·TI)` with A, B depending only on TD, reused when TD repeats. Same values and
+  derivatives. Whole-voxel fit: 1.05× faster on the paper's optimized 5-point scheme (every point
+  has its own TD), 1.6× on a 16-point scheme with one TD. Kept the readable form; revisit if
+  Monte Carlo or protocol optimization on constant-TD schemes becomes speed-limited.
+- **A matrix-exponential SIRFSE (Eq. 1 as written) is slower**: Base `exp` on 2×2 matrices is
+  ~180× slower than the closed form and cannot take dual numbers; with StaticArrays 2×2 matrices
+  it is ~3× slower and works with duals. A reasonable fallback for models without a convenient
+  closed form.
+- **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
+  voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
+  work into one block per thread). See the comment in `src/fit/fit.jl`.
+
 ## Scope so far
 
 In: the interface above, five models (ExpDecay, InversionRecovery, SaturationRecovery, MFA,
