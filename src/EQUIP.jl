@@ -1,7 +1,8 @@
 """
-    MRISignalModels
+    EQUIP
 
-MRI signal models and fast voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...).
+**E**stimation of **QU**antitative **I**maging **P**arameters: MRI signal models and fast
+voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...).
 
 A model is three pieces (see [`MRIModel`](@ref)):
 
@@ -17,7 +18,7 @@ Main entry points:
   or N-d array, observations last; threaded).
 - [`init`](@ref)`(m; ...)` + [`fit!`](@ref)`(cache, y)`: a reusable cache, for your own loops.
 """
-module MRISignalModels
+module EQUIP
 
 # --- Dependencies -------------------------------------------------------------------------------
 # `using X` makes X's exported names available here. `import X: f` lets us *add methods* to a
@@ -32,8 +33,8 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (StatsBase, GLM, ...)
 
 # --- Public names -------------------------------------------------------------------------------
-# `export` lists the names a user gets with `using MRISignalModels`. Everything else is still
-# reachable as `MRISignalModels.name` (e.g. `MRISignalModels.setup`), just not brought into scope.
+# `export` lists the names a user gets with `using EQUIP`. Everything else is still
+# reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
 export ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE         # built-in models

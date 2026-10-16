@@ -166,7 +166,7 @@ function nobs(m::MRIModel)
         throw(DimensionMismatch("$name: the per-observation fields have different lengths, $lens"))
     return lens[1]
 end
-# `nobs` is StatsAPI's function (imported in MRISignalModels.jl); this adds a method for every
+# `nobs` is StatsAPI's function (imported in EQUIP.jl); this adds a method for every
 # MRIModel. A specific model can add its own, more specific method, e.g.
 # `nobs(m::T2Spectrum) = length(m.TE)`, and Julia will pick that one for it.
 #

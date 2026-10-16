@@ -1,4 +1,4 @@
-# MRISignalModels design (0.3)
+# EQUIP design (0.3)
 
 The design decisions, recorded so the code and the discussion share one reference.
 
@@ -136,7 +136,7 @@ bounds by projection with an active set, Cholesky without exceptions.
 
 ```
 src/
-  MRISignalModels.jl   the module: dependencies, exports, includes
+  EQUIP.jl             the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
                        builtin.jl + one file per model
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
@@ -167,11 +167,15 @@ bench/                 (later) own Project.toml (BenchmarkTools, LsqFit): speed 
   folders, following the one-repository-several-packages pattern of KomaMRI (KomaMRIBase,
   KomaMRICore, ...) and MRIReco (MRIBase, ...).
 
-**Name.** `MRISignalModels`: the signal model is what fitting, CRLB, Monte Carlo, sensitivity
-analysis and protocol design have in common. It follows Julia's conventions (CamelCase, plural
-for a package built around its own types) and the `MRI…` names of the MRI ecosystem. Checked
-against the General registry (Oct 2026): unregistered. `QuantitativeMRI` is taken
-(aTrotier/QuantitativeMRI.jl).
+**Name.** `EQUIP`: **E**stimation of **QU**antitative **I**maging **P**arameters (the expansion
+can grow to "…Parameters and Protocols" as protocol design becomes central). A pronounceable
+word, specific about what the package does; ".jl" already says "in Julia" (Julia's naming
+guidelines advise against "Julia"/"Ju" in names). All-caps acronyms are fine in Julia (DECAES,
+DICOM). Earlier names: VoxelFit (only fitting), MRISignalModels (descriptive but long).
+Alternatives considered: Quanta, Saguaro, Larmor, DESQ, QUIJOTE; avoided QUIT (an existing C++
+qMRI toolbox), QUEST (an MRS method), QED (quantum-electrodynamics packages), and the
+institute's name (implies endorsement). Checked against the General registry (Oct 2026):
+unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Performance notes
 

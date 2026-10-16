@@ -1,9 +1,10 @@
-# MRISignalModels.jl
+# EQUIP.jl
 
-MRI signal models and fast voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...). Built
-for millions of small fits: fewer than 10 parameters and fewer than 100 observations per voxel.
-A custom Levenberg–Marquardt solver with automatic derivatives fits one voxel in a few
-microseconds without allocating memory, and threads spread the voxels over your CPU cores.
+**E**stimation of **QU**antitative **I**maging **P**arameters: MRI signal models and fast
+voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...). Built for millions of small fits:
+fewer than 10 parameters and fewer than 100 observations per voxel. A custom
+Levenberg–Marquardt solver with automatic derivatives fits one voxel in a few microseconds
+without allocating memory, and threads spread the voxels over your CPU cores.
 
 The signal model is the center of the package. Fitting comes first; CRLB, Monte Carlo,
 sensitivity analysis and protocol optimization will build on the same models (see
@@ -12,7 +13,7 @@ sensitivity analysis and protocol optimization will build on the same models (se
 ## Install and test
 
 ```julia
-] dev /path/to/MRISignalModels.jl
+] dev /path/to/EQUIP.jl
 ```
 
 ```sh
@@ -34,7 +35,7 @@ stands for all of them, e.g. `MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times
 ## Quick start
 
 ```julia
-using MRISignalModels
+using EQUIP
 
 m = SIRFSE(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
@@ -141,8 +142,8 @@ Voxels that are not fitted hold NaN.
 A model is a struct, a `parameters` method and a `signal!` method:
 
 ```julia
-using MRISignalModels
-import MRISignalModels: parameters, signal!     # we add methods to these functions
+using EQUIP
+import EQUIP: parameters, signal!     # we add methods to these functions
 
 @kwdef struct T2Offset{A<:AbstractVector} <: MRIModel
     TE::A                                # echo times (s), one per observation
@@ -196,7 +197,7 @@ The code is in layers; each only uses the ones before it:
 
 ```
 src/
-  MRISignalModels.jl      the module: dependencies, exports, includes
+  EQUIP.jl                the module: dependencies, exports, includes
   models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl, one file per model
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec),
                           cache.jl (init, fit!), fit.jl (fit)

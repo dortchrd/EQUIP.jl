@@ -100,7 +100,7 @@ function fit!(c::FitCache, y::AbstractVector; voxel::Integer = 1)
     copyto!(c.y, y)                    # into the cache: contiguous and in precision T
     return _fit_voxel(c, c.spec, voxel)
 end
-# `fit!` is StatsAPI's function (imported in MRISignalModels.jl); this adds a method for FitCache.
+# `fit!` is StatsAPI's function (imported in EQUIP.jl); this adds a method for FitCache.
 
 # Per-voxel values: a map is indexed by the voxel; numbers and ties pass through unchanged.
 @inline _pick(x::AbstractArray, v, ::Type{T}) where {T} = @inbounds T(x[v])

@@ -11,7 +11,7 @@
 # data always means "one voxel".
 #
 # `fit` and `fit!` are not our own functions: they belong to StatsAPI.jl (the interface package
-# behind StatsBase, GLM, Distributions). We add methods for our types, so `using MRISignalModels,
+# behind StatsBase, GLM, Distributions). We add methods for our types, so `using EQUIP,
 # StatsBase` works without a name clash.
 #
 # Many voxels: the dataset is never copied. `reshape(data, nvox, M)` is a 2-D *view* of the same

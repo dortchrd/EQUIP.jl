@@ -1,7 +1,7 @@
-# Tests for MRISignalModels. Run with threads so the parallel path is exercised:
+# Tests for EQUIP. Run with threads so the parallel path is exercised:
 #     julia -t 4 --project=. -e 'using Pkg; Pkg.test()'
-using MRISignalModels
-using MRISignalModels: setup, freenames      # internal functions that the tests inspect
+using EQUIP
+using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
 using Test
@@ -34,7 +34,7 @@ function sir_eq1(TI, TD; PSR, R1f, Sf, M0f, kmf, R1m, Sm, magnitude = true)
     end
 end
 
-@testset "MRISignalModels" begin
+@testset "EQUIP" begin
 
     @testset "noise-free recovery from default starts: $(nameof(typeof(m)))" for (m, truth) in CASES
         y = signal(m, truth)
@@ -97,7 +97,7 @@ end
     @testset "ties: by name (Fixed(:R1f)) and by function" begin
         m = SIRFSE(TI = TI5, TD = TD5)
         @test parameters(m).R1m == Fixed(:R1f)                       # the default for SIRFSE
-        @test setup(m).fixed.R1m isa MRISignalModels._Tie{:R1f}       # name known to the compiler
+        @test setup(m).fixed.R1m isa EQUIP._Tie{:R1f}       # name known to the compiler
         free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
         # simulation: tie by name == tie by function == the value written out
         @test signal(m, free) == signal(m, merge(free, (R1m = p -> p.R1f,))) ==
@@ -178,7 +178,7 @@ end
         # a NaN in a map marks only that voxel invalid
         sm[7] = NaN
         res = fit(m, Y; fixed = (Sm = sm,))
-        @test res.status[7] == UInt8(MRISignalModels.InvalidData) && isnan(res.params.PSR[7])
+        @test res.status[7] == UInt8(EQUIP.InvalidData) && isnan(res.params.PSR[7])
         @test all(isconverged, res.status[setdiff(1:n, 7)])
     end
 
@@ -196,9 +196,9 @@ end
         res = fit(m, data; mask)
         @test keys(res) == (:params, :sse, :status) && keys(res.params) == (:S0, :T2)
         @test size(res.params.T2) == (nx, ny, nz)
-        @test res.status[1, 1, 1] == UInt8(MRISignalModels.InvalidData)
+        @test res.status[1, 1, 1] == UInt8(EQUIP.InvalidData)
         @test all(isnan, res.params.T2[.!mask]) && all(==(0), res.status[.!mask])
-        good = mask .& (res.status .!= UInt8(MRISignalModels.InvalidData))
+        good = mask .& (res.status .!= UInt8(EQUIP.InvalidData))
         @test all(isconverged, res.status[good])
         @test maximum(abs.(res.params.T2[good] .- T2[good]) ./ T2[good]) < 0.05
 
