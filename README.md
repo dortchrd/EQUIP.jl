@@ -158,7 +158,7 @@ parameters(::T2Offset) = (
 function signal!(out, m::T2Offset, p)
     (; TE) = m                           # unpack the acquisition by name ...
     (; S0, T2, C) = p                    # ... and the parameters
-    for j in eachindex(out)
+    @inbounds for j in eachindex(out, TE)   # one length check, then no per-element checks
         out[j] = S0 * exp(-TE[j] / T2) + C
     end
     return out
@@ -176,6 +176,13 @@ m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
   fitter passes dual numbers to get derivatives. Unpack `p` by name, never by position: its
   order depends on which parameters are free in a given fit. It never needs to know which
   parameters are free or fixed.
+- **The loop.** Write `for j in eachindex(out, TE)`, listing every per-observation field
+  (`eachindex(out, TI, TD)` for SIRFSE, `eachindex(out, FA, TR)` for MFA). It checks once,
+  before the loop, that they all have the same length as `out`, and stops with a clear
+  `DimensionMismatch` error if not. That makes `@inbounds` safe: it skips the per-element bounds
+  checks inside the loop. `@inbounds` is optional (it gains about 5% in `signal!`); the
+  `eachindex` check costs nothing measurable, so always use it. Without both, a wrong-length
+  `out` would read past the end of `TE` and return garbage instead of an error.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.

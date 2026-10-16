@@ -37,7 +37,7 @@ parameters(::MFA) = (
 function signal!(out, m::MFA, p)
     (; FA, TR) = m
     (; M0, T1, B1) = p
-    @inbounds for j in eachindex(out)
+    @inbounds for j in eachindex(out, FA, TR)
         sinα, cosα = sincos(B1 * deg2rad(FA[j]))   # actual flip angle in radians
         E1 = exp(-TR[j] / T1)
         out[j] = M0 * sinα * (1 - E1) / (1 - cosα * E1)

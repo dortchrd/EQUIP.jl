@@ -64,7 +64,7 @@ function signal!(out, m::SIRFSE, p)
     bm_td⁺ = -(R1m - R1⁻) * invΔR1                    # macromolecular pool
     bm_td⁻ = (R1m - R1⁺) * invΔR1
 
-    @inbounds for j in eachindex(out)
+    @inbounds for j in eachindex(out, TI, TD)
         E_td⁺, E_td⁻ = exp(-R1⁺ * TD[j]), exp(-R1⁻ * TD[j])
         E_ti⁺, E_ti⁻ = exp(-R1⁺ * TI[j]), exp(-R1⁻ * TI[j])
 

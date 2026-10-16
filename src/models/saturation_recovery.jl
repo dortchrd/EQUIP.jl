@@ -22,7 +22,7 @@ parameters(::SaturationRecovery) = (
 function signal!(out, m::SaturationRecovery, p)
     (; TD) = m
     (; M0, T1) = p
-    @inbounds for j in eachindex(out)
+    @inbounds for j in eachindex(out, TD)
         out[j] = M0 * (1 - exp(-TD[j] / T1))
     end
     return out

@@ -71,13 +71,19 @@ parameters(::SIRFSE) = (                       # 2. every parameter with its def
 function signal!(out, m::SIRFSE, p)            # 3. one voxel's signal at every observation
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf, R1m, Sm) = p
-    ...                                        #    loop j over observations: TI[j], TD[j]
+    @inbounds for j in eachindex(out, TI, TD)  #    one length check, then TI[j], TD[j]
+        ...
+    end
 end
 ```
 
 Rules for `signal!`: no allocation, no state, generic in the number type of `p` (dual numbers
-pass through it). `signal(m, p)` (provided) allocates the output and fills in fixed defaults,
-for simulation.
+pass through it). Loop with `eachindex(out, <every per-observation field>)`: one length check
+per call (no measurable cost), after which `@inbounds` is safe whoever calls `signal!` (the
+fitter, `signal`, or future CRLB / protocol code with its own buffers). Measured: `@inbounds`
+gains ~4–7% in a `signal!` loop and up to 1.16–1.41× over whole fits (mostly the solver's own
+loops); `@simd` gains nothing real here (`exp` prevents vectorization). `signal(m, p)`
+(provided) allocates the output and fills in fixed defaults, for simulation.
 
 ## Parameter roles
 

@@ -26,7 +26,7 @@ Supertype of all signal models. A model is three pieces:
    [`Free`](@ref) or [`Fixed`](@ref), as a named tuple.
 3. [`signal!`](@ref)`(out, m, p)`: one voxel's signal at every observation.
 
-Example (see `src/models.jl` for more):
+Example (see `src/models/` for more):
 
 ```julia
 @kwdef struct ExpDecay{A<:AbstractVector} <: MRIModel
@@ -38,7 +38,7 @@ parameters(::ExpDecay) = (S0 = Free(:scale; lower = 0), T2 = Free(0.05; lower = 
 function signal!(out, m::ExpDecay, p)
     (; TE) = m                     # unpack the acquisition by name ...
     (; S0, T2) = p                 # ... and the parameters
-    for j in eachindex(out)
+    @inbounds for j in eachindex(out, TE)   # checks once that out and TE match
         out[j] = S0 * exp(-TE[j] / T2)
     end
     return out
@@ -136,6 +136,9 @@ Write one voxel's signal at every observation into `out` and return `out`.
 
 Unpack both by name at the top: `(; TI, TD, magnitude) = m` and `(; PSR, R1f, ...) = p`. (Do
 not rely on the ORDER of `p`: it depends on which parameters are free in a given fit.)
+
+Loop with `for j in eachindex(out, TI, TD)`, listing every per-observation field: it checks
+once that their lengths match `out` (an error otherwise), which also makes `@inbounds` safe.
 
 Rules: no allocation, no state, and generic in the number type of `p`. The fitter calls it
 with dual numbers (value + derivatives), so do not force values to `Float64`.

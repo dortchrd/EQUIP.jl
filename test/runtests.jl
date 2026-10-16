@@ -47,6 +47,13 @@ end
         end
     end
 
+    @testset "signal! checks lengths when called directly: $(nameof(typeof(m)))" for (m, truth) in CASES
+        n = nobs(m)
+        @test signal!(zeros(n), m, truth) ≈ signal(m, truth)
+        @test_throws DimensionMismatch signal!(zeros(n + 1), m, truth)   # would read past the end
+        @test_throws DimensionMismatch signal!(zeros(n - 1), m, truth)
+    end
+
     @testset "fit! does not allocate" begin
         for (m, truth) in CASES, T in (Float64, Float32)
             y = signal(m, truth) .* (1 .+ 0.01 .* randn(MersenneTwister(0), nobs(m)))

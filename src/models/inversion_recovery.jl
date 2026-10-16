@@ -26,7 +26,7 @@ parameters(::InversionRecovery) = (
 function signal!(out, m::InversionRecovery, p)
     (; TI, magnitude) = m
     (; M0, B, T1) = p
-    @inbounds for j in eachindex(out)
+    @inbounds for j in eachindex(out, TI)
         s = M0 * (1 - B * exp(-TI[j] / T1))
         out[j] = magnitude ? abs(s) : s
     end

@@ -20,7 +20,9 @@
 #   2. fill method      (optional) lets one number stand for every observation, e.g. one TR.
 #   3. parameters(m)    every parameter with its default role.
 #   4. signal!(out, m, p)
-#                       unpack the model and the parameters by name, then loop over observations.
+#                       unpack the model and the parameters by name, then loop over observations
+#                       with `@inbounds for j in eachindex(out, <every per-observation field>)`:
+#                       eachindex checks once that the lengths match, so @inbounds is safe.
 # =================================================================================================
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
