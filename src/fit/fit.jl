@@ -31,7 +31,7 @@ numbers, e.g. `r.params.T1`, `r.status`. Keywords as for [`init`](@ref).
 For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
 
 ```julia
-m = SIRFSE(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
+m = SIR(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
 r = fit(m, y; fixed = (kmf = 15.0,))
 r.params.PSR
 ```

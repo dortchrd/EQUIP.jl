@@ -31,7 +31,7 @@ function Base.show(io::IO, c::FitCache{M,S,T}) where {M,S,T}
           ", ", length(c.y), " observations, ", T, ")")
 end
 # Adding a method to `Base.show` controls how the object prints in the REPL. `nameof(M)` is the
-# model's bare type name, e.g. `SIRFSE`.
+# model's bare type name, e.g. `SIR`.
 
 """
     init(model; fixed = (;), free = (), start = (;), precision = Float64,
@@ -89,7 +89,7 @@ Fit one voxel's data `y` (one value per observation). `voxel` is the voxel's lin
 any per-voxel maps given as `fixed` or `start` values. Does not allocate.
 
 ```julia
-cache = init(SIRFSE(TI = TI, TD = TD); fixed = (kmf = 15.0,))
+cache = init(SIR(TI = TI, TD = TD); fixed = (kmf = 15.0,))
 r = fit!(cache, y)
 r.params.PSR
 ```

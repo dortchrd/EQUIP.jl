@@ -13,7 +13,7 @@
 # Each model follows the same pattern:
 #
 #   1. @kwdef struct    fields = the acquisition (one value per observation) and options.
-#                       `@kwdef` gives the keyword constructor, e.g. `SIRFSE(TI = ..., TD = ...)`.
+#                       `@kwdef` gives the keyword constructor, e.g. `SIR(TI = ..., TD = ...)`.
 #                       Each vector field gets its own type parameter (A, B, ...), so a field can
 #                       be any kind of vector (Vector, range, ...) and Julia still knows its
 #                       exact type. `init` converts them to plain float vectors for fitting.
@@ -32,4 +32,4 @@ include("exp_decay.jl")
 include("inversion_recovery.jl")
 include("saturation_recovery.jl")
 include("mfa.jl")
-include("sirfse.jl")
+include("sir.jl")

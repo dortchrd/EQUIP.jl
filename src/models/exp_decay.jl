@@ -34,4 +34,4 @@ end
 # `eachindex(out, TE)` checks ONCE, before the loop, that `out` and `TE` have the same indices
 # (a DimensionMismatch error otherwise), and then loops over them. That makes `@inbounds` safe:
 # it skips the per-element bounds checks inside the loop, whoever calls `signal!` and with
-# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for SIRFSE.
+# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for SIR.

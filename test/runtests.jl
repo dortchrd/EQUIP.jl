@@ -6,7 +6,7 @@ using LinearAlgebra
 using Random
 using Test
 
-# A SIR-FSE protocol used throughout (s)
+# A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 
@@ -16,20 +16,24 @@ const CASES = [
     (InversionRecovery(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
     (SaturationRecovery(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
-    (SIRFSE(TI = TI5, TD = TD5),
-     (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83)),
+    (SIR(TI = TI5, TD = TD5),
+     (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
+      Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
 ]
 
-# SIR-FSE signal straight from Eq. 1 of Dortch et al., MRM 2018, with matrix exponentials:
-#   Mz(TI, TD) = {exp(A·TI)·S·[I − exp(A·TD)] + [I − exp(A·TI)]}·M0.
-# An independent check of the closed-form solution in `signal!(out, ::SIRFSE, p)`.
-function sir_eq1(TI, TD; PSR, R1f, Sf, M0f, kmf, R1m, Sm, magnitude = true)
+# SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix
+# exponentials, extended to start TD at Mz = Z·M0 instead of 0, with Z = diag(Mzf_td0, Mzm_td0):
+#   Mz(TI, TD) = {exp(A·TI)·S·[I − exp(A·TD)·(I − Z)] + [I − exp(A·TI)]}·M0.
+# An independent check of the closed-form solution in `signal!(out, ::SIR, p)`.
+function sir_matrix(TI, TD; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0 = 0.0, Mzm_td0 = 0.0,
+                    magnitude = true)
     kfm = kmf * PSR
     A = [-(R1f + kfm) kmf; kfm -(R1m + kmf)]
     M0 = [M0f, PSR * M0f]
     S = Diagonal([Sf, Sm])
+    Z = Diagonal([Mzf_td0, Mzm_td0])
     return map(TI, TD) do ti, td
-        Mz = (exp(A * ti) * S * (I - exp(A * td)) + (I - exp(A * ti))) * M0
+        Mz = (exp(A * ti) * S * (I - exp(A * td) * (I - Z)) + (I - exp(A * ti))) * M0
         magnitude ? abs(Mz[1]) : Mz[1]
     end
 end
@@ -67,43 +71,60 @@ end
         # one number stands for every observation
         m = MFA(FA = [2, 5, 10], TR = 0.015)
         @test m.TR == [0.015, 0.015, 0.015] && nobs(m) == 3
-        @test SIRFSE(TI = [0.01, 0.1], TD = 2.5).TD == [2.5, 2.5]
-        @test SIRFSE(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
-        @test !SIRFSE(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
+        @test SIR(TI = [0.01, 0.1], TD = 2.5).TD == [2.5, 2.5]
+        @test SIR(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
+        @test !SIR(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
         # ranges and integer vectors are accepted ...
         @test nobs(ExpDecay(TE = 0.01:0.01:0.1)) == 10
         # ... and init converts the acquisition to plain vectors of the working precision
-        c = init(SIRFSE(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
+        c = init(SIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
         @test c.model.TI isa Vector{Float32} && c.model.TD == fill(2.0f0, 5) && c.model.magnitude
         # mistakes are caught
-        @test_throws UndefKeywordError SIRFSE(TD = 2.5)                         # TI missing
-        @test_throws DimensionMismatch init(SIRFSE(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]))
+        @test_throws UndefKeywordError SIR(TD = 2.5)                         # TI missing
+        @test_throws DimensionMismatch init(SIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]))
         @test_throws DimensionMismatch fit!(init(CASES[1][1]), ones(5))         # wrong data length
     end
 
-    @testset "SIRFSE matches Eq. 1 of the 2018 paper" begin
+    @testset "SIR matches the matrix form, also with nonzero start values" begin
         TI = [0.010, 0.015, 0.020, 0.050, 0.100, 0.200, 0.500, 1.0, 2.0, 5.0]
         θ = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 14.5, R1m = 1.2, Sm = 0.83)
         for TD in (0.01, 1.0, 2.5, 5.0), mag in (true, false)
-            @test signal(SIRFSE(TI = TI, TD = TD, magnitude = mag), θ) ≈
-                  sir_eq1(TI, fill(TD, length(TI)); θ..., magnitude = mag)
+            @test signal(SIR(TI = TI, TD = TD, magnitude = mag), θ) ≈
+                  sir_matrix(TI, fill(TD, length(TI)); θ..., magnitude = mag)
         end
+        # random parameters, including Mz left over from the readout (start values ≠ 0)
+        rng = MersenneTwister(7)
+        for _ in 1:200
+            θr = (PSR = 0.3rand(rng), R1f = 0.3 + 2rand(rng), Sf = -1.1rand(rng), M0f = 1000rand(rng),
+                  kmf = 1 + 40rand(rng), R1m = 0.3 + 3rand(rng), Sm = rand(rng),
+                  Mzf_td0 = 0.4rand(rng) - 0.2, Mzm_td0 = 0.4rand(rng) - 0.2)
+            @test signal(SIR(TI = TI5, TD = TD5, magnitude = false), θr) ≈
+                  sir_matrix(TI5, TD5; θr..., magnitude = false) rtol = 1e-10
+        end
+        # special cases with known answers
+        m = SIR(TI = TI5, TD = TD5, magnitude = false)
+        θ0 = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
+        # no macromolecular pool (PSR = 0): single-pool inversion recovery (Li et al. 2010, Eq. 1)
+        @test signal(m, merge(θ0, (PSR = 0.0, Mzf_td0 = 0.1))) ≈
+              @. 1000 * (-0.95 * (1 - 0.9 * exp(-TD5)) * exp(-TI5) + 1 - exp(-TI5))
+        # start at equilibrium and no inversion: nothing changes
+        @test signal(m, merge(θ0, (Sf = 1.0, Sm = 1.0, Mzf_td0 = 1.0, Mzm_td0 = 1.0))) ≈ fill(1000.0, 5)
     end
 
     @testset "signal fills fixed defaults and resolves ties" begin
-        m = SIRFSE(TI = [0.01, 0.1, 1.0], TD = 2.5)
+        m = SIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
         free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
-        everything = merge(free, (kmf = 12.5, R1m = 1.1, Sm = 0.83))
+        everything = merge(free, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
         @test signal(m, free) == signal(m, everything)
         @test signal(m, merge(free, (kmf = 20.0,))) != signal(m, free)
         @test_throws ArgumentError signal(m, (PSR = 0.1,))                     # Free value missing
         @test_throws ArgumentError signal(m, merge(free, (nope = 1.0,)))       # unknown name
-        @test_throws DimensionMismatch signal(SIRFSE(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
+        @test_throws DimensionMismatch signal(SIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin
-        m = SIRFSE(TI = TI5, TD = TD5)
-        @test parameters(m).R1m == Fixed(:R1f)                       # the default for SIRFSE
+        m = SIR(TI = TI5, TD = TD5)
+        @test parameters(m).R1m == Fixed(:R1f)                       # the default for SIR
         @test setup(m).fixed.R1m isa EQUIP._Tie{:R1f}       # name known to the compiler
         free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
         # simulation: tie by name == tie by function == the value written out
@@ -128,10 +149,10 @@ end
     end
 
     @testset "parameter roles (setup)" begin
-        m = SIRFSE(TI = TI5, TD = TD5)
+        m = SIR(TI = TI5, TD = TD5)
         s = setup(m)
         @test freenames(s) == (:PSR, :R1f, :Sf, :M0f)
-        @test keys(s.fixed) == (:kmf, :R1m, :Sm) && s.fixed.kmf == 12.5
+        @test keys(s.fixed) == (:kmf, :R1m, :Sm, :Mzf_td0, :Mzm_td0) && s.fixed.kmf == 12.5
         @test s.lower == [0, 0.05, -1.2, 0] && s.start.PSR == 0.1
         # fix a parameter that is free by default
         @test freenames(setup(m; fixed = (PSR = 0.1,))) == (:R1f, :Sf, :M0f)
@@ -162,9 +183,10 @@ end
         @test_throws ArgumentError setup(ExpDecay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
     end
 
-    @testset "SIRFSE: kmf fixed vs free, tie, per-voxel Sm map" begin
-        m = SIRFSE(TI = TI5, TD = TD5)
-        truth = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0, R1m = 1.0, Sm = 0.83)
+    @testset "SIR: kmf fixed vs free, tie, per-voxel Sm map" begin
+        m = SIR(TI = TI5, TD = TD5)
+        truth = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0, R1m = 1.0, Sm = 0.83,
+                 Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         y = signal(m, truth)
         # kmf estimated: exact
         r = fit!(init(m; free = (kmf = Free(12.5; lower = 1, upper = 50),)), y)
@@ -176,6 +198,10 @@ end
         # untie R1m by fixing it to a number
         y2 = signal(m, merge(truth, (kmf = 12.5, R1m = 2.0)))
         @test fit!(init(m; fixed = (R1m = 2.0,)), y2).params.R1f ≈ 1.0 rtol = 1e-6
+        # Mz left over from the readout biases the fit, unless the start values are given
+        y3 = signal(m, merge(truth, (Mzf_td0 = 0.05, Mzm_td0 = 0.05)))
+        @test fit!(init(m; fixed = (kmf = 15.0, Mzf_td0 = 0.05, Mzm_td0 = 0.05)), y3).params.PSR ≈ 0.12 rtol = 1e-6
+        @test abs(fit!(init(m; fixed = (kmf = 15.0,)), y3).params.PSR - 0.12) > 1e-4
         # per-voxel Sm map through fit on a dataset (data: voxels × observations)
         n = 50
         sm = 0.75 .+ 0.15 .* rand(MersenneTwister(4), n)

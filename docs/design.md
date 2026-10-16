@@ -6,7 +6,7 @@ The design decisions, recorded so the code and the discussion share one referenc
 
 | input | varies across voxels? | Julia form | example |
 |---|---|---|---|
-| **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `SIRFSE(TI = [...], TD = 2.5, magnitude = true)` |
+| **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `SIR(TI = [...], TD = 2.5, magnitude = true)` |
 | **Parameters**: every quantity in the signal equation | each one can be free, a constant, a per-voxel map or a tie | values: a named tuple `p`; default roles: `parameters(m)` | PSR, R1f, kmf, B1, Sm |
 | **Fit configuration**: which parameters are estimated in this fit | no | keywords `fixed`, `free`, `start` | `free = (:kmf,)` |
 | **Data** | yes | N-d array, observations last | X×Y×Z×M |
@@ -51,14 +51,14 @@ Decisions behind this:
 ## Writing a model
 
 ```julia
-@kwdef struct SIRFSE{A<:AbstractVector,B<:AbstractVector} <: MRIModel   # 1. acquisition + options
+@kwdef struct SIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel   # 1. acquisition + options
     TI::A
     TD::B
     magnitude::Bool = true
 end
-SIRFSE(TI, TD::Real, magnitude) = SIRFSE(TI, fill(TD, length(TI)), magnitude)   # one TD for all
+SIR(TI, TD::Real, magnitude) = SIR(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
-parameters(::SIRFSE) = (                       # 2. every parameter with its default role
+parameters(::SIR) = (                          # 2. every parameter with its default role
     PSR = Free(0.1; lower = 0, upper = 1),
     R1f = Free(1.0; lower = 0.05, upper = 10),
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
@@ -66,11 +66,13 @@ parameters(::SIRFSE) = (                       # 2. every parameter with its def
     kmf = Fixed(12.5),
     R1m = Fixed(:R1f),                         # tie: always equal to R1f
     Sm  = Fixed(0.83),
+    Mzf_td0 = Fixed(0.0),                      # Mz at the start of TD (fraction of equilibrium):
+    Mzm_td0 = Fixed(0.0),                      # 0 = saturated by the readout
 )
 
-function signal!(out, m::SIRFSE, p)            # 3. one voxel's signal at every observation
+function signal!(out, m::SIR, p)               # 3. one voxel's signal at every observation
     (; TI, TD, magnitude) = m
-    (; PSR, R1f, Sf, M0f, kmf, R1m, Sm) = p
+    (; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0, Mzm_td0) = p
     @inbounds for j in eachindex(out, TI, TD)  #    one length check, then TI[j], TD[j]
         ...
     end
@@ -185,17 +187,31 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Performance notes
 
-- **SIRFSE `signal!` stays in its step-by-step form** (recover over TD, invert, recover over
-  TI), which follows the paper's derivation. A rearranged version was tested: all parameter-only
-  work folded into six coefficients, so each observation needs `s = M0f + A·exp(-R1⁺·TI) +
-  B·exp(-R1⁻·TI)` with A, B depending only on TD, reused when TD repeats. Same values and
-  derivatives. Whole-voxel fit: 1.05× faster on the paper's optimized 5-point scheme (every point
-  has its own TD), 1.6× on a 16-point scheme with one TD. Kept the readable form; revisit if
-  Monte Carlo or protocol optimization on constant-TD schemes becomes speed-limited.
-- **A matrix-exponential SIRFSE (Eq. 1 as written) is slower**: Base `exp` on 2×2 matrices is
-  ~180× slower than the closed form and cannot take dual numbers; with StaticArrays 2×2 matrices
-  it is ~3× slower and works with duals. A reasonable fallback for models without a convenient
-  closed form.
+- **SIR `signal!` follows Li et al. 2010 (Eqs. 3–6) step by step**: recovery over TD from the
+  start values, the inversion pulse, recovery over TI. It uses Li's names (R1⁺, R1⁻, bf⁺, bf⁻,
+  and Mz as a fraction of equilibrium), so each line can be checked against the paper. Li's
+  Eq. 4 already allows any starting values, so `Mzf_td0`/`Mzm_td0` (Mz at the start of TD) cost
+  nothing: whole fits measured the same with and without them. Verified against the matrix form
+  (Dortch 2018, Eq. 1, extended to nonzero start values; ~1e-14), a numerical (RK4) solution of
+  Li's Eq. 2 (~3e-13), and finite-difference Jacobians (~6e-7, the finite differences' error).
+- **What made it fast, measured with `@belapsed`** (5-point scheme / 16-point scheme, whole fits):
+  - Naming each `exp` once (`E_td⁺`, …) matters: writing them out where used is 1.7–2× slower,
+    because the compiler does not merge repeated `exp` calls.
+  - Naming plain arithmetic does not matter: the compiler shares repeated products itself, so
+    intermediate names (the old `bf1`, `bf2`) are for readability only.
+  - Moving parameter-only work out of the loop gains nothing measurable (the compiler does it).
+  - bf⁻ from bf⁺ + bf⁻ = Mf(0) − 1 (Li Eq. 3 at t = 0) instead of Li's full expression: ~7%
+    faster (2.2 vs 2.37 µs; 4.1 vs 4.4 µs). Multiplying by 1/(R1⁺ − R1⁻) instead of dividing:
+    ~3%.
+  - A rearranged version (all parameter-only work folded into six coefficients, so
+    `s = M0f + A·exp(-R1⁺·TI) + B·exp(-R1⁻·TI)` with A, B depending only on TD, reused when TD
+    repeats) is 1.05× faster on the paper's 5-point scheme and 1.6× with one TD. Not used:
+    harder to check against the paper. Revisit if Monte Carlo or protocol optimization on
+    constant-TD schemes becomes speed-limited.
+- **The matrix form written literally is slower**: Base `exp` on 2×2 matrices is ~180× slower
+  than the closed form and cannot take dual numbers; 2×2 StaticArrays with `exp(A·t)` in closed
+  form (eigen-decomposition) is 1.3–1.4× slower and works with duals. The tests use Base `exp`
+  as an independent reference. A reasonable route for models without a convenient closed form.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
@@ -209,7 +225,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 ## Scope so far
 
 In: the interface above, five models (ExpDecay, InversionRecovery, SaturationRecovery, MFA,
-SIRFSE), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -274,6 +290,10 @@ weights, other data layouts, precompilation, more models.
      (Eq. 6). The acquisition can be differentiated too, since `signal` accepts dual numbers
      in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
+   - Sensitivity to model assumptions: the bias from fitting with an assumed value that is
+     wrong, the same machinery as Eq. 3's b. First case: SIR's `Mzf_td0 = Mzm_td0 = 0` (both
+     pools saturated at the start of TD). Simulate with nonzero values, fit with the default.
+     A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
 4. **Starting values and outliers**:
    - Starting values: model-specific guesses, neighbour/previous-voxel starts with quality
@@ -313,11 +333,11 @@ weights, other data layouts, precompilation, more models.
      - Priority: values given in the call > a protocol file > values found in headers/sidecars.
      - Protocol file: TOML/JSON with named vectors, or CSV with one row per observation:
        ```toml
-       model = "SIRFSE"
+       model = "SIR"
        TI = [0.010, 0.050, 0.056, 0.277, 0.843]
        TD = [3.270, 4.489, 1.652, 2.922, 0.010]
        ```
-     - The model is built with its keyword constructor, e.g. `SIRFSE(; TI, TD)`, so this works
+     - The model is built with its keyword constructor, e.g. `SIR(; TI, TD)`, so this works
        for every model, user-defined ones included. Missing fields raise an error that names
        them and says where they were looked for.
      - Units: converted to seconds and degrees on reading (DICOM and PAR/REC store ms, BIDS

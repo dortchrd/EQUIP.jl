@@ -26,7 +26,7 @@ Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
 | input | what it is | Julia form | example |
 |---|---|---|---|
-| **model** | the physics: acquisition + options, the same for every voxel | a struct | `SIRFSE(TI = [...], TD = 2.5)` |
+| **model** | the physics: acquisition + options, the same for every voxel | a struct | `SIR(TI = [...], TD = 2.5)` |
 | **parameters** | tissue/model values | a named tuple | `(PSR = 0.1, R1f = 1.0, ...)` |
 
 Acquisition fields have one value per observation. Where it makes sense, a single number
@@ -37,9 +37,9 @@ stands for all of them, e.g. `MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times
 ```julia
 using EQUIP
 
-m = SIRFSE(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
+m = SIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
-# Simulate. Fixed parameters (kmf, R1m, Sm) take their defaults unless you give them.
+# Simulate. Fixed parameters (kmf, R1m, Sm, ...) take their defaults unless you give them.
 y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
 
 # Fit one voxel: y is a vector.
@@ -71,10 +71,10 @@ end
 
 ## Free and fixed parameters
 
-Every model declares each parameter's default **role** with `parameters(m)`. For SIRFSE:
+Every model declares each parameter's default **role** with `parameters(m)`. For SIR:
 
 ```julia
-parameters(::SIRFSE) = (
+parameters(::SIR) = (
     PSR = Free(0.1; lower = 0, upper = 1),
     R1f = Free(1.0; lower = 0.05, upper = 10),
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
@@ -82,6 +82,8 @@ parameters(::SIRFSE) = (
     kmf = Fixed(12.5),
     R1m = Fixed(:R1f),           # a tie: always equal to R1f
     Sm  = Fixed(0.83),
+    Mzf_td0 = Fixed(0.0),        # Mz at the start of TD, as a fraction of equilibrium
+    Mzm_td0 = Fixed(0.0),
 )
 ```
 
@@ -135,7 +137,7 @@ Voxels that are not fitted hold NaN.
 | `InversionRecovery(TI = ..., magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
 | `SaturationRecovery(TD = ...)` | M0·(1 − exp(−TD/T1)) | M0, T1 | |
 | `MFA(FA = ..., TR = ...)` | spoiled gradient echo, flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
-| `SIRFSE(TI = ..., TD = ..., magnitude = true)` | two-pool qMT (Dortch et al., MRM 2018, Eq. 1); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83 |
+| `SIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 
 ## Writing a model
 
@@ -177,7 +179,7 @@ m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
   order depends on which parameters are free in a given fit. It never needs to know which
   parameters are free or fixed.
 - **The loop.** Write `for j in eachindex(out, TE)`, listing every per-observation field
-  (`eachindex(out, TI, TD)` for SIRFSE, `eachindex(out, FA, TR)` for MFA). It checks once,
+  (`eachindex(out, TI, TD)` for SIR, `eachindex(out, FA, TR)` for MFA). It checks once,
   before the loop, that they all have the same length as `out`, and stops with a clear
   `DimensionMismatch` error if not. That makes `@inbounds` safe: it skips the per-element bounds
   checks inside the loop. `@inbounds` is optional (it gains about 5% in `signal!`); the
@@ -227,7 +229,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **analysis/**: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
-  Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis
+  Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis (including model
+  assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
 - Model-specific data-driven starting values; starts from neighbouring voxels

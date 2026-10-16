@@ -7,7 +7,7 @@
 #
 # Two separate inputs reach a signal equation:
 #
-#   model  m    the physics: acquisition + options    a struct:      SIRFSE(TI = [...], TD = 2.5)
+#   model  m    the physics: acquisition + options    a struct:      SIR(TI = [...], TD = 2.5)
 #   p           the tissue/model parameter VALUES     a NamedTuple:  (PSR = 0.1, R1f = 1.0, ...)
 #
 # The model holds everything that is the same for every voxel. It never stores parameter values:
@@ -150,7 +150,7 @@ function signal! end
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------
 
-# The model's fields as a tuple, e.g. (TI vector, TD vector, magnitude) for SIRFSE.
+# The model's fields as a tuple, e.g. (TI vector, TD vector, magnitude) for SIR.
 # `fieldnames(typeof(m))` lists the field names; `getfield(m, f)` reads one.
 _fields(m) = map(f -> getfield(m, f), fieldnames(typeof(m)))
 
@@ -179,7 +179,7 @@ end
 # The model with its numeric vectors converted to Vector{T}, so that a Float32 fit computes in
 # Float32 (and ranges or integer vectors become plain float vectors). Every other field (e.g.
 # `magnitude`) is kept. The struct is rebuilt with its positional constructor:
-# `Base.typename(typeof(m)).wrapper` is the bare type, e.g. `SIRFSE` without the `{...}` part,
+# `Base.typename(typeof(m)).wrapper` is the bare type, e.g. `SIR` without the `{...}` part,
 # so Julia picks the type parameters for the converted fields itself.
 function _with_precision(m::MRIModel, ::Type{T}) where {T}
     return Base.typename(typeof(m)).wrapper(map(x -> _to_precision(x, T), _fields(m))...)
@@ -262,7 +262,7 @@ plotting. `p` must give the Free parameters; Fixed ones default to their values 
 [`parameters`](@ref)`(m)` and can be overridden; ties are resolved.
 
 ```julia
-m = SIRFSE(TI = [0.01, 0.1, 1.0], TD = 2.5)
+m = SIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
 signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 15.0))   # override a fixed one
 ```
