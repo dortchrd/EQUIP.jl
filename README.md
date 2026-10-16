@@ -212,6 +212,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
 - Model-specific data-driven starting values; starts from neighbouring voxels
-- File I/O (NIfTI, as a package extension), command line, Python and MATLAB front ends
+- **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
+  PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
+  missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
+  (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
+  geometry, with BIDS-derivative names and a JSON record of the fit settings
+- Command line, Python and MATLAB front ends, built on io/
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models (diffusion, IVIM, multi-exponential, DCE)

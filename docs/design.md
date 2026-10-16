@@ -134,7 +134,9 @@ src/
                        fit.jl (fit: one voxel or a dataset, threaded)
   analysis/            (later) CRLB, Monte Carlo, sensitivity
   design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
-ext/                   (later) package extensions: OptimExt (optimize_protocol), NIfTIExt (file I/O)
+  io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
+ext/                   (later) package extensions: OptimExt (optimize_protocol), and one per file
+                       format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
 ```
 
 - Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
@@ -202,5 +204,43 @@ weights, other data layouts, precompilation, more models.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
 2. **Starting values**: model-specific guesses, neighbour/previous-voxel starts with quality
    gates, refitting failed voxels.
-3. **Front ends**: CLI (NIfTI), Python, MATLAB.
-4. **Later**: GPU, Rician-likelihood fitting, more models.
+3. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+   (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
+   file-format package, so the core never depends on file formats.
+   - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
+     last, plus `info`: the geometry needed to write maps back, and any acquisition values found
+     (TE, TR, FA, TI, ...).
+
+     | format | via | notes |
+     |---|---|---|
+     | NIfTI (.nii, .nii.gz) | NIfTI.jl | apply `scl_slope`/`scl_inter`; memory-map uncompressed files |
+     | BIDS JSON sidecars | JSON3.jl | EchoTime, RepetitionTimeExcitation, FlipAngle, InversionTime (s, deg); qMRI file collections (`_echo-`, `_flip-`, `_inv-`, `_mt-` entities) stacked into one array |
+     | MATLAB .mat | MAT.jl | pick the variable by name |
+     | NumPy .npy / .npz | NPZ.jl | C order: reverse dimensions, or observations first |
+     | DICOM | DICOM.jl | one series; TE/TR/FA/TI tags (ms → s); sort by instance/echo number |
+     | Philips PAR/REC, XML/REC | own reader (text/XML + raw binary; DECAES has one to learn from, check its license) | per-slice scaling; TE/TR/FA/TI in the header |
+     | ISMRMRD | MRIFiles.jl / HDF5.jl | image datasets; raw k-space must be reconstructed first (e.g. MRIReco.jl) |
+
+   - Several files (one per echo, flip angle or inversion time): a list or pattern, stacked
+     along the observation dimension and sorted by the acquisition value or BIDS entity index.
+   - **Acquisition values that are not in the headers** (TI and TD for SIR rarely are):
+     - Priority: values given in the call > a protocol file > values found in headers/sidecars.
+     - Protocol file: TOML/JSON with named vectors, or CSV with one row per observation:
+       ```toml
+       model = "SIRFSE"
+       TI = [0.010, 0.050, 0.056, 0.277, 0.843]
+       TD = [3.270, 4.489, 1.652, 2.922, 0.010]
+       ```
+     - The model is built with its keyword constructor, e.g. `SIRFSE(; TI, TD)`, so this works
+       for every model, user-defined ones included. Missing fields raise an error that names
+       them and says where they were looked for.
+     - Units: converted to seconds and degrees on reading (DICOM and PAR/REC store ms, BIDS
+       uses s). Warn when values look like the wrong unit (e.g. TE > 10 s). The number of
+       observations must match the data's last dimension.
+   - Writing: `savemaps(prefix, res; like = info)` writes one file per map in the input's format
+     and geometry (intensity scaling reset), with BIDS-derivative names where they exist
+     (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
+     sidecar recording the model, acquisition, fixed/free/start settings and package version.
+4. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+   files out), Python, MATLAB.
+5. **Later**: GPU, Rician-likelihood fitting, more models.
