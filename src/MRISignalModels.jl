@@ -46,7 +46,7 @@ include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, sign
 include("models/builtin.jl")           # ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIRFSE
 
 # fit: from a model and data to fitted parameters
-include("fit/levenberg_marquardt.jl")  # the solver for one voxel
+include("fit/static_levmar.jl")        # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + fixed/free/start -> FitSpec
 include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
 include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)

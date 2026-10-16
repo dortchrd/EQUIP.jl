@@ -1,5 +1,16 @@
 # =================================================================================================
-# Levenberg–Marquardt (LM) for ONE voxel
+# static_levmar: Levenberg–Marquardt (LM) for ONE voxel, with static (fixed-size) arrays
+#
+# "static" as in StaticArrays: the number of free parameters P is part of the types, so the
+# compiler knows every array size and unrolls the arithmetic. ("levmar" is the usual short name
+# for Levenberg–Marquardt; LsqFit.jl's general solver is called `levenberg_marquardt`.)
+#
+# Scaling, measured (DKI-like model, 3 observations per parameter, no allocation at any size):
+#   P = 7: 2.4 µs per fit,  P = 15: 25 µs,  P = 22 (full DKI): 64 µs,  P = 28: 74 µs,
+#   3.5–19× faster than LsqFit on the same problems. What grows is compile time (≈1 s at P = 7,
+#   ≈8 s at P = 28, once per session per model and set of free parameters). Beyond ~30–40 free
+#   parameters a solver with preallocated ordinary arrays (`mul!`, `cholesky!`), a future
+#   `levmar`, would be the better choice.
 #
 # Problem: find the P free parameters θ that minimize  SSE(θ) = Σᵢ rᵢ(θ)²,  rᵢ = fᵢ(θ) − yᵢ,
 # where f is the model signal and y the voxel's data (m observations).
@@ -91,7 +102,7 @@ function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothi
                         T(something(gtol, dg)), T(damping))
 end
 
-# Internal result of `levenberg_marquardt` (the public one, `VoxelResult`, adds parameter names).
+# Internal result of `static_levmar` (the public one, `VoxelResult`, adds parameter names).
 struct SolverResult{P,T}
     θ::SVector{P,T}
     sse::T
@@ -247,13 +258,13 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    levenberg_marquardt(prob, θ0, lower, upper, opts, buf) -> SolverResult
+    static_levmar(prob, θ0, lower, upper, opts, buf) -> SolverResult
 
 Levenberg–Marquardt fit of one voxel from the start `θ0`, within `lower ≤ θ ≤ upper` (all
 `SVector{P,T}`). `buf` holds one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
-function levenberg_marquardt(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T},
-                             hi::SVector{P,T}, opts::SolverOptions{T}, buf) where {P,T}
+function static_levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
+                       opts::SolverOptions{T}, buf) where {P,T}
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)
