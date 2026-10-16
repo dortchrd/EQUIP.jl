@@ -202,11 +202,11 @@ Base.show(io::IO, ::_Tie{S}) where {S} = print(io, "Fixed(:", S, ")")
 
 # Ties are resolved with the parameter set itself:
 # `(R1f = 1.2, R1m = _Tie{:R1f}())` and `(R1f = 1.2, R1m = p -> p.R1f)` both become
-# `(R1f = 1.2, R1m = 1.2)`. Julia picks the `_resolve1` method by the type of `x`.
-@inline _resolve1(::_Tie{S}, p) where {S} = getfield(p, S)
-@inline _resolve1(x::Function, p) = x(p)
-@inline _resolve1(x, p) = x
-@inline _resolve(p::NamedTuple) = map(x -> _resolve1(x, p), p)
+# `(R1f = 1.2, R1m = 1.2)`. Julia picks the `_resolve_tie` method by the type of `x`.
+@inline _resolve_tie(::_Tie{S}, p) where {S} = getfield(p, S)   # tie by name: read field S
+@inline _resolve_tie(x::Function, p) = x(p)                     # tie by function: call it
+@inline _resolve_tie(x, p) = x                                  # not a tie: keep it
+@inline _resolve_ties(p::NamedTuple) = map(x -> _resolve_tie(x, p), p)
 # `map(f, namedtuple)` applies f to every value and keeps the names. Because the field types are
 # known to the compiler, this compiles to plain field reads: no loop, no allocation.
 
@@ -248,7 +248,7 @@ function _allparams(m::MRIModel, p::NamedTuple)
     end
     q = NamedTuple{keys(roles)}(vals)
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
-    return _resolve(map(_tie, q))
+    return _resolve_ties(map(_tie, q))
 end
 
 """

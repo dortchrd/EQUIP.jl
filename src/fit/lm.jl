@@ -134,10 +134,10 @@ end
 # Build the complete parameter set for the model from the free values θ and the fixed values:
 #   NamedTuple{F}(Tuple(θ))   -> (PSR = θ₁, R1f = θ₂, Sf = θ₃, M0f = θ₄)
 #   merge(..., fixed)         -> (PSR = θ₁, ..., kmf = 12.5, R1m = Fixed(:R1f), Sm = 0.83)
-#   _resolve(...)             -> ties evaluated: R1m = θ₂
+#   _resolve_ties(...)        -> ties evaluated: R1m = θ₂
 # Because F is a compile-time constant (passed as Val(F)), this compiles to moving numbers into
 # a stack-allocated record; no names are looked up at run time.
-@inline _params(::Val{F}, θ, fixed) where {F} = _resolve(merge(NamedTuple{F}(Tuple(θ)), fixed))
+@inline _params(::Val{F}, θ, fixed) where {F} = _resolve_ties(merge(NamedTuple{F}(Tuple(θ)), fixed))
 
 """
     normal_equations(prob, θ, buf) -> (sse, JᵀJ, Jᵀr)
