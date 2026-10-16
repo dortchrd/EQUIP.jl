@@ -209,6 +209,10 @@ src/
 Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
 `main` branches.
 
+- **One result type for `fit`**, the same for one voxel or a dataset: params, SSE, iterations
+  and status (as names, e.g. `ConvergedX`), plus the model and settings used (for provenance,
+  fitted curves and refits) and a summary display; later JᵀJ / standard errors and StatsAPI
+  queries (`coef`, `stderror`, `vcov`, ...)
 - **analysis/**: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
   Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization

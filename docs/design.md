@@ -197,7 +197,21 @@ weights, other data layouts, precompilation, more models.
 
 ## Roadmap
 
-1. **Uncertainty** (formulation from Dortch et al., Magn Reson Med 2018;80:1824):
+1. **One result type for `fit`** (`FitResult`, replacing `VoxelResult` and the named tuple
+   returned for datasets). Same fields for one voxel and for a dataset, numbers or maps:
+   - `params` (named tuple), `sse`, `iterations` (datasets gain an iterations map), `status`
+     as `FitStatus` (prints `ConvergedX` instead of `0x01`; still 1 byte per voxel;
+     `UInt8.(res.status)` for writing files),
+   - `model` (the model fitted, acquisition included) and `settings` (`fixed`, `free`, `start`
+     as used), as references, not copies. Lets `savemaps` write the provenance sidecar, lets
+     `fitted(res)` / `residuals(res)` (StatsAPI names) rebuild a single voxel's curve, and
+     allows refitting with the same settings,
+   - a summary display (model, voxels, % converged, free and fixed parameters).
+   With the uncertainty work (2): JᵀJ for a single voxel, optional standard-error maps for
+   datasets, a flag for parameters that ended at a bound, and StatsAPI queries (`coef`,
+   `coefnames`, `rss`, `stderror`, `vcov`, `informationmatrix`). The internal `SolverResult`
+   stays as it is; the solver already computes JᵀJ at the solution.
+2. **Uncertainty** (formulation from Dortch et al., Magn Reson Med 2018;80:1824):
    - Fisher information for Gaussian noise (Eq. 4): F = JᵀJ/σ², with J the derivatives of
      the signal at the true parameters with respect to the free ones. This is the JᵀJ the
      solver already accumulates.
@@ -211,9 +225,9 @@ weights, other data layouts, precompilation, more models.
      in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
-2. **Starting values**: model-specific guesses, neighbour/previous-voxel starts with quality
+3. **Starting values**: model-specific guesses, neighbour/previous-voxel starts with quality
    gates, refitting failed voxels.
-3. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+4. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -250,6 +264,6 @@ weights, other data layouts, precompilation, more models.
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-4. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+5. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-5. **Later**: GPU, Rician-likelihood fitting, more models.
+6. **Later**: GPU, Rician-likelihood fitting, more models.
