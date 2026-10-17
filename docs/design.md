@@ -56,8 +56,13 @@ Decisions behind this:
   - Always time → rate, never rate → time: the rate's bound R = 0 (a flat curve) is a valid
     value, but T = 1/0 is not (and its derivative would be NaN); T stays ≥ `_TMIN`, so 1/T is
     always safe.
-  - Offsets stay separate models with their own loop, rather than the decay model plus a second
-    pass adding C: the loop is the equation, S0·exp(−R2·TE) + C.
+  - Offsets stay separate models with their own loop. Measured alternatives (500 voxels, SNR
+    100, 8 and 32 echoes, identical results in every case):
+    - C as a parameter of `T2Decay`/`R2Decay`, fixed at 0 unless freed: fits without an offset,
+      the common case, 5–11% slower (adding C to every echo), to save two models. The offset is
+      also an approximation, better chosen by name than offered as an option of every decay.
+    - The offset model calling the decay model, then adding C in a second pass: offset fits
+      3–10% slower, to save one loop, and the equation S0·exp(−R2·TE) + C split in two.
   - Why both forms: standard errors, CRLB and Monte Carlo then come out directly for the
     reported quantity. Each voxel's estimate and its standard error do convert exactly between
     forms (least squares gives R̂ = 1/T̂ when both reach the same minimum; SE(T̂) = SE(R̂)/R̂²),
@@ -287,7 +292,10 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   results for all six time models (T1IR, T1IRTD, T1SR, T1MFA, T2Decay, T2DecayOffset), and one
   voxel's fit was 0.4–2% slower (about 10 ns; T1IR 1.71 → 1.74 µs, T1MFA 0.70 → 0.71 µs, minimum
   of 3 alternating runs), at the level of the noise (the unchanged R2Decay varied by 8% in the
-  same runs). In practice the whole question is
+  same runs). `@inline` on the one-liners is not needed: Julia already inlines them (the
+  compiled `normal_equations` calls the rate model's `signal!` directly, checked with
+  `code_typed`), and adding it changed one voxel's fit by −1.6% to +0.9%, the same as for the
+  unchanged rate models in the same runs. In practice the whole question is
   small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
   in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
   mask: 0.93 s and 0.24 s).
