@@ -12,9 +12,11 @@ const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
-    (T2Decay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 0.0)),
-    (T2StarDecay(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, T2star = 0.03, C = 0.0)),
-    (DiffusionDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3, C = 0.0)),
+    (MonoExpTime(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08)),
+    (MonoExpRate(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0)),
+    (MonoExpTimeOffset(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 50.0)),
+    (MonoExpRateOffset(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0, C = 50.0)),
+    (DiffusionDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3)),
     (InversionRecovery(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
     (SaturationRecovery(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
@@ -77,7 +79,7 @@ end
         @test SIR(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
         @test !SIR(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
         # ranges and integer vectors are accepted ...
-        @test nobs(T2Decay(TE = 0.01:0.01:0.1)) == 10
+        @test nobs(MonoExpTime(TE = 0.01:0.01:0.1)) == 10
         # ... and init converts the acquisition to plain vectors of the working precision
         c = init(SIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
         @test c.model.TI isa Vector{Float32} && c.model.TD == fill(2.0f0, 5) && c.model.magnitude
@@ -186,7 +188,7 @@ end
         @test_throws ArgumentError setup(m; start = (kmf = 1.0,))           # kmf is fixed
         @test_throws ArgumentError setup(m; free = (:R1m,))                 # a tie needs a start
         @test_throws ArgumentError setup(m; fixed = (kmf = 1.0,), free = (:kmf,))
-        @test_throws ArgumentError setup(T2Decay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
+        @test_throws ArgumentError setup(MonoExpTime(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
     end
 
     @testset "SIR: kmf fixed vs free, tie, per-voxel Sm map" begin
@@ -225,7 +227,7 @@ end
         rng = MersenneTwister(1)
         nx, ny, nz = 20, 16, 4
         te = collect(0.01:0.01:0.32)
-        m = T2Decay(TE = te)
+        m = MonoExpTime(TE = te)
         T2 = 0.04 .+ 0.08 .* rand(rng, nx, ny, nz)
         S0 = 800 .+ 400 .* rand(rng, nx, ny, nz)
         data = S0 .* exp.(-reshape(te, 1, 1, 1, :) ./ T2) .+ 2 .* randn(rng, nx, ny, nz, length(te))
@@ -253,31 +255,43 @@ end
         @test res32.params.T2[good] ≈ res.params.T2[good] rtol = 1e-3
 
         # size mistakes are caught
-        @test_throws DimensionMismatch fit(T2Decay(TE = te[1:5]), data)
+        @test_throws DimensionMismatch fit(MonoExpTime(TE = te[1:5]), data)
         @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
         @test_throws DimensionMismatch fit(m, data; start = (T2 = T2[:, :, 1],))
     end
 
-    @testset "decays: offset, shared loop, diffusion units" begin
+    @testset "mono-exponential: time vs rate form, offset versions, diffusion" begin
         te = collect(0.01:0.01:0.32)
-        m = T2Decay(TE = te)
-        θ = (S0 = 1000.0, T2 = 0.08)
-        # an offset (e.g. a noise floor): biases T2 unless estimated with free = (:C,)
-        y = signal(m, merge(θ, (C = 50.0,)))
-        r = fit(m, y; free = (:C,))
+        rng = MersenneTwister(4)
+        # the same data in both forms: the same least-squares answer, R2 = 1/T2, voxel by voxel
+        mT, mR = MonoExpTime(TE = te), MonoExpRate(TE = te)
+        for _ in 1:20
+            y = signal(mT, (S0 = 1000.0, T2 = 0.05 + 0.1rand(rng))) .+ 10 .* randn(rng, length(te))
+            rT, rR = fit(mT, y), fit(mR, y)
+            @test isconverged(rT) && isconverged(rR)
+            @test rR.params.R2 ≈ 1 / rT.params.T2 rtol = 1e-5
+            @test rR.params.S0 ≈ rT.params.S0 rtol = 1e-5
+        end
+        # an offset: recovered by the offset versions, biases the plain one, or can be fixed
+        θ = (S0 = 1000.0, T2 = 0.08, C = 50.0)
+        y = signal(MonoExpTimeOffset(TE = te), θ)
+        r = fit(MonoExpTimeOffset(TE = te), y)
         @test r.params.T2 ≈ 0.08 rtol = 1e-6
         @test r.params.C ≈ 50 rtol = 1e-6
-        @test abs(fit(m, y).params.T2 - 0.08) > 0.01
-        @test fit(m, y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6    # or a known offset
-        # the three models share one loop: same equation with x = TE or b and R = 1/T2 or ADC
-        @test signal(T2StarDecay(TE = te), (S0 = 1000.0, T2star = 0.08)) == signal(m, θ)
-        @test signal(DiffusionDecay(b = te), (S0 = 1000.0, ADC = 1 / 0.08)) ≈ signal(m, θ)
-        # diffusion in clinical units: b in s/mm², ADC in mm²/s
-        b = [0.0, 500, 1000]
-        @test signal(DiffusionDecay(b = b), (S0 = 1.0, ADC = 1e-3)) ≈ exp.(-b .* 1e-3)
-        r = fit(DiffusionDecay(b = b), 800 .* exp.(-b .* 0.7e-3))
-        @test r.params.ADC ≈ 0.7e-3 rtol = 1e-6
-        @test r.params.S0 ≈ 800 rtol = 1e-6
+        @test abs(fit(mT, y).params.T2 - 0.08) > 0.01
+        @test fit(MonoExpTimeOffset(TE = te), y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6
+        @test fit(MonoExpRateOffset(TE = te), y).params.R2 ≈ 1 / 0.08 rtol = 1e-6
+        # diffusion in clinical units (b in s/mm², ADC in mm²/s), including fast decays,
+        # from the default start
+        b = [0.0, 500, 1000, 1500, 2000, 2500, 3000]
+        m = DiffusionDecay(b = b)
+        @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ exp.(-b .* 1e-3)
+        @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ signal(MonoExpRate(TE = b), (S0 = 1.0, R2 = 1e-3))
+        for adc in (0.1e-3, 0.7e-3, 3e-3, 5e-3)
+            r = fit(m, 800 .* exp.(-b .* adc))
+            @test r.params.ADC ≈ adc rtol = 1e-6
+            @test r.params.S0 ≈ 800 rtol = 1e-6
+        end
     end
 
     @testset "MFA with a per-voxel B1 map" begin
@@ -297,7 +311,7 @@ end
 
     @testset "fit: one voxel (vector) or a dataset with any number of spatial dimensions" begin
         rng = MersenneTwister(5)
-        m = T2Decay(TE = collect(0.01:0.01:0.32))
+        m = MonoExpTime(TE = collect(0.01:0.01:0.32))
         curve(T2) = signal(m, (S0 = 1000.0, T2 = T2))
         # a vector is ONE voxel: plain numbers, same as init + fit!
         r = fit(m, curve(0.08))

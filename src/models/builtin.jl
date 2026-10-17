@@ -29,7 +29,8 @@
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
 # One file per model, or per family of models that share a loop:
-include("decay.jl")                     # T2Decay, T2StarDecay, DiffusionDecay
+include("monoexp.jl")                   # MonoExpTime, MonoExpRate and their offset versions (T2)
+include("diffusion.jl")                 # DiffusionDecay
 include("inversion_recovery.jl")
 include("saturation_recovery.jl")
 include("mfa.jl")

@@ -44,19 +44,38 @@ Decisions behind this:
   voxel and returns plain numbers; `fit(m, data::AbstractArray)` fits every voxel (observations
   last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
   and `status`. `init` + `fit!` remain for user-written loops.
-- **Model families share a loop, with one model per kind of measurement.** `T2Decay`,
-  `T2StarDecay` and `DiffusionDecay` are one equation, S0·exp(−R·x) + C. The loop is written once
-  (`_monoexp!` in `src/models/decay.jl`); each model declares only its acquisition field and its
-  parameters (names, starts, bounds), about five lines, which also gives each output map its name.
-  - Considered instead: one model with the parameter name as a type parameter
-    (`EchoDecay{:T2star}`): the per-name information moves into lookup methods, and it needs a
-    custom constructor and special handling when `init` rebuilds the model in Float32. Or models
-    generated with `@eval`: shortest, but hard to read and debug.
-  - Variations of one equation are parameter roles, not models: an offset is `C = Fixed(0.0)`,
-    estimated with `free = (:C,)`.
-  - Rate or time constant: least squares gives the same answer either way, so R2 = 1/T2 after
-    the fit. Add a rate-form model (e.g. `R2StarDecay`) when the fit itself needs it, e.g. for
-    nearly flat curves, where R2* settles near 0 and T2* runs off to large values.
+- **Fit the quantity you will report; separate models for each form.** Mono-exponential T2 decay
+  comes as `MonoExpTime` (T2) and `MonoExpRate` (R2), plus offset versions; each `signal!` is
+  its own short loop that reads exactly like its equation (a few repeated lines, no shared
+  helper, no conditionals).
+  - Why both forms: standard errors, CRLB and Monte Carlo then come out directly for the
+    reported quantity. Each voxel's estimate and its standard error do convert exactly between
+    forms (least squares gives R̂ = 1/T̂ when both reach the same minimum; SE(T̂) = SE(R̂)/R̂²),
+    but averages over voxels do not (mean(T̂) ≠ 1/mean(R̂)), and the API is simplest without
+    conversions.
+  - The rate form is more robust (measured: 500 noisy voxels per case, a fit counted bad if its
+    SSE exceeds the SSE at the true parameters). With a start of mean(x), the time form failed
+    silently when the true decay was much faster than the start, stepping to a tiny T where the
+    signal at every x > 0 vanishes and so does the gradient (e.g. all 500 voxels for a time
+    constant 1/4.5 of the start, SNR 50); the rate form failed in none. On nearly flat curves
+    the time form runs off to huge T (16% of voxels hit max iterations for T2 = 10 s at SNR 20
+    in an earlier test), the rate form settles near 0. A per-voxel log-linear start fixes most
+    of the time form's failures (roadmap: data-driven starts).
+  - Not uniformly better: for the T1 models the time form tested better (inversion recovery
+    with T1 = 4 s at SNR 20: the two forms ended at different answers in 361 of 2000 voxels,
+    and the time form had the better fit in 332 of them; MFA: the rate form needs 1.5–2× more
+    iterations for long T1). They stay in T1.
+  - Offsets are separate models (`MonoExpTimeOffset`, `MonoExpRateOffset`), with C free by
+    default. A constant offset is a common approximation for the magnitude noise floor, not the
+    correct model (the Rician bias depends on the signal level); Rician-likelihood fitting is
+    on the roadmap.
+  - Diffusion has its own model (`DiffusionDecay`, b and ADC): the same equation with
+    diffusion's names, repeated on purpose. Later the models may be grouped by area
+    (relaxometry, diffusion, MT).
+  - Considered and rejected: one shared loop with an optional offset (a conditional in the
+    loop to skip adding C = 0); generic parameter names (T, R, x); a parameter for both T2 and
+    R2 tied by a function (outputs only include free parameters); the name as a type parameter
+    (`EchoDecay{:T2star}`); models generated with `@eval`.
 - **Standard function names are shared, not redefined.** `fit`, `fit!` and `nobs` are StatsAPI's
   functions (the interface behind StatsBase, GLM, Distributions) and `init` is CommonSolve's
   (SciML). We add methods for our types, so loading those packages alongside causes no clash.
@@ -225,11 +244,12 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   than the closed form and cannot take dual numbers; 2×2 StaticArrays with `exp(A·t)` in closed
   form (eigen-decomposition) is 1.3–1.4× slower and works with duals. The tests use Base `exp`
   as an independent reference. A reasonable route for models without a convenient closed form.
-- **Decays**: the loop multiplies by R = 1/T2 (computed once per call) instead of dividing
-  every TE by T2: 5–16% faster whole fits. Adding the offset C at every echo cost ~8%, so it is
-  skipped when C is a plain 0 (a free C is a dual number during the fit and is always added).
-  Net against the old `ExpDecay` (minimum of 10 alternating `@belapsed` runs; this machine varies
-  15–25% between single runs): 593 → 576 ns with 8 echoes, 1503 → 1283 ns with 32 echoes.
+- **Mono-exponential**: the time form computes R2 = 1/T2 once per call and multiplies, instead
+  of dividing every TE by T2: 5–16% faster whole fits (minimum of 10 alternating `@belapsed`
+  runs; this machine varies 15–25% between single runs). In practice the whole question is
+  small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
+  in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
+  mask: 0.93 s and 0.24 s).
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
@@ -242,8 +262,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above, seven models (T2Decay, T2StarDecay, DiffusionDecay, InversionRecovery,
-SaturationRecovery, MFA, SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above, nine models (MonoExpTime, MonoExpRate, MonoExpTimeOffset,
+MonoExpRateOffset, DiffusionDecay, InversionRecovery, SaturationRecovery, MFA, SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -381,6 +401,9 @@ weights, other data layouts, precompilation, more models.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
      (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
      integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
-   - Rate-form decays (R2StarDecay, R2Decay) when a fit needs them (see "Model families share a
-     loop" above).
+   - R1 (rate) versions of the T1 models if needed (see "Fit the quantity you will report"
+     above).
+   - Data-driven starting values: a hook for a model to compute per-voxel starts from the data,
+     as `:scale` does for S0. First users: a log-linear start for `MonoExpTime` (in tests it
+     turned 500/500 failures into 0 at SNR 50), DESPOT1 for MFA.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.

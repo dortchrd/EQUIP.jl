@@ -37,8 +37,8 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
-export T2Decay, T2StarDecay, DiffusionDecay                                 # built-in models
-export InversionRecovery, SaturationRecovery, MFA, SIR
+export MonoExpTime, MonoExpRate, MonoExpTimeOffset, MonoExpRateOffset        # built-in models
+export DiffusionDecay, InversionRecovery, SaturationRecovery, MFA, SIR
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).

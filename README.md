@@ -107,8 +107,8 @@ fit(m, data; start = (R1f = r1_map,))            # starting values: numbers or m
 mfa = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
 fit(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
 
-t2 = T2Decay(TE = 0.01:0.01:0.32)
-fit(t2, data; free = (:C,))                      # also estimate a signal offset (noise floor)
+t2 = MonoExpRateOffset(TE = 0.01:0.01:0.32)
+fit(t2, data; fixed = (C = 40.0,))               # a known offset instead of estimating it
 ```
 
 Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
@@ -136,9 +136,11 @@ Voxels that are not fitted hold NaN.
 
 | model | signal | free | fixed |
 |---|---|---|---|
-| `T2Decay(TE = ...)` | spin echo: S0·exp(−TE/T2) + C | S0, T2 | C = 0 |
-| `T2StarDecay(TE = ...)` | gradient echo: S0·exp(−TE/T2star) + C | S0, T2star | C = 0 |
-| `DiffusionDecay(b = ...)` | S0·exp(−b·ADC) + C; b in s/mm², ADC in mm²/s | S0, ADC | C = 0 |
+| `MonoExpTime(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
+| `MonoExpRate(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
+| `MonoExpTimeOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
+| `MonoExpRateOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
+| `DiffusionDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | `InversionRecovery(TI = ..., magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
 | `SaturationRecovery(TD = ...)` | M0·(1 − exp(−TD/T1)) | M0, T1 | |
 | `MFA(FA = ..., TR = ...)` | spoiled gradient echo, flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
@@ -190,10 +192,10 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   checks inside the loop. `@inbounds` is optional (it gains about 5% in `signal!`); the
   `eachindex` check costs nothing measurable, so always use it. Without both, a wrong-length
   `out` would read past the end of `TE` and return garbage instead of an error.
-- **Families.** Models that share an equation can share the loop: `T2Decay`, `T2StarDecay` and
-  `DiffusionDecay` all call one function in `src/models/decay.jl` and only declare their own
-  field and parameters. Variations of an equation are parameter roles, not new models: an offset
-  is a parameter fixed at 0 by default, freed with `free = (:C,)`.
+- **Parametrization.** Fit the quantity you will report (T2 or R2), so standard errors, CRLB and
+  Monte Carlo come out directly for it. When both forms of a model exist, they are separate
+  models (`MonoExpTime`, `MonoExpRate`), as are variations such as an added offset: a few
+  repeated lines, but each `signal!` reads exactly like its equation.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
@@ -256,6 +258,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   (chosen by dispatch; the current method uses static arrays and is faster below that)
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
-  gradients (a separate model; the frequency spread from a B0 field map or fitted); rate-form
-  decays (R2*, R2) when a fit needs them; diffusion tensor and kurtosis, IVIM, multi-exponential
-  T2 (myelin water), DCE
+  gradients (a separate model; the frequency spread from a B0 field map or fitted); R1 (rate)
+  versions of the T1 models if needed; diffusion tensor and kurtosis, IVIM, multi-exponential T2
+  (myelin water), DCE; models grouped by area (relaxometry, diffusion, MT)
+- Data-driven starting values: a hook for a model to compute per-voxel starts from the data
+  (e.g. a log-linear fit for `MonoExpTime`, which made it robust in tests; DESPOT1 for MFA)
