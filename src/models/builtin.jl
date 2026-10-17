@@ -30,7 +30,7 @@ const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
 # Grouped by area, one file per model (or per family of closely related models). Names put the
 # quantity first, then the method: T1IR, T1MFA, T2Decay, QMTSIR, ...
-include("relaxometry/t1_ir.jl")         # T1IR, R1IR: inversion recovery
+include("relaxometry/t1_ir.jl")         # T1IR, R1IR, T1IRTD, R1IRTD: inversion recovery
 include("relaxometry/t1_sr.jl")         # T1SR, R1SR: saturation recovery
 include("relaxometry/t1_mfa.jl")        # T1MFA, R1MFA: multiple flip angles (spoiled gradient echo)
 include("relaxometry/t2_decay.jl")      # T2Decay, R2Decay and their offset versions

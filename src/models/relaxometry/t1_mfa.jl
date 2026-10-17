@@ -2,8 +2,10 @@
 # Multiple flip angle (variable flip angle) T1: the spoiled gradient echo signal
 # T1MFA (time constant) and R1MFA (rate)
 #
-# Fit the quantity you will report. In tests both forms gave the same answers, but the R1 form
-# needed 1.5-2× more iterations for long T1 (4-20 s).
+# Fit the quantity you will report. Tested from the default starts (T1 = 1 s, R1 = 1/s): the R1
+# form needed 1.5-2× more iterations for long T1 (4-20 s); the T1 form failed silently in most
+# voxels at some short T1 (0.05 and 0.2 s), stepping to a tiny T1 where the gradient vanishes.
+# Give a start for short T1, e.g. `start = (T1 = 0.2,)`.
 # =================================================================================================
 
 """

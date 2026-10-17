@@ -135,11 +135,16 @@ Voxels that are not fitted hold NaN.
 ## Built-in models
 
 Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
+Rate (R1, R2) and time-constant (T1, T2) versions fit the same data; fit the one you will
+report. From the default starts the rate versions are the more robust: the time-constant
+versions can fail silently for short T1 (≤ 0.1–0.3 s depending on the model; give a `start`).
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
 | relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery: \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
-| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 (the T1 form tested more robust) | M0, B, R1 | |
+| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, B, R1 | |
+| | `T1IRTD(TI = ..., TD = ..., magnitude = true)` | inversion recovery with the delay TD modelled (Li et al., MRM 2010, Eq. 1): M0·[Sf·Mz(TD)·e^(−TI/T1) + 1 − e^(−TI/T1)], Mz(TD) = 1 − (1 − Mz_td0)·e^(−TD/T1); TD one number or one per TI | M0, Sf, T1 | Mz_td0 = 0 |
+| | `R1IRTD(TI = ..., TD = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | Mz_td0 = 0 |
 | | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |
 | | `R1SR(TD = ...)` | the same with R1 = 1/T1 | M0, R1 | |
 | | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |

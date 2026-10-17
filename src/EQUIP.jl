@@ -38,7 +38,7 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
-export T1IR, R1IR, T1SR, R1SR, T1MFA, R1MFA                                # relaxometry models
+export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset
 export ADCDecay                                                            # diffusion models
 export QMTSIR                                                              # qMT models

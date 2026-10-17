@@ -61,11 +61,18 @@ Decisions behind this:
     the time form runs off to huge T (16% of voxels hit max iterations for T2 = 10 s at SNR 20
     in an earlier test), the rate form settles near 0. A per-voxel log-linear start fixes most
     of the time form's failures (roadmap: data-driven starts).
-  - The T1 models come in both forms too (`T1IR`/`R1IR`, `T1SR`/`R1SR`, `T1MFA`/`R1MFA`), but
-    there the rate form is not better: for inversion recovery with T1 = 4 s at SNR 20, the two
-    forms ended at different answers in 361 of 2000 voxels, and the T1 form had the better fit
-    in 332 of them; for MFA the R1 form needs 1.5–2× more iterations for long T1. The
-    docstrings say so.
+  - The T1 models come in both forms too (`T1IR`/`R1IR`, `T1IRTD`/`R1IRTD`, `T1SR`/`R1SR`,
+    `T1MFA`/`R1MFA`). From the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100:
+    - Short T1: the T1 forms failed silently in most or all voxels (IR at 0.1 s; IRTD at
+      0.1–0.3 s; SR at ≤ 0.2 s; MFA at 0.05 and 0.2 s). The R1 forms failed only at 0.05 s, where
+      the first TI is already longer than T1.
+    - Long T1, low SNR: for inversion recovery with T1 = 4 s at SNR 20, the two forms ended at
+      different answers in 361 of 2000 voxels, and the T1 form had the better fit in 332; MFA's
+      R1 form needs 1.5–2× more iterations for long T1.
+    - Why the time forms fail: the rate form's bound, R = 0, is a flat curve whose gradient is
+      not zero, so a fit can come back from it. The time form's bound, T → 0, is a dead zone:
+      every sample has fully decayed or recovered, the gradient is zero, and a step that
+      overshoots there stays. The docstrings say this and suggest a start for short T1.
   - Offsets are separate models (`T2DecayOffset`, `R2DecayOffset`), with C free by
     default. A constant offset is a common approximation for the magnitude noise floor, not the
     correct model (the Rician bias depends on the signal level); Rician-likelihood fitting is
@@ -271,8 +278,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above, twelve models: relaxometry (T1IR, R1IR, T1SR,
-R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above, fourteen models: relaxometry (T1IR, R1IR, T1IRTD,
+R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -410,6 +417,10 @@ weights, other data layouts, precompilation, more models.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
      (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
      integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
+   - Time constants in the solver: keep a step from jumping into the dead zone near T = 0 (e.g.
+     move at most part of the way to a lower bound per step, instead of projecting onto it).
+     Would fix the short-T1 failures of every time-constant model at once; test against the
+     current behaviour on all models, including fits that legitimately end at a bound.
    - Data-driven starting values: a hook for a model to compute per-voxel starts from the data,
      as `:scale` does for S0. First users: a log-linear start for `T2Decay` (in tests it
      turned 500/500 failures into 0 at SNR 50), DESPOT1 for T1MFA.

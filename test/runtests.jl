@@ -9,6 +9,9 @@ using Test
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
+# An inversion recovery protocol with a varying delay TD (s)
+const TI6 = [0.03, 0.1, 0.3, 0.6, 1.2, 2.4]
+const TD6 = [0.5, 3.0, 1.0, 0.2, 2.0, 0.05]
 
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
@@ -21,6 +24,8 @@ const CASES = [
     (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
     (R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, R1 = 1 / 0.9)),
+    (T1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.9, T1 = 1.3, Mz_td0 = 0.0)),
+    (R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.9, R1 = 1 / 1.3, Mz_td0 = 0.0)),
     (R1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, R1 = 1 / 1.2)),
     (R1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, R1 = 1 / 1.4, B1 = 1.0)),
     (QMTSIR(TI = TI5, TD = TD5),
@@ -297,12 +302,35 @@ end
         end
     end
 
+    @testset "T1IRTD / R1IRTD: Li 2010 Eq. 1 and its limits" begin
+        m = T1IRTD(TI = TI6, TD = TD6, magnitude = false)
+        rng = MersenneTwister(8)
+        for _ in 1:50
+            M0, Sf, T1 = 1000rand(rng), -0.5 - 0.6rand(rng), 0.2 + 3rand(rng)
+            # Li et al. 2010, Eq. 1, written as in the paper
+            li = @. M0 * (Sf * (1 - exp(-TD6 / T1)) * exp(-TI6 / T1) + 1 - exp(-TI6 / T1))
+            @test signal(m, (M0 = M0, Sf = Sf, T1 = T1)) ≈ li
+            @test signal(R1IRTD(TI = TI6, TD = TD6, magnitude = false), (M0 = M0, Sf = Sf, R1 = 1 / T1)) ≈ li
+        end
+        θ = (M0 = 1000.0, T1 = 0.9)
+        # a perfect inversion: the textbook form with TR = TI + TD
+        @test signal(m, merge(θ, (Sf = -1.0,))) ≈ @. 1000 * (1 - 2exp(-TI6 / 0.9) + exp(-(TI6 + TD6) / 0.9))
+        # a long TD, or Mz at equilibrium at the start of TD: T1IR with B = 1 - Sf
+        ir = signal(T1IR(TI = TI6, magnitude = false), (M0 = 1000.0, B = 1.9, T1 = 0.9))
+        @test signal(T1IRTD(TI = TI6, TD = 100.0, magnitude = false), merge(θ, (Sf = -0.9,))) ≈ ir
+        @test signal(m, merge(θ, (Sf = -0.9, Mz_td0 = 1.0))) ≈ ir
+        # one TD for every TI
+        @test T1IRTD(TI = TI6, TD = 1.0).TD == fill(1.0, 6)
+        @test R1IRTD(TI = TI6, TD = 1.0).TD == fill(1.0, 6)
+    end
+
     @testset "T1 and R1 forms: the same answer, R1 = 1/T1, voxel by voxel" begin
         rng = MersenneTwister(6)
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
         td = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]
         fa = [2.0, 5, 10, 15, 20, 30]
         pairs = ((T1IR(TI = ti), R1IR(TI = ti), (M0 = 1000.0, B = 1.9)),
+                 (T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.95)),
                  (T1SR(TD = td), R1SR(TD = td), (M0 = 1000.0,)),
                  (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0,)))
         for (mT, mR, θ) in pairs, _ in 1:10
