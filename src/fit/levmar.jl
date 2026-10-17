@@ -94,6 +94,8 @@ struct SolverOptions{T<:AbstractFloat}
     ftol::T
     gtol::T
     damping::T
+    boundstep::T        # PROTOTYPE: fraction of the way to a bound a crossing step moves (1 = onto it)
+    deadzone::Bool      # PROTOTYPE: reject steps that leave a parameter with no influence
 end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
@@ -101,10 +103,10 @@ _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 
 # Keyword constructor. `something(a, b)` returns `a` unless it is `nothing`, then `b`.
 function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothing, gtol = nothing,
-                      damping = 1e-3) where {T}
+                      damping = 1e-3, boundstep = 1.0, deadzone = false) where {T}
     dx, df, dg = _default_tols(T)
     return SolverOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
-                        T(something(gtol, dg)), T(damping))
+                        T(something(gtol, dg)), T(damping), T(boundstep), Bool(deadzone))
 end
 
 # Internal result of `levmar` (the public one, `VoxelResult`, adds parameter names).
@@ -233,6 +235,23 @@ end
 
 @inline _allfinite(v::StaticArray) = all(isfinite, v)
 
+# PROTOTYPE. Does the trial point leave a movable parameter with (almost) no influence on the
+# signal? Its Jacobian column, ‖Jⱼ‖² = A[j, j], collapses: e.g. a time constant pushed to ~0,
+# where every sample has fully decayed and the gradient vanishes, so the solver cannot return.
+@inline function _lost_influence(A, An, fm)
+    T = eltype(A)
+    @inbounds for j in 1:size(A, 1)
+        fm[j] > 0 && A[j, j] > 0 && An[j, j] <= eps(T) * A[j, j] && return true
+    end
+    return false
+end
+
+# PROTOTYPE. Trial point: a parameter whose step would cross a bound moves the fraction τ of
+# the way to it, `l + (1 - τ)(t - l)`, instead of onto it (τ = 1 is plain projection).
+@inline _toward_bounds(θ, θt, lo, hi, τ) =
+    map((t, tt, l, h) -> tt < l ? l + (1 - τ) * (t - l) : tt > h ? h - (1 - τ) * (h - t) : tt,
+        θ, θt, lo, hi)
+
 # Which parameters may move this step: not those sitting on a bound with the gradient pointing
 # outward (the descent direction is −g, so g > 0 at the lower bound pushes further down).
 @inline _movable(θ, g, lo, hi) = map((t, gi, l, h) -> !((t <= l && gi > 0) || (t >= h && gi < 0)), θ, g, lo, hi)
@@ -301,7 +320,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             continue
         end
         h = _chol_solve(L, -(fm .* g))
-        θn = clamp.(θ + h, lo, hi)               # trial point, projected onto the bounds
+        θn = _toward_bounds(θ, θ + h, lo, hi, opts.boundstep)   # PROTOTYPE (τ = 1: clamp)
         s = θn - θ
         if _step_small(s, θ, d, opts.xtol)
             status = ConvergedX
@@ -312,7 +331,8 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
         ssen, An, gn = normal_equations(prob, θn, buf)
         pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
         actual = sse - ssen
-        if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0
+        dead = opts.deadzone && _lost_influence(A, An, fm)   # PROTOTYPE
+        if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 && !dead
             # accept the step
             ρ = actual / pred                    # ≈ 1 when the linear model is accurate
             fsmall = actual <= opts.ftol * sse && pred <= opts.ftol * sse
