@@ -28,6 +28,21 @@
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
+# Time-constant and rate versions (T1IR and R1IR, T2Decay and R2Decay, ...): the equation is
+# written once, in the rate version. The time version's `signal!` converts (R1 = 1/T1) and calls
+# the rate version's:
+#
+#     signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.B, R1 = 1 / p.T1))
+#
+# - `R1IR(m.TI, m.magnitude)` makes a rate model around the same TI vector (no copy, no cost).
+# - `(; p.M0, p.B, R1 = ...)` is short for `(M0 = p.M0, B = p.B, R1 = ...)`.
+# - ForwardDiff carries the derivatives through 1/T1, so the fit is exactly what a loop written
+#   with T1 would give (measured: identical results, bit for bit, at the same speed).
+# - Always time → rate, never rate → time: R1 = 0 (a flat curve) is a valid value but 1/0 is
+#   not, while T1 never reaches 0 (lower bound `_TMIN`), so 1/T1 is always safe.
+# The two versions keep their own structs, `parameters` (names, bounds, starts) and docstrings:
+# those are what users see.
+
 # n values from a to b, evenly spaced on a log scale (for grids of starting values).
 _loggrid(a, b, n) = exp.(range(log(a), log(b); length = n))
 

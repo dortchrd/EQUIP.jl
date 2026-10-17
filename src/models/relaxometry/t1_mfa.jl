@@ -1,6 +1,7 @@
 # =================================================================================================
 # Multiple flip angle (variable flip angle) T1: the spoiled gradient echo signal
 # T1MFA (time constant) and R1MFA (rate)
+# The equation is written once, in R1MFA; T1MFA converts and calls it (see builtin.jl).
 #
 # Fit the quantity you will report. Tested from the default starts (T1 = 1 s, R1 = 1/s), 200
 # voxels at SNR 100: both forms recover T1 from 0.05 to 4 s (the T1 form used to fail at 0.05
@@ -42,17 +43,9 @@ parameters(::T1MFA) = (
     B1 = Fixed(1.0),
 )
 
-function signal!(out, m::T1MFA, p)
-    (; FA, TR) = m
-    (; M0, T1, B1) = p
-    R1 = 1 / T1                         # once per call, so the loop multiplies instead of dividing
-    @inbounds for j in eachindex(out, FA, TR)
-        sinα, cosα = sincos(B1 * deg2rad(FA[j]))   # actual flip angle in radians
-        E1 = exp(-R1 * TR[j])
-        out[j] = M0 * sinα * (1 - E1) / (1 - cosα * E1)
-    end
-    return out
-end
+# The T1 form is the R1 form with R1 = 1/T1: convert, then R1MFA's signal (below; see builtin.jl
+# for why the time form calls the rate form).
+signal!(out, m::T1MFA, p) = signal!(out, R1MFA(m.FA, m.TR), (; p.M0, R1 = 1 / p.T1, p.B1))
 
 """
     R1MFA(; FA, TR)
@@ -84,7 +77,7 @@ function signal!(out, m::R1MFA, p)
     (; FA, TR) = m
     (; M0, R1, B1) = p
     @inbounds for j in eachindex(out, FA, TR)
-        sinα, cosα = sincos(B1 * deg2rad(FA[j]))
+        sinα, cosα = sincos(B1 * deg2rad(FA[j]))   # actual flip angle in radians
         E1 = exp(-R1 * TR[j])
         out[j] = M0 * sinα * (1 - E1) / (1 - cosα * E1)
     end

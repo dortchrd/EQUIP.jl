@@ -1,5 +1,6 @@
 # =================================================================================================
 # Saturation recovery: T1SR (time constant) and R1SR (rate)
+# The equation is written once, in R1SR; T1SR converts and calls it (see builtin.jl).
 #
 # Tested from the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100: both forms recover
 # T1 from 0.05 to 4 s. (The T1 form used to fail for T1 ≤ 0.2 s, stepping to T1 ≈ 0 where the
@@ -25,15 +26,9 @@ parameters(::T1SR) = (
     T1 = Free(1.0; lower = _TMIN),
 )
 
-function signal!(out, m::T1SR, p)
-    (; TD) = m
-    (; M0, T1) = p
-    R1 = 1 / T1                         # once per call, so the loop multiplies instead of dividing
-    @inbounds for j in eachindex(out, TD)
-        out[j] = M0 * (1 - exp(-R1 * TD[j]))
-    end
-    return out
-end
+# The T1 form is the R1 form with R1 = 1/T1: convert, then R1SR's signal (below; see builtin.jl
+# for why the time form calls the rate form).
+signal!(out, m::T1SR, p) = signal!(out, R1SR(m.TD), (; p.M0, R1 = 1 / p.T1))
 
 """
     R1SR(; TD)

@@ -5,7 +5,9 @@
 #   T1IRTD, R1IRTD   any delay TD between readout and inversion, modelled explicitly
 #                    (Li et al., Magn Reson Med 2010;64:491, Eq. 1)
 #
-# Fit the quantity you will report, so its standard errors and CRLB come out directly.
+# Fit the quantity you will report, so its standard errors and CRLB come out directly. The
+# equations are written once, in the R1 versions; the T1 versions convert and call them (see
+# builtin.jl).
 #
 # Magnitude data has local minima: a fit can settle with the signal null in the wrong place.
 # From a single start (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100, both forms failed in most or
@@ -46,16 +48,9 @@ parameters(::T1IR) = (
     T1 = Free(1.0; lower = _TMIN),
 )
 
-function signal!(out, m::T1IR, p)
-    (; TI, magnitude) = m
-    (; M0, B, T1) = p
-    R1 = 1 / T1                         # once per call, so the loop multiplies instead of dividing
-    @inbounds for j in eachindex(out, TI)
-        s = M0 * (1 - B * exp(-R1 * TI[j]))
-        out[j] = magnitude ? abs(s) : s
-    end
-    return out
-end
+# The T1 form is the R1 form with R1 = 1/T1: convert, then R1IR's signal (below; see builtin.jl
+# for why the time form calls the rate form).
+signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.B, R1 = 1 / p.T1))
 
 """
     R1IR(; TI, magnitude = true)
@@ -82,7 +77,7 @@ function signal!(out, m::R1IR, p)
     (; M0, B, R1) = p
     @inbounds for j in eachindex(out, TI)
         s = M0 * (1 - B * exp(-R1 * TI[j]))
-        out[j] = magnitude ? abs(s) : s
+        out[j] = magnitude ? abs(s) : s     # |S| for magnitude images
     end
     return out
 end
@@ -134,18 +129,9 @@ parameters(::T1IRTD) = (
     Mz_td0 = Fixed(0.0),                # Mz at the start of TD, as a fraction of M0: 0 = saturated
 )
 
-function signal!(out, m::T1IRTD, p)
-    (; TI, TD, magnitude) = m
-    (; M0, Sf, T1, Mz_td0) = p
-    R1 = 1 / T1
-    @inbounds for j in eachindex(out, TI, TD)
-        Mz_td = 1 - (1 - Mz_td0) * exp(-R1 * TD[j])        # Mz at the end of TD (fraction of M0)
-        E_ti = exp(-R1 * TI[j])
-        s = M0 * (Sf * Mz_td * E_ti + 1 - E_ti)             # Li 2010, Eq. 1
-        out[j] = magnitude ? abs(s) : s
-    end
-    return out
-end
+# The T1 form: R1 = 1/T1, then R1IRTD's signal (below).
+signal!(out, m::T1IRTD, p) =
+    signal!(out, R1IRTD(m.TI, m.TD, m.magnitude), (; p.M0, p.Sf, R1 = 1 / p.T1, p.Mz_td0))
 
 """
     R1IRTD(; TI, TD, magnitude = true)
@@ -179,9 +165,9 @@ function signal!(out, m::R1IRTD, p)
     (; TI, TD, magnitude) = m
     (; M0, Sf, R1, Mz_td0) = p
     @inbounds for j in eachindex(out, TI, TD)
-        Mz_td = 1 - (1 - Mz_td0) * exp(-R1 * TD[j])
+        Mz_td = 1 - (1 - Mz_td0) * exp(-R1 * TD[j])        # Mz at the end of TD (fraction of M0)
         E_ti = exp(-R1 * TI[j])
-        s = M0 * (Sf * Mz_td * E_ti + 1 - E_ti)
+        s = M0 * (Sf * Mz_td * E_ti + 1 - E_ti)             # Li 2010, Eq. 1
         out[j] = magnitude ? abs(s) : s
     end
     return out

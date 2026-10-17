@@ -206,8 +206,11 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `out` would read past the end of `TE` and return garbage instead of an error.
 - **Parametrization.** Fit the quantity you will report (T2 or R2), so standard errors, CRLB and
   Monte Carlo come out directly for it. When both forms of a model exist, they are separate
-  models (`T2Decay`, `R2Decay`), as are variations such as an added offset: a few
-  repeated lines, but each `signal!` reads exactly like its equation.
+  models (`T2Decay`, `R2Decay`) with their own `parameters` and docstrings, but the equation is
+  written once, in the rate form; the time form converts and calls it:
+  `signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`.
+  Always time → rate: R2 = 0 (a flat curve) is a valid value, but 1/0 is not. Variations such as
+  an added offset are separate models with their own loop.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.

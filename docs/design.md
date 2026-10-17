@@ -45,9 +45,19 @@ Decisions behind this:
   last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
   and `status`. `init` + `fit!` remain for user-written loops.
 - **Fit the quantity you will report; separate models for each form.** Mono-exponential T2 decay
-  comes as `T2Decay` (T2) and `R2Decay` (R2), plus offset versions; each `signal!` is
-  its own short loop that reads exactly like its equation (a few repeated lines, no shared
-  helper, no conditionals).
+  comes as `T2Decay` (T2) and `R2Decay` (R2), plus offset versions. Each form has its own
+  struct, `parameters` and docstring; the equation is written once, in the rate form's
+  `signal!` (a short loop that reads like the equation, no conditionals). The time form converts
+  and calls it, e.g. `signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude),
+  (; p.M0, p.B, R1 = 1 / p.T1))`.
+  - The conversion is free: the rate model wraps the same acquisition vectors (no copy), and
+    ForwardDiff carries the derivatives through 1/T. The fits are the same, bit for bit, at the
+    same speed (Performance notes).
+  - Always time → rate, never rate → time: the rate's bound R = 0 (a flat curve) is a valid
+    value, but T = 1/0 is not (and its derivative would be NaN); T stays ≥ `_TMIN`, so 1/T is
+    always safe.
+  - Offsets stay separate models with their own loop, rather than the decay model plus a second
+    pass adding C: the loop is the equation, S0·exp(−R2·TE) + C.
   - Why both forms: standard errors, CRLB and Monte Carlo then come out directly for the
     reported quantity. Each voxel's estimate and its standard error do convert exactly between
     forms (least squares gives R̂ = 1/T̂ when both reach the same minimum; SE(T̂) = SE(R̂)/R̂²),
@@ -269,9 +279,13 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   than the closed form and cannot take dual numbers; 2×2 StaticArrays with `exp(A·t)` in closed
   form (eigen-decomposition) is 1.3–1.4× slower and works with duals. The tests use Base `exp`
   as an independent reference. A reasonable route for models without a convenient closed form.
-- **Mono-exponential**: the time form computes R2 = 1/T2 once per call and multiplies, instead
-  of dividing every TE by T2: 5–16% faster whole fits (minimum of 10 alternating `@belapsed`
-  runs; this machine varies 15–25% between single runs). In practice the whole question is
+- **Time forms call the rate forms**, e.g. `signal!(out, m::T2Decay, p) = signal!(out,
+  R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`. So R2 = 1/T2 is computed once per call and the loop
+  multiplies, instead of dividing every TE by T2: 5–16% faster whole fits than dividing
+  (minimum of 10 alternating `@belapsed` runs; this machine varies 15–25% between single runs).
+  Calling the rate form instead of repeating its loop changes nothing: 500 noisy voxels gave
+  bit-identical results for T1IR, T1MFA and T2Decay, at the same speed (per voxel, repeated
+  loop vs calling: 1.72 vs 1.74 µs, 0.70 vs 0.72 µs, 2.71 vs 2.66 µs). In practice the whole question is
   small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
   in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
   mask: 0.93 s and 0.24 s).

@@ -11,7 +11,8 @@
 #
 # Why two parametrizations: fit the one you will report, so standard errors, CRLB and Monte Carlo
 # come out directly for it. (Each voxel's estimate converts exactly, R2 = 1/T2, but averages over
-# voxels do not: mean(T2) ≠ 1/mean(R2).)
+# voxels do not: mean(T2) ≠ 1/mean(R2).) The equations are written once, in the R2 versions; the
+# T2 versions convert and call them (see builtin.jl).
 #
 # Which is more robust: the rate form. In tests, the time form failed silently when the true
 # decay was much faster than its start: it stepped to a tiny T2 where the signal at every TE is
@@ -54,19 +55,9 @@ parameters(m::T2Decay) = (
     T2 = Free(mean(m.TE); lower = _TMIN),
 )
 
-function signal!(out, m::T2Decay, p)
-    (; TE) = m                          # unpack by name: TE = m.TE
-    (; S0, T2) = p                      # S0 = p.S0, T2 = p.T2
-    R2 = 1 / T2                         # once per call, so the loop multiplies instead of dividing
-    @inbounds for j in eachindex(out, TE)
-        out[j] = S0 * exp(-R2 * TE[j])
-    end
-    return out
-end
-# `eachindex(out, TE)` checks ONCE, before the loop, that `out` and `TE` have the same indices
-# (a DimensionMismatch error otherwise), and then loops over them. That makes `@inbounds` safe:
-# it skips the per-element bounds checks inside the loop, whoever calls `signal!` and with
-# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for QMTSIR.
+# The T2 form is the R2 form with R2 = 1/T2: convert, then R2Decay's signal (below; see
+# builtin.jl for why the time form calls the rate form).
+signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))
 
 # -------------------------------------------------------------------------------------------------
 """
@@ -95,13 +86,17 @@ parameters(m::R2Decay) = (
 )
 
 function signal!(out, m::R2Decay, p)
-    (; TE) = m
-    (; S0, R2) = p
+    (; TE) = m                          # unpack by name: TE = m.TE
+    (; S0, R2) = p                      # S0 = p.S0, R2 = p.R2
     @inbounds for j in eachindex(out, TE)
         out[j] = S0 * exp(-R2 * TE[j])
     end
     return out
 end
+# `eachindex(out, TE)` checks ONCE, before the loop, that `out` and `TE` have the same indices
+# (a DimensionMismatch error otherwise), and then loops over them. That makes `@inbounds` safe:
+# it skips the per-element bounds checks inside the loop, whoever calls `signal!` and with
+# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for QMTSIR.
 
 # -------------------------------------------------------------------------------------------------
 """
@@ -130,15 +125,8 @@ parameters(m::T2DecayOffset) = (
     C = Free(0.0),                      # offset, in signal units
 )
 
-function signal!(out, m::T2DecayOffset, p)
-    (; TE) = m
-    (; S0, T2, C) = p
-    R2 = 1 / T2
-    @inbounds for j in eachindex(out, TE)
-        out[j] = S0 * exp(-R2 * TE[j]) + C
-    end
-    return out
-end
+# The T2 form: R2 = 1/T2, then R2DecayOffset's signal (below).
+signal!(out, m::T2DecayOffset, p) = signal!(out, R2DecayOffset(m.TE), (; p.S0, R2 = 1 / p.T2, p.C))
 
 # -------------------------------------------------------------------------------------------------
 """
