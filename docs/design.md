@@ -50,9 +50,9 @@ Decisions behind this:
   `signal!` (a short loop that reads like the equation, no conditionals). The time form converts
   and calls it, e.g. `signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude),
   (; p.M0, p.B, R1 = 1 / p.T1))`.
-  - The conversion is free: the rate model wraps the same acquisition vectors (no copy), and
-    ForwardDiff carries the derivatives through 1/T. The fits are the same, bit for bit, at the
-    speed within 2% (Performance notes).
+  - The conversion costs almost nothing: the rate model wraps the same acquisition vectors (no
+    copy), and ForwardDiff carries the derivatives through 1/T. The fits are the same, bit for
+    bit, and within 2% of the speed (Performance notes).
   - Always time → rate, never rate → time: the rate's bound R = 0 (a flat curve) is a valid
     value, but T = 1/0 is not (and its derivative would be NaN); T stays ≥ `_TMIN`, so 1/T is
     always safe.
