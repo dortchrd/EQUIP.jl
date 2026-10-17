@@ -37,7 +37,7 @@ const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 # - `R1IR(m.TI, m.magnitude)` makes a rate model around the same TI vector (no copy, no cost).
 # - `(; p.M0, p.B, R1 = ...)` is short for `(M0 = p.M0, B = p.B, R1 = ...)`.
 # - ForwardDiff carries the derivatives through 1/T1, so the fit is exactly what a loop written
-#   with T1 would give (measured: identical results, bit for bit, at the same speed).
+#   with T1 would give (measured: identical results, bit for bit, within 2% of the speed).
 # - Always time → rate, never rate → time: R1 = 0 (a flat curve) is a valid value but 1/0 is
 #   not, while T1 never reaches 0 (lower bound `_TMIN`), so 1/T1 is always safe.
 # The two versions keep their own structs, `parameters` (names, bounds, starts) and docstrings:

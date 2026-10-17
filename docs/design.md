@@ -52,7 +52,7 @@ Decisions behind this:
   (; p.M0, p.B, R1 = 1 / p.T1))`.
   - The conversion is free: the rate model wraps the same acquisition vectors (no copy), and
     ForwardDiff carries the derivatives through 1/T. The fits are the same, bit for bit, at the
-    same speed (Performance notes).
+    speed within 2% (Performance notes).
   - Always time → rate, never rate → time: the rate's bound R = 0 (a flat curve) is a valid
     value, but T = 1/0 is not (and its derivative would be NaN); T stays ≥ `_TMIN`, so 1/T is
     always safe.
@@ -283,9 +283,11 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`. So R2 = 1/T2 is computed once per call and the loop
   multiplies, instead of dividing every TE by T2: 5–16% faster whole fits than dividing
   (minimum of 10 alternating `@belapsed` runs; this machine varies 15–25% between single runs).
-  Calling the rate form instead of repeating its loop changes nothing: 500 noisy voxels gave
-  bit-identical results for T1IR, T1MFA and T2Decay, at the same speed (per voxel, repeated
-  loop vs calling: 1.72 vs 1.74 µs, 0.70 vs 0.72 µs, 2.71 vs 2.66 µs). In practice the whole question is
+  Calling the rate form instead of repeating its loop: 500 noisy voxels gave bit-identical
+  results for all six time models (T1IR, T1IRTD, T1SR, T1MFA, T2Decay, T2DecayOffset), and one
+  voxel's fit was 0.4–2% slower (about 10 ns; T1IR 1.71 → 1.74 µs, T1MFA 0.70 → 0.71 µs, minimum
+  of 3 alternating runs), at the level of the noise (the unchanged R2Decay varied by 8% in the
+  same runs). In practice the whole question is
   small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
   in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
   mask: 0.93 s and 0.24 s).
