@@ -20,6 +20,9 @@ const CASES = [
     (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
     (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
+    (R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, R1 = 1 / 0.9)),
+    (R1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, R1 = 1 / 1.2)),
+    (R1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, R1 = 1 / 1.4, B1 = 1.0)),
     (QMTSIR(TI = TI5, TD = TD5),
      (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
@@ -291,6 +294,24 @@ end
             r = fit(m, 800 .* exp.(-b .* adc))
             @test r.params.ADC ≈ adc rtol = 1e-6
             @test r.params.S0 ≈ 800 rtol = 1e-6
+        end
+    end
+
+    @testset "T1 and R1 forms: the same answer, R1 = 1/T1, voxel by voxel" begin
+        rng = MersenneTwister(6)
+        ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
+        td = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]
+        fa = [2.0, 5, 10, 15, 20, 30]
+        pairs = ((T1IR(TI = ti), R1IR(TI = ti), (M0 = 1000.0, B = 1.9)),
+                 (T1SR(TD = td), R1SR(TD = td), (M0 = 1000.0,)),
+                 (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0,)))
+        for (mT, mR, θ) in pairs, _ in 1:10
+            T1 = 0.6 + 1.2rand(rng)
+            @test signal(mR, merge(θ, (R1 = 1 / T1,))) ≈ signal(mT, merge(θ, (T1 = T1,)))
+            y = signal(mT, merge(θ, (T1 = T1,))) .* (1 .+ 0.01 .* randn(rng, nobs(mT)))
+            rT, rR = fit(mT, y), fit(mR, y)
+            @test isconverged(rT) && isconverged(rR)
+            @test rR.params.R1 ≈ 1 / rT.params.T1 rtol = 1e-5
         end
     end
 

@@ -61,10 +61,11 @@ Decisions behind this:
     the time form runs off to huge T (16% of voxels hit max iterations for T2 = 10 s at SNR 20
     in an earlier test), the rate form settles near 0. A per-voxel log-linear start fixes most
     of the time form's failures (roadmap: data-driven starts).
-  - Not uniformly better: for the T1 models the time form tested better (inversion recovery
-    with T1 = 4 s at SNR 20: the two forms ended at different answers in 361 of 2000 voxels,
-    and the time form had the better fit in 332 of them; MFA: the rate form needs 1.5–2× more
-    iterations for long T1). They stay in T1.
+  - The T1 models come in both forms too (`T1IR`/`R1IR`, `T1SR`/`R1SR`, `T1MFA`/`R1MFA`), but
+    there the rate form is not better: for inversion recovery with T1 = 4 s at SNR 20, the two
+    forms ended at different answers in 361 of 2000 voxels, and the T1 form had the better fit
+    in 332 of them; for MFA the R1 form needs 1.5–2× more iterations for long T1. The
+    docstrings say so.
   - Offsets are separate models (`T2DecayOffset`, `R2DecayOffset`), with C free by
     default. A constant offset is a common approximation for the magnitude noise floor, not the
     correct model (the Rician bias depends on the signal level); Rician-likelihood fitting is
@@ -78,7 +79,7 @@ Decisions behind this:
     (`EchoDecay{:T2star}`); models generated with `@eval`.
 - **Model names put the quantity first, then the method**: `T1IR`, `T1SR`, `T1MFA`, `T2Decay`,
   `R2Decay`, `ADCDecay`, `QMTSIR` (as qMRLab does with `vfa_t1`, `mono_t2`, `qmt_sirfse`). Tab
-  completion then groups models by quantity, and the pattern extends (`R1MFA`, `QMTSPGR`).
+  completion then groups models by quantity, rate versions read the same way (`R1IR`, `R2Decay`), and new methods fit in (`QMTSPGR`).
   Acronyms stay upper case, as in Base (`QRCompactWY`). Files are grouped by area:
   `src/models/relaxometry/`, `diffusion/`, `qmt/`.
 - **Standard function names are shared, not redefined.** `fit`, `fit!` and `nobs` are StatsAPI's
@@ -184,7 +185,7 @@ src/
   EQUIP.jl             the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
                        builtin.jl (includes), then one folder per area:
-    relaxometry/       T1IR, T1SR, T1MFA, T2Decay, R2Decay (+ offset versions)
+    relaxometry/       T1IR, T1SR, T1MFA, T2Decay (+ R1/R2 and offset versions)
     diffusion/         ADCDecay
     qmt/               QMTSIR
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
@@ -270,8 +271,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above, nine models: relaxometry (T1IR, T1SR, T1MFA,
-T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above, twelve models: relaxometry (T1IR, R1IR, T1SR,
+R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -409,8 +410,6 @@ weights, other data layouts, precompilation, more models.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
      (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
      integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
-   - R1 (rate) versions of the T1 models if needed (see "Fit the quantity you will report"
-     above).
    - Data-driven starting values: a hook for a model to compute per-voxel starts from the data,
      as `:scale` does for S0. First users: a log-linear start for `T2Decay` (in tests it
      turned 500/500 failures into 0 at SNR 50), DESPOT1 for T1MFA.

@@ -139,8 +139,11 @@ Names put the quantity first, then the method, so typing `T1` + Tab lists every 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
 | relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery: \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
+| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 (the T1 form tested more robust) | M0, B, R1 | |
 | | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |
+| | `R1SR(TD = ...)` | the same with R1 = 1/T1 | M0, R1 | |
 | | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
+| | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 |
 | | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
 | | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
 | | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
@@ -263,8 +266,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   (chosen by dispatch; the current method uses static arrays and is faster below that)
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
-  gradients (a separate model; the frequency spread from a B0 field map or fitted); R1 (rate)
-  versions of the T1 models if needed; diffusion tensor and kurtosis, IVIM, multi-exponential T2
-  (myelin water), DCE; models grouped by area (relaxometry, diffusion, MT)
+  gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
+  tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
 - Data-driven starting values: a hook for a model to compute per-voxel starts from the data
   (e.g. a log-linear fit for `T2Decay`, which made it robust in tests; DESPOT1 for T1MFA)
