@@ -27,8 +27,6 @@
 # a constant is not the correct model; Rician-likelihood fitting is on the roadmap.
 # =================================================================================================
 
-_mean(x) = sum(x) / length(x)
-
 # -------------------------------------------------------------------------------------------------
 """
     MonoExpTime(; TE)
@@ -53,7 +51,7 @@ end
 
 parameters(m::MonoExpTime) = (
     S0 = Free(:scale; lower = 0),
-    T2 = Free(_mean(m.TE); lower = _TMIN),
+    T2 = Free(mean(m.TE); lower = _TMIN),
 )
 
 function signal!(out, m::MonoExpTime, p)
@@ -93,7 +91,7 @@ end
 
 parameters(m::MonoExpRate) = (
     S0 = Free(:scale; lower = 0),
-    R2 = Free(1 / _mean(m.TE); lower = 0),
+    R2 = Free(1 / mean(m.TE); lower = 0),
 )
 
 function signal!(out, m::MonoExpRate, p)
@@ -128,7 +126,7 @@ end
 
 parameters(m::MonoExpTimeOffset) = (
     S0 = Free(:scale; lower = 0),
-    T2 = Free(_mean(m.TE); lower = _TMIN),
+    T2 = Free(mean(m.TE); lower = _TMIN),
     C = Free(0.0),                      # offset, in signal units
 )
 
@@ -165,7 +163,7 @@ end
 
 parameters(m::MonoExpRateOffset) = (
     S0 = Free(:scale; lower = 0),
-    R2 = Free(1 / _mean(m.TE); lower = 0),
+    R2 = Free(1 / mean(m.TE); lower = 0),
     C = Free(0.0),                      # offset, in signal units
 )
 

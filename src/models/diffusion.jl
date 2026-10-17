@@ -25,7 +25,7 @@ end
 
 parameters(m::DiffusionDecay) = (
     S0 = Free(:scale; lower = 0),
-    ADC = Free(1 / _mean(m.b); lower = 0),
+    ADC = Free(1 / mean(m.b); lower = 0),
 )
 
 function signal!(out, m::DiffusionDecay, p)

@@ -28,6 +28,7 @@ module EQUIP
 using LinearAlgebra                        # dot, Diagonal, diag
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
+using Statistics: mean                     # default starting values (e.g. T2 = mean(TE))
 import CommonSolve                         # owner of `init` (the SciML convention)
 using CommonSolve: init
 import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (StatsBase, GLM, ...)
