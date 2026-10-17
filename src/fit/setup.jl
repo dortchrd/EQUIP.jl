@@ -20,6 +20,8 @@ The resolved parameter roles of one fit (made by `setup`):
 - `start`: starting values of the free parameters (numbers or per-voxel maps), names `F`
 - `scale`: position in `F` of the `Free(:scale)` parameter, or 0 if there is none
 - `fixed`: the fixed parameters (numbers, per-voxel maps or ties), by name
+- `grid`, `gridindex`: starting values to try for free parameter number `gridindex` (from the
+  model's [`startgrid`](@ref)); `gridindex = 0` means no grid
 
 `F` and `P` are type parameters rather than fields: the compiler then knows the names and the
 number of free parameters and generates code specialized for them (fixed-size vectors and
@@ -31,6 +33,8 @@ struct FitSpec{F,P,T,S,X}
     start::S        # NamedTuple with names F (a :scale parameter holds 1 here)
     scale::Int      # which free parameter starts at the least-squares scale (0 = none)
     fixed::X        # NamedTuple with the fixed parameters' names
+    grid::Vector{T} # starting values to try for one free parameter (empty = none)
+    gridindex::Int  # which free parameter the grid is for (0 = none)
 end
 
 freenames(::FitSpec{F}) where {F} = F       # read the names back out of the type
@@ -119,6 +123,20 @@ function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), sta
     all(lower .<= upper) || throw(ArgumentError("a lower bound exceeds its upper bound"))
     fixedvals = NamedTuple{X}(map(n -> _value(roles[n].value, T), X))
 
+    # 7. Grid of starting values (optional, see `startgrid`): used only if its parameter is free
+    #    and has no `start` from the user; values outside the bounds are dropped.
+    grid, gridindex = T[], 0
+    g = startgrid(model)
+    if g !== nothing
+        length(g) == 1 || throw(ArgumentError("`startgrid` must give values for one parameter"))
+        k = findfirst(==(only(keys(g))), F)
+        if k !== nothing && !haskey(start, F[k])
+            grid = T[T(x) for x in only(values(g)) if lower[k] <= x <= upper[k]]
+            gridindex = isempty(grid) ? 0 : k
+        end
+    end
+
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
-    return FitSpec{F,P,T,typeof(starts),typeof(fixedvals)}(lower, upper, starts, scale, fixedvals)
+    return FitSpec{F,P,T,typeof(starts),typeof(fixedvals)}(lower, upper, starts, scale, fixedvals,
+                                                           grid, gridindex)
 end

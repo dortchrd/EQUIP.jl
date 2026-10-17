@@ -36,7 +36,7 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
-export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
+export MRIModel, Free, Fixed, parameters, signal!, signal, nobs, startgrid  # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset

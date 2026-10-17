@@ -28,6 +28,18 @@
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
+# n values from a to b, evenly spaced on a log scale (for grids of starting values).
+_loggrid(a, b, n) = exp.(range(log(a), log(b); length = n))
+
+# A grid of T1 values for starting values, spanning the inversion (or delay) times t: from a
+# fifth of the shortest positive time to five times the longest, 30 values.
+function _t1grid(t)
+    tmin = minimum(x -> x > 0 ? float(x) : Inf, t)
+    tmax = float(maximum(t))
+    isfinite(tmin) || (tmin = tmax / 100)                  # all times 0: a nominal range
+    return _loggrid(tmin / 5, 5tmax, 30)
+end
+
 # Grouped by area, one file per model (or per family of closely related models). Names put the
 # quantity first, then the method: T1IR, T1MFA, T2Decay, QMTSIR, ...
 include("relaxometry/t1_ir.jl")         # T1IR, R1IR, T1IRTD, R1IRTD: inversion recovery

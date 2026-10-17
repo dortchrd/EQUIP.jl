@@ -5,17 +5,23 @@
 #   T1IRTD, R1IRTD   any delay TD between readout and inversion, modelled explicitly
 #                    (Li et al., Magn Reson Med 2010;64:491, Eq. 1)
 #
-# Fit the quantity you will report, so its standard errors and CRLB come out directly. Tested from
-# the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100:
-# - Magnitude data can end in a wrong local minimum (the fit settles on the wrong side of the
-#   signal null), in both forms, for T1 very short or very long compared with the TIs: T1IR at
-#   0.05 and 4 s (even with TIs from 10 ms to 12.8 s), T1IRTD at 0.05-0.1 s. The T1 form also at
-#   T1IR 0.1 s and T1IRTD 0.2-0.3 s, where the R1 form succeeded. Polarity restoration (planned)
-#   is the usual remedy; until then prefer the R1 form there, or give a start near the expected
-#   T1, e.g. `start = (T1 = 0.2,)`.
-# - Long T1, low SNR (T1IR, T1 = 4 s, SNR 20): the two forms ended at different answers in 361
-#   of 2000 voxels, and the T1 form had the better fit in 332 of them.
+# Fit the quantity you will report, so its standard errors and CRLB come out directly.
+#
+# Magnitude data has local minima: a fit can settle with the signal null in the wrong place.
+# From a single start (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100, both forms failed in most or
+# all voxels when T1 was very short or very long compared with the TIs (T1IR at 0.05 and 4 s,
+# T1IRTD at 0.05-0.1 s and about half at 4 s; the T1 form also at T1IR 0.1 s and T1IRTD
+# 0.2-0.3 s). So every voxel first tries T1 on a grid spanning the TIs and starts from the best
+# value (`startgrid`, at the end of this file). Tested with T1 from 0.05 to 4 s at SNR 20 and
+# 100, both forms: at most 2 of 200 voxels failed in any case, for about 1 µs more per voxel.
+# A `start` for T1 (or R1) skips the grid, e.g. `start = (T1 = 0.2,)` or a start map.
+#
+# Long T1, low SNR (T1IR, T1 = 4 s, TIs up to 3.2 s, SNR 20, 2000 voxels): the two forms agree
+# except in 15 voxels whose noisy data are best fitted with T1 running off to infinity (an almost
+# straight line); both forms stop there at max iterations (status 4). Without the grid the forms
+# disagreed in 371 voxels, each stuck in a different local minimum.
 # =================================================================================================
+
 
 """
     T1IR(; TI, magnitude = true)
@@ -180,3 +186,12 @@ function signal!(out, m::R1IRTD, p)
     end
     return out
 end
+
+# -------------------------------------------------------------------------------------------------
+# Starting values: magnitude inversion recovery has local minima (the fit can settle with the
+# signal null in the wrong place), so every voxel first tries T1 on a grid spanning the TIs and
+# starts from the value that fits best (see `startgrid`; `_t1grid` is in builtin.jl: 30 values,
+# log-spaced from 1/5 of the shortest TI to 5× the longest). The R1 forms use the same values
+# as rates, so both forms start from the same place.
+startgrid(m::Union{T1IR,T1IRTD}) = (T1 = _t1grid(m.TI),)
+startgrid(m::Union{R1IR,R1IRTD}) = (R1 = 1 ./ _t1grid(m.TI),)

@@ -136,10 +136,10 @@ Voxels that are not fitted hold NaN.
 
 Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
 Rate (R1, R2) and time-constant (T1, T2) versions fit the same data; fit the one you will
-report. Magnitude inversion recovery (`T1IR`, `T1IRTD` and their R1 versions) can still end in
-a wrong local minimum when T1 is very short or very long compared with the TIs; there the R1
-versions did better in tests, and a `start` near the expected T1 helps (polarity restoration is
-planned).
+report. Magnitude inversion recovery (`T1IR`, `T1IRTD` and their R1 versions) has local minima,
+so these models first try 30 values of T1 per voxel and start from the best one (`startgrid`):
+in tests, at most 2 of 200 voxels failed for T1 from 0.05 to 4 s, against all 200 from a single
+start. It costs about 1 µs per voxel; giving a `start` for T1 (or R1) skips it.
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
@@ -211,6 +211,11 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
+- **`startgrid`** (optional): if fits can end in a wrong local minimum from one start, give a
+  grid of values for one free parameter, e.g.
+  `startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)`. Each voxel
+  evaluates the signal at every value (a `:scale` parameter at its best value for each) and
+  starts from the best fit. The default is no grid.
 
 ## How it works
 
@@ -224,6 +229,8 @@ a dataset                         ──fit────▶  maps      threads ov
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
+Before the first step, each voxel's start is set: a `:scale` parameter at its least-squares
+value and, for a model with a `startgrid`, the grid value that fits that voxel best.
 
 The code is in layers; each only uses the ones before it:
 
@@ -259,7 +266,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
-- Model-specific data-driven starting values; starts from neighbouring voxels
+- Starts from neighbouring voxels
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
   neighbouring voxels), then a refit from neighbour starts or replacement by a neighbourhood
   average, marked in the status map
@@ -275,5 +282,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
-- Data-driven starting values: a hook for a model to compute per-voxel starts from the data
-  (e.g. a log-linear fit for `T2Decay`, which made it robust in tests; DESPOT1 for T1MFA)
+- More data-driven starting values (`startgrid` is the first): a hook for a model to compute
+  per-voxel starts from the data (e.g. a log-linear fit for `T2Decay`, which made it robust in
+  tests; DESPOT1 for T1MFA)
+- Polarity restoration for magnitude inversion recovery (as in qMRLab), to compare with the grid
+  start

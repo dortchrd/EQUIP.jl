@@ -146,6 +146,22 @@ with dual numbers (value + derivatives), so do not force values to `Float64`.
 function signal! end
 # The `!` is a Julia naming convention: the function modifies (one of) its arguments, here `out`.
 
+"""
+    startgrid(m) -> nothing or (name = values,)
+
+Optional: a grid of starting values to try for ONE free parameter, e.g. `(T1 = values,)`. For
+each voxel, the fit evaluates the signal at every grid value (the other parameters at their
+starts, a `Free(:scale)` parameter at its least-squares value for that grid value) and starts
+from the one that fits the data best. Use it for models whose fits can end in a wrong local
+minimum from a single start, such as magnitude inversion recovery. The grid is skipped when
+the parameter is fixed or given a `start`. The default, `nothing`, means no grid.
+
+```julia
+startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)
+```
+"""
+startgrid(::MRIModel) = nothing
+
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------

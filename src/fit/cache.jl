@@ -127,13 +127,50 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
         return _invalid(spec)
     end
     prob = VoxelProblem{F}(c.model, c.y, fixed)
-    # 4. A `Free(:scale)` parameter starts at the value that best matches the data's scale.
-    if spec.scale > 0
+    # 4. Starting point from the data: the best value on the model's grid, if it has one (see
+    #    `startgrid`); a `Free(:scale)` parameter at the value that best matches the data's scale.
+    if spec.gridindex > 0
+        θ0 = _grid_start(prob, θ0, spec, c.buf)
+    elseif spec.scale > 0
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end
     # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...).
     r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
     return VoxelResult(NamedTuple{F}(Tuple(r.θ)), r.sse, r.iterations, r.status)
+end
+
+# Starting point from a grid (see `startgrid`): for each grid value g of free parameter k, evaluate
+# the signal (with a `:scale` parameter at its least-squares value for that g) and its SSE; keep
+# the best g. Plain numbers only, in the dual buffer as in `_scale_start`; nothing is allocated.
+function _grid_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
+    k, sc = spec.gridindex, spec.scale
+    best, bestsse = θ0, T(Inf)
+    for g in spec.grid
+        θ = Base.setindex(θ0, g, k)
+        sc > 0 && (θ = Base.setindex(θ, one(T), sc))          # signal at scale 1
+        signal!(buf, prob.model, _params(Val(F), θ, prob.fixed))
+        sy = ss = yy = zero(T)
+        @inbounds for i in eachindex(buf)
+            s, y = T(value(buf[i])), T(prob.y[i])
+            sy += s * y
+            ss += s * s
+            yy += y * y
+        end
+        if sc > 0                                            # best scale a for this g
+            a = sy / ss
+            a = isfinite(a) && a > 0 ? clamp(a, spec.lower[sc], spec.upper[sc]) : one(T)
+            θ = Base.setindex(θ, a, sc)
+            sse = yy - 2a * sy + a^2 * ss                    # Σ (a·s - y)²
+        else
+            sse = yy - 2sy + ss                              # Σ (s - y)²
+        end
+        if sse < bestsse                                     # NaN never wins
+            best, bestsse = θ, sse
+        end
+    end
+    # No usable grid value (e.g. NaN signals): fall back to the usual start.
+    isfinite(bestsse) && return best
+    return sc > 0 ? _scale_start(prob, θ0, sc, spec.lower, spec.upper, buf) : θ0
 end
 
 # Starting value of the scale parameter k (S0, M0, ...). The signal is proportional to it, so with

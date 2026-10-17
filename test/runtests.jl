@@ -353,6 +353,30 @@ end
         @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
     end
 
+    @testset "grid start: magnitude inversion recovery's local minima" begin
+        # From the single default start (T1 = 1 s), magnitude IR used to end in a wrong local
+        # minimum (the signal null in the wrong place) at T1 = 0.05, 0.1 and 4 s with these TIs;
+        # the grid start (startgrid) finds the right one, in both forms.
+        ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
+        for T1 in (0.05, 0.1, 0.5, 4.0)
+            m, mr = T1IR(TI = ti), R1IR(TI = ti)
+            @test fit(m, signal(m, (M0 = 1000.0, B = 1.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+            @test fit(mr, signal(mr, (M0 = 1000.0, B = 1.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
+        end
+        for T1 in (0.05, 0.1, 0.2, 0.3, 4.0)
+            m, mr = T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6)
+            @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+            @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
+        end
+        # the grid: 30 values spanning the TIs; skipped when the parameter has a start or is fixed
+        s = setup(T1IR(TI = ti))
+        @test s.gridindex == 3 && length(s.grid) == 30
+        @test s.grid[1] ≈ 0.01 && s.grid[end] ≈ 16
+        @test setup(T1IR(TI = ti); start = (T1 = 2.0,)).gridindex == 0
+        @test setup(T1IR(TI = ti); fixed = (T1 = 2.0,)).gridindex == 0
+        @test startgrid(T2Decay(TE = [0.01, 0.02])) === nothing           # no grid by default
+    end
+
     @testset "T1 and R1 forms: the same answer, R1 = 1/T1, voxel by voxel" begin
         rng = MersenneTwister(6)
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
