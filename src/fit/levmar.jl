@@ -254,11 +254,8 @@ end
 # which remove bounds by a change of variables. The usual acceptance threshold (actual/predicted
 # decrease > η) does not catch it: tested with η up to 0.25. Measurements: docs/design.md.
 @inline function _lost_influence(A, An, fm)
-    T = eltype(A)
-    @inbounds for j in 1:size(A, 1)
-        fm[j] > 0 && A[j, j] > 0 && An[j, j] <= eps(T) * A[j, j] && return true
-    end
-    return false
+    a, an = diag(A), diag(An)
+    return any((fm .> 0) .& (a .> 0) .& (an .<= eps(eltype(a)) .* a))
 end
 
 # Which parameters may move this step: not those sitting on a bound with the gradient pointing

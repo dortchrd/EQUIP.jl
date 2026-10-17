@@ -277,7 +277,9 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     0.05/0.2 s went from 200/200 bad fits to 0; T1IRTD at 0.3 s from 199 to 79. Fits that end on
     a bound (R2 = 0 for flat curves, PSR = 0 without MT) are identical; typical fits of all
     models give identical answers in the same iterations; a 368k-voxel dataset fits in the same
-    time (T2Decay 0.36–0.38 s, QMTSIR 0.31 s on 4 threads).
+    time (T2Decay 0.36–0.38 s, QMTSIR 0.31 s on 4 threads). Per voxel, the check is written branch-free over the
+    diagonal (`any(...)` on static vectors): a loop with early return made QMTSIR fits 7%
+    slower (2.46 → 2.66 µs), the branch-free form costs nothing measurable (≤ 2%, within noise).
   - Precedent: none that we know of for exactly this rule, so it is EQUIP's own guard. Related:
     Transtrum & Sethna's "parameter evaporation" (fits drifting to where a parameter stops
     mattering) and their acceptance test on geodesic acceleration; SciPy's `least_squares`
