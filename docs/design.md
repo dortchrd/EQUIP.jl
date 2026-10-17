@@ -64,15 +64,16 @@ Decisions behind this:
   - The T1 models come in both forms too (`T1IR`/`R1IR`, `T1IRTD`/`R1IRTD`, `T1SR`/`R1SR`,
     `T1MFA`/`R1MFA`). From the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100:
     - Short T1: the T1 forms failed silently in most or all voxels (IR at 0.1 s; IRTD at
-      0.1–0.3 s; SR at ≤ 0.2 s; MFA at 0.05 and 0.2 s). The R1 forms failed only at 0.05 s, where
-      the first TI is already longer than T1.
+      0.1–0.3 s; SR at ≤ 0.2 s; MFA at 0.05 and 0.2 s); the R1 forms only where no form can work.
+      The dead-zone guard in the solver (below) fixed SR and MFA completely; what remains for IR
+      and IRTD is magnitude inversion recovery's local minima (polarity), not the dead zone.
     - Long T1, low SNR: for inversion recovery with T1 = 4 s at SNR 20, the two forms ended at
       different answers in 361 of 2000 voxels, and the T1 form had the better fit in 332; MFA's
       R1 form needs 1.5–2× more iterations for long T1.
     - Why the time forms fail: the rate form's bound, R = 0, is a flat curve whose gradient is
       not zero, so a fit can come back from it. The time form's bound, T → 0, is a dead zone:
       every sample has fully decayed or recovered, the gradient is zero, and a step that
-      overshoots there stays. The docstrings say this and suggest a start for short T1.
+      overshoots there stays. The solver now rejects such steps (next item).
   - Offsets are separate models (`T2DecayOffset`, `R2DecayOffset`), with C free by
     default. A constant offset is a common approximation for the magnitude noise floor, not the
     correct model (the Rician bias depends on the signal level); Rician-likelihood fitting is
@@ -266,6 +267,33 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
   in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
   mask: 0.93 s and 0.24 s).
+- **The solver rejects steps into a dead zone** (`_lost_influence` in `src/fit/levmar.jl`): a
+  trial step after which a free parameter no longer affects the signal (its ‖Jⱼ‖², the diagonal
+  of JᵀJ, collapses by more than a factor 1/eps) is rejected like any bad step. The typical case
+  is a time constant projected onto its lower bound (1e-6 s), where every sample has decayed or
+  recovered: the derivative is exactly zero, the solver can never move it again, and yet the
+  step lowered the SSE (the other parameters adapt), so it used to be accepted.
+  - Measured (200 voxels, SNR 100, default starts): T1SR at T1 = 0.05/0.1/0.2 s and T1MFA at
+    0.05/0.2 s went from 200/200 bad fits to 0; T1IRTD at 0.3 s from 199 to 79. Fits that end on
+    a bound (R2 = 0 for flat curves, PSR = 0 without MT) are identical; typical fits of all
+    models give identical answers in the same iterations; a 368k-voxel dataset fits in the same
+    time (T2Decay 0.36–0.38 s, QMTSIR 0.31 s on 4 threads).
+  - Precedent: none that we know of for exactly this rule, so it is EQUIP's own guard. Related:
+    Transtrum & Sethna's "parameter evaporation" (fits drifting to where a parameter stops
+    mattering) and their acceptance test on geodesic acceleration; SciPy's `least_squares`
+    trust-region-reflective method, which keeps iterates strictly inside the bounds (step-back
+    θ = max(0.995, 1 − ‖g‖), reflection, Coleman–Li scaling); lmfit/MINUIT, which remove bounds
+    by a change of variables. LsqFit.jl projects onto the bounds as we did, and has the same
+    weakness. The standard acceptance threshold (actual/predicted decrease > η) does not catch
+    it: the jump lowered the SSE by 39%, and was accepted with η up to 0.25.
+  - Rejected alternative: moving only part of the way to a bound (a naive strictly-feasible
+    step, without Coleman–Li scaling or reflection). It fixed SR and MFA too, but fits that
+    should end on a bound stalled: QMTSIR with PSR = 0 hit max iterations in 401 of 1000 voxels,
+    some with a 4.4× worse SSE.
+  - Not a solver issue: whether the protocol samples the curve well. Short T2 failed only when the
+    first echo came at ≥ 2× T2 at low SNR (an earlier first echo removed every failure); long T2
+    or T1 is a question of precision (T2 = 2 s from TE ≤ 320 ms: 0.6–2.9× the truth at SNR 10),
+    for CRLB and protocol design.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
@@ -417,10 +445,11 @@ weights, other data layouts, precompilation, more models.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
      (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
      integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
-   - Time constants in the solver: keep a step from jumping into the dead zone near T = 0 (e.g.
-     move at most part of the way to a lower bound per step, instead of projecting onto it).
-     Would fix the short-T1 failures of every time-constant model at once; test against the
-     current behaviour on all models, including fits that legitimately end at a bound.
+   - Polarity restoration for magnitude inversion recovery (Barral's RD-NLS, as in qMRLab): try
+     each possible position of the signal null and keep the best fit. The remaining T1IR/T1IRTD
+     failures are of this kind (to discuss).
+   - Bounds in the solver: if boundary problems remain that the dead-zone guard does not handle,
+     compare against a trust-region-reflective step (SciPy's `trf`) or a change of variables.
    - Data-driven starting values: a hook for a model to compute per-voxel starts from the data,
      as `:scale` does for S0. First users: a log-linear start for `T2Decay` (in tests it
      turned 500/500 failures into 0 at SNR 50), DESPOT1 for T1MFA.

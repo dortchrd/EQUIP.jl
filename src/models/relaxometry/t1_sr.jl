@@ -1,9 +1,9 @@
 # =================================================================================================
 # Saturation recovery: T1SR (time constant) and R1SR (rate)
 #
-# Tested from the default starts (T1 = 1 s, R1 = 1/s): the T1 form failed silently in most voxels
-# for T1 ≤ 0.2 s (a step overshoots to a tiny T1, where the gradient vanishes); the R1 form did
-# not. Give a start for short T1, e.g. `start = (T1 = 0.2,)`.
+# Tested from the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100: both forms recover
+# T1 from 0.05 to 4 s. (The T1 form used to fail for T1 ≤ 0.2 s, stepping to T1 ≈ 0 where the
+# gradient vanishes; the solver now rejects such steps, see src/fit/levmar.jl.)
 # =================================================================================================
 
 """

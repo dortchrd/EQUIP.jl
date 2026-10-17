@@ -324,6 +324,35 @@ end
         @test R1IRTD(TI = TI6, TD = 1.0).TD == fill(1.0, 6)
     end
 
+    @testset "solver: steps into a dead zone are rejected; bounds are still reached" begin
+        # A step that pushes a time constant to ~0 leaves it with no influence on the signal
+        # (every sample has fully recovered). Such steps are rejected, so short T1 is found from
+        # the default start (T1 = 1 s); before the guard these fits ended at T1 = 1e-6.
+        sr = T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0])
+        for T1 in (0.05, 0.1, 0.2)
+            @test fit(sr, signal(sr, (M0 = 1000.0, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+        end
+        mfa = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
+        for T1 in (0.05, 0.2)
+            @test fit(mfa, signal(mfa, (M0 = 1000.0, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+        end
+        # fits whose answer lies on a bound still end exactly there (there the parameter still
+        # affects the signal, so the guard does not apply)
+        y = 1000 .+ 0.05 .* (1:32) .+ [isodd(j) ? 1.0 : -1.0 for j in 1:32]     # slightly rising
+        r = fit(R2Decay(TE = collect(0.01:0.01:0.32)), y)
+        @test r.params.R2 == 0
+        @test isconverged(r)
+        m = QMTSIR(TI = TI5, TD = TD5)
+        r = fit(m, signal(m, (PSR = 0.0, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))   # no MT
+        @test r.params.PSR == 0
+        @test r.params.R1f ≈ 1.0 rtol = 1e-6
+        # the guard itself: parameter 2 loses (almost) all influence; frozen parameters don't count
+        A = [4.0 0.0; 0.0 9.0]
+        @test EQUIP._lost_influence(A, [4.0 0.0; 0.0 1e-20], [1.0, 1.0])
+        @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 1e-3], [1.0, 1.0])
+        @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
+    end
+
     @testset "T1 and R1 forms: the same answer, R1 = 1/T1, voxel by voxel" begin
         rng = MersenneTwister(6)
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]

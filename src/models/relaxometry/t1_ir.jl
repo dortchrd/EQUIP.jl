@@ -6,11 +6,14 @@
 #                    (Li et al., Magn Reson Med 2010;64:491, Eq. 1)
 #
 # Fit the quantity you will report, so its standard errors and CRLB come out directly. Tested from
-# the default starts (T1 = 1 s, R1 = 1/s):
-# - short T1: the T1 forms failed silently in most voxels for T1 ≤ 0.1 s (T1IR) and ≤ 0.3 s
-#   (T1IRTD): a step overshoots to a tiny T1, where every sample has fully recovered and the
-#   gradient vanishes. The R1 forms did not. Give a start for short T1, e.g. `start = (T1 = 0.2,)`.
-# - long T1, low SNR (T1IR, T1 = 4 s, SNR 20): the two forms ended at different answers in 361
+# the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100:
+# - Magnitude data can end in a wrong local minimum (the fit settles on the wrong side of the
+#   signal null), in both forms, for T1 very short or very long compared with the TIs: T1IR at
+#   0.05 and 4 s (even with TIs from 10 ms to 12.8 s), T1IRTD at 0.05-0.1 s. The T1 form also at
+#   T1IR 0.1 s and T1IRTD 0.2-0.3 s, where the R1 form succeeded. Polarity restoration (planned)
+#   is the usual remedy; until then prefer the R1 form there, or give a start near the expected
+#   T1, e.g. `start = (T1 = 0.2,)`.
+# - Long T1, low SNR (T1IR, T1 = 4 s, SNR 20): the two forms ended at different answers in 361
 #   of 2000 voxels, and the T1 form had the better fit in 332 of them.
 # =================================================================================================
 

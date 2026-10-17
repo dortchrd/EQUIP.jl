@@ -39,6 +39,9 @@
 #   independent of parameter units (M0 ~ 1000 next to T2 ~ 0.05 is the norm in MRI).
 # - Bounds by projection: a step that leaves the box is clipped onto it, and a parameter
 #   sitting on a bound that the gradient pushes outward is frozen for that step.
+# - Steps into a "dead zone" are rejected (EQUIP's own guard; see `_lost_influence` below): a
+#   step after which some parameter no longer affects the signal at all, e.g. a time constant
+#   pushed to ~0, where every sample has fully decayed and its derivative is zero.
 # =================================================================================================
 
 """
@@ -233,6 +236,31 @@ end
 
 @inline _allfinite(v::StaticArray) = all(isfinite, v)
 
+# Does the trial point leave a movable parameter with no influence on the signal?
+#
+# ‖Jⱼ‖² = A[j, j] (the diagonal of JᵀJ) measures how strongly the signal responds to parameter j.
+# If it collapses from a positive value to (almost) zero, the parameter has entered a "dead zone":
+# e.g. a time constant T pushed to ~0 by a step projected onto its lower bound, where
+# exp(-t/T) = 0 at every sample. Its derivative is then exactly zero, so the solver could never
+# move it again, yet such a step can still lower the SSE (the other parameters adapt), so the
+# usual tests accept it and the fit stops there, reporting convergence.
+#
+# Rejecting the step (as any bad step: more damping, a shorter step next) avoids this. Bounds
+# where the parameter still matters (R2 = 0, a flat curve; PSR = 0) are unaffected.
+#
+# EQUIP's own guard: we know of no standard solver with exactly this rule. Related: Transtrum &
+# Sethna's "parameter evaporation" and their acceptance test on geodesic acceleration; SciPy's
+# trust-region-reflective method, which keeps iterates strictly inside the bounds; lmfit/MINUIT,
+# which remove bounds by a change of variables. The usual acceptance threshold (actual/predicted
+# decrease > η) does not catch it: tested with η up to 0.25. Measurements: docs/design.md.
+@inline function _lost_influence(A, An, fm)
+    T = eltype(A)
+    @inbounds for j in 1:size(A, 1)
+        fm[j] > 0 && A[j, j] > 0 && An[j, j] <= eps(T) * A[j, j] && return true
+    end
+    return false
+end
+
 # Which parameters may move this step: not those sitting on a bound with the gradient pointing
 # outward (the descent direction is −g, so g > 0 at the lower bound pushes further down).
 @inline _movable(θ, g, lo, hi) = map((t, gi, l, h) -> !((t <= l && gi > 0) || (t >= h && gi < 0)), θ, g, lo, hi)
@@ -312,7 +340,8 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
         ssen, An, gn = normal_equations(prob, θn, buf)
         pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
         actual = sse - ssen
-        if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0
+        if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 &&
+           !_lost_influence(A, An, fm)                      # not into a dead zone (see above)
             # accept the step
             ρ = actual / pred                    # ≈ 1 when the linear model is accurate
             fsmall = actual <= opts.ftol * sse && pred <= opts.ftol * sse

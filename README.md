@@ -136,8 +136,10 @@ Voxels that are not fitted hold NaN.
 
 Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
 Rate (R1, R2) and time-constant (T1, T2) versions fit the same data; fit the one you will
-report. From the default starts the rate versions are the more robust: the time-constant
-versions can fail silently for short T1 (≤ 0.1–0.3 s depending on the model; give a `start`).
+report. Magnitude inversion recovery (`T1IR`, `T1IRTD` and their R1 versions) can still end in
+a wrong local minimum when T1 is very short or very long compared with the TIs; there the R1
+versions did better in tests, and a `start` near the expected T1 helps (polarity restoration is
+planned).
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
