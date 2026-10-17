@@ -3,7 +3,7 @@
 # =================================================================================================
 
 """
-    InversionRecovery(; TI, magnitude = true)
+    T1IR(; TI, magnitude = true)
 
 Inversion recovery with a long repetition time: `S = M0·(1 - B·exp(-TI/T1))`, its absolute
 value for magnitude data. `B` absorbs imperfect inversion (B = 2 for a perfect one).
@@ -12,18 +12,18 @@ value for magnitude data. `B` absorbs imperfect inversion (B = 2 for a perfect o
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - parameters: `M0`, `B`, `T1` (s)
 """
-@kwdef struct InversionRecovery{A<:AbstractVector} <: MRIModel
+@kwdef struct T1IR{A<:AbstractVector} <: MRIModel
     TI::A                               # inversion times (s)
     magnitude::Bool = true              # a default value makes the keyword optional
 end
 
-parameters(::InversionRecovery) = (
+parameters(::T1IR) = (
     M0 = Free(:scale; lower = 0),
     B = Free(2.0; lower = 0, upper = 3),
     T1 = Free(1.0; lower = _TMIN),
 )
 
-function signal!(out, m::InversionRecovery, p)
+function signal!(out, m::T1IR, p)
     (; TI, magnitude) = m
     (; M0, B, T1) = p
     @inbounds for j in eachindex(out, TI)

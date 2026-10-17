@@ -12,15 +12,15 @@ const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
-    (MonoExpTime(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08)),
-    (MonoExpRate(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0)),
-    (MonoExpTimeOffset(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 50.0)),
-    (MonoExpRateOffset(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0, C = 50.0)),
-    (DiffusionDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3)),
-    (InversionRecovery(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
-    (SaturationRecovery(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
-    (MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
-    (SIR(TI = TI5, TD = TD5),
+    (T2Decay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08)),
+    (R2Decay(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0)),
+    (T2DecayOffset(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 50.0)),
+    (R2DecayOffset(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0, C = 50.0)),
+    (ADCDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3)),
+    (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
+    (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
+    (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
+    (QMTSIR(TI = TI5, TD = TD5),
      (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
 ]
@@ -28,7 +28,7 @@ const CASES = [
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix
 # exponentials, extended to start TD at Mz = Z·M0 instead of 0, with Z = diag(Mzf_td0, Mzm_td0):
 #   Mz(TI, TD) = {exp(A·TI)·S·[I − exp(A·TD)·(I − Z)] + [I − exp(A·TI)]}·M0.
-# An independent check of the closed-form solution in `signal!(out, ::SIR, p)`.
+# An independent check of the closed-form solution in `signal!(out, ::QMTSIR, p)`.
 function sir_matrix(TI, TD; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0 = 0.0, Mzm_td0 = 0.0,
                     magnitude = true)
     kfm = kmf * PSR
@@ -73,27 +73,27 @@ end
 
     @testset "models: keyword construction, single TD/TR, lengths, precision" begin
         # one number stands for every observation
-        m = MFA(FA = [2, 5, 10], TR = 0.015)
+        m = T1MFA(FA = [2, 5, 10], TR = 0.015)
         @test m.TR == [0.015, 0.015, 0.015] && nobs(m) == 3
-        @test SIR(TI = [0.01, 0.1], TD = 2.5).TD == [2.5, 2.5]
-        @test SIR(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
-        @test !SIR(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
+        @test QMTSIR(TI = [0.01, 0.1], TD = 2.5).TD == [2.5, 2.5]
+        @test QMTSIR(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
+        @test !QMTSIR(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
         # ranges and integer vectors are accepted ...
-        @test nobs(MonoExpTime(TE = 0.01:0.01:0.1)) == 10
+        @test nobs(T2Decay(TE = 0.01:0.01:0.1)) == 10
         # ... and init converts the acquisition to plain vectors of the working precision
-        c = init(SIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
+        c = init(QMTSIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
         @test c.model.TI isa Vector{Float32} && c.model.TD == fill(2.0f0, 5) && c.model.magnitude
         # mistakes are caught
-        @test_throws UndefKeywordError SIR(TD = 2.5)                         # TI missing
-        @test_throws DimensionMismatch init(SIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]))
+        @test_throws UndefKeywordError QMTSIR(TD = 2.5)                         # TI missing
+        @test_throws DimensionMismatch init(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]))
         @test_throws DimensionMismatch fit!(init(CASES[1][1]), ones(5))         # wrong data length
     end
 
-    @testset "SIR matches the matrix form, also with nonzero start values" begin
+    @testset "QMTSIR matches the matrix form, also with nonzero start values" begin
         TI = [0.010, 0.015, 0.020, 0.050, 0.100, 0.200, 0.500, 1.0, 2.0, 5.0]
         θ = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 14.5, R1m = 1.2, Sm = 0.83)
         for TD in (0.01, 1.0, 2.5, 5.0), mag in (true, false)
-            @test signal(SIR(TI = TI, TD = TD, magnitude = mag), θ) ≈
+            @test signal(QMTSIR(TI = TI, TD = TD, magnitude = mag), θ) ≈
                   sir_matrix(TI, fill(TD, length(TI)); θ..., magnitude = mag)
         end
         # random parameters, including Mz left over from the readout (start values ≠ 0)
@@ -102,11 +102,11 @@ end
             θr = (PSR = 0.3rand(rng), R1f = 0.3 + 2rand(rng), Sf = -1.1rand(rng), M0f = 1000rand(rng),
                   kmf = 1 + 40rand(rng), R1m = 0.3 + 3rand(rng), Sm = rand(rng),
                   Mzf_td0 = 0.4rand(rng) - 0.2, Mzm_td0 = 0.4rand(rng) - 0.2)
-            @test signal(SIR(TI = TI5, TD = TD5, magnitude = false), θr) ≈
+            @test signal(QMTSIR(TI = TI5, TD = TD5, magnitude = false), θr) ≈
                   sir_matrix(TI5, TD5; θr..., magnitude = false) rtol = 1e-10
         end
         # special cases with known answers
-        m = SIR(TI = TI5, TD = TD5, magnitude = false)
+        m = QMTSIR(TI = TI5, TD = TD5, magnitude = false)
         θ0 = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
         # no macromolecular pool (PSR = 0): single-pool inversion recovery (Li et al. 2010, Eq. 1)
         @test signal(m, merge(θ0, (PSR = 0.0, Mzf_td0 = 0.1))) ≈
@@ -120,19 +120,19 @@ end
     end
 
     @testset "signal fills fixed defaults and resolves ties" begin
-        m = SIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
+        m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
         free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
         everything = merge(free, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
         @test signal(m, free) == signal(m, everything)
         @test signal(m, merge(free, (kmf = 20.0,))) != signal(m, free)
         @test_throws ArgumentError signal(m, (PSR = 0.1,))                     # Free value missing
         @test_throws ArgumentError signal(m, merge(free, (nope = 1.0,)))       # unknown name
-        @test_throws DimensionMismatch signal(SIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
+        @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin
-        m = SIR(TI = TI5, TD = TD5)
-        @test parameters(m).R1m == Fixed(:R1f)                       # the default for SIR
+        m = QMTSIR(TI = TI5, TD = TD5)
+        @test parameters(m).R1m == Fixed(:R1f)                       # the default for QMTSIR
         @test setup(m).fixed.R1m isa EQUIP._Tie{:R1f}       # name known to the compiler
         free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
         # simulation: tie by name == tie by function == the value written out
@@ -157,7 +157,7 @@ end
     end
 
     @testset "parameter roles (setup)" begin
-        m = SIR(TI = TI5, TD = TD5)
+        m = QMTSIR(TI = TI5, TD = TD5)
         s = setup(m)
         @test freenames(s) == (:PSR, :R1f, :Sf, :M0f)
         @test keys(s.fixed) == (:kmf, :R1m, :Sm, :Mzf_td0, :Mzm_td0) && s.fixed.kmf == 12.5
@@ -174,7 +174,7 @@ end
         s = setup(m; free = (kmf = Free(20.0; lower = 5, upper = 50),))
         @test s.lower[end] == 5 && s.upper[end] == 50 && s.start.kmf == 20
         # start values override the defaults; precision is applied
-        mfa = MFA(FA = [2, 10], TR = 0.015)
+        mfa = T1MFA(FA = [2, 10], TR = 0.015)
         s = setup(mfa, Float32; start = (T1 = 2,))
         @test s.start == (M0 = 1.0f0, T1 = 2.0f0)          # M0 = 1: placeholder for :scale
         @test s.scale == 1                                  # M0 is the :scale parameter
@@ -188,11 +188,11 @@ end
         @test_throws ArgumentError setup(m; start = (kmf = 1.0,))           # kmf is fixed
         @test_throws ArgumentError setup(m; free = (:R1m,))                 # a tie needs a start
         @test_throws ArgumentError setup(m; fixed = (kmf = 1.0,), free = (:kmf,))
-        @test_throws ArgumentError setup(MonoExpTime(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
+        @test_throws ArgumentError setup(T2Decay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
     end
 
-    @testset "SIR: kmf fixed vs free, tie, per-voxel Sm map" begin
-        m = SIR(TI = TI5, TD = TD5)
+    @testset "QMTSIR: kmf fixed vs free, tie, per-voxel Sm map" begin
+        m = QMTSIR(TI = TI5, TD = TD5)
         truth = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0, R1m = 1.0, Sm = 0.83,
                  Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         y = signal(m, truth)
@@ -227,7 +227,7 @@ end
         rng = MersenneTwister(1)
         nx, ny, nz = 20, 16, 4
         te = collect(0.01:0.01:0.32)
-        m = MonoExpTime(TE = te)
+        m = T2Decay(TE = te)
         T2 = 0.04 .+ 0.08 .* rand(rng, nx, ny, nz)
         S0 = 800 .+ 400 .* rand(rng, nx, ny, nz)
         data = S0 .* exp.(-reshape(te, 1, 1, 1, :) ./ T2) .+ 2 .* randn(rng, nx, ny, nz, length(te))
@@ -255,7 +255,7 @@ end
         @test res32.params.T2[good] ≈ res.params.T2[good] rtol = 1e-3
 
         # size mistakes are caught
-        @test_throws DimensionMismatch fit(MonoExpTime(TE = te[1:5]), data)
+        @test_throws DimensionMismatch fit(T2Decay(TE = te[1:5]), data)
         @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
         @test_throws DimensionMismatch fit(m, data; start = (T2 = T2[:, :, 1],))
     end
@@ -264,7 +264,7 @@ end
         te = collect(0.01:0.01:0.32)
         rng = MersenneTwister(4)
         # the same data in both forms: the same least-squares answer, R2 = 1/T2, voxel by voxel
-        mT, mR = MonoExpTime(TE = te), MonoExpRate(TE = te)
+        mT, mR = T2Decay(TE = te), R2Decay(TE = te)
         for _ in 1:20
             y = signal(mT, (S0 = 1000.0, T2 = 0.05 + 0.1rand(rng))) .+ 10 .* randn(rng, length(te))
             rT, rR = fit(mT, y), fit(mR, y)
@@ -274,19 +274,19 @@ end
         end
         # an offset: recovered by the offset versions, biases the plain one, or can be fixed
         θ = (S0 = 1000.0, T2 = 0.08, C = 50.0)
-        y = signal(MonoExpTimeOffset(TE = te), θ)
-        r = fit(MonoExpTimeOffset(TE = te), y)
+        y = signal(T2DecayOffset(TE = te), θ)
+        r = fit(T2DecayOffset(TE = te), y)
         @test r.params.T2 ≈ 0.08 rtol = 1e-6
         @test r.params.C ≈ 50 rtol = 1e-6
         @test abs(fit(mT, y).params.T2 - 0.08) > 0.01
-        @test fit(MonoExpTimeOffset(TE = te), y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6
-        @test fit(MonoExpRateOffset(TE = te), y).params.R2 ≈ 1 / 0.08 rtol = 1e-6
+        @test fit(T2DecayOffset(TE = te), y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6
+        @test fit(R2DecayOffset(TE = te), y).params.R2 ≈ 1 / 0.08 rtol = 1e-6
         # diffusion in clinical units (b in s/mm², ADC in mm²/s), including fast decays,
         # from the default start
         b = [0.0, 500, 1000, 1500, 2000, 2500, 3000]
-        m = DiffusionDecay(b = b)
+        m = ADCDecay(b = b)
         @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ exp.(-b .* 1e-3)
-        @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ signal(MonoExpRate(TE = b), (S0 = 1.0, R2 = 1e-3))
+        @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ signal(R2Decay(TE = b), (S0 = 1.0, R2 = 1e-3))
         for adc in (0.1e-3, 0.7e-3, 3e-3, 5e-3)
             r = fit(m, 800 .* exp.(-b .* adc))
             @test r.params.ADC ≈ adc rtol = 1e-6
@@ -294,9 +294,9 @@ end
         end
     end
 
-    @testset "MFA with a per-voxel B1 map" begin
+    @testset "T1MFA with a per-voxel B1 map" begin
         rng = MersenneTwister(3)
-        m = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+        m = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
         B1 = 0.8 .+ 0.4 .* rand(rng, 16, 16)
         T1 = 0.6 .+ 1.0 .* rand(rng, 16, 16)
         data = zeros(16, 16, 6)
@@ -311,7 +311,7 @@ end
 
     @testset "fit: one voxel (vector) or a dataset with any number of spatial dimensions" begin
         rng = MersenneTwister(5)
-        m = MonoExpTime(TE = collect(0.01:0.01:0.32))
+        m = T2Decay(TE = collect(0.01:0.01:0.32))
         curve(T2) = signal(m, (S0 = 1000.0, T2 = T2))
         # a vector is ONE voxel: plain numbers, same as init + fit!
         r = fit(m, curve(0.08))

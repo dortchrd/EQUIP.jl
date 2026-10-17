@@ -1,13 +1,13 @@
 # =================================================================================================
 # Mono-exponential T2 decay, in two parametrizations, with or without an offset
 #
-#   MonoExpTime         S = S0·exp(-TE/T2)          time constant T2
-#   MonoExpRate         S = S0·exp(-R2·TE)          rate R2 = 1/T2
-#   MonoExpTimeOffset   S = S0·exp(-TE/T2) + C      plus a constant offset C
-#   MonoExpRateOffset   S = S0·exp(-R2·TE) + C
+#   T2Decay         S = S0·exp(-TE/T2)          time constant T2
+#   R2Decay         S = S0·exp(-R2·TE)          rate R2 = 1/T2
+#   T2DecayOffset   S = S0·exp(-TE/T2) + C      plus a constant offset C
+#   R2DecayOffset   S = S0·exp(-R2·TE) + C
 #
 # The same models fit T2* (R2*) from gradient-echo data in the simple mono-exponential case.
-# Diffusion has its own model (DiffusionDecay in diffusion.jl): the same equation with b and ADC.
+# Diffusion has its own model (ADCDecay in diffusion/adc_decay.jl): the same equation with b and ADC.
 #
 # Why two parametrizations: fit the one you will report, so standard errors, CRLB and Monte Carlo
 # come out directly for it. (Each voxel's estimate converts exactly, R2 = 1/T2, but averages over
@@ -29,7 +29,7 @@
 
 # -------------------------------------------------------------------------------------------------
 """
-    MonoExpTime(; TE)
+    T2Decay(; TE)
 
 Mono-exponential decay with a time constant: `S = S0·exp(-TE/T2)`. Also T2* from gradient-echo
 data (the simple mono-exponential case).
@@ -37,24 +37,24 @@ data (the simple mono-exponential case).
 - acquisition: `TE` (s), one per observation
 - free by default: `S0`, `T2` (s)
 
-Starts at `T2 = mean(TE)`. Prefer [`MonoExpRate`](@ref) when decays can be much faster than the
+Starts at `T2 = mean(TE)`. Prefer [`R2Decay`](@ref) when decays can be much faster than the
 echo times, or give a start, e.g. `start = (T2 = 0.05,)`. With an offset:
-[`MonoExpTimeOffset`](@ref).
+[`T2DecayOffset`](@ref).
 
 ```julia
-m = MonoExpTime(TE = 0.01:0.01:0.32)
+m = T2Decay(TE = 0.01:0.01:0.32)
 ```
 """
-@kwdef struct MonoExpTime{A<:AbstractVector} <: MRIModel
+@kwdef struct T2Decay{A<:AbstractVector} <: MRIModel
     TE::A                               # echo times (s)
 end
 
-parameters(m::MonoExpTime) = (
+parameters(m::T2Decay) = (
     S0 = Free(:scale; lower = 0),
     T2 = Free(mean(m.TE); lower = _TMIN),
 )
 
-function signal!(out, m::MonoExpTime, p)
+function signal!(out, m::T2Decay, p)
     (; TE) = m                          # unpack by name: TE = m.TE
     (; S0, T2) = p                      # S0 = p.S0, T2 = p.T2
     R2 = 1 / T2                         # once per call, so the loop multiplies instead of dividing
@@ -66,11 +66,11 @@ end
 # `eachindex(out, TE)` checks ONCE, before the loop, that `out` and `TE` have the same indices
 # (a DimensionMismatch error otherwise), and then loops over them. That makes `@inbounds` safe:
 # it skips the per-element bounds checks inside the loop, whoever calls `signal!` and with
-# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for SIR.
+# whatever `out`. List every per-observation field: `eachindex(out, TI, TD)` for QMTSIR.
 
 # -------------------------------------------------------------------------------------------------
 """
-    MonoExpRate(; TE)
+    R2Decay(; TE)
 
 Mono-exponential decay with a rate: `S = S0·exp(-R2·TE)`. Also R2* from gradient-echo data (the
 simple mono-exponential case).
@@ -79,22 +79,22 @@ simple mono-exponential case).
 - free by default: `S0`, `R2` (1/s)
 
 Starts at `R2 = 1/mean(TE)`. The more robust of the two forms. With an offset:
-[`MonoExpRateOffset`](@ref).
+[`R2DecayOffset`](@ref).
 
 ```julia
-m = MonoExpRate(TE = 0.01:0.01:0.32)
+m = R2Decay(TE = 0.01:0.01:0.32)
 ```
 """
-@kwdef struct MonoExpRate{A<:AbstractVector} <: MRIModel
+@kwdef struct R2Decay{A<:AbstractVector} <: MRIModel
     TE::A                               # echo times (s)
 end
 
-parameters(m::MonoExpRate) = (
+parameters(m::R2Decay) = (
     S0 = Free(:scale; lower = 0),
     R2 = Free(1 / mean(m.TE); lower = 0),
 )
 
-function signal!(out, m::MonoExpRate, p)
+function signal!(out, m::R2Decay, p)
     (; TE) = m
     (; S0, R2) = p
     @inbounds for j in eachindex(out, TE)
@@ -105,9 +105,9 @@ end
 
 # -------------------------------------------------------------------------------------------------
 """
-    MonoExpTimeOffset(; TE)
+    T2DecayOffset(; TE)
 
-[`MonoExpTime`](@ref) plus a constant offset: `S = S0·exp(-TE/T2) + C`.
+[`T2Decay`](@ref) plus a constant offset: `S = S0·exp(-TE/T2) + C`.
 
 A common approximation for the noise floor of magnitude images, which keeps the signal from
 decaying to zero. It is not the correct model: the noise floor (Rician bias) depends on the
@@ -117,20 +117,20 @@ signal level, not a constant.
 - free by default: `S0`, `T2` (s), `C` (fix a known offset with `fixed = (C = value,)`)
 
 ```julia
-m = MonoExpTimeOffset(TE = 0.01:0.01:0.32)
+m = T2DecayOffset(TE = 0.01:0.01:0.32)
 ```
 """
-@kwdef struct MonoExpTimeOffset{A<:AbstractVector} <: MRIModel
+@kwdef struct T2DecayOffset{A<:AbstractVector} <: MRIModel
     TE::A                               # echo times (s)
 end
 
-parameters(m::MonoExpTimeOffset) = (
+parameters(m::T2DecayOffset) = (
     S0 = Free(:scale; lower = 0),
     T2 = Free(mean(m.TE); lower = _TMIN),
     C = Free(0.0),                      # offset, in signal units
 )
 
-function signal!(out, m::MonoExpTimeOffset, p)
+function signal!(out, m::T2DecayOffset, p)
     (; TE) = m
     (; S0, T2, C) = p
     R2 = 1 / T2
@@ -142,9 +142,9 @@ end
 
 # -------------------------------------------------------------------------------------------------
 """
-    MonoExpRateOffset(; TE)
+    R2DecayOffset(; TE)
 
-[`MonoExpRate`](@ref) plus a constant offset: `S = S0·exp(-R2·TE) + C`.
+[`R2Decay`](@ref) plus a constant offset: `S = S0·exp(-R2·TE) + C`.
 
 A common approximation for the noise floor of magnitude images, which keeps the signal from
 decaying to zero. It is not the correct model: the noise floor (Rician bias) depends on the
@@ -154,20 +154,20 @@ signal level, not a constant.
 - free by default: `S0`, `R2` (1/s), `C` (fix a known offset with `fixed = (C = value,)`)
 
 ```julia
-m = MonoExpRateOffset(TE = 0.01:0.01:0.32)
+m = R2DecayOffset(TE = 0.01:0.01:0.32)
 ```
 """
-@kwdef struct MonoExpRateOffset{A<:AbstractVector} <: MRIModel
+@kwdef struct R2DecayOffset{A<:AbstractVector} <: MRIModel
     TE::A                               # echo times (s)
 end
 
-parameters(m::MonoExpRateOffset) = (
+parameters(m::R2DecayOffset) = (
     S0 = Free(:scale; lower = 0),
     R2 = Free(1 / mean(m.TE); lower = 0),
     C = Free(0.0),                      # offset, in signal units
 )
 
-function signal!(out, m::MonoExpRateOffset, p)
+function signal!(out, m::R2DecayOffset, p)
     (; TE) = m
     (; S0, R2, C) = p
     @inbounds for j in eachindex(out, TE)

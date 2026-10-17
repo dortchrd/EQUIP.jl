@@ -7,7 +7,7 @@ voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...).
 A model is three pieces (see [`MRIModel`](@ref)):
 
 1. a struct: everything that is the same for every voxel, i.e. the acquisition (`TI`, `TD`,
-   ...) and options (`magnitude`), e.g. `SIR(TI = [...], TD = 2.5)`,
+   ...) and options (`magnitude`), e.g. `QMTSIR(TI = [...], TD = 2.5)`,
 2. [`parameters`](@ref)`(m)`: every parameter with its default role, [`Free`](@ref) or [`Fixed`](@ref),
 3. [`signal!`](@ref)`(out, m, p)`: the signal equation.
 
@@ -38,15 +38,16 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
-export MonoExpTime, MonoExpRate, MonoExpTimeOffset, MonoExpRateOffset        # built-in models
-export DiffusionDecay, InversionRecovery, SaturationRecovery, MFA, SIR
+export T1IR, T1SR, T1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset   # relaxometry models
+export ADCDecay                                                            # diffusion models
+export QMTSIR                                                              # qMT models
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
 
 # models: the interface every model implements, and the built-in models
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
-include("models/builtin.jl")           # decays, InversionRecovery, SaturationRecovery, MFA, SIR
+include("models/builtin.jl")           # the built-in models, by area (relaxometry, diffusion, qmt)
 
 # fit: from a model and data to fitted parameters
 include("fit/levmar.jl")               # the solver for one voxel

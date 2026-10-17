@@ -31,7 +31,7 @@ numbers, e.g. `r.params.T1`, `r.status`. Keywords as for [`init`](@ref).
 For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
 
 ```julia
-m = SIR(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
+m = QMTSIR(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
 r = fit(m, y; fixed = (kmf = 15.0,))
 r.params.PSR
 ```
@@ -59,7 +59,7 @@ Voxels that are not fitted hold `NaN`. Keywords:
 `res.params` can be passed back as `start` to refit from a previous result.
 
 ```julia
-res = fit(MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
+res = fit(T1MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
 res.params.T1
 ```
 """

@@ -3,10 +3,10 @@
 # =================================================================================================
 
 """
-    DiffusionDecay(; b)
+    ADCDecay(; b)
 
 Mono-exponential diffusion decay: `S = S0·exp(-b·ADC)`, one apparent diffusion coefficient per
-voxel (e.g. from trace-weighted images). The same equation as [`MonoExpRate`](@ref), with
+voxel (e.g. from trace-weighted images). The same equation as [`R2Decay`](@ref), with
 diffusion's names and units.
 
 - acquisition: `b` (s/mm²), one per observation; include b = 0 or not
@@ -16,19 +16,19 @@ diffusion's names and units.
 Starts at `ADC = 1/mean(b)`, which does not depend on the units of `b`.
 
 ```julia
-m = DiffusionDecay(b = [0, 250, 500, 750, 1000])
+m = ADCDecay(b = [0, 250, 500, 750, 1000])
 ```
 """
-@kwdef struct DiffusionDecay{A<:AbstractVector} <: MRIModel
+@kwdef struct ADCDecay{A<:AbstractVector} <: MRIModel
     b::A                                # b-values (s/mm²)
 end
 
-parameters(m::DiffusionDecay) = (
+parameters(m::ADCDecay) = (
     S0 = Free(:scale; lower = 0),
     ADC = Free(1 / mean(m.b); lower = 0),
 )
 
-function signal!(out, m::DiffusionDecay, p)
+function signal!(out, m::ADCDecay, p)
     (; b) = m
     (; S0, ADC) = p
     @inbounds for j in eachindex(out, b)

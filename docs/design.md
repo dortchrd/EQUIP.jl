@@ -6,7 +6,7 @@ The design decisions, recorded so the code and the discussion share one referenc
 
 | input | varies across voxels? | Julia form | example |
 |---|---|---|---|
-| **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `SIR(TI = [...], TD = 2.5, magnitude = true)` |
+| **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `QMTSIR(TI = [...], TD = 2.5, magnitude = true)` |
 | **Parameters**: every quantity in the signal equation | each one can be free, a constant, a per-voxel map or a tie | values: a named tuple `p`; default roles: `parameters(m)` | PSR, R1f, kmf, B1, Sm |
 | **Fit configuration**: which parameters are estimated in this fit | no | keywords `fixed`, `free`, `start` | `free = (:kmf,)` |
 | **Data** | yes | N-d array, observations last | X×Y×Z×M |
@@ -45,7 +45,7 @@ Decisions behind this:
   last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
   and `status`. `init` + `fit!` remain for user-written loops.
 - **Fit the quantity you will report; separate models for each form.** Mono-exponential T2 decay
-  comes as `MonoExpTime` (T2) and `MonoExpRate` (R2), plus offset versions; each `signal!` is
+  comes as `T2Decay` (T2) and `R2Decay` (R2), plus offset versions; each `signal!` is
   its own short loop that reads exactly like its equation (a few repeated lines, no shared
   helper, no conditionals).
   - Why both forms: standard errors, CRLB and Monte Carlo then come out directly for the
@@ -65,17 +65,22 @@ Decisions behind this:
     with T1 = 4 s at SNR 20: the two forms ended at different answers in 361 of 2000 voxels,
     and the time form had the better fit in 332 of them; MFA: the rate form needs 1.5–2× more
     iterations for long T1). They stay in T1.
-  - Offsets are separate models (`MonoExpTimeOffset`, `MonoExpRateOffset`), with C free by
+  - Offsets are separate models (`T2DecayOffset`, `R2DecayOffset`), with C free by
     default. A constant offset is a common approximation for the magnitude noise floor, not the
     correct model (the Rician bias depends on the signal level); Rician-likelihood fitting is
     on the roadmap.
-  - Diffusion has its own model (`DiffusionDecay`, b and ADC): the same equation with
+  - Diffusion has its own model (`ADCDecay`, b and ADC): the same equation with
     diffusion's names, repeated on purpose. Later the models may be grouped by area
     (relaxometry, diffusion, MT).
   - Considered and rejected: one shared loop with an optional offset (a conditional in the
     loop to skip adding C = 0); generic parameter names (T, R, x); a parameter for both T2 and
     R2 tied by a function (outputs only include free parameters); the name as a type parameter
     (`EchoDecay{:T2star}`); models generated with `@eval`.
+- **Model names put the quantity first, then the method**: `T1IR`, `T1SR`, `T1MFA`, `T2Decay`,
+  `R2Decay`, `ADCDecay`, `QMTSIR` (as qMRLab does with `vfa_t1`, `mono_t2`, `qmt_sirfse`). Tab
+  completion then groups models by quantity, and the pattern extends (`R1MFA`, `QMTSPGR`).
+  Acronyms stay upper case, as in Base (`QRCompactWY`). Files are grouped by area:
+  `src/models/relaxometry/`, `diffusion/`, `qmt/`.
 - **Standard function names are shared, not redefined.** `fit`, `fit!` and `nobs` are StatsAPI's
   functions (the interface behind StatsBase, GLM, Distributions) and `init` is CommonSolve's
   (SciML). We add methods for our types, so loading those packages alongside causes no clash.
@@ -83,14 +88,14 @@ Decisions behind this:
 ## Writing a model
 
 ```julia
-@kwdef struct SIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel   # 1. acquisition + options
+@kwdef struct QMTSIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel   # 1. acquisition + options
     TI::A
     TD::B
     magnitude::Bool = true
 end
-SIR(TI, TD::Real, magnitude) = SIR(TI, fill(TD, length(TI)), magnitude)   # one TD for all
+QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
-parameters(::SIR) = (                          # 2. every parameter with its default role
+parameters(::QMTSIR) = (                          # 2. every parameter with its default role
     PSR = Free(0.1; lower = 0, upper = 1),
     R1f = Free(1.0; lower = 0.05, upper = 10),
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
@@ -102,7 +107,7 @@ parameters(::SIR) = (                          # 2. every parameter with its def
     Mzm_td0 = Fixed(0.0),                      # 0 = saturated by the readout
 )
 
-function signal!(out, m::SIR, p)               # 3. one voxel's signal at every observation
+function signal!(out, m::QMTSIR, p)               # 3. one voxel's signal at every observation
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0, Mzm_td0) = p
     @inbounds for j in eachindex(out, TI, TD)  #    one length check, then TI[j], TD[j]
@@ -178,7 +183,10 @@ bounds by projection with an active set, Cholesky without exceptions.
 src/
   EQUIP.jl             the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
-                       builtin.jl + one file per model
+                       builtin.jl (includes), then one folder per area:
+    relaxometry/       T1IR, T1SR, T1MFA, T2Decay, R2Decay (+ offset versions)
+    diffusion/         ADCDecay
+    qmt/               QMTSIR
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
   sim/                 (later) simulate (noise models), digital phantoms, tissue presets
@@ -219,7 +227,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Performance notes
 
-- **SIR `signal!` follows Li et al. 2010 (Eqs. 3–6) step by step**: recovery over TD from the
+- **QMTSIR `signal!` follows Li et al. 2010 (Eqs. 3–6) step by step**: recovery over TD from the
   start values, the inversion pulse, recovery over TI. It uses Li's names (R1⁺, R1⁻, bf⁺, bf⁻,
   and Mz as a fraction of equilibrium), so each line can be checked against the paper. Li's
   Eq. 4 already allows any starting values, so `Mzf_td0`/`Mzm_td0` (Mz at the start of TD) cost
@@ -262,8 +270,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above, nine models (MonoExpTime, MonoExpRate, MonoExpTimeOffset,
-MonoExpRateOffset, DiffusionDecay, InversionRecovery, SaturationRecovery, MFA, SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above, nine models: relaxometry (T1IR, T1SR, T1MFA,
+T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -329,7 +337,7 @@ weights, other data layouts, precompilation, more models.
      in the model's vectors.
    - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
    - Sensitivity to model assumptions: the bias from fitting with an assumed value that is
-     wrong, the same machinery as Eq. 3's b. First case: SIR's `Mzf_td0 = Mzm_td0 = 0` (both
+     wrong, the same machinery as Eq. 3's b. First case: QMTSIR's `Mzf_td0 = Mzm_td0 = 0` (both
      pools saturated at the start of TD). Simulate with nonzero values, fit with the default.
      A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
@@ -371,11 +379,11 @@ weights, other data layouts, precompilation, more models.
      - Priority: values given in the call > a protocol file > values found in headers/sidecars.
      - Protocol file: TOML/JSON with named vectors, or CSV with one row per observation:
        ```toml
-       model = "SIR"
+       model = "QMTSIR"
        TI = [0.010, 0.050, 0.056, 0.277, 0.843]
        TD = [3.270, 4.489, 1.652, 2.922, 0.010]
        ```
-     - The model is built with its keyword constructor, e.g. `SIR(; TI, TD)`, so this works
+     - The model is built with its keyword constructor, e.g. `QMTSIR(; TI, TD)`, so this works
        for every model, user-defined ones included. Missing fields raise an error that names
        them and says where they were looked for.
      - Units: converted to seconds and degrees on reading (DICOM and PAR/REC store ms, BIDS
@@ -404,6 +412,6 @@ weights, other data layouts, precompilation, more models.
    - R1 (rate) versions of the T1 models if needed (see "Fit the quantity you will report"
      above).
    - Data-driven starting values: a hook for a model to compute per-voxel starts from the data,
-     as `:scale` does for S0. First users: a log-linear start for `MonoExpTime` (in tests it
-     turned 500/500 failures into 0 at SNR 50), DESPOT1 for MFA.
+     as `:scale` does for S0. First users: a log-linear start for `T2Decay` (in tests it
+     turned 500/500 failures into 0 at SNR 50), DESPOT1 for T1MFA.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.

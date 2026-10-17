@@ -26,18 +26,18 @@ Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
 | input | what it is | Julia form | example |
 |---|---|---|---|
-| **model** | the physics: acquisition + options, the same for every voxel | a struct | `SIR(TI = [...], TD = 2.5)` |
+| **model** | the physics: acquisition + options, the same for every voxel | a struct | `QMTSIR(TI = [...], TD = 2.5)` |
 | **parameters** | tissue/model values | a named tuple | `(PSR = 0.1, R1f = 1.0, ...)` |
 
 Acquisition fields have one value per observation. Where it makes sense, a single number
-stands for all of them, e.g. `MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
+stands for all of them, e.g. `T1MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
 
 ## Quick start
 
 ```julia
 using EQUIP
 
-m = SIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
+m = QMTSIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
 # Simulate. Fixed parameters (kmf, R1m, Sm, ...) take their defaults unless you give them.
 y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
@@ -71,10 +71,10 @@ end
 
 ## Free and fixed parameters
 
-Every model declares each parameter's default **role** with `parameters(m)`. For SIR:
+Every model declares each parameter's default **role** with `parameters(m)`. For QMTSIR:
 
 ```julia
-parameters(::SIR) = (
+parameters(::QMTSIR) = (
     PSR = Free(0.1; lower = 0, upper = 1),
     R1f = Free(1.0; lower = 0.05, upper = 10),
     Sf  = Free(-0.95; lower = -1.2, upper = 0),
@@ -104,10 +104,10 @@ fit(m, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
 fit(m, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
 fit(m, data; start = (R1f = r1_map,))            # starting values: numbers or maps
 
-mfa = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+mfa = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
 fit(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
 
-t2 = MonoExpRateOffset(TE = 0.01:0.01:0.32)
+t2 = R2DecayOffset(TE = 0.01:0.01:0.32)
 fit(t2, data; fixed = (C = 40.0,))               # a known offset instead of estimating it
 ```
 
@@ -134,17 +134,19 @@ Voxels that are not fitted hold NaN.
 
 ## Built-in models
 
-| model | signal | free | fixed |
-|---|---|---|---|
-| `MonoExpTime(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
-| `MonoExpRate(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
-| `MonoExpTimeOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
-| `MonoExpRateOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
-| `DiffusionDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
-| `InversionRecovery(TI = ..., magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
-| `SaturationRecovery(TD = ...)` | M0·(1 − exp(−TD/T1)) | M0, T1 | |
-| `MFA(FA = ..., TR = ...)` | spoiled gradient echo, flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
-| `SIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
+Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
+
+| area | model | signal | free | fixed |
+|---|---|---|---|---|
+| relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery: \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
+| | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |
+| | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
+| | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
+| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
+| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
+| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
+| diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
+| qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 
 ## Writing a model
 
@@ -180,13 +182,13 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   vector works, and `init` converts it to plain floats in the working precision. Options with
   defaults (`magnitude::Bool = true`) become optional keywords.
 - **Optional single values.** To let one number stand for every observation, add a one-line
-  method, as `MFA` does for TR: `MFA(FA, TR::Real) = MFA(FA, fill(TR, length(FA)))`.
+  method, as `T1MFA` does for TR: `T1MFA(FA, TR::Real) = T1MFA(FA, fill(TR, length(FA)))`.
 - **Rules for `signal!`.** It must not allocate, and must work for any number type, because the
   fitter passes dual numbers to get derivatives. Unpack `p` by name, never by position: its
   order depends on which parameters are free in a given fit. It never needs to know which
   parameters are free or fixed.
 - **The loop.** Write `for j in eachindex(out, TE)`, listing every per-observation field
-  (`eachindex(out, TI, TD)` for SIR, `eachindex(out, FA, TR)` for MFA). It checks once,
+  (`eachindex(out, TI, TD)` for QMTSIR, `eachindex(out, FA, TR)` for T1MFA). It checks once,
   before the loop, that they all have the same length as `out`, and stops with a clear
   `DimensionMismatch` error if not. That makes `@inbounds` safe: it skips the per-element bounds
   checks inside the loop. `@inbounds` is optional (it gains about 5% in `signal!`); the
@@ -194,7 +196,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `out` would read past the end of `TE` and return garbage instead of an error.
 - **Parametrization.** Fit the quantity you will report (T2 or R2), so standard errors, CRLB and
   Monte Carlo come out directly for it. When both forms of a model exist, they are separate
-  models (`MonoExpTime`, `MonoExpRate`), as are variations such as an added offset: a few
+  models (`T2Decay`, `R2Decay`), as are variations such as an added offset: a few
   repeated lines, but each `signal!` reads exactly like its equation.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
@@ -218,7 +220,10 @@ The code is in layers; each only uses the ones before it:
 ```
 src/
   EQUIP.jl                the module: dependencies, exports, includes
-  models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl, one file per model
+  models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl (includes)
+    relaxometry/          t1_ir.jl, t1_sr.jl, t1_mfa.jl, t2_decay.jl
+    diffusion/            adc_decay.jl
+    qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec),
                           cache.jl (init, fit!), fit.jl (fit)
 ```
@@ -262,4 +267,4 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   versions of the T1 models if needed; diffusion tensor and kurtosis, IVIM, multi-exponential T2
   (myelin water), DCE; models grouped by area (relaxometry, diffusion, MT)
 - Data-driven starting values: a hook for a model to compute per-voxel starts from the data
-  (e.g. a log-linear fit for `MonoExpTime`, which made it robust in tests; DESPOT1 for MFA)
+  (e.g. a log-linear fit for `T2Decay`, which made it robust in tests; DESPOT1 for T1MFA)

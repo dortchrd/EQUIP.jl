@@ -7,7 +7,7 @@
 # =================================================================================================
 
 """
-    SIR(; TI, TD, magnitude = true)
+    QMTSIR(; TI, TD, magnitude = true)
 
 Selective inversion recovery (SIR), a quantitative magnetization transfer (qMT) model with two
 pools that exchange magnetization: free water (f) and macromolecules (m). For each observation:
@@ -49,20 +49,20 @@ To simulate no exchange, use a tiny value such as `kmf = 1e-12`: it gives single
 recovery (accurate down to at least `kmf = 1e-100`).
 
 ```julia
-m = SIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
-m = SIR(TI = [0.010, 0.050, 0.277, 1.0], TD = 2.5)        # one TD for all
+m = QMTSIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
+m = QMTSIR(TI = [0.010, 0.050, 0.277, 1.0], TD = 2.5)        # one TD for all
 ```
 """
-@kwdef struct SIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+@kwdef struct QMTSIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel
     TI::A                               # inversion times (s)
     TD::B                               # delays between readout and inversion (s)
     magnitude::Bool = true
 end
 
-# One TD for every TI (the same pattern as the single-TR method in mfa.jl).
-SIR(TI, TD::Real, magnitude) = SIR(TI, fill(TD, length(TI)), magnitude)
+# One TD for every TI (the same pattern as the single-TR method of T1MFA).
+QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)
 
-parameters(::SIR) = (
+parameters(::QMTSIR) = (
     PSR = Free(0.1; lower = 0, upper = 1),
     R1f = Free(1.0; lower = 0.05, upper = 10),
     Sf = Free(-0.95; lower = -1.2, upper = 0),
@@ -94,7 +94,7 @@ parameters(::SIR) = (
 # Li writes bf⁻ in full, like bf⁺; using bf⁺ + bf⁻ = Mf(0) - 1 gives the same value with fewer
 # operations (whole fits measured ~7% faster). Checked against the matrix form above, a numerical
 # solution of Li's Eq. 2, and finite-difference derivatives (see test/runtests.jl).
-function signal!(out, m::SIR, p)
+function signal!(out, m::QMTSIR, p)
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0, Mzm_td0) = p
     kfm = kmf * PSR                                     # exchange rate f→m (mass balance)

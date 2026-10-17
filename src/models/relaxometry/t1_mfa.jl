@@ -3,7 +3,7 @@
 # =================================================================================================
 
 """
-    MFA(; FA, TR)
+    T1MFA(; FA, TR)
 
 Multiple flip angle T1 mapping with a spoiled gradient echo:
 
@@ -15,26 +15,26 @@ Multiple flip angle T1 mapping with a spoiled gradient echo:
   B1 map with `fixed = (B1 = b1map,)`.
 
 ```julia
-m = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+m = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
 ```
 """
-@kwdef struct MFA{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+@kwdef struct T1MFA{A<:AbstractVector,B<:AbstractVector} <: MRIModel
     FA::A                               # flip angles (degrees)
     TR::B                               # repetition times (s)
 end
 
 # One TR for every flip angle. `@kwdef`'s keyword constructor passes the fields on to the
-# positional constructor `MFA(FA, TR)`; when TR is a single number, Julia picks this method
+# positional constructor `T1MFA(FA, TR)`; when TR is a single number, Julia picks this method
 # (the most specific match), which repeats it once per flip angle.
-MFA(FA, TR::Real) = MFA(FA, fill(TR, length(FA)))
+T1MFA(FA, TR::Real) = T1MFA(FA, fill(TR, length(FA)))
 
-parameters(::MFA) = (
+parameters(::T1MFA) = (
     M0 = Free(:scale; lower = 0),
     T1 = Free(1.0; lower = _TMIN),
     B1 = Fixed(1.0),
 )
 
-function signal!(out, m::MFA, p)
+function signal!(out, m::T1MFA, p)
     (; FA, TR) = m
     (; M0, T1, B1) = p
     @inbounds for j in eachindex(out, FA, TR)

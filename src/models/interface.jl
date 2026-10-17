@@ -7,7 +7,7 @@
 #
 # Two separate inputs reach a signal equation:
 #
-#   model  m    the physics: acquisition + options    a struct:      SIR(TI = [...], TD = 2.5)
+#   model  m    the physics: acquisition + options    a struct:      QMTSIR(TI = [...], TD = 2.5)
 #   p           the tissue/model parameter VALUES     a NamedTuple:  (PSR = 0.1, R1f = 1.0, ...)
 #
 # The model holds everything that is the same for every voxel. It never stores parameter values:
@@ -117,13 +117,13 @@ Every parameter of model `m` with its default role, [`Free`](@ref) or [`Fixed`](
 is the order of the outputs. A fit can override the roles with the `free` and `fixed` keywords.
 
 ```julia
-parameters(::SaturationRecovery) = (M0 = Free(:scale; lower = 0), T1 = Free(1.0; lower = 1e-6))
+parameters(::T1SR) = (M0 = Free(:scale; lower = 0), T1 = Free(1.0; lower = 1e-6))
 ```
 """
 function parameters end
 # `function name end` declares a generic function with no methods yet. Each model adds its own
-# method, e.g. `parameters(::MFA) = ...`; Julia picks the method by the model's type
-# ("multiple dispatch"). `::MFA` without a variable name means "an argument of type MFA that
+# method, e.g. `parameters(::T1MFA) = ...`; Julia picks the method by the model's type
+# ("multiple dispatch"). `::T1MFA` without a variable name means "an argument of type T1MFA that
 # we do not need to look at".
 
 """
@@ -150,7 +150,7 @@ function signal! end
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------
 
-# The model's fields as a tuple, e.g. (TI vector, TD vector, magnitude) for SIR.
+# The model's fields as a tuple, e.g. (TI vector, TD vector, magnitude) for QMTSIR.
 # `fieldnames(typeof(m))` lists the field names; `getfield(m, f)` reads one.
 _fields(m) = map(f -> getfield(m, f), fieldnames(typeof(m)))
 
@@ -179,7 +179,7 @@ end
 # The model with its numeric vectors converted to Vector{T}, so that a Float32 fit computes in
 # Float32 (and ranges or integer vectors become plain float vectors). Every other field (e.g.
 # `magnitude`) is kept. The struct is rebuilt with its positional constructor:
-# `Base.typename(typeof(m)).wrapper` is the bare type, e.g. `SIR` without the `{...}` part,
+# `Base.typename(typeof(m)).wrapper` is the bare type, e.g. `QMTSIR` without the `{...}` part,
 # so Julia picks the type parameters for the converted fields itself.
 function _with_precision(m::MRIModel, ::Type{T}) where {T}
     return Base.typename(typeof(m)).wrapper(map(x -> _to_precision(x, T), _fields(m))...)
@@ -262,7 +262,7 @@ plotting. `p` must give the Free parameters; Fixed ones default to their values 
 [`parameters`](@ref)`(m)` and can be overridden; ties are resolved.
 
 ```julia
-m = SIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
+m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
 signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 15.0))   # override a fixed one
 ```
