@@ -106,6 +106,9 @@ fit(m, data; start = (R1f = r1_map,))            # starting values: numbers or m
 
 mfa = MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
 fit(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
+
+t2 = T2Decay(TE = 0.01:0.01:0.32)
+fit(t2, data; free = (:C,))                      # also estimate a signal offset (noise floor)
 ```
 
 Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
@@ -133,7 +136,9 @@ Voxels that are not fitted hold NaN.
 
 | model | signal | free | fixed |
 |---|---|---|---|
-| `ExpDecay(TE = ...)` | S0·exp(−TE/T2) | S0, T2 | |
+| `T2Decay(TE = ...)` | spin echo: S0·exp(−TE/T2) + C | S0, T2 | C = 0 |
+| `T2StarDecay(TE = ...)` | gradient echo: S0·exp(−TE/T2star) + C | S0, T2star | C = 0 |
+| `DiffusionDecay(b = ...)` | S0·exp(−b·ADC) + C; b in s/mm², ADC in mm²/s | S0, ADC | C = 0 |
 | `InversionRecovery(TI = ..., magnitude = true)` | \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
 | `SaturationRecovery(TD = ...)` | M0·(1 − exp(−TD/T1)) | M0, T1 | |
 | `MFA(FA = ..., TR = ...)` | spoiled gradient echo, flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
@@ -147,26 +152,26 @@ A model is a struct, a `parameters` method and a `signal!` method:
 using EQUIP
 import EQUIP: parameters, signal!     # we add methods to these functions
 
-@kwdef struct T2Offset{A<:AbstractVector} <: MRIModel
+@kwdef struct StretchedDecay{A<:AbstractVector} <: MRIModel
     TE::A                                # echo times (s), one per observation
 end
 
-parameters(::T2Offset) = (
-    S0 = Free(:scale; lower = 0),
-    T2 = Free(0.05; lower = 1e-6),
-    C  = Free(0.0; lower = 0),           # a noise floor
+parameters(::StretchedDecay) = (
+    S0   = Free(:scale; lower = 0),
+    T2   = Free(0.05; lower = 1e-6),
+    beta = Free(0.9; lower = 0.1, upper = 1),   # stretching exponent (1 = mono-exponential)
 )
 
-function signal!(out, m::T2Offset, p)
+function signal!(out, m::StretchedDecay, p)
     (; TE) = m                           # unpack the acquisition by name ...
-    (; S0, T2, C) = p                    # ... and the parameters
+    (; S0, T2, beta) = p                 # ... and the parameters
     @inbounds for j in eachindex(out, TE)   # one length check, then no per-element checks
-        out[j] = S0 * exp(-TE[j] / T2) + C
+        out[j] = S0 * exp(-(TE[j] / T2)^beta)
     end
     return out
 end
 
-m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
+m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 ```
 
 - **Fields.** Each vector field gets its own type parameter (`A`, `B`, ...), so any kind of
@@ -185,6 +190,10 @@ m = T2Offset(TE = 0.01:0.01:0.32)        # @kwdef gives the keyword constructor
   checks inside the loop. `@inbounds` is optional (it gains about 5% in `signal!`); the
   `eachindex` check costs nothing measurable, so always use it. Without both, a wrong-length
   `out` would read past the end of `TE` and return garbage instead of an error.
+- **Families.** Models that share an equation can share the loop: `T2Decay`, `T2StarDecay` and
+  `DiffusionDecay` all call one function in `src/models/decay.jl` and only declare their own
+  field and parameters. Variations of an equation are parameter roles, not new models: an offset
+  is a parameter fixed at 0 by default, freed with `free = (:C,)`.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
@@ -246,4 +255,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - A `levmar` method for ordinary arrays, for models with more than ~30–40 free parameters
   (chosen by dispatch; the current method uses static arrays and is faster below that)
 - GPU, observation weights, other data layouts, precompilation for fast start-up
-- More models (diffusion, IVIM, multi-exponential, DCE)
+- More models: gradient-echo decay with the through-slice sinc term for macroscopic field
+  gradients (a separate model; the frequency spread from a B0 field map or fitted); rate-form
+  decays (R2*, R2) when a fit needs them; diffusion tensor and kurtosis, IVIM, multi-exponential
+  T2 (myelin water), DCE

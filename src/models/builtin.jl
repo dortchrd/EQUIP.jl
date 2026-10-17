@@ -2,7 +2,8 @@
 # Built-in models
 #
 # Units: all times in SECONDS (TE, TI, TD, TR) and rates in 1/s. The default starting values
-# below assume this (e.g. T1 starts at 1 s). Flip angles are in degrees.
+# below assume this (e.g. T1 starts at 1 s). Flip angles are in degrees; b-values in s/mm², so
+# the ADC is in mm²/s.
 #
 # Default starting values are fixed numbers (no model-specific, data-driven guesses yet), except
 # for the parameter that scales the whole signal (S0, M0, M0f): it is declared `Free(:scale)` and
@@ -27,8 +28,8 @@
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
-# One file per model:
-include("exp_decay.jl")
+# One file per model, or per family of models that share a loop:
+include("decay.jl")                     # T2Decay, T2StarDecay, DiffusionDecay
 include("inversion_recovery.jl")
 include("saturation_recovery.jl")
 include("mfa.jl")

@@ -44,6 +44,19 @@ Decisions behind this:
   voxel and returns plain numbers; `fit(m, data::AbstractArray)` fits every voxel (observations
   last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
   and `status`. `init` + `fit!` remain for user-written loops.
+- **Model families share a loop, with one model per kind of measurement.** `T2Decay`,
+  `T2StarDecay` and `DiffusionDecay` are one equation, S0·exp(−R·x) + C. The loop is written once
+  (`_monoexp!` in `src/models/decay.jl`); each model declares only its acquisition field and its
+  parameters (names, starts, bounds), about five lines, which also gives each output map its name.
+  - Considered instead: one model with the parameter name as a type parameter
+    (`EchoDecay{:T2star}`): the per-name information moves into lookup methods, and it needs a
+    custom constructor and special handling when `init` rebuilds the model in Float32. Or models
+    generated with `@eval`: shortest, but hard to read and debug.
+  - Variations of one equation are parameter roles, not models: an offset is `C = Fixed(0.0)`,
+    estimated with `free = (:C,)`.
+  - Rate or time constant: least squares gives the same answer either way, so R2 = 1/T2 after
+    the fit. Add a rate-form model (e.g. `R2StarDecay`) when the fit itself needs it, e.g. for
+    nearly flat curves, where R2* settles near 0 and T2* runs off to large values.
 - **Standard function names are shared, not redefined.** `fit`, `fit!` and `nobs` are StatsAPI's
   functions (the interface behind StatsBase, GLM, Distributions) and `init` is CommonSolve's
   (SciML). We add methods for our types, so loading those packages alongside causes no clash.
@@ -212,6 +225,11 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   than the closed form and cannot take dual numbers; 2×2 StaticArrays with `exp(A·t)` in closed
   form (eigen-decomposition) is 1.3–1.4× slower and works with duals. The tests use Base `exp`
   as an independent reference. A reasonable route for models without a convenient closed form.
+- **Decays**: the loop multiplies by R = 1/T2 (computed once per call) instead of dividing
+  every TE by T2: 5–16% faster whole fits. Adding the offset C at every echo cost ~8%, so it is
+  skipped when C is a plain 0 (a free C is a dual number during the fit and is always added).
+  Net against the old `ExpDecay` (minimum of 10 alternating `@belapsed` runs; this machine varies
+  15–25% between single runs): 593 → 576 ns with 8 echoes, 1503 → 1283 ns with 32 echoes.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
@@ -224,8 +242,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above, five models (ExpDecay, InversionRecovery, SaturationRecovery, MFA,
-SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above, seven models (T2Decay, T2StarDecay, DiffusionDecay, InversionRecovery,
+SaturationRecovery, MFA, SIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -357,4 +375,12 @@ weights, other data layouts, precompilation, more models.
    parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
    method at no run-time cost. Derivatives may need chunked dual numbers
    (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
-8. **Later**: GPU, Rician-likelihood fitting, more models.
+8. **Later**: GPU, Rician-likelihood fitting, more models:
+   - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
+     S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
+     Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
+     (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
+     integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
+   - Rate-form decays (R2StarDecay, R2Decay) when a fit needs them (see "Model families share a
+     loop" above).
+   - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.

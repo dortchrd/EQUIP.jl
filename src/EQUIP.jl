@@ -37,14 +37,15 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
-export ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIR            # built-in models
+export T2Decay, T2StarDecay, DiffusionDecay                                 # built-in models
+export InversionRecovery, SaturationRecovery, MFA, SIR
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
 
 # models: the interface every model implements, and the built-in models
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
-include("models/builtin.jl")           # ExpDecay, InversionRecovery, SaturationRecovery, MFA, SIR
+include("models/builtin.jl")           # decays, InversionRecovery, SaturationRecovery, MFA, SIR
 
 # fit: from a model and data to fitted parameters
 include("fit/levmar.jl")               # the solver for one voxel

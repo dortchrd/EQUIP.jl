@@ -29,13 +29,13 @@ Supertype of all signal models. A model is three pieces:
 Example (see `src/models/` for more):
 
 ```julia
-@kwdef struct ExpDecay{A<:AbstractVector} <: MRIModel
+@kwdef struct MyDecay{A<:AbstractVector} <: MRIModel
     TE::A                          # echo times (s), one per observation
 end
 
-parameters(::ExpDecay) = (S0 = Free(:scale; lower = 0), T2 = Free(0.05; lower = 1e-6))
+parameters(::MyDecay) = (S0 = Free(:scale; lower = 0), T2 = Free(0.05; lower = 1e-6))
 
-function signal!(out, m::ExpDecay, p)
+function signal!(out, m::MyDecay, p)
     (; TE) = m                     # unpack the acquisition by name ...
     (; S0, T2) = p                 # ... and the parameters
     @inbounds for j in eachindex(out, TE)   # checks once that out and TE match
@@ -47,11 +47,11 @@ end
 """
 abstract type MRIModel end
 # `abstract type` declares a type that has no instances of its own; it only groups concrete
-# types. `struct ExpDecay <: MRIModel` says "ExpDecay is a kind of MRIModel", so any function
+# types. `struct MyDecay <: MRIModel` says "MyDecay is a kind of MRIModel", so any function
 # written for `m::MRIModel` (like `signal` and `fit`) works for it.
 #
 # `@kwdef` (built into Julia) in front of `struct` adds a keyword constructor, so a model is made
-# with `ExpDecay(TE = [...])`. A field written with a default, `magnitude::Bool = true`, becomes
+# with `MyDecay(TE = [...])`. A field written with a default, `magnitude::Bool = true`, becomes
 # an optional keyword; a field without one is required (leaving it out is an error).
 
 # -------------------------------------------------------------------------------------------------

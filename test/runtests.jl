@@ -12,7 +12,9 @@ const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
-    (ExpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08)),
+    (T2Decay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 0.0)),
+    (T2StarDecay(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, T2star = 0.03, C = 0.0)),
+    (DiffusionDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3, C = 0.0)),
     (InversionRecovery(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
     (SaturationRecovery(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
@@ -75,7 +77,7 @@ end
         @test SIR(TI = [0.01, 0.1], TD = 2.5).magnitude                      # default option
         @test !SIR(TI = [0.01, 0.1], TD = 2.5, magnitude = false).magnitude
         # ranges and integer vectors are accepted ...
-        @test nobs(ExpDecay(TE = 0.01:0.01:0.1)) == 10
+        @test nobs(T2Decay(TE = 0.01:0.01:0.1)) == 10
         # ... and init converts the acquisition to plain vectors of the working precision
         c = init(SIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
         @test c.model.TI isa Vector{Float32} && c.model.TD == fill(2.0f0, 5) && c.model.magnitude
@@ -184,7 +186,7 @@ end
         @test_throws ArgumentError setup(m; start = (kmf = 1.0,))           # kmf is fixed
         @test_throws ArgumentError setup(m; free = (:R1m,))                 # a tie needs a start
         @test_throws ArgumentError setup(m; fixed = (kmf = 1.0,), free = (:kmf,))
-        @test_throws ArgumentError setup(ExpDecay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
+        @test_throws ArgumentError setup(T2Decay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
     end
 
     @testset "SIR: kmf fixed vs free, tie, per-voxel Sm map" begin
@@ -223,7 +225,7 @@ end
         rng = MersenneTwister(1)
         nx, ny, nz = 20, 16, 4
         te = collect(0.01:0.01:0.32)
-        m = ExpDecay(TE = te)
+        m = T2Decay(TE = te)
         T2 = 0.04 .+ 0.08 .* rand(rng, nx, ny, nz)
         S0 = 800 .+ 400 .* rand(rng, nx, ny, nz)
         data = S0 .* exp.(-reshape(te, 1, 1, 1, :) ./ T2) .+ 2 .* randn(rng, nx, ny, nz, length(te))
@@ -251,9 +253,31 @@ end
         @test res32.params.T2[good] ≈ res.params.T2[good] rtol = 1e-3
 
         # size mistakes are caught
-        @test_throws DimensionMismatch fit(ExpDecay(TE = te[1:5]), data)
+        @test_throws DimensionMismatch fit(T2Decay(TE = te[1:5]), data)
         @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
         @test_throws DimensionMismatch fit(m, data; start = (T2 = T2[:, :, 1],))
+    end
+
+    @testset "decays: offset, shared loop, diffusion units" begin
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.08)
+        # an offset (e.g. a noise floor): biases T2 unless estimated with free = (:C,)
+        y = signal(m, merge(θ, (C = 50.0,)))
+        r = fit(m, y; free = (:C,))
+        @test r.params.T2 ≈ 0.08 rtol = 1e-6
+        @test r.params.C ≈ 50 rtol = 1e-6
+        @test abs(fit(m, y).params.T2 - 0.08) > 0.01
+        @test fit(m, y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6    # or a known offset
+        # the three models share one loop: same equation with x = TE or b and R = 1/T2 or ADC
+        @test signal(T2StarDecay(TE = te), (S0 = 1000.0, T2star = 0.08)) == signal(m, θ)
+        @test signal(DiffusionDecay(b = te), (S0 = 1000.0, ADC = 1 / 0.08)) ≈ signal(m, θ)
+        # diffusion in clinical units: b in s/mm², ADC in mm²/s
+        b = [0.0, 500, 1000]
+        @test signal(DiffusionDecay(b = b), (S0 = 1.0, ADC = 1e-3)) ≈ exp.(-b .* 1e-3)
+        r = fit(DiffusionDecay(b = b), 800 .* exp.(-b .* 0.7e-3))
+        @test r.params.ADC ≈ 0.7e-3 rtol = 1e-6
+        @test r.params.S0 ≈ 800 rtol = 1e-6
     end
 
     @testset "MFA with a per-voxel B1 map" begin
@@ -273,7 +297,7 @@ end
 
     @testset "fit: one voxel (vector) or a dataset with any number of spatial dimensions" begin
         rng = MersenneTwister(5)
-        m = ExpDecay(TE = collect(0.01:0.01:0.32))
+        m = T2Decay(TE = collect(0.01:0.01:0.32))
         curve(T2) = signal(m, (S0 = 1000.0, T2 = T2))
         # a vector is ONE voxel: plain numbers, same as init + fit!
         r = fit(m, curve(0.08))
