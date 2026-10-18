@@ -130,12 +130,12 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
         return _invalid(spec)
     end
     prob = VoxelProblem{F}(c.model, c.y, fixed)
-    # 4. Starting point from the data (starts.jl): the model's own estimates, if it has them
-    #    (`datastart`); then the best value on the model's grid, if it has one (`startgrid`), or a
-    #    `Free(:scale)` parameter at the value that best matches the data's scale.
+    # 4. Starting point from the data (starts.jl): parameters starting at `:data` from the model's
+    #    estimates (`datastart`); then a `BestOf` parameter at its best value, or else the `:scale`
+    #    parameter at the value that best matches the data's scale.
     θ0 = _data_start(prob, θ0, spec)
-    if spec.gridindex > 0
-        θ0 = _grid_start(prob, θ0, spec, c.buf)
+    if spec.candindex > 0
+        θ0 = _best_start(prob, θ0, spec, c.buf)
     elseif spec.scale > 0
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end

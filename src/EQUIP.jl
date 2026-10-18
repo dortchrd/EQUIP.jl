@@ -38,8 +38,8 @@ import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (St
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
-export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
-export startgrid, datastart, relabel                                        # optional hooks
+export MRIModel, Free, Fixed, BestOf, parameters, signal!, signal, nobs     # model interface
+export datastart, relabel                                                   # optional hooks
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
@@ -57,9 +57,9 @@ include("models/builtin.jl")           # the built-in models, by area (relaxomet
 
 # fit: from a model and data to fitted parameters
 include("fit/levmar.jl")               # the solver for one voxel
-include("fit/setup.jl")                # parameter roles + fixed/free/start -> FitSpec
+include("fit/setup.jl")                # parameter roles + the keywords of a fit -> FitSpec
 include("fit/result.jl")               # FitResult: what fit and fit! return
-include("fit/starts.jl")               # each voxel's starting point: datastart, grid, scale
+include("fit/starts.jl")               # each voxel's starting point: :data, BestOf, :scale
 include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
 include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
 

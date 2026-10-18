@@ -16,10 +16,13 @@
 # From a single start (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100, both forms failed in most or
 # all voxels when T1 was very short or very long compared with the TIs (T1IR at 0.05 and 4 s,
 # T1IRTD at 0.05-0.1 s and about half at 4 s; the T1 form also at T1IR 0.1 s and T1IRTD
-# 0.2-0.3 s). So every voxel first tries T1 on a grid spanning the TIs and starts from the best
-# value (`startgrid`, at the end of this file). Tested with T1 from 0.05 to 4 s at SNR 20 and
-# 100, both forms: at most 2 of 200 voxels failed in any case, for about 1 µs more per voxel.
-# A start for T1 (or R1) in the call skips the grid: `T1 = Free(start = 0.2)`, or a start map.
+# 0.2-0.3 s). So every voxel first tries 30 values of T1 spanning the TIs and starts from the
+# best (`T1 = Free(BestOf(_t1grid(m.TI)); ...)` in `parameters`; `_t1grid` is in builtin.jl:
+# log-spaced from 1/5 of the shortest TI to 5× the longest). Tested with T1 from 0.05 to 4 s at
+# SNR 20 and 100, both forms: at most 2 of 200 voxels failed in any case, for about 1 µs more
+# per voxel. The R1 forms try the same values as rates, so both forms start from the same place.
+# Another start for T1 (or R1) in the call replaces it: `T1 = Free(start = 0.2)`, a start map, or
+# other values, `T1 = Free(start = BestOf(...))`.
 #
 # Long T1, low SNR (T1IR, T1 = 4 s, TIs up to 3.2 s, SNR 20, 2000 voxels): the two forms agree
 # except in 15 voxels whose noisy data are best fitted with T1 running off to infinity (an almost
@@ -50,10 +53,10 @@ Rate version: [`R1IR`](@ref).
     magnitude::Bool = true              # a default value makes the keyword optional
 end
 
-parameters(::T1IR) = (
+parameters(m::T1IR) = (
     M0 = Free(:scale; lower = 0),
     Sf = Free(-0.95; lower = -1.2, upper = 0),          # as in T1IRTD
-    T1 = Free(1.0; lower = _TMIN),
+    T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN),   # the best of 30 values (see the top of this file)
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1IR's signal (below; see builtin.jl
@@ -74,10 +77,10 @@ signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.Sf, 
     magnitude::Bool = true
 end
 
-parameters(::R1IR) = (
+parameters(m::R1IR) = (
     M0 = Free(:scale; lower = 0),
     Sf = Free(-0.95; lower = -1.2, upper = 0),
-    R1 = Free(1.0; lower = 0),
+    R1 = Free(BestOf(1 ./ _t1grid(m.TI)); lower = 0),  # T1IR's values, as rates
 )
 
 function signal!(out, m::R1IR, p)
@@ -131,10 +134,10 @@ end
 
 T1IRTD(TI, TD::Real, magnitude) = T1IRTD(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
-parameters(::T1IRTD) = (
+parameters(m::T1IRTD) = (
     M0 = Free(:scale; lower = 0),
     Sf = Free(-0.95; lower = -1.2, upper = 0),
-    T1 = Free(1.0; lower = _TMIN),
+    T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN),
     Mz_td0 = Fixed(0.0),                # Mz at the start of TD, as a fraction of M0: 0 = saturated
 )
 
@@ -163,10 +166,10 @@ end
 
 R1IRTD(TI, TD::Real, magnitude) = R1IRTD(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
-parameters(::R1IRTD) = (
+parameters(m::R1IRTD) = (
     M0 = Free(:scale; lower = 0),
     Sf = Free(-0.95; lower = -1.2, upper = 0),
-    R1 = Free(1.0; lower = 0),
+    R1 = Free(BestOf(1 ./ _t1grid(m.TI)); lower = 0),
     Mz_td0 = Fixed(0.0),
 )
 
@@ -182,11 +185,3 @@ function signal!(out, m::R1IRTD, p)
     return out
 end
 
-# -------------------------------------------------------------------------------------------------
-# Starting values: magnitude inversion recovery has local minima (the fit can settle with the
-# signal null in the wrong place), so every voxel first tries T1 on a grid spanning the TIs and
-# starts from the value that fits best (see `startgrid`; `_t1grid` is in builtin.jl: 30 values,
-# log-spaced from 1/5 of the shortest TI to 5× the longest). The R1 forms use the same values
-# as rates, so both forms start from the same place.
-startgrid(m::Union{T1IR,T1IRTD}) = (T1 = _t1grid(m.TI),)
-startgrid(m::Union{R1IR,R1IRTD}) = (R1 = 1 ./ _t1grid(m.TI),)

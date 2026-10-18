@@ -1,13 +1,14 @@
 # =================================================================================================
 # Starting values: where each voxel's starting point comes from
 #
-# Per voxel, in this order (called from `_fit_voxel` in cache.jl):
-#   1. the model's own estimates from the data, if it has them (`datastart`)      _data_start
-#   2. the best value on the model's grid, if it has one (`startgrid`)             _grid_start
-#      or else the `Free(:scale)` parameter (M0, S0, ...) at its best value        _scale_start
+# Each free parameter's start says where it comes from (see `Free`). Numbers and maps are already
+# in θ0; then, per voxel, in this order (called from `_fit_voxel` in cache.jl):
+#   1. parameters starting at `:data`: the model's estimates from the data (`datastart`)   _data_start
+#   2. a parameter starting from `BestOf(values)`: the value that fits best              _best_start
+#      or else the `:scale` parameter (M0, S0, ...) at its best value                     _scale_start
 #
 # Step 2 rests on one calculation, `_score`: the signal at a candidate starting point with the
-# scale parameter solved exactly, and the SSE there. The grid scores each of its values; the scale
+# scale parameter solved exactly, and the SSE there. BestOf scores each of its values; the scale
 # start scores the one starting point.
 # =================================================================================================
 
@@ -20,7 +21,7 @@
 # If a is unusable (zero signal at θ, a NaN, or a ≤ 0, e.g. noise-only data) the scale stays at 1.
 # The model is evaluated with plain numbers; storing them in the dual buffer just sets the
 # derivative parts to zero, so no extra buffer is needed and nothing is allocated.
-# `@inline`: the grid calls this once per grid value (30 times per voxel), and Julia does not
+# `@inline`: BestOf calls this once per value (30 times per voxel for T1IR), and Julia does not
 # inline a function this size by itself; without it, T1IR fits were 8% slower (measured).
 @inline function _score(prob::VoxelProblem{F}, θ::SVector{P,T}, sc, lo, hi, buf) where {F,P,T}
     sc > 0 && (θ = Base.setindex(θ, one(T), sc))           # the signal at scale 1: its shape
@@ -41,13 +42,13 @@ end
 # The scale parameter `sc` at its best value, given the other starts.
 _scale_start(prob, θ0, sc, lo, hi, buf) = first(_score(prob, θ0, sc, lo, hi, buf))
 
-# The best value on the model's grid (see `startgrid`) for free parameter k: score each grid value
-# (the scale solved for each) and keep the lowest SSE. If none is usable (e.g. NaN signals), fall
-# back to the scale start.
-function _grid_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
-    k, sc = spec.gridindex, spec.scale
+# The best of the BestOf values (see `BestOf`) for free parameter k: score each value (the scale
+# solved for each) and keep the lowest SSE. If none is usable (e.g. NaN signals), fall back to the
+# scale start from θ0, which holds the middle value.
+function _best_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
+    k, sc = spec.candindex, spec.scale
     best, bestsse = θ0, T(Inf)
-    for g in spec.grid
+    for g in spec.candidates
         θ, sse = _score(prob, Base.setindex(θ0, g, k), sc, spec.lower, spec.upper, buf)
         if sse < bestsse                                     # NaN never wins
             best, bestsse = θ, sse
@@ -58,15 +59,15 @@ function _grid_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where 
 end
 
 # Starting values from the model's own estimates on this voxel's data (see `datastart`), for the
-# free parameters not given a start in the call. A NaN or Inf estimate is skipped (the usual
-# start stays); the others are clamped to the bounds. A `:scale` parameter is skipped too: it is
-# set afterwards, by least squares given the other starts.
+# free parameters that start at `:data`; clamped to the bounds. `setup` checked that `datastart`
+# covers them. A NaN estimate stays NaN, and the fit then stops at once with status Failed.
 function _data_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec) where {F,P,T}
-    d = datastart(prob.model, prob.y)
+    any(spec.fromdata) || return θ0             # no :data start in this fit
+    d = datastart(prob.model, prob.y, prob.fixed)
     d === nothing && return θ0                  # no data start: decided when compiling, no cost
     for (name, x) in pairs(d)
         k = findfirst(==(name), F)              # position among the free parameters, or nothing
-        if k !== nothing && k != spec.scale && !spec.userstart[k] && isfinite(x)
+        if k !== nothing && spec.fromdata[k]
             θ0 = Base.setindex(θ0, clamp(T(x), spec.lower[k], spec.upper[k]), k)
         end
     end

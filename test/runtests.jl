@@ -7,6 +7,20 @@ using Random
 using Statistics: mean, std
 using Test
 
+# A model for testing `datastart`: T2 starts at 0.05·c, from the fixed parameter c (as DESPOT1
+# needs the voxel's B1), and at NaN when c < 0, which must make that voxel's fit fail.
+struct DataStartTest <: MRIModel
+    t::Vector{Float64}
+end
+EQUIP.parameters(::DataStartTest) = (S0 = Free(:scale; lower = 0), T2 = Free(:data; lower = 1e-6), c = Fixed(1.0))
+function EQUIP.signal!(out, m::DataStartTest, p)
+    for j in eachindex(out, m.t)
+        out[j] = p.S0 * abs(p.c) * exp(-m.t[j] / p.T2)
+    end
+    return out
+end
+EQUIP.datastart(::DataStartTest, y, p) = (T2 = p.c < 0 ? NaN : 0.05 * p.c,)
+
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
@@ -189,10 +203,11 @@ end
         s = setup(m; Sf = Free(lower = -1.5))
         @test s.lower[3] == -1.5 && s.upper[3] == 0 && s.start.Sf == -0.95
         s = setup(m; R1f = Free(start = 0.8))
-        @test s.start.R1f == 0.8 && s.lower[2] == 0.05 && s.userstart == (false, true, false, false)
+        @test s.start.R1f == 0.8 && s.lower[2] == 0.05 && s.fromdata == (false, false, false, false)
         @test Free(0.8) == Free(start = 0.8)
+        @test Free(:data).start === :data && Free(start = BestOf([0.3, 0.8])).start isa BestOf
         @test_throws ArgumentError Free(0.8; start = 0.9)               # the start given twice
-        @test_throws ArgumentError Free(:auto)                         # numbers, maps or :scale
+        @test_throws ArgumentError Free(:auto)                         # not a start option
         # starts and precision; an explicit start replaces :scale
         mfa = T1MFA(FA = [2, 10], TR = 0.015)
         s = setup(mfa, Float32; T1 = Free(start = 2))
@@ -425,19 +440,20 @@ end
         y = signal(m, (S0 = 1000.0, T2 = 0.04))
         # Noise-free data: the log-linear fit is exact, so the start is already the answer.
         # `maxiter = 0` returns the starting point; S0 comes from least squares given that T2.
-        @test datastart(m, y).T2 ≈ 0.04
+        @test datastart(m, y, (;)).T2 ≈ 0.04
         s = fit(m, y; solver = LM(maxiter = 0)).params
         @test s.T2 ≈ 0.04
         @test s.S0 ≈ 1000
         @test fit(m, Float32.(y); precision = Float32, solver = LM(maxiter = 0)).params.T2 ≈ 0.04f0
         # points ≤ 0 are skipped
-        @test datastart(m, [y[1:5]; zeros(27)]).T2 ≈ 0.04
-        # no usable estimate (rising data): NaN, and the default start, mean(TE), stays
-        @test isnan(datastart(m, collect(1.0:32.0)).T2)
+        @test datastart(m, [y[1:5]; zeros(27)], (;)).T2 ≈ 0.04
+        # no usable estimate (rising data): the fallback, mean(TE)
+        @test datastart(m, collect(1.0:32.0), (;)).T2 ≈ sum(te) / 32
         @test fit(m, collect(1.0:32.0); solver = LM(maxiter = 0)).params.T2 ≈ sum(te) / 32
-        # a start from the user wins; a fixed T2 is left alone
+        # T2 starts at :data by default; another start replaces it; a fixed T2 is left alone
+        @test setup(m).fromdata == (false, true)
         @test fit(m, y; T2 = Free(start = 0.2), solver = LM(maxiter = 0)).params.T2 == 0.2
-        @test setup(m; T2 = Free(start = 0.2)).userstart == (false, true)
+        @test setup(m; T2 = Free(start = 0.2)).fromdata == (false, false)
         @test fit(m, y; T2 = 0.04).params.S0 ≈ 1000
         # noisy data: the same answer as from the old start, without allocating
         yn = y .+ 10 .* randn(MersenneTwister(3), 32)
@@ -446,13 +462,20 @@ end
         @test r.iterations < r0.iterations
         c = init(m); fit!(c, yn)
         @test @allocated(fit!(c, yn)) == 0
-        @test datastart(R2Decay(TE = te), y) === nothing          # no data start by default
+        @test datastart(R2Decay(TE = te), y, (;)) === nothing     # no data start by default
+        @test_throws "no data start" setup(R2Decay(TE = te); R2 = Free(start = :data))
+        # datastart gets the voxel's fixed values (here c, a number or a map); a NaN fails
+        mt = DataStartTest([0.01, 0.02, 0.04, 0.08])
+        yt = signal(mt, (S0 = 100.0, T2 = 0.05))
+        @test fit(mt, yt; solver = LM(maxiter = 0)).params.T2 ≈ 0.05
+        @test fit(mt, permutedims([yt yt]); c = [1.0, 2.0], solver = LM(maxiter = 0)).params.T2 ≈ [0.05, 0.1]
+        @test fit(mt, yt; c = -1.0).status == EQUIP.Failed
     end
 
-    @testset "grid start: magnitude inversion recovery's local minima" begin
-        # From the single default start (T1 = 1 s), magnitude IR used to end in a wrong local
-        # minimum (the signal null in the wrong place) at T1 = 0.05, 0.1 and 4 s with these TIs;
-        # the grid start (startgrid) finds the right one, in both forms.
+    @testset "BestOf start: magnitude inversion recovery's local minima" begin
+        # From a single start (T1 = 1 s), magnitude IR used to end in a wrong local minimum (the
+        # signal null in the wrong place) at T1 = 0.05, 0.1 and 4 s with these TIs; starting from
+        # the best of 30 values (BestOf) finds the right one, in both forms.
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
         for T1 in (0.05, 0.1, 0.5, 4.0)
             m, mr = T1IR(TI = ti), R1IR(TI = ti)
@@ -464,13 +487,27 @@ end
             @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
             @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
         end
-        # the grid: 30 values spanning the TIs; skipped when the parameter has a start or is fixed
+        # 30 values spanning the TIs; replaced by any other start, absent when T1 is fixed
         s = setup(T1IR(TI = ti))
-        @test s.gridindex == 3 && length(s.grid) == 30
-        @test s.grid[1] ≈ 0.01 && s.grid[end] ≈ 16
-        @test setup(T1IR(TI = ti); T1 = Free(start = 2.0)).gridindex == 0
-        @test setup(T1IR(TI = ti); T1 = 2.0).gridindex == 0
-        @test startgrid(T2Decay(TE = [0.01, 0.02])) === nothing           # no grid by default
+        @test s.candindex == 3 && length(s.candidates) == 30
+        @test s.candidates[1] ≈ 0.01 && s.candidates[end] ≈ 16
+        @test setup(T1IR(TI = ti); T1 = Free(start = 2.0)).candindex == 0
+        @test setup(T1IR(TI = ti); T1 = 2.0).candindex == 0
+        @test setup(T2Decay(TE = [0.01, 0.02])).candindex == 0           # none by default
+        # values from the call; those outside the bounds are dropped, an error if none is left
+        s = setup(T1IR(TI = ti); T1 = Free(start = BestOf([0.1, 0.5, 5.0]), upper = 3))
+        @test s.candidates == [0.1, 0.5] && s.start.T1 == 0.1           # middle value: placeholder
+        @test_throws "no BestOf value within" setup(T1IR(TI = ti); T1 = Free(lower = 20))
+        @test_throws "only one parameter" setup(T1IR(TI = ti); Sf = Free(start = BestOf([-1, -0.9])))
+        m2 = T2Decay(TE = 0.01:0.01:0.32)
+        r = fit(m2, signal(m2, (S0 = 1000.0, T2 = 0.04)); T2 = Free(start = BestOf([0.01, 0.04, 1.0])),
+                solver = LM(maxiter = 0))
+        @test r.params.T2 == 0.04 && r.params.S0 ≈ 1000                 # the best of the three
+        # the values: any list of finite numbers; printed in short
+        @test BestOf(0.1:0.1:0.3).values ≈ [0.1, 0.2, 0.3]
+        @test_throws ArgumentError BestOf(Float64[])
+        @test_throws ArgumentError BestOf([0.1, NaN])
+        @test sprint(show, BestOf(1:10)) == "BestOf(10 values from 1.0 to 10.0)"
     end
 
     @testset "T1 and R1 forms: the same answer, R1 = 1/T1, voxel by voxel" begin

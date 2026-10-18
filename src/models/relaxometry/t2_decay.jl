@@ -20,10 +20,10 @@
 # faster than its start, stepping to a tiny T2 where the gradient vanishes; the solver now rejects
 # such steps, see src/fit/levmar.jl.)
 #
-# Starting values: T2Decay starts each voxel from a log-linear fit to its data (`datastart`, after
-# its `signal!`), which makes it much faster when T2 is far from the echo times. The others start
-# from the acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable to the sampled range).
-# S0 starts at the least-squares scale.
+# Starting values: T2Decay starts each voxel from a log-linear fit to its data (`T2 = Free(:data)`;
+# `datastart`, after its `signal!`), which makes it much faster when T2 is far from the echo
+# times. The others start from the acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable
+# to the sampled range). S0 starts at the least-squares scale.
 #
 # The offset versions are an approximation people commonly use: a constant C for the noise
 # floor of magnitude images. The real noise floor (Rician bias) depends on the signal level, so
@@ -56,7 +56,7 @@ end
 
 parameters(m::T2Decay) = (
     S0 = Free(:scale; lower = 0),
-    T2 = Free(mean(m.TE); lower = _TMIN),
+    T2 = Free(:data; lower = _TMIN),                  # a log-linear fit (datastart, below)
 )
 
 # The T2 form is the R2 form with R2 = 1/T2: convert, then R2Decay's signal (below; see
@@ -64,9 +64,12 @@ parameters(m::T2Decay) = (
 signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))
 
 # Each voxel starts from a log-linear fit (a weighted straight line through log(y) against TE; see
-# `_loglinear_rate` in builtin.jl). T2 = 1/NaN = NaN when the data do not decay: then the default
-# start, mean(TE), stays. S0 is set afterwards by least squares, given this T2.
-datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)
+# `_loglinear_rate` in builtin.jl), or from mean(TE) when the data do not decay (the rate is then
+# NaN). S0 is set afterwards by least squares, given this T2.
+function datastart(m::T2Decay, y, p)
+    R2 = _loglinear_rate(m.TE, y)
+    return (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)
+end
 
 # -------------------------------------------------------------------------------------------------
 """

@@ -89,11 +89,19 @@ parameters(::QMTSIR) = (
 )
 ```
 
-- `Free(init; lower, upper)`: estimated, starting at `init` and kept within the bounds.
-  `init = :scale` is for the parameter that scales the whole signal (S0, M0). It starts at
-  the least-squares value given the other starts, so raw data need no normalization. Only the
-  model declares it (the rule assumes the signal is proportional to the parameter): a fit can
-  turn it off, `M0 = Free(start = 1000.0)`, but not move it to another parameter.
+- `Free(start; lower, upper)`: estimated, kept within the bounds. The start says where each
+  voxel's starting value comes from:
+  - a number (or, in a fit, a map with one value per voxel);
+  - `:scale`, for the parameter that scales the whole signal (S0, M0): the least-squares value
+    given the other starts, so raw data need no normalization. Only the model declares it (the
+    rule assumes the signal is proportional to the parameter): a fit can turn it off,
+    `M0 = Free(start = 1000.0)`, but not move it to another parameter;
+  - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
+    log-linear fit, `T2 = Free(:data; lower = ...)`;
+  - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
+    from the one that fits best, e.g. the inversion-recovery models'
+    `T1 = Free(BestOf(_t1grid(m.TI)); lower = ...)`, 30 values spanning the TIs. One parameter
+    per fit for now. `BestOf` wraps the values because a plain vector start is a map.
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie.
@@ -109,6 +117,7 @@ fit(m, data; PSR = 0.1)                          # fix a parameter that is free 
 fit(m, data; kmf = Free())                       # estimate kmf (starts at 12.5, no bounds)
 fit(m, data; kmf = Free(lower = 1, upper = 50))  # ... within bounds
 fit(m, data; R1f = Free(start = r1_map))         # another start: a number or a map
+fit(m, data; R1f = Free(start = BestOf([0.5, 1.0, 2.0])))   # try three, start from the best
 fit(m, data; Sf = Free(lower = -1.5))            # another bound; start and upper bound as before
 fit(m, data; kmf = 15.0, Sm = sm_map, mask)      # several at once (`mask` means `mask = mask`)
 
@@ -171,7 +180,7 @@ Voxels that are not fitted hold NaN parameters and SSE and 0 iterations.
 Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
 Rate (R1, R2) and time-constant (T1, T2) versions fit the same data; fit the one you will
 report. Magnitude inversion recovery (`T1IR`, `T1IRTD` and their R1 versions) has local minima,
-so these models first try 30 values of T1 per voxel and start from the best one (`startgrid`):
+so these models first try 30 values of T1 per voxel and start from the best one (`BestOf`):
 in tests, at most 2 of 200 voxels failed for T1 from 0.05 to 4 s, against all 200 from a single
 start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(start = ...)`, skips it.
 
@@ -251,15 +260,17 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
-- **`startgrid`** (optional): if fits can end in a wrong local minimum from one start, give a
-  grid of values for one free parameter. T1IR's is `startgrid(m::T1IR) = (T1 = _t1grid(m.TI),)`:
-  30 values log-spaced from 1/5 of the shortest TI to 5× the longest. Each voxel evaluates the
-  signal at every value (a `:scale` parameter at its best value for each) and starts from the
-  best fit. The default is no grid.
-- **`datastart`** (optional): starting values computed from each voxel's data, such as a
-  linearized fit. T2Decay's is a log-linear fit:
-  `datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)`. Return NaN when the data
-  give no estimate; the usual start then stays. A start given in the call always wins.
+- **Starting values** are declared in `parameters(m)` with each `Free` role (see Free and fixed
+  parameters): a number, `:scale`, `:data` or `BestOf(values)`. If fits can end in a wrong
+  local minimum from one start, give the parameter several values to try: T1IR's is
+  `T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN)`, 30 values log-spaced from 1/5 of the
+  shortest TI to 5× the longest.
+- **`datastart`** (optional): starting values computed from each voxel's data `y`, such as a
+  linearized fit, for the parameters declared `:data`. `p` holds the voxel's fixed values (e.g.
+  `p.B1`). T2Decay's is a log-linear fit, with mean(TE) as the fallback when the data do not
+  decay: `datastart(m::T2Decay, y, p) = (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)` with
+  `R2 = _loglinear_rate(m.TE, y)`. Return a finite value for each `:data` parameter: a NaN makes
+  that voxel's fit fail. Another start given in the call replaces it.
 - **`relabel`** (optional): if the parameters can describe the same signal in more than one way
   by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
@@ -319,9 +330,10 @@ a dataset                         ──fit────▶  FitResult maps; thre
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
-Before the first step, each voxel's start is set: the model's own estimates from the data, for
-a model with a `datastart`; a `:scale` parameter at its least-squares value; and, for a model with
-a `startgrid`, the grid value that fits that voxel best.
+Before the first step, each voxel's start is set from the roles: numbers and maps as given; the
+model's own estimates from the data for parameters declared `:data`; then a `BestOf` parameter at
+the value that fits that voxel best, with the `:scale` parameter at its least-squares value for
+each (or, without `BestOf`, for the start).
 
 The code is in layers; each only uses the ones before it:
 
@@ -356,12 +368,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
-- Start options per parameter, in `Free`: a number or map, `:scale` (least squares, only for the
-  parameter the model declares), `Grid(values)` (evaluate each, then fit from the best, or
-  with `fits = k` from the k best local minima of the grid; a grid on several parameters tries
-  every combination) and `:data` (the model's estimate from the voxel's data).
-  Models declare theirs in `parameters(m)`, e.g. `T1 = Free(Grid(_t1grid(m.TI)); lower = ...)`;
-  a fit changes them like any start, e.g. `T1 = Free(start = Grid(logrange(0.05, 5, 50)))`
+- `BestOf` on several parameters at once, trying every combination (with precomputed
+  candidate signals when they are the same in every voxel), and `BestOf(values; fits = k)`:
+  full fits from the k best local minima of the values, keeping the lowest SSE
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
   neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
   replacement by a neighbourhood average, marked in the status map
@@ -377,6 +386,6 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
-- More data-driven starting values (with `datastart`): DESPOT1 for T1MFA, which needs the
-  voxel's B1, so `datastart` would also receive the fixed values; R2Decay and ADCDecay
+- More data-driven starting values (with `datastart`): DESPOT1 for T1MFA (with the voxel's B1),
+  R2Decay and ADCDecay, ADCKurtosis, saturation recovery, the offset and biexponential models
 - Variable projection: solve M0/S0 exactly at every iteration, not only at the start

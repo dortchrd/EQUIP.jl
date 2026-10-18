@@ -5,11 +5,12 @@
 # below assume this (e.g. T1 starts at 1 s). Flip angles are in degrees; b-values in s/mm², so
 # the ADC is in mm²/s.
 #
-# Default starting values are fixed numbers (no model-specific, data-driven guesses yet), except
-# for the parameter that scales the whole signal (S0, M0, M0f): it is declared `Free(:scale)` and
-# starts, voxel by voxel, at the least-squares scale given the other starting values. So raw
-# data (values in the hundreds or thousands) need no normalization. Override any start in the
-# call, e.g. `T1 = Free(start = 0.8)` (a number or a per-voxel map).
+# Default starting values are mostly fixed numbers. The parameter that scales the whole signal
+# (S0, M0, M0f) is declared `Free(:scale)` and starts, voxel by voxel, at the least-squares scale
+# given the other starting values, so raw data (values in the hundreds or thousands) need no
+# normalization. A few start from the data: T2Decay's T2 (`:data`, a log-linear fit) and the
+# inversion-recovery T1 (`BestOf` 30 values). Override any start in the call, e.g.
+# `T1 = Free(start = 0.8)` (a number or a per-voxel map).
 #
 # Each model follows the same pattern:
 #

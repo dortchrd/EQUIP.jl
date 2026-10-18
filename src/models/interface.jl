@@ -68,11 +68,16 @@ abstract type MRIModel end
 Role of a parameter that is estimated: its starting value and its bounds.
 
 In a model's [`parameters`](@ref), the defaults: `Free(0.1; lower = 0, upper = 1)`. A bound left
-out means none. `Free(:scale; lower = 0)` marks the parameter that multiplies the whole signal
-(S0, M0): it then starts, in every voxel, at the least-squares value given the other starting
-values, so the data need no normalization. Only the model declares it: the rule assumes the
-signal is proportional to the parameter (true for M0, not for T1). A fit can turn it off by
-giving that parameter a start (`M0 = Free(start = 1000.0)`), but cannot move it to another one.
+out means none. The start says where each voxel's starting value comes from:
+
+- a number, or a map (one value per voxel, in a fit): start there;
+- `:scale`, for the parameter that multiplies the whole signal (S0, M0): the least-squares
+  value given the other starts, so the data need no normalization. Only the model declares
+  it: the rule assumes the signal is proportional to the parameter (true for M0, not for T1).
+  A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
+- `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
+  log-linear fit for T2. Only for parameters the model's `datastart` estimates;
+- [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best.
 
 In a fit, to estimate a parameter or change its start or bounds; whatever is left out keeps the
 model's default:
@@ -80,22 +85,61 @@ model's default:
 ```julia
 fit(m, data; kmf = Free())                 # estimate kmf, fixed by default (starts at its value)
 fit(m, data; R1f = Free(start = 0.8))      # another start: a number, or a map (one per voxel)
+fit(m, data; T1 = Free(start = BestOf([0.3, 0.8, 1.5])))   # try three values, start from the best
 fit(m, data; Sf = Free(lower = -1.5))      # another lower bound
 ```
 """
 struct Free
-    start::Any                         # a number, :scale, a map, or nothing (keep the default)
+    start::Any                         # a number, a map, :scale, :data, a BestOf, or nothing (keep the default)
     lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
     upper::Union{Nothing,Float64}
 end
+"""
+    BestOf(values)
+
+A start for a [`Free`](@ref) parameter: try each value and start from the one that fits best. In
+every voxel the fit evaluates the signal at each value (the other parameters at their starts, a
+`:scale` parameter at its least-squares value for each) and runs one fit from the value with the
+lowest sum of squared residuals. For fits that can end in a wrong local minimum from a single
+start, such as magnitude inversion recovery. Values outside the parameter's bounds are dropped.
+One parameter per fit can start from `BestOf` (several, trying every combination, are planned).
+
+```julia
+parameters(m::T1IR) = (..., T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN))   # the model's default
+fit(m, data; T1 = Free(start = BestOf(logrange(0.05, 5, 50))))                  # other values
+```
+
+The values are a list, not a map: `Free(start = [0.3, 0.8, 1.5])` would be a map, one start per
+voxel, which is why they are wrapped.
+"""
+struct BestOf
+    values::Vector{Float64}
+    # An inner constructor (inside the struct) replaces the default one, so every BestOf is
+    # checked: at least one value, all finite. Any list of numbers works (a vector, a range).
+    function BestOf(values)
+        v = Float64[x for x in values]
+        isempty(v) && throw(ArgumentError("BestOf: give at least one value"))
+        all(isfinite, v) || throw(ArgumentError("BestOf: the values must be finite"))
+        return new(v)
+    end
+end
+# Printed in full when short, else summarized: BestOf(30 values from 0.01 to 12.0).
+function Base.show(io::IO, b::BestOf)
+    v = b.values
+    r(x) = round(x; sigdigits = 3)
+    length(v) <= 6 ? print(io, "BestOf(", v, ")") :
+        print(io, "BestOf(", length(v), " values from ", r(minimum(v)), " to ", r(maximum(v)), ")")
+end
+
 # Julia automatically defines the "default constructor" `Free(start, lower, upper)` (all three
 # fields, positional). The method below adds the friendlier forms: `Free()`, `Free(0.8)`,
 # `Free(start = 0.8)`, `Free(0.8; lower = 0)`. The keyword `start` defaults to the positional one,
 # so either spelling works. It checks the start and converts numbers to Float64.
 function Free(s = nothing; start = s, lower = nothing, upper = nothing)
     s !== nothing && start !== s && throw(ArgumentError("give the start once: Free(0.8) or Free(start = 0.8)"))
-    start === nothing || start === :scale || start isa Real || start isa AbstractArray ||
-        throw(ArgumentError("Free: the start must be a number, a map or :scale, got $(repr(start))"))
+    start === nothing || start === :scale || start === :data || start isa Real ||
+        start isa AbstractArray || start isa BestOf ||
+        throw(ArgumentError("Free: the start must be a number, a map, :scale, :data or BestOf(values), got $(repr(start))"))
     return Free(start isa Real ? Float64(start) : start, lower === nothing ? nothing : Float64(lower),
                 upper === nothing ? nothing : Float64(upper))
 end
@@ -158,38 +202,26 @@ function signal! end
 # The `!` is a Julia naming convention: the function modifies (one of) its arguments, here `out`.
 
 """
-    startgrid(m) -> nothing or (name = values,)
-
-Optional: a grid of starting values to try for ONE free parameter, e.g. `(T1 = values,)`. For
-each voxel, the fit evaluates the signal at every grid value (the other parameters at their
-starts, a `Free(:scale)` parameter at its least-squares value for that grid value) and starts
-from the one that fits the data best. Use it for models whose fits can end in a wrong local
-minimum from a single start, such as magnitude inversion recovery. The grid is skipped when
-the parameter is fixed or given a start in the call. The default, `nothing`, means no grid.
-
-T1IR's grid (`t1_ir.jl`), 30 values log-spaced from 1/5 of the shortest TI to 5× the longest:
-
-```julia
-startgrid(m::T1IR) = (T1 = _t1grid(m.TI),)
-```
-"""
-startgrid(::MRIModel) = nothing
-
-"""
-    datastart(m, y) -> nothing or (name = value, ...)
+    datastart(m, y, p) -> nothing or (name = value, ...)
 
 Optional: starting values computed from one voxel's data `y` (plain numbers, in the working
-precision), e.g. a quick linearized fit. Used for free parameters not given a start in the
-call; values outside the bounds are clamped, and a NaN or Inf value leaves the usual start in
-place (return NaN when the data give no usable estimate). A `Free(:scale)` parameter is then set
-by least squares as usual, given these starts, and a `startgrid` works from them. Must not
-allocate: it runs once per voxel. The default, `nothing`, means no data-driven start.
+precision), e.g. a quick linearized fit, for the parameters that start at `:data`
+(`T2 = Free(:data; ...)` in [`parameters`](@ref), or `T2 = Free(start = :data)` in a fit). `p`
+holds the voxel's fixed parameters by name (numbers, e.g. `p.B1`, which a DESPOT1 estimate
+needs; ties appear as ties). Return a finite value for each of them, with a fallback when the
+data give no estimate (T2Decay: mean(TE) if the data do not decay). Values outside the bounds
+are clamped; a NaN makes that voxel's fit fail (status `Failed`). A `:scale` parameter is then
+set by least squares, and [`BestOf`](@ref) values are scored, from these starts. Must not
+allocate: it runs once per voxel. The default, `nothing`, means no data start.
 
 ```julia
-datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)
+function datastart(m::T2Decay, y, p)
+    R2 = _loglinear_rate(m.TE, y)                 # NaN if the data do not decay
+    return (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)
+end
 ```
 """
-datastart(::MRIModel, y) = nothing
+datastart(::MRIModel, y, p) = nothing
 
 """
     relabel(m, θ) -> θ
