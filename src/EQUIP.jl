@@ -37,11 +37,11 @@ import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (Sta
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
-export startgrid, datastart                                                 # optional: starts
+export startgrid, datastart, relabel                                        # optional hooks
 export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
-export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset
-export ADCDecay                                                            # diffusion models
+export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
+export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR                                                              # qMT models
 
 # --- Source files, in layers ----------------------------------------------------------------

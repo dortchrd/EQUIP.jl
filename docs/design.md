@@ -101,6 +101,24 @@ Decisions behind this:
   - Diffusion has its own model (`ADCDecay`, b and ADC): the same equation with
     diffusion's names, repeated on purpose. Later the models may be grouped by area
     (relaxometry, diffusion, MT).
+  - Harder models, added to test the fitter on hard cases as the roadmap goes on:
+    - `T2BiexpDecay`/`R2BiexpDecay`: two T2 components, both forms, no offset version (hard
+      enough already). Four strongly correlated parameters with real local minima, and the
+      two components can swap labels: (fshort, T2short, T2long) and (1 − fshort, T2long,
+      T2short) give the same signal. From the default starts the T2 form swapped them in 196
+      of 200 voxels at SNR 100 (even on noise-free data), the R2 form in none, so each model
+      reorders after the fit (`relabel`, a model hook called once per voxel; the shorter T2
+      is reported as T2short, only when all three parameters are free). With that, both forms
+      report the same answer where they reach the same minimum (96 of 100 noisy voxels; 1
+      converged to different local minima in the two forms, 3 hit max iterations). On
+      mono-exponential data the fit is degenerate but exact (SSE ≈ 0): the T2 form put both
+      T2s at the true value, the R2 form put fshort ≈ 1; on noisy mono-exponential data 43 of
+      200 voxels hit max iterations. The dead-zone guard did not stop fshort from reaching its
+      bound.
+    - `ADCKurtosis`: diffusion kurtosis along one direction or of direction-averaged data, a
+      rate form only (ADC is a rate). K in [0, 3]. The signal rises again at high b once
+      b·ADC·K > 3; that limit involves two parameters, so it is not a bound, and is not
+      enforced.
   - Considered and rejected: one shared loop with an optional offset (a conditional in the
     loop to skip adding C = 0); generic parameter names (T, R, x); a parameter for both T2 and
     R2 tied by a function (outputs only include free parameters); the name as a type parameter
@@ -153,10 +171,11 @@ gains ~4–7% in a `signal!` loop and up to 1.16–1.41× over whole fits (mostl
 loops); `@simd` gains nothing real here (`exp` prevents vectorization). `signal(m, p)`
 (provided) allocates the output and fills in fixed defaults, for simulation.
 
-Optional: `startgrid(m) = (T1 = values,)` gives a grid of starting values for one free
+Optional hooks: `startgrid(m) = (T1 = values,)` gives a grid of starting values for one free
 parameter, for models with local minima (see the grid-search start under Performance notes).
 `datastart(m, y) = (T2 = value,)` computes starting values from each voxel's data, e.g. the
-log-linear fit of `T2Decay` (Performance notes).
+log-linear fit of `T2Decay` (Performance notes). `relabel(m, θ)` chooses the labels to report
+when they can swap without changing the signal (the two components of `T2BiexpDecay`).
 
 ## Parameter roles
 
@@ -220,8 +239,8 @@ src/
   EQUIP.jl             the module: dependencies, exports, includes
   models/              interface (MRIModel, Free, Fixed, parameters, signal!, signal, nobs);
                        builtin.jl (includes), then one folder per area:
-    relaxometry/       T1IR, T1SR, T1MFA, T2Decay (+ R1/R2 and offset versions)
-    diffusion/         ADCDecay
+    relaxometry/       T1IR, T1SR, T1MFA, T2Decay (+ R1/R2 and offset versions), T2BiexpDecay
+    diffusion/         ADCDecay, ADCKurtosis
     qmt/               QMTSIR
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
@@ -410,8 +429,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above (with `startgrid` and `datastart`), fourteen models: relaxometry (T1IR, R1IR, T1IRTD,
-R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+In: the interface above (with `startgrid`, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
+R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay), diffusion (ADCDecay, ADCKurtosis), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:

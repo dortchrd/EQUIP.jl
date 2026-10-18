@@ -136,9 +136,10 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
     elseif spec.scale > 0
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end
-    # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...).
+    # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...). A model whose labels can swap
+    #    picks the ones to report (see `relabel`; the default changes nothing).
     r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
-    return VoxelResult(NamedTuple{F}(Tuple(r.θ)), r.sse, r.iterations, r.status)
+    return VoxelResult(relabel(c.model, NamedTuple{F}(Tuple(r.θ))), r.sse, r.iterations, r.status)
 end
 
 # Starting values from the model's own estimates on this voxel's data (see `datastart`), for the

@@ -77,5 +77,7 @@ include("relaxometry/t1_ir.jl")         # T1IR, R1IR, T1IRTD, R1IRTD: inversion 
 include("relaxometry/t1_sr.jl")         # T1SR, R1SR: saturation recovery
 include("relaxometry/t1_mfa.jl")        # T1MFA, R1MFA: multiple flip angles (spoiled gradient echo)
 include("relaxometry/t2_decay.jl")      # T2Decay, R2Decay and their offset versions
+include("relaxometry/t2_biexp_decay.jl")  # T2BiexpDecay, R2BiexpDecay: two T2 components
 include("diffusion/adc_decay.jl")       # ADCDecay
+include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, one direction
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

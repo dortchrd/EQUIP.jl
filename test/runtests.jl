@@ -20,6 +20,9 @@ const CASES = [
     (T2DecayOffset(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08, C = 50.0)),
     (R2DecayOffset(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0, C = 50.0)),
     (ADCDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3)),
+    (ADCKurtosis(b = [0.0, 250, 500, 1000, 1500, 2000, 2500]), (S0 = 1000.0, ADC = 0.8e-3, K = 1.0)),
+    (T2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)),
+    (R2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
     (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
     (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
@@ -351,6 +354,53 @@ end
         @test EQUIP._lost_influence(A, [4.0 0.0; 0.0 1e-20], [1.0, 1.0])
         @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 1e-3], [1.0, 1.0])
         @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
+    end
+
+    @testset "bi-exponential T2 and diffusion kurtosis" begin
+        te = collect(0.01:0.01:0.32)
+        mT, mR = T2BiexpDecay(TE = te), R2BiexpDecay(TE = te)
+        θT = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)
+        θR = (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)
+        # the two forms are the same signal; the components can swap; fshort = 0 is mono-exponential
+        @test signal(mT, θT) ≈ signal(mR, θR)
+        @test signal(mT, θT) ≈ signal(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2long = 0.02))
+        @test signal(mT, merge(θT, (fshort = 0.0,))) ≈ signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08))
+        # relabel puts the shorter T2 (the larger rate) first, only when all three are free
+        θs = EQUIP.relabel(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2long = 0.02))
+        @test θs.T2short == 0.02
+        @test θs.T2long == 0.08
+        @test θs.fshort ≈ 0.15
+        @test EQUIP.relabel(mR, (S0 = 1000.0, fshort = 0.85, R2short = 12.5, R2long = 50.0)).R2short == 50.0
+        @test EQUIP.relabel(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08)) ==
+              (S0 = 1000.0, fshort = 0.85, T2short = 0.08)                       # T2long fixed
+        @test EQUIP.relabel(T2Decay(TE = te), (S0 = 1.0, T2 = 0.1)) == (S0 = 1.0, T2 = 0.1)  # default
+        # noisy data (SNR 100): both forms report the same, ordered components
+        Y = reduce(vcat, [permutedims(signal(mT, θT) .+ 10 .* randn(MersenneTwister(i), 32)) for i in 1:100])
+        rT, rR = fit(mT, Y), fit(mR, Y)
+        @test all(rT.params.T2short .<= rT.params.T2long)
+        @test all(rR.params.R2short .>= rR.params.R2long)
+        # where both reach the same minimum (equal SSE) they agree; local minima are real in this
+        # model (with these seeds, 1 voxel of 100 converged to different minima in the two forms)
+        same = isconverged.(rT.status) .& isconverged.(rR.status) .& (abs.(rT.sse .- rR.sse) .<= 1e-6 .* rR.sse)
+        @test count(same) >= 90
+        @test rT.params.T2short[same] ≈ 1 ./ rR.params.R2short[same] rtol = 1e-4
+        @test rT.params.fshort[same] ≈ rR.params.fshort[same] rtol = 1e-4
+        # mono-exponential data: a degenerate but exact description (SSE ≈ 0), whichever it is
+        y = signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08))
+        for m in (mT, mR)
+            r = fit(m, y)
+            @test isconverged(r)
+            @test r.sse < 1e-10
+        end
+
+        # kurtosis: K = 0 is ADCDecay; the equation; the signal decays while b·ADC·K < 3
+        b = [0.0, 250, 500, 1000, 1500, 2000, 2500]
+        mk = ADCKurtosis(b = b)
+        @test signal(mk, (S0 = 1000.0, ADC = 1e-3, K = 0.0)) ≈ signal(ADCDecay(b = b), (S0 = 1000.0, ADC = 1e-3))
+        @test signal(mk, (S0 = 1000.0, ADC = 1e-3, K = 1.2)) ≈
+              1000 .* exp.(-b .* 1e-3 .+ (b .* 1e-3) .^ 2 .* 1.2 ./ 6)
+        @test all(diff(signal(mk, (S0 = 1000.0, ADC = 0.8e-3, K = 1.0))) .< 0)    # 2500·0.8e-3·1 = 2
+        @test fit(mk, signal(mk, (S0 = 1000.0, ADC = 2e-3, K = 0.3))).params.K ≈ 0.3 rtol = 1e-6
     end
 
     @testset "data start: log-linear T2 for T2Decay" begin

@@ -155,7 +155,10 @@ start. It costs about 1 µs per voxel; giving a `start` for T1 (or R1) skips it.
 | | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
 | | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
 | | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
+| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)]; the shorter T2 reported as T2short | S0, fshort, T2short, T2long | |
+| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
+| | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 
 ## Writing a model
@@ -223,6 +226,10 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   linearized fit. T2Decay's is a log-linear fit:
   `datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)`. Return NaN when the data
   give no estimate; the usual start then stays. A `start` from the user always wins.
+- **`relabel`** (optional): if the parameters can describe the same signal in more than one way
+  by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
+  its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
+  change the signal. The default changes nothing.
 
 ## How it works
 
@@ -246,8 +253,8 @@ The code is in layers; each only uses the ones before it:
 src/
   EQUIP.jl                the module: dependencies, exports, includes
   models/                 interface.jl (MRIModel, Free, Fixed, signal!, ...), builtin.jl (includes)
-    relaxometry/          t1_ir.jl, t1_sr.jl, t1_mfa.jl, t2_decay.jl
-    diffusion/            adc_decay.jl
+    relaxometry/          t1_ir.jl, t1_sr.jl, t1_mfa.jl, t2_decay.jl, t2_biexp_decay.jl
+    diffusion/            adc_decay.jl, adc_kurtosis.jl
     qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec),
                           cache.jl (init, fit!), fit.jl (fit)

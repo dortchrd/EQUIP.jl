@@ -178,6 +178,18 @@ datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)
 """
 datastart(::MRIModel, y) = nothing
 
+"""
+    relabel(m, θ) -> θ
+
+Optional: for models whose parameters can describe the same signal in more than one way by
+swapping labels, choose the one to report. `θ` holds one voxel's fitted free parameters by name;
+return the same names, in the same order. Called once per voxel after the fit; the signal, and
+so the SSE, must not change. Example: the two components of [`T2BiexpDecay`](@ref) can swap,
+`(fshort, T2short, T2long)` ↔ `(1 - fshort, T2long, T2short)`, so it puts the shorter T2 first.
+The default returns `θ` unchanged.
+"""
+relabel(::MRIModel, θ) = θ
+
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------
