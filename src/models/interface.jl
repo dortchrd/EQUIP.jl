@@ -62,32 +62,40 @@ abstract type MRIModel end
 # -------------------------------------------------------------------------------------------------
 
 """
-    Free(init; lower = -Inf, upper = Inf)
+    Free(start; lower, upper)
+    Free(; start, lower, upper)
 
-Role of a parameter that is estimated: its starting value `init` and its bounds.
+Role of a parameter that is estimated: its starting value and its bounds.
 
-`init` is a number, or `:scale` for a parameter that multiplies the whole signal (S0, M0):
-it then starts, in every voxel, at the least-squares value given the other starting values,
-so the data need no normalization.
+In a model's [`parameters`](@ref), the defaults: `Free(0.1; lower = 0, upper = 1)`. A bound left
+out means none. `Free(:scale; lower = 0)` marks the parameter that multiplies the whole signal
+(S0, M0): it then starts, in every voxel, at the least-squares value given the other starting
+values, so the data need no normalization.
+
+In a fit, to estimate a parameter or change its start or bounds; whatever is left out keeps the
+model's default:
 
 ```julia
-Free(0.1; lower = 0, upper = 1)
-Free(:scale; lower = 0)
+fit(m, data; kmf = Free())                 # estimate kmf, fixed by default (starts at its value)
+fit(m, data; R1f = Free(start = 0.8))      # another start: a number, or a map (one per voxel)
+fit(m, data; Sf = Free(lower = -1.5))      # another lower bound
 ```
 """
 struct Free
-    init::Union{Float64,Symbol}    # a number, or :scale
-    lower::Float64
-    upper::Float64
+    start::Any                         # a number, :scale, a map, or nothing (keep the default)
+    lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
+    upper::Union{Nothing,Float64}
 end
-# Julia automatically defines the "default constructor" `Free(init, lower, upper)` (all three
-# fields, positional). The method below adds a friendlier one with keywords and defaults.
-# Different number of positional arguments -> different method, so the two do not clash. It
-# checks `init`, converts numbers to Float64, and calls the default constructor.
-function Free(init; lower = -Inf, upper = Inf)
-    init isa Real || init === :scale ||
-        throw(ArgumentError("Free(init): init must be a number or :scale, got $(repr(init))"))
-    return Free(init isa Real ? Float64(init) : init, lower, upper)
+# Julia automatically defines the "default constructor" `Free(start, lower, upper)` (all three
+# fields, positional). The method below adds the friendlier forms: `Free()`, `Free(0.8)`,
+# `Free(start = 0.8)`, `Free(0.8; lower = 0)`. The keyword `start` defaults to the positional one,
+# so either spelling works. It checks the start and converts numbers to Float64.
+function Free(s = nothing; start = s, lower = nothing, upper = nothing)
+    s !== nothing && start !== s && throw(ArgumentError("give the start once: Free(0.8) or Free(start = 0.8)"))
+    start === nothing || start === :scale || start isa Real || start isa AbstractArray ||
+        throw(ArgumentError("Free: the start must be a number, a map or :scale, got $(repr(start))"))
+    return Free(start isa Real ? Float64(start) : start, lower === nothing ? nothing : Float64(lower),
+                upper === nothing ? nothing : Float64(upper))
 end
 
 """
@@ -114,7 +122,8 @@ end
     parameters(m) -> NamedTuple
 
 Every parameter of model `m` with its default role, [`Free`](@ref) or [`Fixed`](@ref). The order
-is the order of the outputs. A fit can override the roles with the `free` and `fixed` keywords.
+is the order of the outputs. A fit can change any role with a keyword named after the parameter:
+`fit(m, data; kmf = 15.0)` (fixed at a value), `fit(m, data; kmf = Free())` (estimated).
 
 ```julia
 parameters(::T1SR) = (M0 = Free(:scale; lower = 0), T1 = Free(1.0; lower = 1e-6))
@@ -154,7 +163,7 @@ each voxel, the fit evaluates the signal at every grid value (the other paramete
 starts, a `Free(:scale)` parameter at its least-squares value for that grid value) and starts
 from the one that fits the data best. Use it for models whose fits can end in a wrong local
 minimum from a single start, such as magnitude inversion recovery. The grid is skipped when
-the parameter is fixed or given a `start`. The default, `nothing`, means no grid.
+the parameter is fixed or given a start in the call. The default, `nothing`, means no grid.
 
 ```julia
 startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)
@@ -166,8 +175,8 @@ startgrid(::MRIModel) = nothing
     datastart(m, y) -> nothing or (name = value, ...)
 
 Optional: starting values computed from one voxel's data `y` (plain numbers, in the working
-precision), e.g. a quick linearized fit. Used for free parameters that have no `start` from the
-user; values outside the bounds are clamped, and a NaN or Inf value leaves the usual start in
+precision), e.g. a quick linearized fit. Used for free parameters not given a start in the
+call; values outside the bounds are clamped, and a NaN or Inf value leaves the usual start in
 place (return NaN when the data give no usable estimate). A `Free(:scale)` parameter is then set
 by least squares as usual, given these starts, and a `startgrid` works from them. Must not
 allocate: it runs once per voxel. The default, `nothing`, means no data-driven start.

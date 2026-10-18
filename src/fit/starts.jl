@@ -58,7 +58,7 @@ function _grid_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where 
 end
 
 # Starting values from the model's own estimates on this voxel's data (see `datastart`), for the
-# free parameters without a `start` from the user. A NaN or Inf estimate is skipped (the usual
+# free parameters not given a start in the call. A NaN or Inf estimate is skipped (the usual
 # start stays); the others are clamped to the bounds. A `:scale` parameter is skipped too: it is
 # set afterwards, by least squares given the other starts.
 function _data_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec) where {F,P,T}

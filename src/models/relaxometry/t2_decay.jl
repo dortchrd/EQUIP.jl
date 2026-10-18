@@ -41,10 +41,10 @@ data (the simple mono-exponential case).
 - free by default: `S0`, `T2` (s)
 
 Each voxel starts from a log-linear fit to its data (a weighted straight line through log(y)
-against TE), or from `T2 = mean(TE)` if the data do not decay; a `start` overrides it. Prefer
-[`R2Decay`](@ref) when T2 can be much longer than the echo times: on nearly flat curves the T2
-form runs off to huge T2 and stops at max iterations, while R2 settles near 0. With an offset:
-[`T2DecayOffset`](@ref).
+against TE), or from `T2 = mean(TE)` if the data do not decay; a start in the call
+(`T2 = Free(start = ...)`) overrides it. Prefer [`R2Decay`](@ref) when T2 can be much longer
+than the echo times: on nearly flat curves the T2 form runs off to huge T2 and stops at max
+iterations, while R2 settles near 0. With an offset: [`T2DecayOffset`](@ref).
 
 ```julia
 m = T2Decay(TE = 0.01:0.01:0.32)
@@ -118,7 +118,7 @@ decaying to zero. It is not the correct model: the noise floor (Rician bias) dep
 signal level, not a constant.
 
 - acquisition: `TE` (s), one per observation
-- free by default: `S0`, `T2` (s), `C` (fix a known offset with `fixed = (C = value,)`)
+- free by default: `S0`, `T2` (s), `C` (fix a known offset with `C = value`)
 
 ```julia
 m = T2DecayOffset(TE = 0.01:0.01:0.32)
@@ -148,7 +148,7 @@ decaying to zero. It is not the correct model: the noise floor (Rician bias) dep
 signal level, not a constant.
 
 - acquisition: `TE` (s), one per observation
-- free by default: `S0`, `R2` (1/s), `C` (fix a known offset with `fixed = (C = value,)`)
+- free by default: `S0`, `R2` (1/s), `C` (fix a known offset with `C = value`)
 
 ```julia
 m = R2DecayOffset(TE = 0.01:0.01:0.32)

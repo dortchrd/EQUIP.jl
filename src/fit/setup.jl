@@ -1,7 +1,7 @@
 # =================================================================================================
 # Fit setup: from "what the user asked for" to resolved parameter roles
 #
-#   parameters(m)  +  fixed / free / start keywords
+#   parameters(m)  +  keywords named after the parameters (kmf = 15.0, R1f = Free(start = 0.8))
 #        │
 #        ▼  setup        merge the user's choices into the model's default roles, then split the
 #   FitSpec              parameters into Free (estimated) and Fixed. Done ONCE per fit call.
@@ -22,8 +22,8 @@ The resolved parameter roles of one fit (made by `setup`):
 - `fixed`: the fixed parameters (numbers, per-voxel maps or ties), by name
 - `grid`, `gridindex`: starting values to try for free parameter number `gridindex` (from the
   model's [`startgrid`](@ref)); `gridindex = 0` means no grid
-- `userstart`: for each free parameter, whether the user gave it a `start` (then the model's
-  [`datastart`](@ref) leaves it alone)
+- `userstart`: for each free parameter, whether the call gave it a start (then the model's
+  [`datastart`](@ref) and [`startgrid`](@ref) leave it alone)
 
 `F` and `P` are type parameters rather than fields: the compiler then knows the names and the
 number of free parameters and generates code specialized for them (fixed-size vectors and
@@ -37,33 +37,37 @@ struct FitSpec{F,P,T,S,X}
     fixed::X        # NamedTuple with the fixed parameters' names
     grid::Vector{T} # starting values to try for one free parameter (empty = none)
     gridindex::Int  # which free parameter the grid is for (0 = none)
-    userstart::NTuple{P,Bool}   # true for free parameters with a `start` from the user
+    userstart::NTuple{P,Bool}   # true for free parameters given a start in the call
 end
 
 freenames(::FitSpec{F}) where {F} = F       # read the names back out of the type
 
-# --- How each kind of user input becomes a role --------------------------------------------------
+# --- How the keywords become roles ---------------------------------------------------------------
 
-# `fixed = (kmf = 15.0, B1 = b1map, R1m = :R1f)`: plain values become Fixed(value).
-_asfixed(x::Fixed) = x
-_asfixed(x::Free) = throw(ArgumentError("use `free` (not `fixed`) to estimate a parameter"))
-_asfixed(x) = Fixed(x)
+# Keywords of `fit` and `init` that are options, not parameters. A model's parameter cannot have
+# one of these names: the keyword would be ambiguous.
+const _OPTIONS = (:mask, :precision, :solver)
 
-# `free` accepts names, `free = (:kmf,)` or `free = :kmf`, or roles, `free = (kmf = Free(...),)`.
-# The result is always a named tuple of Free roles.
-_asfree(free::Symbol, roles) = _asfree((free,), roles)
-_asfree(free::NamedTuple, roles) =
-    map(x -> x isa Free ? x : throw(ArgumentError("`free` values must be Free(...), got $x")), free)
-function _asfree(free, roles)                    # a tuple or vector of names
-    names = Tuple(Symbol(n) for n in free)
-    _check_names("free", names, keys(roles))
-    return NamedTuple{names}(map(n -> _tofree(roles[n], n), names))
+# A keyword `name = x` turns the parameter's default role into the fit's role:
+#   Free(...)       estimated; whatever it leaves out (start, bounds) keeps the default
+#   Fixed(...)      as given
+#   anything else   fixed at that value: a number, a per-voxel map, or a tie (`R1m = :R1f`, or a
+#                   function of the other parameters)
+_role(default, x::Free, name) = _override(default, x, name)
+_role(default, x::Fixed, name) = x
+_role(default, x, name) = Fixed(x)
+
+_keep(new, default) = new === nothing ? default : new
+# Over a default Free: the new start and bounds where given, the default's elsewhere.
+_override(d::Free, x::Free, name) = Free(_keep(x.start, d.start), _keep(x.lower, d.lower), _keep(x.upper, d.upper))
+# A parameter fixed by default, now estimated: it starts at its fixed value unless given a start;
+# no bounds unless given.
+function _override(d::Fixed, x::Free, name)
+    x.start !== nothing && return x
+    d.value isa Real ||
+        throw(ArgumentError("`$name` is fixed by default to $(repr(d.value)); give it a start: $name = Free(start = ...)"))
+    return Free(d.value, x.lower, x.upper)
 end
-# Freeing a parameter by name: a Free one stays as is; a Fixed number becomes the starting value
-# (with no bounds; give `name = Free(init; lower, upper)` for bounds); maps and ties need a start.
-_tofree(r::Free, n) = r
-_tofree(r::Fixed{<:Real}, n) = Free(r.value)
-_tofree(r::Fixed, n) = throw(ArgumentError("give `$n` a starting value: free = ($n = Free(init),)"))
 
 # Numbers are converted to the working precision; a tie by name becomes a `_Tie` (see
 # models/interface.jl); maps and function ties are kept as they are.
@@ -72,37 +76,39 @@ _value(x::Symbol, ::Type{T}) where {T} = _Tie(x)
 _value(x, ::Type{T}) where {T} = x
 
 """
-    setup(model, T = Float64; fixed = (;), free = (), start = (;)) -> FitSpec
+    setup(model, T = Float64; params...) -> FitSpec
 
-Combine the model's default roles with the user's choices and split the parameters into free
-and fixed:
+Combine the model's default roles with the fit's keywords, and split the parameters into free
+and fixed. Each keyword is named after a parameter of the model:
 
-- `fixed`: named tuple of parameters to hold fixed: numbers, per-voxel maps, or ties (the
-  name of another parameter, `R1m = :R1f`, or a function, `R1m = p -> 0.8 * p.R1f`).
-- `free`: parameters to estimate that the model fixes by default: names (`(:kmf,)`) or a
-  named tuple of roles (`(kmf = Free(12.5; lower = 0),)`).
-- `start`: named tuple of starting values for free parameters: numbers or per-voxel maps.
+- a value fixes it: a number, a per-voxel map, or a tie to another parameter, by name
+  (`R1m = :R1f`) or as a function (`R1m = p -> 0.8 * p.R1f`);
+- `Free(...)` estimates it, with the start (a number or a map) and bounds given, and the model's
+  defaults for anything left out: `kmf = Free()`, `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`.
 """
-function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), start = (;)) where {T}
+function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
     # 1. The model's defaults, e.g. (PSR = Free(0.1; ...), ..., kmf = Fixed(12.5), ...).
     roles = parameters(model)
     names = keys(roles)
-
-    # 2. Apply `fixed`: `merge(a, b)` replaces a's entries by b's with the same name and keeps
-    #    a's order, so (…, kmf = Fixed(12.5), …) becomes (…, kmf = Fixed(15.0), …).
-    fixed isa NamedTuple || throw(ArgumentError("`fixed` must be a named tuple, e.g. (kmf = 15.0,)"))
-    _check_names("fixed", keys(fixed), names)
-    roles = merge(roles, map(_asfixed, fixed))
-
-    # 3. Apply `free` the same way.
-    free = _asfree(free, roles)
-    _check_names("free", keys(free), names)
-    for n in keys(free)
-        n in keys(fixed) && throw(ArgumentError("`$n` is in both `fixed` and `free`"))
+    for n in names
+        n in _OPTIONS && throw(ArgumentError("$(nameof(typeof(model))) has a parameter named `$n`, " *
+            "which is also an option of fit ($(join(_OPTIONS, ", "))); rename the parameter"))
     end
-    roles = merge(roles, free)
 
-    # 4. Split by role, keeping the model's order.
+    # 2. Apply the keywords, one parameter each. `merge(a, b)` replaces a's entry by b's with the
+    #    same name and keeps a's order: (…, kmf = Fixed(12.5), …) becomes (…, kmf = Fixed(15.0), …).
+    userstart = Symbol[]                                 # parameters given a start in the call
+    for (n, x) in pairs(params)
+        haskey(roles, n) || throw(ArgumentError(
+            n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
+            n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
+            "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
+            "nor an option ($(join(_OPTIONS, ", ")))"))
+        x isa Free && x.start !== nothing && x.start !== :scale && push!(userstart, n)
+        roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
+    end
+
+    # 3. Split by role, keeping the model's order.
     F = Tuple(n for n in names if roles[n] isa Free)     # e.g. (:PSR, :R1f, :Sf, :M0f)
     X = Tuple(n for n in names if roles[n] isa Fixed)    # e.g. (:kmf, :R1m, :Sm)
     isempty(F) && throw(ArgumentError("no free parameters: everything is fixed"))
@@ -110,37 +116,36 @@ function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), sta
     # A tie by name (R1m = :R1f) must name a parameter that is not itself a tie.
     _check_ties(map(r -> r isa Fixed ? r.value : r, roles))
 
-    # 5. Starting values: each Free role's `init`, overridden by the `start` keyword. A `:scale`
-    #    parameter gets the placeholder 1 here; `_fit_voxel` replaces it voxel by voxel.
-    start isa NamedTuple || throw(ArgumentError("`start` must be a named tuple, e.g. (T1 = 1.2,)"))
-    _check_names("start", keys(start), F)                # only free parameters have starts
-    isscale(n) = roles[n].init === :scale && !haskey(start, n)
+    # 4. Starting values: each Free role's start, a number or a map. A `:scale` parameter gets the
+    #    placeholder 1 here; `_fit_voxel` replaces it voxel by voxel.
+    for n in F
+        roles[n].start === nothing && throw(ArgumentError("`$n` has no starting value in parameters($(nameof(typeof(model))))"))
+    end
+    isscale(n) = roles[n].start === :scale
     count(isscale, F) <= 1 || throw(ArgumentError("only one parameter can start as :scale"))
     scale = something(findfirst(isscale, F), 0)          # findfirst gives `nothing` if none
-    init_value(n) = roles[n].init === :scale ? one(T) : T(roles[n].init)
-    starts = merge(NamedTuple{F}(map(init_value, F)), map(x -> _value(x, T), start))
+    starts = NamedTuple{F}(map(n -> isscale(n) ? one(T) : _value(roles[n].start, T), F))
 
-    # 6. Bounds as fixed-size vectors, and the fixed values.
-    lower = SVector{P,T}(map(n -> T(roles[n].lower), F))
-    upper = SVector{P,T}(map(n -> T(roles[n].upper), F))
+    # 5. Bounds as fixed-size vectors (none = ±Inf), and the fixed values.
+    lower = SVector{P,T}(map(n -> T(something(roles[n].lower, -Inf)), F))
+    upper = SVector{P,T}(map(n -> T(something(roles[n].upper, Inf)), F))
     all(lower .<= upper) || throw(ArgumentError("a lower bound exceeds its upper bound"))
     fixedvals = NamedTuple{X}(map(n -> _value(roles[n].value, T), X))
 
-    # 7. Grid of starting values (optional, see `startgrid`): used only if its parameter is free
-    #    and has no `start` from the user; values outside the bounds are dropped.
+    # 6. Grid of starting values (optional, see `startgrid`): used only if its parameter is free
+    #    and has no start from the call; values outside the bounds are dropped.
     grid, gridindex = T[], 0
     g = startgrid(model)
     if g !== nothing
         length(g) == 1 || throw(ArgumentError("`startgrid` must give values for one parameter"))
         k = findfirst(==(only(keys(g))), F)
-        if k !== nothing && !haskey(start, F[k])
+        if k !== nothing && !(F[k] in userstart)
             grid = T[T(x) for x in only(values(g)) if lower[k] <= x <= upper[k]]
             gridindex = isempty(grid) ? 0 : k
         end
     end
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
-    userstart = map(n -> haskey(start, n), F)
     return FitSpec{F,P,T,typeof(starts),typeof(fixedvals)}(lower, upper, starts, scale, fixedvals,
-                                                           grid, gridindex, userstart)
+                                                           grid, gridindex, map(n -> n in userstart, F))
 end

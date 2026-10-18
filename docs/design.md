@@ -8,7 +8,7 @@ The design decisions, recorded so the code and the discussion share one referenc
 |---|---|---|---|
 | **Model**: physics, acquisition and options | no | a `@kwdef` struct `<: MRIModel` | `QMTSIR(TI = [...], TD = 2.5, magnitude = true)` |
 | **Parameters**: every quantity in the signal equation | each one can be free, a constant, a per-voxel map or a tie | values: a named tuple `p`; default roles: `parameters(m)` | PSR, R1f, kmf, B1, Sm |
-| **Fit configuration**: which parameters are estimated in this fit | no | keywords `fixed`, `free`, `start` | `free = (:kmf,)` |
+| **Fit configuration**: which parameters are estimated in this fit | no | keywords named after the parameters | `kmf = 15.0`, `kmf = Free()` |
 | **Data** | yes | N-d array, observations last | X×Y×Z×M |
 
 Decisions behind this:
@@ -198,12 +198,39 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
   - **By function**, `Fixed(p -> 0.8 * p.R1f)`: for real relations; a named function for long
     ones. Cannot be checked before it runs.
   - An R1 map as a constraint on SIR needs no extra feature: with R1m = R1f the slow two-pool
-    rate is exactly R1f, so `fixed = (R1f = r1map,)` does it. (A formula R1f(R1obs, …) would
+    rate is exactly R1f, so `R1f = r1map` does it. (A formula R1f(R1obs, …) would
     only be needed if R1m ≠ R1f; that would require auxiliary per-voxel inputs. Not planned.)
 
-Fit-time overrides: `fixed = (name = value, ...)`; `free = (:name, ...)` or
-`free = (name = Free(...), ...)`; `start = (name = number_or_map, ...)`. A non-finite value in
-the data, a fixed map or a start map marks that voxel invalid (status `InvalidData`).
+Fit-time keywords, one per parameter, in `fit`, `init` and `refit`: a value fixes the parameter
+(`kmf = 15.0`, `Sm = sm_map`, `R1m = :R1f`); `Free(...)` estimates it, and whatever it leaves
+out keeps the model's default (`kmf = Free()`, `R1f = Free(start = r1map)`,
+`Sf = Free(lower = -1.5)`). A parameter fixed by default and freed starts at its fixed value,
+with no bounds unless given; one fixed by default to a tie or a map needs a start. A
+non-finite value in the data, a fixed map or a start map marks that voxel invalid (status
+`InvalidData`).
+
+Three keyword names are options, not parameters: `mask`, `precision` and `solver`
+(`solver = LM(maxiter, xtol, ftol, gtol, damping)`). `setup` refuses a model with a parameter
+of one of those names, and a keyword that is neither a parameter nor an option.
+
+**Decision: per-parameter keywords** (replacing the grouped `fixed = (kmf = 15.0,)`,
+`free = (:kmf,)`, `start = (R1f = 0.8,)`).
+- Gained: one keyword per parameter, read as the paper writes it; no one-element named tuples
+  with their trailing comma; one place for a parameter's start and bounds (`Free`), instead of
+  `start` and `free` both setting starts; no way to name a parameter both fixed and free in one
+  call; `refit` and settings merge per parameter with plain `merge`.
+- Lost: parameters and options share one namespace. Kept safe by reserving few names, grouping
+  the solver's settings into one `solver = LM(...)` value (so `maxiter`, `damping`, tolerances
+  never clash with a parameter), and checking the names in `setup`. A future option takes a
+  name no model uses, and joins `_OPTIONS`.
+- It needs no per-model code: `setup` loops over the keywords and checks each against
+  `parameters(m)`.
+- From the Julia fitting packages: `refit` follows SciML's `remake` (a new problem from an old
+  one, with changes); `solver = LM()` follows SciML's `solve(prob, Alg())`, an algorithm as a
+  value with its own settings. EQUIP keeps its one-call `fit`, which already runs `init` and
+  `fit!` (SciML's `init`/`solve!`). From LsqFit.jl: follow StatsAPI's names for the statistics
+  of roadmap item 3 (StatsAPI's `dof` is the number of parameters and `dof_residual` is n − p;
+  LsqFit's `dof` means n − p), and separate weights with a known σ from an estimated σ.
 
 ## Fitting pipeline
 
@@ -242,7 +269,7 @@ The names are not exported (`Failed` is too generic): `EQUIP.MaxIterations`, or 
 
 One type for every fit (`src/fit/result.jl`): `params`, `sse`, `iterations`, `status`, plus
 `model` (as fitted: its acquisition in the working precision) and `settings` (the call's
-keywords, by reference: `fixed`, `free`, `start`, `precision`, solver settings, and `mask` for a
+keywords, by reference: the parameter keywords, `precision`, `solver`, and `mask` for a
 dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the status a single
 `FitStatus`?) tells them apart at compile time.
 - `fit!` returns it too and still allocates nothing: the model and settings are references in
@@ -254,8 +281,11 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   a map); `residuals(res, y)` / `residuals(res, data, i...)` subtract it from the data. Both are
   StatsAPI's names. A one-voxel result fitted with fixed maps (`fit!` with `voxel`) cannot
   rebuild its curve: the voxel index is not stored.
-- Refit: `fit(res.model, data; res.settings...)` repeats the fit with the same choices;
-  `start = res.params` starts from the previous maps.
+- Refit: `fit(res.model, data; res.settings...)` repeats the fit with the same choices.
+  `refit(res, data; changes...)` merges the changes into the settings and starts every free
+  parameter not changed from its previous estimate (`name = Free(res.params.name, lower,
+  upper)`, keeping the bounds of the first fit), e.g. `refit(res, data; kmf = Free())`. A voxel
+  whose previous estimate is NaN becomes `InvalidData`, as for any non-finite start map.
 - Display: one line in `print` and inside collections; at the REPL a summary (one voxel: status,
   iterations, SSE, values, fixed parameters; a dataset: voxels fitted, % converged, counts per
   status, median and interquartile range of each parameter over converged voxels, fixed
@@ -454,7 +484,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     0.89 → 2.37 µs; models without a grid unchanged (T1SR 0.48 → 0.45 µs). About 1 µs for 30
     signal evaluations, which run on the dual-number buffer; a plain-number buffer would make
     them cheaper (not done: more code for ~1 µs).
-  - Skipped when the parameter is fixed or has a `start`, so a user's start always wins.
+  - Skipped when the parameter is fixed or given a start in the call, so a user's start always
+    wins.
   - **Polarity restoration: tested, not adopted** (Barral et al., MRM 2010, as in qMRLab). As
     tested: take the point with the smallest |y|, flip the signs of the points before it (as a
     second candidate, of that point too), fit the signed model to each from the default start,
@@ -597,7 +628,8 @@ weights, other data layouts, precompilation, more models.
    - **One user option per fit**: `starts = :auto` (the model's recommended set: today's
      behaviour, and the default), `starts = (:data, :grid)` (an explicit set), `starts =
      :default` (plain defaults only, for benchmarks, comparisons of strategies, or reproducing
-     older results). Per-parameter `start` numbers and maps stay and still win. Names are
+     older results). Starts given per parameter (`T1 = Free(start = ...)`) stay and still win.
+     `starts` would become a fourth reserved option name (see Parameter roles). Names are
      generic (`:data` is the log-linear fit for T2Decay, DESPOT1 for T1MFA); the method
      actually used goes into the fit's settings (`FitResult`, item 1).
    - `:scale` stays as it is: not a strategy but the exact least-squares solve for the one
@@ -614,14 +646,16 @@ weights, other data layouts, precompilation, more models.
      invalid), a parameter that ended at a bound (the `FitResult` flag of item 1), and a large
      deviation from the local neighbourhood (e.g. distance from the median of the surrounding
      voxels, in units of a robust spread such as the MAD).
-   - Then, per outlier, either refit with its neighbours' median as an extra candidate (e.g.
-     `refit = :neighbors`; keep the refit if it converges, within bounds, with a lower SSE), or
+   - Then, per outlier, either refit with its neighbours' median as an extra candidate (a
+     second pass built on `refit`; keep the refit if it converges, within bounds, with a lower
+     SSE), or
      replace it with a neighbourhood average. Mark replaced voxels in the status map, so they
      are never mistaken for fitted values.
    - Bounds stay on by default: measured on SIR-FSE (5-point scheme, SNR 100), they cost
      nothing for good voxels (2.98 vs 3.00 µs, same iterations and results) and make bad ones
      faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
-     values outside [0, 1]). Unbounded fits remain possible per fit via `free`.
+     values outside [0, 1]). Unbounded fits remain possible per fit:
+     `PSR = Free(lower = -Inf, upper = Inf)`.
 5. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.

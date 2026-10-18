@@ -83,16 +83,29 @@ isconverged(s::FitStatus) = s == ConvergedX || s == ConvergedF || s == Converged
 isconverged(s::Integer) = isconverged(FitStatus(s))
 
 """
-    SolverOptions{T}(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
+    LM(; maxiter = 100, xtol, ftol, gtol, damping = 1e-3)
 
-Solver settings (keywords of `init` and `fit`). Default tolerances depend on precision:
-`xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for Float64; `1e-5, 1e-6, 1e-5` for Float32.
+Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`](@ref) and
+[`init`](@ref): `fit(m, data; solver = LM(maxiter = 50))`. Most fits need none of them.
 
+- `maxiter`: the most iterations per voxel (then status `MaxIterations`).
 - `xtol`: stop when the (scaled) step is smaller than `xtol` × the (scaled) parameters.
 - `ftol`: stop when the relative SSE decrease, actual and predicted, is below `ftol`.
 - `gtol`: stop when the scale-free gradient max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) is below `gtol`.
-- `damping`: starting μ, relative to diag(JᵀJ).
+- `damping`: the starting μ, relative to diag(JᵀJ).
+
+Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
+Float64, `1e-5, 1e-6, 1e-5` for Float32.
 """
+Base.@kwdef struct LM
+    maxiter::Int = 100
+    xtol::Union{Nothing,Float64} = nothing          # nothing: the default for the precision
+    ftol::Union{Nothing,Float64} = nothing
+    gtol::Union{Nothing,Float64} = nothing
+    damping::Float64 = 1e-3
+end
+
+# The solver's own copy of the settings, in the working precision T, with the defaults filled in.
 struct SolverOptions{T<:AbstractFloat}
     maxiter::Int32
     xtol::T
@@ -104,12 +117,11 @@ end
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
 _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 
-# Keyword constructor. `something(a, b)` returns `a` unless it is `nothing`, then `b`.
-function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothing, gtol = nothing,
-                      damping = 1e-3) where {T}
+# `something(a, b)` returns `a` unless it is `nothing`, then `b`.
+function SolverOptions{T}(s::LM) where {T}
     dx, df, dg = _default_tols(T)
-    return SolverOptions{T}(Int32(maxiter), T(something(xtol, dx)), T(something(ftol, df)),
-                        T(something(gtol, dg)), T(damping))
+    return SolverOptions{T}(Int32(s.maxiter), T(something(s.xtol, dx)), T(something(s.ftol, df)),
+                            T(something(s.gtol, dg)), T(s.damping))
 end
 
 # Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).

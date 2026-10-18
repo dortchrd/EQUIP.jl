@@ -35,25 +35,26 @@ end
 # model's bare type name, e.g. `QMTSIR`.
 
 """
-    init(model; fixed = (;), free = (), start = (;), precision = Float64,
-         maxiter = 100, xtol, ftol, gtol, damping) -> FitCache
+    init(model; precision = Float64, solver = LM(), params...) -> FitCache
 
 Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 
-- `fixed`, `free`, `start`: override the model's parameter roles (see [`setup`](@ref)).
-  Maps (arrays) are indexed by the `voxel` keyword of `fit!`.
+- `params`: keywords named after the model's parameters, to fix one (`kmf = 15.0`, a map, or a
+  tie `R1m = :R1f`) or estimate one with its start and bounds (`kmf = Free()`,
+  `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`); see [`setup`](@ref). Maps (arrays) are
+  indexed by the `voxel` keyword of `fit!`.
 - `precision`: `Float64` or `Float32`.
-- `maxiter`, `xtol`, `ftol`, `gtol`, `damping`: solver settings ([`SolverOptions`](@ref)).
+- `solver`: solver settings, [`LM`](@ref)`(maxiter = 50, ...)`.
 
 `init` is `CommonSolve.init`, the SciML convention, so it does not clash with other packages.
 """
-function CommonSolve.init(model::MRIModel; fixed = (;), free = (), start = (;),
-                          precision::Type{<:AbstractFloat} = Float64, kwargs...)
+function CommonSolve.init(model::MRIModel; precision::Type{<:AbstractFloat} = Float64,
+                          solver::LM = LM(), params...)
     T = precision
     n = nobs(model)                                # also checks the acquisition's lengths
-    spec = setup(model, T; fixed, free, start)    # `; fixed` is short for `; fixed = fixed`
-    opts = SolverOptions{T}(; kwargs...)               # remaining keywords go to the solver
-    settings = (; fixed, free, start, precision, kwargs...)   # kept for the results
+    spec = setup(model, T; params...)              # the parameter keywords
+    opts = SolverOptions{T}(solver)
+    settings = (; precision, solver, params...)    # kept for the results; `(; solver)` = `(solver = solver,)`
     return _cache(_with_precision(model, T), spec, opts, n, settings)
 end
 
@@ -82,10 +83,10 @@ end
     fit!(cache, y; voxel = 1) -> FitResult
 
 Fit one voxel's data `y` (one value per observation). `voxel` is the voxel's linear index into
-any per-voxel maps given as `fixed` or `start` values. Does not allocate.
+any per-voxel maps given as parameter keywords (fixed values or starts). Does not allocate.
 
 ```julia
-cache = init(QMTSIR(TI = TI, TD = TD); fixed = (kmf = 15.0,))
+cache = init(QMTSIR(TI = TI, TD = TD); kmf = 15.0)
 r = fit!(cache, y)
 r.params.PSR
 ```

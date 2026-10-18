@@ -8,8 +8,8 @@
 # Default starting values are fixed numbers (no model-specific, data-driven guesses yet), except
 # for the parameter that scales the whole signal (S0, M0, M0f): it is declared `Free(:scale)` and
 # starts, voxel by voxel, at the least-squares scale given the other starting values. So raw
-# data (values in the hundreds or thousands) need no normalization. Override any start with the
-# `start` keyword (numbers or per-voxel maps).
+# data (values in the hundreds or thousands) need no normalization. Override any start in the
+# call, e.g. `T1 = Free(start = 0.8)` (a number or a per-voxel map).
 #
 # Each model follows the same pattern:
 #

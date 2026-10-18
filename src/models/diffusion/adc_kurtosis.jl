@@ -18,7 +18,7 @@ K measures how far diffusion departs from a Gaussian; with K = 0 this is [`ADCDe
   tissue)
 
 Bounds: `K` from 0 (any mix of Gaussian compartments gives K ≥ 0) to 3, a plausibility limit;
-widen it with `free = (K = Free(1.0; lower = 0, upper = 10),)`. The modelled signal rises again
+widen it with `fit(m, data; K = Free(upper = 10))`. The modelled signal rises again
 at high b once b·ADC·K > 3. That limit is not enforced (it involves two parameters, so it is not
 a bound), so check `b_max·ADC·K < 3` on the results.
 

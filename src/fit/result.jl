@@ -20,9 +20,9 @@ a dataset (maps with the spatial size of the data).
 - `status`: [`FitStatus`](@ref), e.g. `ConvergedX`; `UInt8.(res.status)` gives the codes
   (e.g. for writing a status map to a file)
 - `model`: the model as fitted (its acquisition in the working precision)
-- `settings`: the keywords of the call (`fixed`, `free`, `start`, `precision`, solver settings,
-  and `mask` for a dataset), so `fit(res.model, data; res.settings...)` refits with the same
-  choices, and `start = res.params` refits from these results
+- `settings`: the keywords of the call: the parameter keywords, `precision`, `solver`, and
+  `mask` for a dataset. [`refit`](@ref)`(res, data)` fits again with them, starting from these
+  results
 
 For a dataset, voxels that were not fitted hold `NaN` parameters and SSE, 0 iterations and
 status `NotFitted` (outside the mask) or `InvalidData`. [`isconverged`](@ref)`(res)` and
@@ -57,15 +57,16 @@ number, or that voxel's value of a map). `fitted` is StatsAPI's function name.
 """
 function fitted(res::FitResult)
     _onevoxel(res) || throw(ArgumentError("a dataset result: give the voxel, e.g. fitted(res, i)"))
-    any(x -> _value_of(x) isa AbstractArray, values(_get(res.settings, :fixed))) &&
+    fixed = _fixed_settings(res)
+    any(x -> x isa AbstractArray, values(fixed)) &&
         throw(ArgumentError("fixed maps: the voxel is not known; fit the dataset with `fit` instead"))
-    return signal(res.model, merge(map(_value_of, _get(res.settings, :fixed)), res.params))
+    return signal(res.model, merge(fixed, res.params))
 end
 
 function fitted(res::FitResult, I...)
     _onevoxel(res) && throw(ArgumentError("a one-voxel result: use fitted(res)"))
     v = LinearIndices(res.status)[I...]                  # the voxel's linear index
-    fixed = map(x -> _pick_value(_value_of(x), v), _get(res.settings, :fixed))
+    fixed = map(x -> _pick_value(x, v), _fixed_settings(res))
     return signal(res.model, merge(fixed, map(x -> x[v], res.params)))
 end
 
@@ -83,9 +84,12 @@ function residuals(res::FitResult, data::AbstractArray, I...)
     return y .- fitted(res, I...)
 end
 
-_get(nt::NamedTuple, k) = haskey(nt, k) ? nt[k] : (;)    # a missing keyword means none given
-_value_of(x::Fixed) = x.value                            # `fixed = (kmf = Fixed(15.0),)`
-_value_of(x) = x                                         # `fixed = (kmf = 15.0,)`, a map, a tie
+# The parameters the call fixed (keywords that are parameters of the model and not `Free`), by
+# name: numbers, maps or ties. The model's own fixed defaults are filled in later by `signal`.
+_fixed_settings(res) =
+    (; (n => _value_of(x) for (n, x) in pairs(res.settings) if haskey(parameters(res.model), n) && !(x isa Free))...)
+_value_of(x::Fixed) = x.value                            # `kmf = Fixed(15.0)`
+_value_of(x) = x                                         # `kmf = 15.0`, a map, a tie
 _pick_value(x::AbstractArray, v) = x[v]
 _pick_value(x, v) = x
 
@@ -147,7 +151,7 @@ end
 
 # A last line: "fixed    kmf = 12.5, R1m = R1f (tied), Sm = 0.83, B1 = map", or "fixed    none".
 function _print_fixed(io, r, fixed)
-    given = _get(r.settings, :fixed)
+    given = _fixed_settings(r)
     roles = parameters(r.model)
     describe(n) = begin
         x = _value_of(haskey(given, n) ? given[n] : roles[n].value)

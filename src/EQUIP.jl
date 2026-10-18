@@ -40,7 +40,7 @@ import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (St
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export startgrid, datastart, relabel                                        # optional hooks
-export fit, init, fit!, FitResult, FitStatus, isconverged                   # fitting
+export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay

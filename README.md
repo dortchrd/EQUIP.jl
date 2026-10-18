@@ -62,7 +62,7 @@ per voxel.
 For your own loops (simulations, Monte Carlo), make a reusable cache once:
 
 ```julia
-cache = init(m; fixed = (kmf = 15.0,))
+cache = init(m; kmf = 15.0)
 for y in curves
     r = fit!(cache, y)          # no memory allocation per fit
 end
@@ -96,26 +96,39 @@ parameters(::QMTSIR) = (
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie.
 
-Any fit can change the roles with three keywords, accepted by `fit` and `init`:
+Any fit can change a role with a keyword named after the parameter, in `fit` and `init`. A
+value fixes the parameter; `Free(...)` estimates it, and whatever it leaves out (start, bounds)
+keeps the model's default:
 
 ```julia
-fit(m, data; fixed = (kmf = 15.0,))              # change a fixed value
-fit(m, data; fixed = (Sm = sm_map,))             # a per-voxel map
-fit(m, data; free = (:kmf,))                     # estimate kmf (starts at 12.5)
-fit(m, data; free = (kmf = Free(12.5; lower = 1, upper = 50),))
-fit(m, data; fixed = (PSR = 0.1,))               # fix a parameter that is free by default
-fit(m, data; start = (R1f = r1_map,))            # starting values: numbers or maps
+fit(m, data; kmf = 15.0)                         # change a fixed value
+fit(m, data; Sm = sm_map)                        # a per-voxel map
+fit(m, data; PSR = 0.1)                          # fix a parameter that is free by default
+fit(m, data; kmf = Free())                       # estimate kmf (starts at 12.5, no bounds)
+fit(m, data; kmf = Free(lower = 1, upper = 50))  # ... within bounds
+fit(m, data; R1f = Free(start = r1_map))         # another start: a number or a map
+fit(m, data; Sf = Free(lower = -1.5))            # another bound; start and upper bound as before
+fit(m, data; kmf = 15.0, Sm = sm_map, mask)      # several at once (`mask` means `mask = mask`)
 
 mfa = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
-fit(mfa, data; fixed = (B1 = b1map,))            # B1-corrected T1 mapping
+fit(mfa, data; B1 = b1map)                       # B1-corrected T1 mapping
 
 t2 = R2DecayOffset(TE = 0.01:0.01:0.32)
-fit(t2, data; fixed = (C = 40.0,))               # a known offset instead of estimating it
+fit(t2, data; C = 40.0)                          # a known offset instead of estimating it
 ```
 
-Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
-`fixed` and `free`, a missing acquisition field, acquisition vectors of different lengths,
-or maps whose size doesn't match the data. A NaN or Inf in a voxel's data, maps or starts
+Three keywords are options rather than parameters, so no model has a parameter with these
+names:
+
+- `mask`: which voxels of a dataset to fit (true = fit);
+- `precision`: `Float64` (the default) or `Float32`;
+- `solver`: the solver's settings, e.g. `solver = LM(maxiter = 50)`. `LM` takes `maxiter`
+  (100), the tolerances `xtol`, `ftol`, `gtol` (defaults set by the precision) and the starting
+  `damping` (1e-3). Most fits need none of them.
+
+Mistakes raise an error before any fitting starts: a name that is neither a parameter nor an
+option, freeing a parameter tied by default without giving it a start, a missing acquisition
+field, acquisition vectors of different lengths, or maps whose size doesn't match the data. A NaN or Inf in a voxel's data, maps or starts
 marks that voxel invalid (status `InvalidData`) instead of producing a meaningless fit.
 
 ## Outputs
@@ -123,8 +136,7 @@ marks that voxel invalid (status `InvalidData`) instead of producing a meaningle
 `fit` (and `fit!`) return a `FitResult`, the same type for one voxel and for a dataset. For one
 voxel the fields are numbers; for a dataset, maps with the spatial size of the data:
 
-- `params`: the free parameters by name (`res.params.T1`). Pass a dataset's back as
-  `start = res.params` to refit from them.
+- `params`: the free parameters by name (`res.params.T1`).
 - `sse`: sum of squared residuals.
 - `iterations`: solver iterations.
 - `status`: a `FitStatus`: `NotFitted` (outside the mask), `ConvergedX` / `ConvergedF` /
@@ -133,6 +145,16 @@ voxel the fields are numbers; for a dataset, maps with the spatial size of the d
   writing a file. `isconverged(res)` is true/false, or a map of them.
 - `model` and `settings`: the model as fitted and the keywords of the call, so
   `fit(res.model, data; res.settings...)` refits with the same choices.
+
+`refit(res, data; changes...)` fits again, starting each free parameter from the previous
+estimates, with the same settings except the changes. For example, fit with kmf fixed, then
+refine with kmf free, or fix kmf at the median of a first fit:
+
+```julia
+res  = fit(m, data; mask)
+res2 = refit(res, data; kmf = Free())              # PSR, R1f, ... start from res's maps
+res3 = refit(res, data; kmf = 14.0)
+```
 
 `fitted(res)` rebuilds the fitted curve of a one-voxel result, `fitted(res, i...)` that of
 voxel `i` of a dataset (linear index or position, e.g. `fitted(res, 40, 52, 10)`), and
@@ -149,7 +171,7 @@ Rate (R1, R2) and time-constant (T1, T2) versions fit the same data; fit the one
 report. Magnitude inversion recovery (`T1IR`, `T1IRTD` and their R1 versions) has local minima,
 so these models first try 30 values of T1 per voxel and start from the best one (`startgrid`):
 in tests, at most 2 of 200 voxels failed for T1 from 0.05 to 4 s, against all 200 from a single
-start. It costs about 1 µs per voxel; giving a `start` for T1 (or R1) skips it.
+start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(start = ...)`, skips it.
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
@@ -235,7 +257,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 - **`datastart`** (optional): starting values computed from each voxel's data, such as a
   linearized fit. T2Decay's is a log-linear fit:
   `datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)`. Return NaN when the data
-  give no estimate; the usual start then stays. A `start` from the user always wins.
+  give no estimate; the usual start then stays. A start given in the call always wins.
 - **`relabel`** (optional): if the parameters can describe the same signal in more than one way
   by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not

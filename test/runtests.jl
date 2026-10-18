@@ -134,74 +134,80 @@ end
 
     @testset "signal fills fixed defaults and resolves ties" begin
         m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
-        free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
-        everything = merge(free, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
-        @test signal(m, free) == signal(m, everything)
-        @test signal(m, merge(free, (kmf = 20.0,))) != signal(m, free)
+        θfree = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
+        everything = merge(θfree, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
+        @test signal(m, θfree) == signal(m, everything)
+        @test signal(m, merge(θfree, (kmf = 20.0,))) != signal(m, θfree)
         @test_throws ArgumentError signal(m, (PSR = 0.1,))                     # Free value missing
-        @test_throws ArgumentError signal(m, merge(free, (nope = 1.0,)))       # unknown name
-        @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), free)
+        @test_throws ArgumentError signal(m, merge(θfree, (nope = 1.0,)))       # unknown name
+        @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), θfree)
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin
         m = QMTSIR(TI = TI5, TD = TD5)
         @test parameters(m).R1m == Fixed(:R1f)                       # the default for QMTSIR
         @test setup(m).fixed.R1m isa EQUIP._Tie{:R1f}       # name known to the compiler
-        free = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
+        θfree = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
         # simulation: tie by name == tie by function == the value written out
-        @test signal(m, free) == signal(m, merge(free, (R1m = p -> p.R1f,))) ==
-              signal(m, merge(free, (R1m = 1.1,)))
+        @test signal(m, θfree) == signal(m, merge(θfree, (R1m = p -> p.R1f,))) ==
+              signal(m, merge(θfree, (R1m = 1.1,)))
         # fitting: the override forms give the same fit as the default
-        y = signal(m, free)
+        y = signal(m, θfree)
         r = fit(m, y)
-        @test r.params == fit(m, y; fixed = (R1m = :R1f,)).params
-        @test r.params.PSR ≈ fit(m, y; fixed = (R1m = p -> p.R1f,)).params.PSR rtol = 1e-10
+        @test r.params == fit(m, y; R1m = :R1f).params
+        @test r.params.PSR ≈ fit(m, y; R1m = p -> p.R1f).params.PSR rtol = 1e-10
         # a tie can follow a per-voxel map: an R1 map fixes R1f, and R1m follows it
         r1 = [0.7, 1.0, 1.4]
-        Y = reduce(vcat, [permutedims(signal(m, merge(free, (R1f = v,)))) for v in r1])
-        res = fit(m, Y; fixed = (R1f = r1,))
+        Y = reduce(vcat, [permutedims(signal(m, merge(θfree, (R1f = v,)))) for v in r1])
+        res = fit(m, Y; R1f = r1)
         @test keys(res.params) == (:PSR, :Sf, :M0f)
         @test res.params.PSR ≈ fill(0.12, 3) rtol = 1e-6
         # mistakes are caught before fitting
-        @test_throws ArgumentError setup(m; fixed = (R1m = :R1F,))   # not a parameter
-        @test_throws ArgumentError setup(m; fixed = (R1m = :R1m,))   # tied to itself
-        @test_throws ArgumentError setup(m; fixed = (Sm = :R1m,))    # tied to a tie
-        @test_throws ArgumentError signal(m, merge(free, (R1m = :nope,)))
+        @test_throws ArgumentError setup(m; R1m = :R1F)   # not a parameter
+        @test_throws ArgumentError setup(m; R1m = :R1m)   # tied to itself
+        @test_throws ArgumentError setup(m; Sm = :R1m)    # tied to a tie
+        @test_throws ArgumentError signal(m, merge(θfree, (R1m = :nope,)))
     end
 
-    @testset "parameter roles (setup)" begin
+    @testset "parameter roles (setup): keywords named after the parameters" begin
         m = QMTSIR(TI = TI5, TD = TD5)
         s = setup(m)
         @test freenames(s) == (:PSR, :R1f, :Sf, :M0f)
         @test keys(s.fixed) == (:kmf, :R1m, :Sm, :Mzf_td0, :Mzm_td0) && s.fixed.kmf == 12.5
         @test s.lower == [0, 0.05, -1.2, 0] && s.start.PSR == 0.1
-        # fix a parameter that is free by default
-        @test freenames(setup(m; fixed = (PSR = 0.1,))) == (:R1f, :Sf, :M0f)
-        # change a fixed value
-        @test setup(m; fixed = (kmf = 15.0,)).fixed.kmf == 15.0
-        # free a fixed parameter by name: its value becomes the start
-        s = setup(m; free = (:kmf,))
+        # a value fixes a parameter that is free by default, or changes a fixed value
+        @test freenames(setup(m; PSR = 0.1)) == (:R1f, :Sf, :M0f)
+        @test setup(m; kmf = 15.0).fixed.kmf == 15.0
+        @test setup(m; kmf = Fixed(15.0)).fixed.kmf == 15.0
+        # Free() estimates a fixed parameter: its fixed value becomes the start, no bounds
+        s = setup(m; kmf = Free())
         @test freenames(s) == (:PSR, :R1f, :Sf, :M0f, :kmf) && s.start.kmf == 12.5
-        @test freenames(setup(m; free = :kmf)) == freenames(s)
-        # ... or with a full role
-        s = setup(m; free = (kmf = Free(20.0; lower = 5, upper = 50),))
+        @test s.lower[end] == -Inf && s.upper[end] == Inf
+        s = setup(m; kmf = Free(20.0; lower = 5, upper = 50))           # with start and bounds
         @test s.lower[end] == 5 && s.upper[end] == 50 && s.start.kmf == 20
-        # start values override the defaults; precision is applied
+        # Free(...) over a free parameter keeps whatever it leaves out
+        s = setup(m; Sf = Free(lower = -1.5))
+        @test s.lower[3] == -1.5 && s.upper[3] == 0 && s.start.Sf == -0.95
+        s = setup(m; R1f = Free(start = 0.8))
+        @test s.start.R1f == 0.8 && s.lower[2] == 0.05 && s.userstart == (false, true, false, false)
+        @test Free(0.8) == Free(start = 0.8)
+        @test_throws ArgumentError Free(0.8; start = 0.9)               # the start given twice
+        @test_throws ArgumentError Free(:auto)                         # numbers, maps or :scale
+        # starts and precision; an explicit start replaces :scale
         mfa = T1MFA(FA = [2, 10], TR = 0.015)
-        s = setup(mfa, Float32; start = (T1 = 2,))
+        s = setup(mfa, Float32; T1 = Free(start = 2))
         @test s.start == (M0 = 1.0f0, T1 = 2.0f0)          # M0 = 1: placeholder for :scale
         @test s.scale == 1                                  # M0 is the :scale parameter
-        @test setup(mfa; start = (M0 = 500.0,)).scale == 0  # an explicit start replaces :scale
+        @test setup(mfa; M0 = Free(start = 500.0)).scale == 0
         @test setup(m).scale == 4                           # M0f
-        @test_throws ArgumentError Free(:auto)              # only numbers or :scale
-        # mistakes are caught
-        @test_throws ArgumentError setup(m; fixed = (kmff = 1.0,))          # misspelled
-        @test_throws ArgumentError setup(m; free = (:nope,))
-        @test_throws ArgumentError setup(m; fixed = (kmf = Free(1.0),))     # wrong keyword
-        @test_throws ArgumentError setup(m; start = (kmf = 1.0,))           # kmf is fixed
-        @test_throws ArgumentError setup(m; free = (:R1m,))                 # a tie needs a start
-        @test_throws ArgumentError setup(m; fixed = (kmf = 1.0,), free = (:kmf,))
-        @test_throws ArgumentError setup(T2Decay(TE = [0.01]); fixed = (S0 = 1.0, T2 = 0.1))  # nothing free
+        # mistakes are caught, with the parameters and options listed
+        @test_throws ArgumentError setup(m; kmff = 1.0)                  # misspelled
+        @test_throws ArgumentError setup(m; R1m = Free())                # a tie freed needs a start
+        @test_throws ArgumentError setup(m; mask = trues(3))             # mask is for datasets
+        @test_throws "solver = LM(maxiter" setup(m; maxiter = 50)        # solver settings go in LM
+        @test_throws ArgumentError setup(T2Decay(TE = [0.01]); S0 = 1.0, T2 = 0.1)   # nothing free
+        e = try setup(m; kmff = 1.0) catch err err end
+        @test occursin("PSR, R1f", e.msg) && occursin("mask, precision, solver", e.msg)
     end
 
     @testset "QMTSIR: kmf fixed vs free, tie, per-voxel Sm map" begin
@@ -210,28 +216,28 @@ end
                  Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         y = signal(m, truth)
         # kmf estimated: exact
-        r = fit!(init(m; free = (kmf = Free(12.5; lower = 1, upper = 50),)), y)
+        r = fit!(init(m; kmf = Free(12.5; lower = 1, upper = 50)), y)
         @test r.params.kmf ≈ 15 rtol = 1e-5
         @test r.params.PSR ≈ 0.12 rtol = 1e-5
         # kmf assumed correctly: exact; assumed wrongly (default 12.5): PSR is biased
-        @test fit!(init(m; fixed = (kmf = 15.0,)), y).params.PSR ≈ 0.12 rtol = 1e-6
+        @test fit!(init(m; kmf = 15.0), y).params.PSR ≈ 0.12 rtol = 1e-6
         @test abs(fit!(init(m), y).params.PSR - 0.12) > 1e-4
         # untie R1m by fixing it to a number
         y2 = signal(m, merge(truth, (kmf = 12.5, R1m = 2.0)))
-        @test fit!(init(m; fixed = (R1m = 2.0,)), y2).params.R1f ≈ 1.0 rtol = 1e-6
+        @test fit!(init(m; R1m = 2.0), y2).params.R1f ≈ 1.0 rtol = 1e-6
         # Mz left over from the readout biases the fit, unless the start values are given
         y3 = signal(m, merge(truth, (Mzf_td0 = 0.05, Mzm_td0 = 0.05)))
-        @test fit!(init(m; fixed = (kmf = 15.0, Mzf_td0 = 0.05, Mzm_td0 = 0.05)), y3).params.PSR ≈ 0.12 rtol = 1e-6
-        @test abs(fit!(init(m; fixed = (kmf = 15.0,)), y3).params.PSR - 0.12) > 1e-4
+        @test fit!(init(m; kmf = 15.0, Mzf_td0 = 0.05, Mzm_td0 = 0.05), y3).params.PSR ≈ 0.12 rtol = 1e-6
+        @test abs(fit!(init(m; kmf = 15.0), y3).params.PSR - 0.12) > 1e-4
         # per-voxel Sm map through fit on a dataset (data: voxels × observations)
         n = 50
         sm = 0.75 .+ 0.15 .* rand(MersenneTwister(4), n)
         Y = reduce(vcat, [signal(m, merge(truth, (kmf = 12.5, Sm = sm[v])))' for v in 1:n])
-        res = fit(m, Y; fixed = (Sm = sm,))
+        res = fit(m, Y; Sm = sm)
         @test res.params.PSR ≈ fill(0.12, n) rtol = 1e-5
         # a NaN in a map marks only that voxel invalid
         sm[7] = NaN
-        res = fit(m, Y; fixed = (Sm = sm,))
+        res = fit(m, Y; Sm = sm)
         @test res.status[7] == EQUIP.InvalidData && isnan(res.params.PSR[7])
         @test all(isconverged, res.status[setdiff(1:n, 7)])
     end
@@ -265,14 +271,14 @@ end
         end
 
         # Float32 data and outputs; starting from the previous result's maps
-        res32 = fit(m, Float32.(data); mask, precision = Float32, start = res.params)
+        res32 = refit(res, Float32.(data); precision = Float32)
         @test eltype(res32.params.T2) == Float32
         @test res32.params.T2[good] ≈ res.params.T2[good] rtol = 1e-3
 
         # size mistakes are caught
         @test_throws DimensionMismatch fit(T2Decay(TE = te[1:5]), data)
         @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
-        @test_throws DimensionMismatch fit(m, data; start = (T2 = T2[:, :, 1],))
+        @test_throws DimensionMismatch fit(m, data; T2 = Free(start = T2[:, :, 1]))
     end
 
     @testset "mono-exponential: time vs rate form, offset versions, diffusion" begin
@@ -294,7 +300,7 @@ end
         @test r.params.T2 ≈ 0.08 rtol = 1e-6
         @test r.params.C ≈ 50 rtol = 1e-6
         @test abs(fit(mT, y).params.T2 - 0.08) > 0.01
-        @test fit(T2DecayOffset(TE = te), y; fixed = (C = 50.0,)).params.T2 ≈ 0.08 rtol = 1e-6
+        @test fit(T2DecayOffset(TE = te), y; C = 50.0).params.T2 ≈ 0.08 rtol = 1e-6
         @test fit(R2DecayOffset(TE = te), y).params.R2 ≈ 1 / 0.08 rtol = 1e-6
         # diffusion in clinical units (b in s/mm², ADC in mm²/s), including fast decays,
         # from the default start
@@ -415,22 +421,22 @@ end
         # Noise-free data: the log-linear fit is exact, so the start is already the answer.
         # `maxiter = 0` returns the starting point; S0 comes from least squares given that T2.
         @test datastart(m, y).T2 ≈ 0.04
-        s = fit(m, y; maxiter = 0).params
+        s = fit(m, y; solver = LM(maxiter = 0)).params
         @test s.T2 ≈ 0.04
         @test s.S0 ≈ 1000
-        @test fit(m, Float32.(y); precision = Float32, maxiter = 0).params.T2 ≈ 0.04f0
+        @test fit(m, Float32.(y); precision = Float32, solver = LM(maxiter = 0)).params.T2 ≈ 0.04f0
         # points ≤ 0 are skipped
         @test datastart(m, [y[1:5]; zeros(27)]).T2 ≈ 0.04
         # no usable estimate (rising data): NaN, and the default start, mean(TE), stays
         @test isnan(datastart(m, collect(1.0:32.0)).T2)
-        @test fit(m, collect(1.0:32.0); maxiter = 0).params.T2 ≈ sum(te) / 32
+        @test fit(m, collect(1.0:32.0); solver = LM(maxiter = 0)).params.T2 ≈ sum(te) / 32
         # a start from the user wins; a fixed T2 is left alone
-        @test fit(m, y; start = (T2 = 0.2,), maxiter = 0).params.T2 == 0.2
-        @test setup(m; start = (T2 = 0.2,)).userstart == (false, true)
-        @test fit(m, y; fixed = (T2 = 0.04,)).params.S0 ≈ 1000
+        @test fit(m, y; T2 = Free(start = 0.2), solver = LM(maxiter = 0)).params.T2 == 0.2
+        @test setup(m; T2 = Free(start = 0.2)).userstart == (false, true)
+        @test fit(m, y; T2 = 0.04).params.S0 ≈ 1000
         # noisy data: the same answer as from the old start, without allocating
         yn = y .+ 10 .* randn(MersenneTwister(3), 32)
-        r, r0 = fit(m, yn), fit(m, yn; start = (T2 = sum(te) / 32,))
+        r, r0 = fit(m, yn), fit(m, yn; T2 = Free(start = sum(te) / 32))
         @test r.params.T2 ≈ r0.params.T2 rtol = 1e-6
         @test r.iterations < r0.iterations
         c = init(m); fit!(c, yn)
@@ -457,8 +463,8 @@ end
         s = setup(T1IR(TI = ti))
         @test s.gridindex == 3 && length(s.grid) == 30
         @test s.grid[1] ≈ 0.01 && s.grid[end] ≈ 16
-        @test setup(T1IR(TI = ti); start = (T1 = 2.0,)).gridindex == 0
-        @test setup(T1IR(TI = ti); fixed = (T1 = 2.0,)).gridindex == 0
+        @test setup(T1IR(TI = ti); T1 = Free(start = 2.0)).gridindex == 0
+        @test setup(T1IR(TI = ti); T1 = 2.0).gridindex == 0
         @test startgrid(T2Decay(TE = [0.01, 0.02])) === nothing           # no grid by default
     end
 
@@ -490,7 +496,7 @@ end
         for I in CartesianIndices(B1)
             data[I, :] = signal(m, (M0 = 1000.0, T1 = T1[I], B1 = B1[I]))
         end
-        with = fit(m, data; fixed = (B1 = B1,))
+        with = fit(m, data; B1 = B1)
         without = fit(m, data)                     # B1 = 1 everywhere: biased
         @test with.params.T1 ≈ T1 rtol = 1e-6
         @test maximum(abs.(without.params.T1 .- T1) ./ T1) > 0.1
@@ -505,7 +511,7 @@ end
         @test r isa FitResult && isconverged(r)
         @test r.params.T2 ≈ 0.08 rtol = 1e-6
         @test r.params == fit!(init(m), curve(0.08)).params
-        @test fit(m, curve(0.08); fixed = (S0 = 1000.0,)).params.T2 ≈ 0.08 rtol = 1e-6
+        @test fit(m, curve(0.08); S0 = 1000.0).params.T2 ≈ 0.08 rtol = 1e-6
         # matrices and N-d arrays: observations last, maps with the spatial size
         for sz in ((40,), (8, 5), (6, 5, 3), (4, 3, 3, 2))
             T2 = 0.04 .+ 0.08 .* rand(rng, sz...)
@@ -524,10 +530,10 @@ end
         m = T2Decay(TE = te)
         y = signal(m, (S0 = 1000.0, T2 = 0.08)) .+ 5 .* randn(MersenneTwister(7), 32)
         # one voxel: numbers, plus the model and settings it was fitted with
-        r = fit(m, y; maxiter = 50)
+        r = fit(m, y; solver = LM(maxiter = 50))
         @test r.params.T2 isa Float64 && r.status isa FitStatus && r.iterations isa Int32
         @test r.model isa T2Decay && r.model.TE == te
-        @test r.settings.maxiter == 50 && r.settings.precision == Float64
+        @test r.settings.solver.maxiter == 50 && r.settings.precision == Float64
         @test isconverged(r) isa Bool
         @test fitted(r) ≈ signal(m, r.params)
         @test residuals(r, y) ≈ y .- fitted(r)
@@ -535,9 +541,9 @@ end
         # fixed values (numbers and ties) are used by `fitted`
         mq = QMTSIR(TI = [0.01, 0.03, 0.1, 0.3, 1.0], TD = 1.0)
         yq = signal(mq, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0))
-        rq = fit(mq, yq; fixed = (kmf = 15.0,))
+        rq = fit(mq, yq; kmf = 15.0)
         @test fitted(rq) ≈ yq rtol = 1e-6
-        @test fit(mq, yq; fixed = (kmf = Fixed(15.0),)).params == rq.params      # role or number
+        @test fit(mq, yq; kmf = Fixed(15.0)).params == rq.params                # role or number
         # a dataset: maps of the same fields; status is a FitStatus map (1 byte per voxel)
         T2 = 0.05 .+ 0.05 .* rand(MersenneTwister(8), 5, 4)
         data = zeros(5, 4, 32)
@@ -557,7 +563,10 @@ end
         @test all(isnan, fitted(res, 1, 1))                                     # outside the mask
         # refit with the same settings, or from the previous maps
         @test isequal(fit(res.model, data; res.settings...).params, res.params)
-        @test fit(m, data; mask, start = res.params).params.T2[mask] ≈ res.params.T2[mask] rtol = 1e-6
+        @test refit(res, data).params.T2[mask] ≈ res.params.T2[mask] rtol = 1e-6
+        @test all(refit(res, data).iterations[mask] .<= res.iterations[mask])   # starts at the answer
+        r2 = refit(res, data; S0 = 1000.0)                                      # one change
+        @test keys(r2.params) == (:T2,) && r2.settings.S0 == 1000.0
         # the wrong kind of call is caught
         @test_throws ArgumentError fitted(res)
         @test_throws ArgumentError fitted(r, 1)
@@ -605,7 +614,7 @@ end
         @test SIR_16POINT.TD == fill(2.5, 16)
         m16 = QMTSIR(; SIR_16POINT...)                                      # kmf estimated
         t16 = truth(m16, :SIR_WM_II)
-        r16 = fit(m16, signal(m16, t16); free = (:kmf,))
+        r16 = fit(m16, signal(m16, t16); kmf = Free())
         @test r16.params.PSR ≈ 0.12 rtol = 1e-6
         @test r16.params.kmf ≈ 10.0 rtol = 1e-6
         # a phantom, end to end: simulate, fit, compare
@@ -624,7 +633,7 @@ end
         @test occursin("rel bias", sprint(show, MIME("text/plain"), c))
         # Dortch et al. 2018, Fig. 1 (RRMS lesion, Rician noise, SNR 200 at thermal equilibrium):
         # fixing kmf at 12.5 (4-point scheme) biases PSR below its true 5%; the 5-point does not
-        for (mm, kw, lo, hi) in ((QMTSIR(; SIR_5POINT...), (free = (:kmf,),), 4.95, 5.2),
+        for (mm, kw, lo, hi) in ((QMTSIR(; SIR_5POINT...), (kmf = Free(),), 4.95, 5.2),
                                  (QMTSIR(; SIR_4POINT...), (;), 4.65, 4.85))
             t = truth(mm, :SIR_lesion)
             r = compare(fit(mm, simulate(mm, t; snr = 200, n = 2000, rng = MersenneTwister(5)); kw...), t)

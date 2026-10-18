@@ -39,7 +39,7 @@ default.
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
-- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `free = (:kmf,)`),
+- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`),
   `R1m` tied to `R1f`, `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse),
   `Mzf_td0 = Mzm_td0 = 0`
 
@@ -148,7 +148,7 @@ end
 SIR-FSE sampling schemes (TI and TD in s), e.g. `QMTSIR(; SIR_5POINT...)`:
 
 - `SIR_5POINT`: optimized for the unconstrained model, kmf estimated
-  (`fit(...; free = (:kmf,))`); Dortch et al., Magn Reson Med 2018;80:1824, Table 2
+  (`fit(...; kmf = Free())`); Dortch et al., Magn Reson Med 2018;80:1824, Table 2
 - `SIR_4POINT`: optimized for the constrained model, kmf fixed at 12.5 s⁻¹ (QMTSIR's default);
   same source
 - `SIR_16POINT`: the earlier, longer scheme those were compared with: 15 TIs log-spaced from

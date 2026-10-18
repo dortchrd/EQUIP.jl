@@ -19,7 +19,7 @@
 # 0.2-0.3 s). So every voxel first tries T1 on a grid spanning the TIs and starts from the best
 # value (`startgrid`, at the end of this file). Tested with T1 from 0.05 to 4 s at SNR 20 and
 # 100, both forms: at most 2 of 200 voxels failed in any case, for about 1 µs more per voxel.
-# A `start` for T1 (or R1) skips the grid, e.g. `start = (T1 = 0.2,)` or a start map.
+# A start for T1 (or R1) in the call skips the grid: `T1 = Free(start = 0.2)`, or a start map.
 #
 # Long T1, low SNR (T1IR, T1 = 4 s, TIs up to 3.2 s, SNR 20, 2000 voxels): the two forms agree
 # except in 15 voxels whose noisy data are best fitted with T1 running off to infinity (an almost

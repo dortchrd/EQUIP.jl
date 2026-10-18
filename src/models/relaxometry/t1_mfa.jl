@@ -19,7 +19,7 @@ Multiple flip angle T1 mapping with a spoiled gradient echo:
 - acquisition: `FA` (degrees), one per observation; `TR` (s), one number for all observations
   or one per observation
 - parameters: `M0`, `T1` (s), and `B1` (relative flip angle), fixed at 1 by default. Pass a
-  B1 map with `fixed = (B1 = b1map,)`.
+  B1 map with `fit(m, data; B1 = b1map)`.
 
 Rate version: [`R1MFA`](@ref).
 

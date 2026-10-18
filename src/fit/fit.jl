@@ -25,23 +25,28 @@
 # =================================================================================================
 
 """
-    fit(model, y::AbstractVector; fixed, free, start, precision, maxiter, ...) -> FitResult
+    fit(model, y::AbstractVector; precision, solver, params...) -> FitResult
 
 Fit one voxel: `y` has one value per observation. Returns a [`FitResult`](@ref) with plain
-numbers, e.g. `r.params.T1`, `r.status`. Keywords as for [`init`](@ref).
+numbers, e.g. `r.params.T1`, `r.status`.
+
+Keywords named after the model's parameters change their roles: a value fixes one
+(`kmf = 15.0`), `Free(...)` estimates one, with any start and bounds given
+(`kmf = Free()`, `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`). Options: `precision`
+(`Float64` or `Float32`) and `solver` ([`LM`](@ref)`(maxiter = 50, ...)`).
 
 For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
 
 ```julia
 m = QMTSIR(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
-r = fit(m, y; fixed = (kmf = 15.0,))
+r = fit(m, y; kmf = 15.0)
 r.params.PSR
 ```
 """
 fit(model::MRIModel, y::AbstractVector; kwargs...) = fit!(init(model; kwargs...), y)
 
 """
-    fit(model, data::AbstractArray; mask = nothing, fixed, free, start, precision, maxiter, ...)
+    fit(model, data::AbstractArray; mask = nothing, precision, solver, params...) -> FitResult
 
 Fit every voxel of `data`, an array with the observations along the LAST dimension: voxels × M,
 X×Y×M, X×Y×Z×M, ... (as NIfTI and MATLAB store volumes). A matrix is voxels × observations: one
@@ -55,15 +60,16 @@ row per voxel. Returns a [`FitResult`](@ref) whose fields are maps with the spat
 
 Voxels that are not fitted hold `NaN`. Keywords:
 
-- `mask`: array with one value per voxel; voxels where it is zero/false are skipped.
-- `fixed`, `free`, `start`, `precision`, solver settings: as for [`init`](@ref). Per-voxel maps
-  have the spatial size of `data`, e.g. `fixed = (B1 = b1map,)`, `start = (M0 = m0map,)`.
+- parameters, as for one voxel; maps have the spatial size of `data`: `B1 = b1map` (fixed),
+  `T1 = Free(start = t1map)` (a start per voxel).
+- `mask`: array with one value per voxel; voxels where it is zero/false are skipped. Writing
+  `mask` alone after the `;` is Julia's shorthand for `mask = mask`.
+- `precision`, `solver`: as for one voxel.
 
-`res.params` can be passed back as `start` to refit from a previous result, and
-`fit(res.model, data; res.settings...)` refits with the same settings.
+[`refit`](@ref)`(res, data)` fits again, starting from a result's values.
 
 ```julia
-res = fit(T1MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
+res = fit(T1MFA(FA = [3, 10, 20], TR = 0.015), data; mask = mask, B1 = b1map)
 res.params.T1
 ```
 """
@@ -137,4 +143,32 @@ function _fit_chunk!(params, sse, iterations, status, cache, Y, voxels)
         @inbounds status[v] = r.status
     end
     return nothing
+end
+
+"""
+    refit(res, data; changes...) -> FitResult
+
+Fit `data` again with the model and settings of an earlier result `res`, starting every free
+parameter from its value in `res` (numbers for one voxel, maps for a dataset): to polish a fit,
+or to see the effect of one change. Keywords change settings, as for [`fit`](@ref), and win
+over the stored ones; a parameter changed by a keyword starts from what that keyword says.
+
+```julia
+res = fit(m, data; mask = mask)
+res2 = refit(res, data; kmf = 15.0)        # the same fit with kmf fixed at 15, from res's maps
+```
+
+Voxels without a value in `res` (NaN: outside its mask, or invalid) have no start, and are
+marked invalid; fit them with [`fit`](@ref) instead.
+"""
+function refit(res::FitResult, data; changes...)
+    settings = merge(res.settings, (; changes...))           # later keywords win
+    starts = Pair{Symbol,Free}[]
+    for n in keys(res.params)                                # the parameters fitted in `res`
+        haskey(changes, n) && continue                       # changed: as the keyword says
+        current = get(settings, n, Free())                   # this fit's role for n, if given
+        current isa Free || continue
+        push!(starts, n => Free(res.params[n], current.lower, current.upper))
+    end
+    return fit(res.model, data; merge(settings, (; starts...))...)   # the starts win
 end

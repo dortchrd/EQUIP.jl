@@ -75,6 +75,6 @@ _default_noise(m) = hasproperty(m, :magnitude) && !m.magnitude ? :gaussian : :ri
 # The name of the parameter declared `Free(:scale)` (M0, S0, M0f), or nothing.
 function _scalename(m::MRIModel)
     roles = parameters(m)
-    i = findfirst(r -> r isa Free && r.init === :scale, values(roles))
+    i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
     return i === nothing ? nothing : keys(roles)[i]
 end
