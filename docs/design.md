@@ -533,7 +533,8 @@ weights, other data layouts, precompilation, more models.
      (Stanisz et al. 2005, Table 1, 3 T; Dortch et al. 2018, Table 1) with `tissue` and
      `truth`; `phantom(labels, tissues)` and `labelshapes(dims)`; `compare` (bias, SD, RMSE,
      relative errors, % converged, overall and per label; no timing: speed belongs to
-     `bench/`); `SIR_5POINT` / `SIR_4POINT` (Dortch et al. 2018, Table 2); a seeded end-to-end
+     `bench/`); `SIR_5POINT` / `SIR_4POINT` (Dortch et al. 2018, Table 2) and `SIR_16POINT`
+     (log-spaced TIs from 10 ms to 2 s rounded to the ms, then 10 s; TD 2.5 s); a seeded end-to-end
      test and the Fig. 1 check in `test/`; `@inferred` checks of `fit!`.
    - Still to do in `sim/`: phantoms with smooth variation, partial volume, a B1 field and
      lesions; brain-like phantoms from tissue segmentations (BrainWeb, or the brain phantom

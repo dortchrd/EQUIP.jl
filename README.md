@@ -276,7 +276,9 @@ compare(res, maps; labels)                    # per tissue
   `labelshapes(dims)`: a 2-D or 3-D image of nested ellipses and a small disc.
 - `compare(res, truth; labels, mask)`: per parameter, overall and per label: bias, relative
   bias, SD, RMSE, relative RMSE, median relative error and % converged. `c.rows` is a table.
-- `SIR_5POINT`, `SIR_4POINT`: the optimized schemes of Dortch et al., MRM 2018, Table 2.
+- `SIR_5POINT`, `SIR_4POINT`: the optimized schemes of Dortch et al., MRM 2018, Table 2;
+  `SIR_16POINT`: the earlier 16-point scheme they were compared with (15 TIs log-spaced from
+  10 ms to 2 s, rounded to the ms, then 10 s; TD = 2.5 s).
 
 ## How it works
 

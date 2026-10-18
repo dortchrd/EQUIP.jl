@@ -597,6 +597,14 @@ end
         @test truth(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
               (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, Sm = 0.83)
         @test SIR_5POINT.TI == TI5 && SIR_5POINT.TD == TD5
+        @test SIR_16POINT.TI == [0.010, 0.015, 0.021, 0.031, 0.045, 0.066, 0.097, 0.141, 0.206, 0.301,
+                                 0.440, 0.643, 0.938, 1.370, 2.000, 10.0]
+        @test SIR_16POINT.TD == fill(2.5, 16)
+        m16 = QMTSIR(; SIR_16POINT...)                                      # kmf estimated
+        t16 = truth(m16, :SIR_WM_II)
+        r16 = fit(m16, signal(m16, t16); free = (:kmf,))
+        @test r16.params.PSR ≈ 0.12 rtol = 1e-6
+        @test r16.params.kmf ≈ 10.0 rtol = 1e-6
         # a phantom, end to end: simulate, fit, compare
         labels = labelshapes((24, 20))
         @test sort(unique(labels)) == [0, 1, 2, 3]

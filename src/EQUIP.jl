@@ -45,7 +45,7 @@ export fitted, residuals                                                    # fi
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
-export QMTSIR, SIR_5POINT, SIR_4POINT                                      # qMT models
+export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, truth, phantom, labelshapes, compare, Comparison  # simulation
 
 # --- Source files, in layers ----------------------------------------------------------------
