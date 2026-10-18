@@ -20,7 +20,7 @@
 #
 # Long T1, low SNR (T1IR, T1 = 4 s, TIs up to 3.2 s, SNR 20, 2000 voxels): the two forms agree
 # except in 15 voxels whose noisy data are best fitted with T1 running off to infinity (an almost
-# straight line); both forms stop there at max iterations (status 4). Without the grid the forms
+# straight line); both forms stop there with status MaxIterations. Without the grid the forms
 # disagreed in 371 voxels, each stuck in a different local minimum.
 # =================================================================================================
 

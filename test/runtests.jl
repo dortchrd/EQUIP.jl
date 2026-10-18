@@ -230,7 +230,7 @@ end
         # a NaN in a map marks only that voxel invalid
         sm[7] = NaN
         res = fit(m, Y; fixed = (Sm = sm,))
-        @test res.status[7] == UInt8(EQUIP.InvalidData) && isnan(res.params.PSR[7])
+        @test res.status[7] == EQUIP.InvalidData && isnan(res.params.PSR[7])
         @test all(isconverged, res.status[setdiff(1:n, 7)])
     end
 
@@ -246,18 +246,20 @@ end
         data[1, 1, 1, 5] = NaN; mask[1, 1, 1] = true            # one bad voxel inside the mask
 
         res = fit(m, data; mask)
-        @test keys(res) == (:params, :sse, :status) && keys(res.params) == (:S0, :T2)
-        @test size(res.params.T2) == (nx, ny, nz)
-        @test res.status[1, 1, 1] == UInt8(EQUIP.InvalidData)
-        @test all(isnan, res.params.T2[.!mask]) && all(==(0), res.status[.!mask])
-        good = mask .& (res.status .!= UInt8(EQUIP.InvalidData))
+        @test res isa FitResult && keys(res.params) == (:S0, :T2)
+        @test size(res.params.T2) == size(res.iterations) == size(res.status) == (nx, ny, nz)
+        @test res.status[1, 1, 1] == EQUIP.InvalidData
+        @test all(isnan, res.params.T2[.!mask]) && all(==(EQUIP.NotFitted), res.status[.!mask])
+        @test all(==(0), res.iterations[.!mask]) && all(>(0), res.iterations[mask .& isconverged(res)])
+        good = mask .& (res.status .!= EQUIP.InvalidData)
         @test all(isconverged, res.status[good])
         @test maximum(abs.(res.params.T2[good] .- T2[good]) ./ T2[good]) < 0.05
 
         # the threaded result equals fitting voxel by voxel with one cache
         c = init(m)
         for I in CartesianIndices(mask)[good][1:20]
-            @test fit!(c, data[I, :]).params.T2 == res.params.T2[I]
+            r = fit!(c, data[I, :])
+            @test r.params.T2 == res.params.T2[I] && r.iterations == res.iterations[I]
         end
 
         # Float32 data and outputs; starting from the previous result's maps
@@ -497,7 +499,7 @@ end
         curve(T2) = signal(m, (S0 = 1000.0, T2 = T2))
         # a vector is ONE voxel: plain numbers, same as init + fit!
         r = fit(m, curve(0.08))
-        @test r isa VoxelResult && isconverged(r)
+        @test r isa FitResult && isconverged(r)
         @test r.params.T2 ≈ 0.08 rtol = 1e-6
         @test r.params == fit!(init(m), curve(0.08)).params
         @test fit(m, curve(0.08); fixed = (S0 = 1000.0,)).params.T2 ≈ 0.08 rtol = 1e-6
@@ -512,6 +514,57 @@ end
             @test size(res.params.T2) == sz && size(res.status) == sz
             @test res.params.T2 ≈ T2 rtol = 1e-6
         end
+    end
+
+    @testset "FitResult: one type for one voxel and a dataset" begin
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        y = signal(m, (S0 = 1000.0, T2 = 0.08)) .+ 5 .* randn(MersenneTwister(7), 32)
+        # one voxel: numbers, plus the model and settings it was fitted with
+        r = fit(m, y; maxiter = 50)
+        @test r.params.T2 isa Float64 && r.status isa FitStatus && r.iterations isa Int32
+        @test r.model isa T2Decay && r.model.TE == te
+        @test r.settings.maxiter == 50 && r.settings.precision == Float64
+        @test isconverged(r) isa Bool
+        @test fitted(r) ≈ signal(m, r.params)
+        @test residuals(r, y) ≈ y .- fitted(r)
+        @test sum(abs2, residuals(r, y)) ≈ r.sse rtol = 1e-8
+        # fixed values (numbers and ties) are used by `fitted`
+        mq = QMTSIR(TI = [0.01, 0.03, 0.1, 0.3, 1.0], TD = 1.0)
+        yq = signal(mq, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0))
+        rq = fit(mq, yq; fixed = (kmf = 15.0,))
+        @test fitted(rq) ≈ yq rtol = 1e-6
+        @test fit(mq, yq; fixed = (kmf = Fixed(15.0),)).params == rq.params      # role or number
+        # a dataset: maps of the same fields; status is a FitStatus map (1 byte per voxel)
+        T2 = 0.05 .+ 0.05 .* rand(MersenneTwister(8), 5, 4)
+        data = zeros(5, 4, 32)
+        for I in CartesianIndices(T2)
+            data[I, :] = signal(m, (S0 = 1000.0, T2 = T2[I])) .+ 5 .* randn(MersenneTwister(I[1] + 10I[2]), 32)
+        end
+        mask = trues(5, 4); mask[1, 1] = false
+        res = fit(m, data; mask)
+        @test eltype(res.status) == FitStatus && sizeof(res.status) == 20
+        @test eltype(res.iterations) == Int32
+        @test UInt8.(res.status)[1, 1] == 0x00                                  # codes for files
+        @test isconverged(res) isa BitMatrix && !isconverged(res)[1, 1]
+        @test res.settings.mask === mask                                        # a reference
+        @test fitted(res, 3, 2) ≈ signal(m, (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2]))
+        @test fitted(res, 8) == fitted(res, 3, 2)                               # linear index
+        @test sum(abs2, residuals(res, data, 3, 2)) ≈ res.sse[3, 2] rtol = 1e-8
+        @test all(isnan, fitted(res, 1, 1))                                     # outside the mask
+        # refit with the same settings, or from the previous maps
+        @test isequal(fit(res.model, data; res.settings...).params, res.params)
+        @test fit(m, data; mask, start = res.params).params.T2[mask] ≈ res.params.T2[mask] rtol = 1e-6
+        # the wrong kind of call is caught
+        @test_throws ArgumentError fitted(res)
+        @test_throws ArgumentError fitted(r, 1)
+        # display: one line, and the summary at the REPL
+        @test occursin("one voxel", sprint(show, r)) && occursin("converged", sprint(show, res))
+        @test occursin("status   Converged", sprint(show, MIME("text/plain"), r))
+        s = sprint(show, MIME("text/plain"), rq)
+        @test occursin("kmf = 15.0", s) && occursin("R1m = R1f (tied)", s)
+        s = sprint(show, MIME("text/plain"), res)
+        @test occursin("19 of 20 voxels (mask)", s) && occursin("medians", s)
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

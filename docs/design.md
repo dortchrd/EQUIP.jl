@@ -45,8 +45,9 @@ Decisions behind this:
   to qualify it.
 - **One function, `fit`, chosen by the shape of the data.** `fit(m, y::AbstractVector)` fits one
   voxel and returns plain numbers; `fit(m, data::AbstractArray)` fits every voxel (observations
-  last, any number of spatial dimensions) and returns maps. Both results have `params`, `sse`
-  and `status`. `init` + `fit!` remain for user-written loops.
+  last, any number of spatial dimensions) and returns maps. Both return a `FitResult` with
+  the same fields (`params`, `sse`, `iterations`, `status`, `model`, `settings`), numbers or
+  maps. `init` + `fit!` remain for user-written loops, and return a `FitResult` too.
 - **Fit the quantity you will report; separate models for each form.** Mono-exponential T2 decay
   comes as `T2Decay` (T2) and `R2Decay` (R2), plus offset versions. Each form has its own
   struct, `parameters` and docstring; the equation is written once, in the rate form's
@@ -202,7 +203,7 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
 
 Fit-time overrides: `fixed = (name = value, ...)`; `free = (:name, ...)` or
 `free = (name = Free(...), ...)`; `start = (name = number_or_map, ...)`. A non-finite value in
-the data, a fixed map or a start map marks that voxel invalid (status 6).
+the data, a fixed map or a start map marks that voxel invalid (status `InvalidData`).
 
 ## Fitting pipeline
 
@@ -222,16 +223,43 @@ the data, a fixed map or a start map marks that voxel invalid (status 6).
 4. `fit(m, data)` reshapes the data to voxels × observations (a view) and turns the mask into an
    index list. It splits the list into about 64 chunks per thread (at least 16 voxels each) and
    fits each chunk in a task with its own cache. Many small chunks keep threads busy when slow
-   voxels are clustered; the floor keeps the ~1 µs per-task overhead negligible. It returns
-   `(params = (name = map, ...), sse, status)`.
+   voxels are clustered; the floor keeps the ~1 µs per-task overhead negligible. It returns a
+   `FitResult` of maps; inside, the loop stores a lean per-voxel result (`_VoxelFit`) into the
+   maps, and `fit!` wraps the same per-voxel result with the model and settings.
 
 LM details: Marquardt scaling with a monotone diagonal (MINPACK), Nielsen damping updates,
 bounds by projection with an active set, Cholesky without exceptions.
 
 ## Status codes
 
-0 not fitted (mask), 1–3 converged (step, cost, gradient), 4 max iterations,
-5 failed (non-finite model at the start), 6 invalid input.
+`FitStatus` names, stored in one byte (codes in brackets): `NotFitted` (0, outside the mask),
+`ConvergedX` / `ConvergedF` / `ConvergedG` (1–3: step, cost, gradient), `MaxIterations` (4),
+`Failed` (5, non-finite model at the start), `InvalidData` (6). A dataset's status map is a
+`FitStatus` array (1 byte per voxel, prints names); `UInt8.(res.status)` gives the codes.
+The names are not exported (`Failed` is too generic): `EQUIP.MaxIterations`, or `isconverged`.
+
+## FitResult
+
+One type for every fit (`src/fit/result.jl`): `params`, `sse`, `iterations`, `status`, plus
+`model` (as fitted: its acquisition in the working precision) and `settings` (the call's
+keywords, by reference: `fixed`, `free`, `start`, `precision`, solver settings, and `mask` for a
+dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the status a single
+`FitStatus`?) tells them apart at compile time.
+- `fit!` returns it too and still allocates nothing: the model and settings are references in
+  an immutable struct. Measured, best of 3 alternating runs: `fit!` T2Decay 1841 → 1852 ns,
+  QMTSIR 2951 → 2948 ns; a 20k-voxel dataset 39.9 → 40.2 ms (it now also fills an iterations
+  map).
+- `fitted(res)` / `fitted(res, i...)` rebuild a curve with `signal`, from the model, the fitted
+  parameters and the fixed values in `settings` (numbers, roles, ties, or that voxel's value of
+  a map); `residuals(res, y)` / `residuals(res, data, i...)` subtract it from the data. Both are
+  StatsAPI's names. A one-voxel result fitted with fixed maps (`fit!` with `voxel`) cannot
+  rebuild its curve: the voxel index is not stored.
+- Refit: `fit(res.model, data; res.settings...)` repeats the fit with the same choices;
+  `start = res.params` starts from the previous maps.
+- Display: one line in `print` and inside collections; at the REPL a summary (one voxel: status,
+  iterations, SSE, values, fixed parameters; a dataset: voxels fitted, % converged, counts per
+  status, median and interquartile range of each parameter over converged voxels, fixed
+  parameters).
 
 ## Package structure and name
 
@@ -433,7 +461,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 ## Scope so far
 
 In: the interface above (with `startgrid`, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
-R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay), diffusion (ADCDecay, ADCKurtosis), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
+R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay), diffusion (ADCDecay, ADCKurtosis), qMT (QMTSIR), `fit` for one voxel or a dataset returning a
+`FitResult` (with `fitted`, `residuals` and a summary display), Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
@@ -442,20 +471,12 @@ weights, other data layouts, precompilation, more models.
 
 ## Roadmap
 
-1. **One result type for `fit`** (`FitResult`, replacing `VoxelResult` and the named tuple
-   returned for datasets). Same fields for one voxel and for a dataset, numbers or maps:
-   - `params` (named tuple), `sse`, `iterations` (datasets gain an iterations map), `status`
-     as `FitStatus` (prints `ConvergedX` instead of `0x01`; still 1 byte per voxel;
-     `UInt8.(res.status)` for writing files),
-   - `model` (the model fitted, acquisition included) and `settings` (`fixed`, `free`, `start`
-     as used), as references, not copies. Lets `savemaps` write the provenance sidecar, lets
-     `fitted(res)` / `residuals(res)` (StatsAPI names) rebuild a single voxel's curve, and
-     allows refitting with the same settings,
-   - a summary display (model, voxels, % converged, free and fixed parameters).
-   With the uncertainty work (3): JᵀJ for a single voxel, optional standard-error maps for
-   datasets, a flag for parameters that ended at a bound, and StatsAPI queries (`coef`,
-   `coefnames`, `rss`, `stderror`, `vcov`, `informationmatrix`). The internal `SolverResult`
-   stays as it is; the solver already computes JᵀJ at the solution.
+1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
+   `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
+   summary display. Still to add, with the uncertainty work (3): JᵀJ for a single voxel,
+   optional standard-error maps for datasets, a flag for parameters that ended at a bound, and
+   StatsAPI queries (`coef`, `coefnames`, `rss`, `stderror`, `vcov`, `informationmatrix`). The
+   internal `SolverResult` stays as it is; the solver already computes JᵀJ at the solution.
 2. **Simulation, digital phantoms and benchmarks**: one simulation layer (`sim/`) shared by
    Monte Carlo, benchmarks, accuracy studies and tests, and useful to users directly.
    - `simulate(m, truth; noise = :rician | :gaussian, snr or σ, rng)`: noisy data, observations

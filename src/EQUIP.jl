@@ -28,17 +28,18 @@ module EQUIP
 using LinearAlgebra                        # dot, Diagonal, diag
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
-using Statistics: mean                     # default starting values (e.g. T2 = mean(TE))
+using Statistics: mean, quantile           # default starts (e.g. T2 = mean(TE)); result summaries
 import CommonSolve                         # owner of `init` (the SciML convention)
 using CommonSolve: init
-import StatsAPI: fit, fit!, nobs           # owner of `fit`, `fit!`, `nobs` (StatsBase, GLM, ...)
+import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, parameters, signal!, signal, nobs             # model interface
 export startgrid, datastart, relabel                                        # optional hooks
-export fit, init, fit!, VoxelResult, FitStatus, isconverged                 # fitting
+export fit, init, fit!, FitResult, FitStatus, isconverged                   # fitting
+export fitted, residuals                                                    # fitted curves
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
@@ -54,6 +55,7 @@ include("models/builtin.jl")           # the built-in models, by area (relaxomet
 # fit: from a model and data to fitted parameters
 include("fit/levmar.jl")               # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + fixed/free/start -> FitSpec
+include("fit/result.jl")               # FitResult: what fit and fit! return
 include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
 include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
 

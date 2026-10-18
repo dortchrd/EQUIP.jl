@@ -46,11 +46,13 @@ y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
 r = fit(m, y)
 r.params            # (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
 r.status            # ConvergedX
+fitted(r)           # the fitted curve, e.g. to plot against y
 
 # Fit a whole dataset: observations along the LAST dimension (voxels × M, X×Y×M, X×Y×Z×M, ...).
 res = fit(m, data; mask)
 res.params.PSR      # the PSR map, with the spatial size of data
-res.status          # FitStatus codes per voxel
+res.status          # a FitStatus map (ConvergedX, MaxIterations, ...)
+res                 # a summary: voxels fitted, % converged, medians of each parameter
 ```
 
 `fit` chooses by the shape of the data: a vector is one voxel and gives plain numbers; a
@@ -114,23 +116,31 @@ fit(t2, data; fixed = (C = 40.0,))               # a known offset instead of est
 Mistakes raise an error before any fitting starts: misspelled names, a parameter in both
 `fixed` and `free`, a missing acquisition field, acquisition vectors of different lengths,
 or maps whose size doesn't match the data. A NaN or Inf in a voxel's data, maps or starts
-marks that voxel invalid (status 6) instead of producing a meaningless fit.
+marks that voxel invalid (status `InvalidData`) instead of producing a meaningless fit.
 
 ## Outputs
 
-One voxel, `fit(m, y)`: a `VoxelResult` with `params` (named tuple of numbers), `sse`,
-`iterations` and `status`.
+`fit` (and `fit!`) return a `FitResult`, the same type for one voxel and for a dataset. For one
+voxel the fields are numbers; for a dataset, maps with the spatial size of the data:
 
-A dataset, `fit(m, data)`: a named tuple of arrays with the spatial size of the data:
-
-- `params`: one map per free parameter (`res.params.T1`). You can pass it back as
-  `start = res.params` to refit.
+- `params`: the free parameters by name (`res.params.T1`). Pass a dataset's back as
+  `start = res.params` to refit from them.
 - `sse`: sum of squared residuals.
-- `status`: `UInt8` codes. 0 = outside the mask, 1–3 = converged (step / cost / gradient),
-  4 = max iterations, 5 = failed, 6 = invalid input. `FitStatus(code)` gives the name;
-  `isconverged(code)` tests for 1–3.
+- `iterations`: solver iterations.
+- `status`: a `FitStatus`: `NotFitted` (outside the mask), `ConvergedX` / `ConvergedF` /
+  `ConvergedG` (step / cost / gradient), `MaxIterations`, `Failed`, `InvalidData`. A dataset's
+  status map takes 1 byte per voxel; `UInt8.(res.status)` gives the codes 0–6, e.g. for
+  writing a file. `isconverged(res)` is true/false, or a map of them.
+- `model` and `settings`: the model as fitted and the keywords of the call, so
+  `fit(res.model, data; res.settings...)` refits with the same choices.
 
-Voxels that are not fitted hold NaN.
+`fitted(res)` rebuilds the fitted curve of a one-voxel result, `fitted(res, i...)` that of
+voxel `i` of a dataset (linear index or position, e.g. `fitted(res, 40, 52, 10)`), and
+`residuals(res, y)` / `residuals(res, data, i...)` the data minus the fit. Showing a result
+prints a summary: for a dataset, the voxels fitted, % converged, counts per status, the median
+and interquartile range of each parameter, and the fixed parameters.
+
+Voxels that are not fitted hold NaN parameters and SSE and 0 iterations.
 
 ## Built-in models
 
@@ -236,8 +246,8 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 ```
 parameters(m) + fixed/free/start  ──setup──▶  FitSpec   free names, bounds, starts, fixed values
 FitSpec + model + buffers         ──init───▶  FitCache  made once (one copy per thread)
-one voxel's data                  ──fit!───▶  VoxelResult
-a dataset                         ──fit────▶  maps      threads over chunks of voxels
+one voxel's data                  ──fit!───▶  FitResult numbers
+a dataset                         ──fit────▶  FitResult maps; threads over chunks of voxels
 ```
 
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
@@ -267,16 +277,13 @@ src/
 Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
 `main` branches.
 
-- **One result type for `fit`**, the same for one voxel or a dataset: params, SSE, iterations
-  and status (as names, e.g. `ConvergedX`), plus the model and settings used (for provenance,
-  fitted curves and refits) and a summary display; later JᵀJ / standard errors and StatsAPI
-  queries (`coef`, `stderror`, `vcov`, ...)
 - **sim/**: `simulate` (Rician/Gaussian noise), digital phantoms (label images → parameter maps,
   synthetic shapes, later brain-like segmentations), tissue presets (the 2018 paper's Table 1
   for SIR), and `compare` against the truth; shared by Monte Carlo, benchmarks and tests
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/**: standard errors, CRLB for unbiased and biased estimators (Dortch et al. 2018,
+- **analysis/**: standard errors (in `FitResult`, with StatsAPI's `coef`, `stderror`, `vcov`, and
+  a flag for parameters that ended at a bound), CRLB for unbiased and biased estimators (Dortch et al. 2018,
   Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis (including model
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization

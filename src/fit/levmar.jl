@@ -47,7 +47,8 @@
 """
     FitStatus
 
-Outcome of one voxel fit, stored as a `UInt8` code in the `status` map:
+Outcome of one voxel fit: `res.status` of a [`FitResult`](@ref) (a map of them for a dataset,
+1 byte per voxel). `UInt8(status)` gives the code, e.g. `UInt8.(res.status)` to write a file:
 
 | code | name            | meaning                                               |
 |-----:|:----------------|:------------------------------------------------------|
@@ -75,7 +76,8 @@ end
 """
     isconverged(status) -> Bool
 
-True for the three "converged" codes (1–3). Accepts a `FitStatus`, a code, or a `VoxelResult`.
+True for the three "converged" codes (1–3). Accepts a `FitStatus`, a code, or a
+[`FitResult`](@ref) (for a dataset: a map of true/false).
 """
 isconverged(s::FitStatus) = s == ConvergedX || s == ConvergedF || s == ConvergedG
 isconverged(s::Integer) = isconverged(FitStatus(s))
@@ -110,7 +112,7 @@ function SolverOptions{T}(; maxiter::Integer = 100, xtol = nothing, ftol = nothi
                         T(something(gtol, dg)), T(damping))
 end
 
-# Internal result of `levmar` (the public one, `VoxelResult`, adds parameter names).
+# Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).
 struct SolverResult{P,T}
     θ::SVector{P,T}
     sse::T

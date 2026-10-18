@@ -3,9 +3,11 @@
 #
 # Two methods, chosen by the shape of the data (multiple dispatch):
 #
-#   fit(m, y::AbstractVector)    one voxel  -> VoxelResult: r.params.T2 is a number
+#   fit(m, y::AbstractVector)    one voxel: r.params.T2 is a number
 #   fit(m, data::AbstractArray)  many voxels, observations along the LAST dimension
-#                                (voxels × M, X×Y×M, X×Y×Z×M, ...) -> maps: r.params.T2 is an array
+#                                (voxels × M, X×Y×M, X×Y×Z×M, ...): r.params.T2 is a map
+#
+# Both return a FitResult (result.jl), with the same fields.
 #
 # A Vector matches both signatures; Julia picks the more specific one (AbstractVector), so 1-D
 # data always means "one voxel".
@@ -23,9 +25,9 @@
 # =================================================================================================
 
 """
-    fit(model, y::AbstractVector; fixed, free, start, precision, maxiter, ...) -> VoxelResult
+    fit(model, y::AbstractVector; fixed, free, start, precision, maxiter, ...) -> FitResult
 
-Fit one voxel: `y` has one value per observation. Returns a [`VoxelResult`](@ref) with plain
+Fit one voxel: `y` has one value per observation. Returns a [`FitResult`](@ref) with plain
 numbers, e.g. `r.params.T1`, `r.status`. Keywords as for [`init`](@ref).
 
 For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
@@ -43,12 +45,13 @@ fit(model::MRIModel, y::AbstractVector; kwargs...) = fit!(init(model; kwargs...)
 
 Fit every voxel of `data`, an array with the observations along the LAST dimension: voxels × M,
 X×Y×M, X×Y×Z×M, ... (as NIfTI and MATLAB store volumes). A matrix is voxels × observations: one
-row per voxel. Returns a named tuple of arrays with the spatial size of `data` (all dimensions
-but the last):
+row per voxel. Returns a [`FitResult`](@ref) whose fields are maps with the spatial size of
+`data` (all dimensions but the last):
 
 - `params`: one map per free parameter, e.g. `res.params.T1`
 - `sse`: sum of squared residuals
-- `status`: [`FitStatus`](@ref) codes (`UInt8`); 0 outside the mask, 6 for invalid inputs
+- `iterations`: solver iterations
+- `status`: [`FitStatus`](@ref): `NotFitted` outside the mask, `InvalidData` for invalid inputs
 
 Voxels that are not fitted hold `NaN`. Keywords:
 
@@ -56,7 +59,8 @@ Voxels that are not fitted hold `NaN`. Keywords:
 - `fixed`, `free`, `start`, `precision`, solver settings: as for [`init`](@ref). Per-voxel maps
   have the spatial size of `data`, e.g. `fixed = (B1 = b1map,)`, `start = (M0 = m0map,)`.
 
-`res.params` can be passed back as `start` to refit from a previous result.
+`res.params` can be passed back as `start` to refit from a previous result, and
+`fit(res.model, data; res.settings...)` refits with the same settings.
 
 ```julia
 res = fit(T1MFA(FA = [3, 10, 20], TR = 0.015), data; mask, fixed = (B1 = b1map,))
@@ -79,7 +83,9 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
         findall(!iszero, vec(mask))                  # linear indices of the voxels to fit
     end
     Y = reshape(data, nvox, m)                       # a view: row v = voxel v's observations
-    return _fit_maps(cache, Y, voxels, spatial)
+    params, sse, iterations, status = _fit_maps(cache, Y, voxels, spatial)
+    settings = merge(cache.settings, (; mask))       # the keywords of this call, mask included
+    return FitResult(params, sse, iterations, status, cache.model, settings)
 end
 
 function _check_maps(nt::NamedTuple, nvox, kind)
@@ -93,10 +99,12 @@ end
 # function, so the loops below compile to fast specialized code.
 function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
     F = freenames(cache.spec)
-    # Outputs: NaN / NotFitted everywhere, overwritten for the fitted voxels.
+    # Outputs: NaN / 0 / NotFitted everywhere, overwritten for the fitted voxels. A status map
+    # of FitStatus values takes 1 byte per voxel, like UInt8 codes, but prints names.
     params = NamedTuple{F}(ntuple(_ -> fill(T(NaN), spatial), length(F)))
     sse = fill(T(NaN), spatial)
-    status = fill(UInt8(NotFitted), spatial)
+    iterations = zeros(Int32, spatial)
+    status = fill(NotFitted, spatial)
 
     n = length(voxels)
     if n > 0
@@ -112,20 +120,21 @@ function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
         # `@sync` waits for every task `Threads.@spawn`ed inside it. Each task writes different
         # voxels of the output arrays, so they never write to the same element.
         @sync for chunk in Iterators.partition(voxels, chunksize)
-            Threads.@spawn _fit_chunk!(params, sse, status, _copycache(cache), Y, chunk)
+            Threads.@spawn _fit_chunk!(params, sse, iterations, status, _copycache(cache), Y, chunk)
         end
     end
-    return (; params, sse, status)                   # same as (params = params, sse = sse, ...)
+    return params, sse, iterations, status
 end
 
-function _fit_chunk!(params, sse, status, cache, Y, voxels)
+function _fit_chunk!(params, sse, iterations, status, cache, Y, voxels)
     for v in voxels
-        r = fit!(cache, view(Y, v, :); voxel = v)
+        r = _fit1!(cache, view(Y, v, :), v)
         # Store each free parameter in its map: `map` walks the two named tuples (maps and
         # fitted values) together, name by name.
         map((a, x) -> (@inbounds a[v] = x), params, r.params)
         @inbounds sse[v] = r.sse
-        @inbounds status[v] = UInt8(r.status)
+        @inbounds iterations[v] = r.iterations
+        @inbounds status[v] = r.status
     end
     return nothing
 end
