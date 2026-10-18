@@ -53,7 +53,7 @@ Decisions behind this:
   struct, `parameters` and docstring; the equation is written once, in the rate form's
   `signal!` (a short loop that reads like the equation, no conditionals). The time form converts
   and calls it, e.g. `signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude),
-  (; p.M0, p.B, R1 = 1 / p.T1))`.
+  (; p.M0, p.Sf, R1 = 1 / p.T1))`.
   - The conversion costs almost nothing: the rate model wraps the same acquisition vectors (no
     copy), and ForwardDiff carries the derivatives through 1/T. The fits are the same, bit for
     bit, and within 2% of the speed (Performance notes).
@@ -281,7 +281,7 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). No CSF yet: Stanisz has none,
   and a reference is still to choose. `truth(m, tissue)` converts T1/T2 to rates by name, sets
   the scale parameter to 1, and refuses to guess free parameters that are not tissue properties
-  (B, B1, the Sf of T1IRTD): they are given as keywords.
+  (the inversion efficiency Sf of the inversion recovery models, B1): they are given as keywords.
 - **Phantoms**: `phantom(labels, tissues)` fills one map per parameter from label => truth
   pairs, NaN elsewhere, so the background gives NaN data and is left out with
   `mask = labels .> 0`. `labelshapes(dims)`: nested ellipses (labels 1, 2) and a small disc
@@ -424,7 +424,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   null in the wrong place. Before LM, each voxel evaluates the signal at 30 values of T1
   (log-spaced from 1/5 of the shortest TI to 5× the longest; the R1 forms use the same values
   as rates), the `:scale` parameter at its least-squares value for each, and starts from the
-  lowest SSE. Other parameters keep their starts (B = 2, Sf = −0.95).
+  lowest SSE. Other parameters keep their starts (Sf = −0.95).
   - Measured (200 voxels, bad fit = SSE above that at the true parameters, T1 form / R1 form):
 
     | T1 (s) | 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1 | 2 | 4 |
@@ -438,9 +438,12 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     | IRTD, SNR 20, start T1 = 1 s | 200/200 | 105/182 | 152/5 | 112/14 | 0/0 | 0/0 | 0/0 | 13/12 |
     | IRTD, SNR 20, grid | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
 
-    T1IR with TIs 0.05–3.2 s (7, doubling), B = 1.95; T1IRTD with the 6 TI/TD pairs of the
-    tests, Sf = −0.95. Both with the dead-zone guard. Noise was added to the signed signal
-    before taking the magnitude, the same noise for both forms.
+    T1IR with TIs 0.05–3.2 s (7, doubling), true B = 1.95, i.e. Sf = −0.95; T1IRTD with the 6
+    TI/TD pairs of the tests, Sf = −0.95. Both with the dead-zone guard. Noise was added to the
+    signed signal before taking the magnitude, the same noise for both forms. (Measured when
+    T1IR was parametrized with B = 1 − Sf, starting at B = 2. It now uses Sf, starting at −0.95
+    like T1IRTD; rechecked with the same data, IR rows with the grid: SNR 100, 2/0 at 0.3 s, else
+    0; SNR 20, 2/2 at 4 s, else 0.)
   - Cost per voxel (one voxel, `@belapsed`): T1IR 0.72 → 1.80 µs, R1IR 0.90 → 1.62 µs, T1IRTD
     0.89 → 2.37 µs; models without a grid unchanged (T1SR 0.48 → 0.45 µs). About 1 µs for 30
     signal evaluations, which run on the dual-number buffer; a plain-number buffer would make

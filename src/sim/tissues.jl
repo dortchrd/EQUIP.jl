@@ -58,16 +58,16 @@ The parameters of model `m` for a tissue: a name from [`TISSUES`](@ref), or your
 tuple of values. Ready for [`signal`](@ref), [`simulate`](@ref) and [`phantom`](@ref).
 
 For each parameter of `m`, the value comes from, in order:
-1. the keywords, e.g. `truth(m, :WM; M0 = 1000.0, B = 1.95)`;
+1. the keywords, e.g. `truth(m, :WM; M0 = 1000.0, Sf = -0.95)`;
 2. the tissue, by name, or converted between time and rate (R1 = 1/T1, R2 = 1/T2);
 3. for the scale parameter (`M0`, `S0`, `M0f`): 1;
 4. for a fixed parameter: its default, left out of the result (e.g. QMTSIR's `R1m = R1f`).
 
 A free parameter with no value is an error that names it: values that are not properties of the
-tissue (an inversion efficiency `B`, a flip-angle scale `B1`) are your choice, so give them.
+tissue (an inversion efficiency `Sf`, a flip-angle scale `B1`) are your choice, so give them.
 
 ```julia
-truth(R1IR(TI = ti), :GM; B = 1.95)        # (M0 = 1.0, B = 1.95, R1 = 0.549...)
+truth(R1IR(TI = ti), :GM; Sf = -0.95)      # (M0 = 1.0, Sf = -0.95, R1 = 0.549...)
 truth(QMTSIR(; SIR_4POINT...), :SIR_lesion)  # PSR, R1f, Sf, M0f, and kmf = 20, Sm = 0.83
 ```
 """

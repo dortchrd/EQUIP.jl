@@ -1,9 +1,12 @@
 # =================================================================================================
 # Inversion recovery
 #
-#   T1IR, R1IR       long repetition time: S = M0·(1 - B·exp(-TI/T1))
+#   T1IR, R1IR       long repetition time: S = M0·[Sf·exp(-TI/T1) + 1 - exp(-TI/T1)]
 #   T1IRTD, R1IRTD   any delay TD between readout and inversion, modelled explicitly
 #                    (Li et al., Magn Reson Med 2010;64:491, Eq. 1)
+#
+# All four share the parameters M0, Sf (inversion efficiency, -1 = perfect) and T1 or R1: T1IR is
+# T1IRTD with full recovery before each inversion (Mz(TD) = 1), so its Sf means the same.
 #
 # Fit the quantity you will report, so its standard errors and CRLB come out directly. The
 # equations are written once, in the R1 versions; the T1 versions convert and call them (see
@@ -28,12 +31,17 @@
 """
     T1IR(; TI, magnitude = true)
 
-Inversion recovery with a long repetition time: `S = M0·(1 - B·exp(-TI/T1))`, its absolute
-value for magnitude data. `B` absorbs imperfect inversion (B = 2 for a perfect one).
+Inversion recovery with a long repetition time, so Mz has fully recovered before each
+inversion:
+
+    S = M0·[Sf·exp(-TI/T1) + 1 - exp(-TI/T1)] = M0·(1 - (1 - Sf)·exp(-TI/T1))
+
+its absolute value for magnitude data. `Sf` is the inversion efficiency (-1 = perfect, the
+familiar `M0·(1 - 2·exp(-TI/T1))`), as in [`T1IRTD`](@ref), which this is for a long TD.
 
 - acquisition: `TI` (s), one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- parameters: `M0`, `B`, `T1` (s)
+- parameters: `M0`, `Sf` (from -1.2 to 0), `T1` (s)
 
 Rate version: [`R1IR`](@ref).
 """
@@ -44,22 +52,22 @@ end
 
 parameters(::T1IR) = (
     M0 = Free(:scale; lower = 0),
-    B = Free(2.0; lower = 0, upper = 3),
+    Sf = Free(-0.95; lower = -1.2, upper = 0),          # as in T1IRTD
     T1 = Free(1.0; lower = _TMIN),
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1IR's signal (below; see builtin.jl
 # for why the time form calls the rate form).
-signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.B, R1 = 1 / p.T1))
+signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.Sf, R1 = 1 / p.T1))
 
 """
     R1IR(; TI, magnitude = true)
 
-[`T1IR`](@ref) with the rate R1 = 1/T1: `S = M0·(1 - B·exp(-R1·TI))`.
+[`T1IR`](@ref) with the rate R1 = 1/T1: `S = M0·[Sf·exp(-R1·TI) + 1 - exp(-R1·TI)]`.
 
 - acquisition: `TI` (s), one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- parameters: `M0`, `B`, `R1` (1/s)
+- parameters: `M0`, `Sf` (from -1.2 to 0), `R1` (1/s)
 """
 @kwdef struct R1IR{A<:AbstractVector} <: MRIModel
     TI::A                               # inversion times (s)
@@ -68,15 +76,16 @@ end
 
 parameters(::R1IR) = (
     M0 = Free(:scale; lower = 0),
-    B = Free(2.0; lower = 0, upper = 3),
+    Sf = Free(-0.95; lower = -1.2, upper = 0),
     R1 = Free(1.0; lower = 0),
 )
 
 function signal!(out, m::R1IR, p)
     (; TI, magnitude) = m
-    (; M0, B, R1) = p
+    (; M0, Sf, R1) = p
     @inbounds for j in eachindex(out, TI)
-        s = M0 * (1 - B * exp(-R1 * TI[j]))
+        E_ti = exp(-R1 * TI[j])
+        s = M0 * (Sf * E_ti + 1 - E_ti)     # R1IRTD's equation with Mz(TD) = 1 (full recovery)
         out[j] = magnitude ? abs(s) : s     # |S| for magnitude images
     end
     return out
@@ -95,7 +104,7 @@ explicitly, so TD can be short and can vary (Li et al., Magn Reson Med 2010;64:4
 The readout (e.g. a spin echo or fast spin echo) is assumed to leave Mz = 0; Mz recovers for TD,
 the inversion pulse multiplies it by Sf (-1 = perfect inversion), and it recovers for TI. With
 Sf = -1 this is the familiar `M0·(1 - 2·exp(-TI/T1) + exp(-(TI+TD)/T1))`. For a long TD it
-reduces to [`T1IR`](@ref) with B = 1 - Sf.
+reduces to [`T1IR`](@ref), with the same parameters.
 
 `Mz_td0` (an extension of Li's equation, which is the case `Mz_td0 = 0`) is Mz at the start of
 TD as a fraction of M0. Use it to test the assumption that the readout saturates Mz, as

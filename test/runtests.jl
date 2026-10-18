@@ -24,10 +24,10 @@ const CASES = [
     (ADCKurtosis(b = [0.0, 250, 500, 1000, 1500, 2000, 2500]), (S0 = 1000.0, ADC = 0.8e-3, K = 1.0)),
     (T2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)),
     (R2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
-    (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, T1 = 0.9)),
+    (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, Sf = -0.9, T1 = 0.9)),
     (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
-    (R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, B = 1.9, R1 = 1 / 0.9)),
+    (R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, Sf = -0.9, R1 = 1 / 0.9)),
     (T1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.9, T1 = 1.3, Mz_td0 = 0.0)),
     (R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.9, R1 = 1 / 1.3, Mz_td0 = 0.0)),
     (R1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, R1 = 1 / 1.2)),
@@ -322,8 +322,9 @@ end
         θ = (M0 = 1000.0, T1 = 0.9)
         # a perfect inversion: the textbook form with TR = TI + TD
         @test signal(m, merge(θ, (Sf = -1.0,))) ≈ @. 1000 * (1 - 2 * exp(-TI6 / 0.9) + exp(-(TI6 + TD6) / 0.9))
-        # a long TD, or Mz at equilibrium at the start of TD: T1IR with B = 1 - Sf
-        ir = signal(T1IR(TI = TI6, magnitude = false), (M0 = 1000.0, B = 1.9, T1 = 0.9))
+        # a long TD, or Mz at equilibrium at the start of TD: T1IR, with the same parameters
+        ir = signal(T1IR(TI = TI6, magnitude = false), (M0 = 1000.0, Sf = -0.9, T1 = 0.9))
+        @test ir ≈ @. 1000 * (1 - 1.9 * exp(-TI6 / 0.9))                   # B = 1 - Sf
         @test signal(T1IRTD(TI = TI6, TD = 100.0, magnitude = false), merge(θ, (Sf = -0.9,))) ≈ ir
         @test signal(m, merge(θ, (Sf = -0.9, Mz_td0 = 1.0))) ≈ ir
         # one TD for every TI
@@ -444,8 +445,8 @@ end
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
         for T1 in (0.05, 0.1, 0.5, 4.0)
             m, mr = T1IR(TI = ti), R1IR(TI = ti)
-            @test fit(m, signal(m, (M0 = 1000.0, B = 1.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
-            @test fit(mr, signal(mr, (M0 = 1000.0, B = 1.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
+            @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+            @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
         end
         for T1 in (0.05, 0.1, 0.2, 0.3, 4.0)
             m, mr = T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6)
@@ -466,7 +467,7 @@ end
         ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
         td = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]
         fa = [2.0, 5, 10, 15, 20, 30]
-        pairs = ((T1IR(TI = ti), R1IR(TI = ti), (M0 = 1000.0, B = 1.9)),
+        pairs = ((T1IR(TI = ti), R1IR(TI = ti), (M0 = 1000.0, Sf = -0.9)),
                  (T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.95)),
                  (T1SR(TD = td), R1SR(TD = td), (M0 = 1000.0,)),
                  (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0,)))
@@ -590,8 +591,8 @@ end
         # tissue presets and truth
         @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
         @test truth(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
-        @test truth(T1IR(TI = [0.1]), :GM; B = 1.95, M0 = 1000.0) == (M0 = 1000.0, B = 1.95, T1 = 1.82)
-        @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # B is not a tissue value
+        @test truth(T1IR(TI = [0.1]), :GM; Sf = -0.95, M0 = 1000.0) == (M0 = 1000.0, Sf = -0.95, T1 = 1.82)
+        @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value
         @test_throws ArgumentError truth(m, :brain)                          # unknown tissue
         @test truth(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
               (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, Sm = 0.83)

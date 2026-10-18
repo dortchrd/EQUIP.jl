@@ -32,10 +32,10 @@ const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 # written once, in the rate version. The time version's `signal!` converts (R1 = 1/T1) and calls
 # the rate version's:
 #
-#     signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.B, R1 = 1 / p.T1))
+#     signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.Sf, R1 = 1 / p.T1))
 #
 # - `R1IR(m.TI, m.magnitude)` makes a rate model around the same TI vector (no copy, no cost).
-# - `(; p.M0, p.B, R1 = ...)` is short for `(M0 = p.M0, B = p.B, R1 = ...)`.
+# - `(; p.M0, p.Sf, R1 = ...)` is short for `(M0 = p.M0, Sf = p.Sf, R1 = ...)`.
 # - ForwardDiff carries the derivatives through 1/T1, so the fit is exactly what a loop written
 #   with T1 would give (measured: identical results, bit for bit, within 2% of the speed).
 # - Always time → rate, never rate → time: R1 = 0 (a flat curve) is a valid value but 1/0 is

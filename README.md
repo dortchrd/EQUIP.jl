@@ -153,8 +153,8 @@ start. It costs about 1 µs per voxel; giving a `start` for T1 (or R1) skips it.
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
-| relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery: \|M0·(1 − B·exp(−TI/T1))\| | M0, B, T1 | |
-| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, B, R1 | |
+| relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery, long TR: \|M0·[Sf·e^(−TI/T1) + 1 − e^(−TI/T1)]\|; Sf = inversion efficiency (−1 = perfect), as in T1IRTD | M0, Sf, T1 | |
+| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | |
 | | `T1IRTD(TI = ..., TD = ..., magnitude = true)` | inversion recovery with the delay TD modelled (Li et al., MRM 2010, Eq. 1): M0·[Sf·Mz(TD)·e^(−TI/T1) + 1 − e^(−TI/T1)], Mz(TD) = 1 − (1 − Mz_td0)·e^(−TD/T1); TD one number or one per TI | M0, Sf, T1 | Mz_td0 = 0 |
 | | `R1IRTD(TI = ..., TD = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | Mz_td0 = 0 |
 | | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |
@@ -271,7 +271,7 @@ compare(res, maps; labels)                    # per tissue
   MRM 2018, Table 1 (`:SIR_WM_I`, `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`).
 - `truth(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
   where needed; the scale parameter is 1 unless given. Values that are not tissue properties
-  (an inversion efficiency `B`, a flip-angle scale `B1`) must be given.
+  (an inversion efficiency `Sf`, a flip-angle scale `B1`) must be given.
 - `phantom(labels, tissues)`: parameter maps from a label image (NaN in the background);
   `labelshapes(dims)`: a 2-D or 3-D image of nested ellipses and a small disc.
 - `compare(res, truth; labels, mask)`: per parameter, overall and per label: bias, relative
