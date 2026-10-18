@@ -590,6 +590,9 @@ end
         @test_throws ArgumentError simulate(m, θ; snr = 50, σ = 1.0)         # both
         # tissue presets and truth
         @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
+        @test tissue(:CSF) == (T1 = 4.124, T2 = 1.75)
+        @test truth(R2Decay(TE = te), merge(tissue(:CSF), (T2 = 2.0,))).R2 == 0.5    # own value
+        @test truth(T2Decay(TE = te), (T2 = 0.06,); S0 = 500.0) == (S0 = 500.0, T2 = 0.06)
         @test truth(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
         @test truth(T1IR(TI = [0.1]), :GM; Sf = -0.95, M0 = 1000.0) == (M0 = 1000.0, Sf = -0.95, T1 = 1.82)
         @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value

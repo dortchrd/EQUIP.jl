@@ -14,6 +14,14 @@ matter (corpus callosum) and gray matter (cortex), human blood): `liver`, `muscl
 `kidney`, `cartilage_0`, `cartilage_55` (0° and 55° to the field), `WM`, `GM`, `optic_nerve`,
 `spinal_cord`, `blood`.
 
+`CSF` (in vivo, 3 T): T1 = 4.124 s, the mean of the three inversion recovery studies in the review
+of Bojorquez et al., Magn Reson Imaging 2017;35:69, Table 1c (4391, 3817 and 4163 ms); T2 =
+1.75 s, the middle of the 1.5–2 s usually reported at 3 T, a placeholder until a measured
+reference is chosen.
+
+Use your own values with a named tuple, `truth(m, (T1 = 4.3, T2 = 2.0))`, or change one value
+of a preset: `truth(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
+
 SIR tissue classes at 3 T (Dortch et al., Magn Reson Med 2018;80:1824, Table 1), with the values
 shared by all classes there (Sm = 0.83, Sf = −1.0; R1m = R1f, QMTSIR's default; M0f = 1 and
 SNR = 200 at thermal equilibrium): `SIR_WM_I`, `SIR_WM_II` (maximum and mean white matter),
@@ -32,6 +40,9 @@ const TISSUES = (
     optic_nerve = (T1 = 1.083, T2 = 0.078),
     spinal_cord = (T1 = 0.993, T2 = 0.078),
     blood = (T1 = 1.932, T2 = 0.275),
+    # Bojorquez et al. 2017, Table 1c: T1, the mean of the three inversion recovery studies (in
+    # vivo, 3 T). T2: the middle of the usual 1.5-2 s, a placeholder (no reference chosen yet).
+    CSF = (T1 = 4.124, T2 = 1.75),
     # Dortch et al. 2018, Table 1: PSR (fraction), kmf and R1f (1/s), and the shared Sf, Sm
     SIR_WM_I = (PSR = 0.20, kmf = 5.0, R1f = 1.5, Sf = -1.0, Sm = 0.83),
     SIR_WM_II = (PSR = 0.12, kmf = 10.0, R1f = 1.0, Sf = -1.0, Sm = 0.83),

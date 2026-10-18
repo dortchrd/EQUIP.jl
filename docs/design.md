@@ -278,8 +278,11 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 - **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
-  2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). No CSF yet: Stanisz has none,
-  and a reference is still to choose. `truth(m, tissue)` converts T1/T2 to rates by name, sets
+  2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). CSF (Stanisz has none): T1 =
+  4.124 s, the mean of the three in vivo inversion recovery studies in the review of Bojorquez
+  et al., MRI 2017;35:69, Table 1c (4391, 3817, 4163 ms; the VFA values spread from 4.2 to
+  6.9 s); T2 = 1.75 s, the middle of the usual 1.5–2 s at 3 T, a placeholder (the review has no
+  CSF T2). Users give their own values as a named tuple, or change one with `merge`. `truth(m, tissue)` converts T1/T2 to rates by name, sets
   the scale parameter to 1, and refuses to guess free parameters that are not tissue properties
   (the inversion efficiency Sf of the inversion recovery models, B1): they are given as keywords.
 - **Phantoms**: `phantom(labels, tissues)` fills one map per parameter from label => truth
@@ -538,8 +541,8 @@ weights, other data layouts, precompilation, more models.
      test and the Fig. 1 check in `test/`; `@inferred` checks of `fit!`.
    - Still to do in `sim/`: phantoms with smooth variation, partial volume, a B1 field and
      lesions; brain-like phantoms from tissue segmentations (BrainWeb, or the brain phantom
-     KomaMRI uses, read from file) and real data (qMRLab's OSF datasets); CSF and in vivo
-     tissue values (needs a reference).
+     KomaMRI uses, read from file) and real data (qMRLab's OSF datasets); a measured CSF T2;
+     in vivo WM/GM values (e.g. from the studies in Bojorquez et al. 2017).
    - Monte Carlo vs phantoms: Monte Carlo (independent noisy copies of chosen tissues) gives
      bias/SD/RMSE against the CRLB and accuracy vs SNR; phantoms are needed for everything that
      uses neighbours or geometry (neighbour starts, outlier detection, masks) and for realistic

@@ -267,8 +267,11 @@ compare(res, maps; labels)                    # per tissue
   units. Rician noise by default; Gaussian for models fitted to signed data
   (`magnitude = false`). Pass `rng = MersenneTwister(seed)` for repeatable data.
 - `TISSUES`, `tissue(name)`: T1 and T2 at 3 T from Stanisz et al., MRM 2005 (in vitro, 37 °C:
-  `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...), and the SIR tissue classes of Dortch et al.,
-  MRM 2018, Table 1 (`:SIR_WM_I`, `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`).
+  `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...); `:CSF` (T1 = 4.124 s, the mean of three
+  in vivo inversion recovery studies reviewed by Bojorquez et al., MRI 2017; T2 = 1.75 s, a
+  placeholder); and the SIR tissue classes of Dortch et al., MRM 2018, Table 1 (`:SIR_WM_I`,
+  `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`). Your own values: `truth(m, (T1 = 4.3, T2 = 2.0))`,
+  or one value changed: `truth(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
 - `truth(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
   where needed; the scale parameter is 1 unless given. Values that are not tissue properties
   (an inversion efficiency `Sf`, a flip-angle scale `B1`) must be given.
@@ -319,7 +322,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 `main` branches.
 
 - **sim/** (started): phantoms with smooth variation, partial volume, a B1 field and lesions;
-  brain-like phantoms from segmentations (BrainWeb, KomaMRI's); CSF and in vivo tissue values
+  brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **analysis/**: fit statistics on `FitResult` under StatsAPI's names (`stderror`, `vcov`,
