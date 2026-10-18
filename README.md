@@ -357,8 +357,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
 - Start options per parameter, in `Free`: a number or map, `:scale` (least squares, only for the
-  parameter the model declares), `Grid(values)` (try each, keep the best; a grid on several
-  parameters tries every combination) and `:data` (the model's estimate from the voxel's data).
+  parameter the model declares), `Grid(values)` (evaluate each, then fit from the best, or
+  with `fits = k` from the k best local minima of the grid; a grid on several parameters tries
+  every combination) and `:data` (the model's estimate from the voxel's data).
   Models declare theirs in `parameters(m)`, e.g. `T1 = Free(Grid(_t1grid(m.TI)); lower = ...)`;
   a fit changes them like any start, e.g. `T1 = Free(start = Grid(logrange(0.05, 5, 50)))`
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from

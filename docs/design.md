@@ -639,13 +639,30 @@ weights, other data layouts, precompilation, more models.
      `T1 = Free(start = Grid(logrange(0.05, 5, 50)))` (another grid), `T2 = Free(start = 0.05)`
      (no data start). The model's defaults are the automatic choice, so there is no `:auto`.
    - `Grid` is a wrapper because a plain vector start already means a per-voxel map.
-   - A grid on several parameters tries every combination (biexponential T2short × T2long:
-     10 × 10 = 100 signal evaluations, a few µs per voxel). `setup` now allows one.
+   - **A grid on several parameters tries every combination** (`setup` allows only one grid
+     today). The cost multiplies. Measured per signal evaluation, about the cost of one
+     candidate: T1IR (6 TIs) 0.04 µs, T2BiexpDecay (32 echoes) 0.55 µs; one biexponential fit
+     takes 16.6 µs. So for the biexponential, 10 × 10 = 100 candidates ≈ 55 µs per voxel (3× the
+     fit), 30 × 30 ≈ 0.5 ms, 30³ ≈ 15 ms: about 4 s, 30 s and 15 min per million voxels on 16
+     threads. No cap: the cost is predictable, and documented. To keep it affordable:
+     - **Precomputed candidates (a dictionary).** When the other starts and the fixed values
+       are the same in every voxel, the candidate signals s (and s·s) do not depend on the
+       voxel: compute them once per fit. Each voxel then needs one dot product s·y per
+       candidate (32 multiply-adds instead of 64 exponentials; estimated 10–20 µs for 900, not
+       measured), as in MR fingerprinting's dictionary matching. A per-voxel map (B1) or a data
+       start for another parameter rules it out; candidates are then evaluated per voxel, as now.
+     - **Disjoint ranges for parameters that can swap** (T2short's grid below T2long's): (20, 80)
+       and (80, 20) ms fit identically and `relabel` swaps them anyway, so overlapping ranges
+       waste up to half the candidates.
+     - Coarser grids: a start only needs the right basin (the biexponential study tests whether
+       10 × 10 is enough).
+     - One parameter at a time (n₁ + n₂ candidates) is cheaper but can miss the right pair when
+       the parameters are coupled (T2short, T2long). Not the default.
    - Per voxel, the order stays: numbers and maps, then `:data`, then the grid candidates with
      `:scale` solved for each, then LM from the best. The fast path is unchanged.
    - Simpler code: the `startgrid` hook and the `userstart` bookkeeping in `setup` go (a start
      given in the call simply replaces the model's `:data` or `Grid`), and no fourth reserved
-     option name is needed. Comparing strategies (2b, A4) passes starts per parameter.
+     option name is needed. The start-strategy study (item 2) passes starts per parameter.
    - `:scale` stays for the model to declare (done: `setup` refuses it on any other parameter,
      see Parameter roles).
    - **`:data` only for models with a `datastart`** (`setup` refuses it otherwise). `datastart`
@@ -662,18 +679,32 @@ weights, other data layouts, precompilation, more models.
    - Candidates for data starts: R2Decay and ADCDecay (the same log-linear fit; R2Decay gained
      up to ~30% in a prototype; on hold), ADCKurtosis (quadratic in b of log y), T1SR/R1SR,
      the offset models, the biexponential models, T1MFA/R1MFA. None for the IR family or
-     QMTSIR, where the grid is the tool. Test the IR null point against the grid in A4 (never
+     QMTSIR, where the grid is the tool. Test the IR null point against the grid in the start-strategy study (never
      compared) rather than assume.
    - **Starts as candidates** (the implementation underneath): every start option proposes
      starting points, EQUIP computes the SSE at each (with the `:scale` parameter solved for
-     each) and runs one fit from the best. A combination is the union of candidates, at about
+     each) and runs one fit from the best (or a few, below). A combination is the union of candidates, at about
      one signal evaluation each, so the data start and the grid share one code path.
      Candidates could be evaluated on a plain-number buffer (the grid now uses the dual buffer:
      ~1 µs per voxel for 30).
+   - **One fit from the best candidate, or several**: `Grid(values; fits = k)`, default 1.
+     Today the grid evaluates the model at each value and runs one LM fit from the lowest SSE
+     (N signals + 1 fit). That is enough for T1IR: at most 2 of 200 voxels failed, against 200
+     of 200 from one start. It can fail when the other parameters' starts are off: a
+     candidate's SSE is computed with them at their starts, not optimized, so the ranking can
+     put the wrong basin first (Sf at −1 when the truth is −0.9; fshort at 0.2 when it is 0.4).
+     The more coupled the parameters, the likelier; the biexponential is the risk (untested).
+     `fits = k` runs full fits from the k best *local minima of the grid SSE*, candidates lower
+     than all their grid neighbours, so each is a different basin (the k lowest values are
+     usually neighbours in one basin, and k fits would find the same minimum k times); it keeps
+     the lowest final SSE. Cost: k fits.
+   - **Reference for the studies: a full fit from every candidate** (`fits = :all`; T1IR 30
+     fits, biexponential 10 × 10 ≈ 1.7 ms per voxel). The start-strategy and biexponential
+     studies (item 2) measure, per strategy, the % of voxels reaching the lowest final SSE found
+     by any strategy, and the time, to decide from data whether `fits = k` is worth having and
+     for which models.
    - Later, if needed: several `:scale` parameters (biexponential amplitudes, an offset) solved
-     together by linear least squares; multi-start, a full fit from each of the best few
-     candidates keeping the lowest final SSE (e.g. `Grid(values; keep = 3)`), more robust at
-     that many fits per voxel.
+     together by linear least squares.
    - **Neighbours as a second pass**, not a first-pass start: voxels are fitted in parallel in
      no fixed order, so neighbours' results are not available during the fit. After a dataset
      fit, detect outliers from what the fit already reports: status (hit `maxiter`, failed,
