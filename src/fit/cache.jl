@@ -179,9 +179,9 @@ function _grid_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where 
             a = sy / ss
             a = isfinite(a) && a > 0 ? clamp(a, spec.lower[sc], spec.upper[sc]) : one(T)
             θ = Base.setindex(θ, a, sc)
-            sse = yy - 2a * sy + a^2 * ss                    # Σ (a·s - y)²
+            sse = yy - 2 * a * sy + a^2 * ss                 # Σ (a·s - y)²
         else
-            sse = yy - 2sy + ss                              # Σ (s - y)²
+            sse = yy - 2 * sy + ss                           # Σ (s - y)²
         end
         if sse < bestsse                                     # NaN never wins
             best, bestsse = θ, sse

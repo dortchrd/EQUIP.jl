@@ -110,9 +110,9 @@ end
         # random parameters, including Mz left over from the readout (start values ≠ 0)
         rng = MersenneTwister(7)
         for _ in 1:200
-            θr = (PSR = 0.3rand(rng), R1f = 0.3 + 2rand(rng), Sf = -1.1rand(rng), M0f = 1000rand(rng),
-                  kmf = 1 + 40rand(rng), R1m = 0.3 + 3rand(rng), Sm = rand(rng),
-                  Mzf_td0 = 0.4rand(rng) - 0.2, Mzm_td0 = 0.4rand(rng) - 0.2)
+            θr = (PSR = 0.3 * rand(rng), R1f = 0.3 + 2 * rand(rng), Sf = -1.1 * rand(rng), M0f = 1000 * rand(rng),
+                  kmf = 1 + 40 * rand(rng), R1m = 0.3 + 3 * rand(rng), Sm = rand(rng),
+                  Mzf_td0 = 0.4 * rand(rng) - 0.2, Mzm_td0 = 0.4 * rand(rng) - 0.2)
             @test signal(QMTSIR(TI = TI5, TD = TD5, magnitude = false), θr) ≈
                   sir_matrix(TI5, TD5; θr..., magnitude = false) rtol = 1e-10
         end
@@ -277,7 +277,7 @@ end
         # the same data in both forms: the same least-squares answer, R2 = 1/T2, voxel by voxel
         mT, mR = T2Decay(TE = te), R2Decay(TE = te)
         for _ in 1:20
-            y = signal(mT, (S0 = 1000.0, T2 = 0.05 + 0.1rand(rng))) .+ 10 .* randn(rng, length(te))
+            y = signal(mT, (S0 = 1000.0, T2 = 0.05 + 0.1 * rand(rng))) .+ 10 .* randn(rng, length(te))
             rT, rR = fit(mT, y), fit(mR, y)
             @test isconverged(rT) && isconverged(rR)
             @test rR.params.R2 ≈ 1 / rT.params.T2 rtol = 1e-5
@@ -309,7 +309,7 @@ end
         m = T1IRTD(TI = TI6, TD = TD6, magnitude = false)
         rng = MersenneTwister(8)
         for _ in 1:50
-            M0, Sf, T1 = 1000rand(rng), -0.5 - 0.6rand(rng), 0.2 + 3rand(rng)
+            M0, Sf, T1 = 1000 * rand(rng), -0.5 - 0.6 * rand(rng), 0.2 + 3 * rand(rng)
             # Li et al. 2010, Eq. 1, written as in the paper
             li = @. M0 * (Sf * (1 - exp(-TD6 / T1)) * exp(-TI6 / T1) + 1 - exp(-TI6 / T1))
             @test signal(m, (M0 = M0, Sf = Sf, T1 = T1)) ≈ li
@@ -317,7 +317,7 @@ end
         end
         θ = (M0 = 1000.0, T1 = 0.9)
         # a perfect inversion: the textbook form with TR = TI + TD
-        @test signal(m, merge(θ, (Sf = -1.0,))) ≈ @. 1000 * (1 - 2exp(-TI6 / 0.9) + exp(-(TI6 + TD6) / 0.9))
+        @test signal(m, merge(θ, (Sf = -1.0,))) ≈ @. 1000 * (1 - 2 * exp(-TI6 / 0.9) + exp(-(TI6 + TD6) / 0.9))
         # a long TD, or Mz at equilibrium at the start of TD: T1IR with B = 1 - Sf
         ir = signal(T1IR(TI = TI6, magnitude = false), (M0 = 1000.0, B = 1.9, T1 = 0.9))
         @test signal(T1IRTD(TI = TI6, TD = 100.0, magnitude = false), merge(θ, (Sf = -0.9,))) ≈ ir
@@ -467,7 +467,7 @@ end
                  (T1SR(TD = td), R1SR(TD = td), (M0 = 1000.0,)),
                  (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0,)))
         for (mT, mR, θ) in pairs, _ in 1:10
-            T1 = 0.6 + 1.2rand(rng)
+            T1 = 0.6 + 1.2 * rand(rng)
             @test signal(mR, merge(θ, (R1 = 1 / T1,))) ≈ signal(mT, merge(θ, (T1 = T1,)))
             y = signal(mT, merge(θ, (T1 = T1,))) .* (1 .+ 0.01 .* randn(rng, nobs(mT)))
             rT, rR = fit(mT, y), fit(mR, y)

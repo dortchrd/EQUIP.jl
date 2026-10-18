@@ -48,7 +48,7 @@ parameters(m::T2BiexpDecay) = (
     S0 = Free(:scale; lower = 0),
     fshort = Free(0.2; lower = 0, upper = 1),          # fraction of S0 in the short-T2 component
     T2short = Free(mean(m.TE) / 4; lower = _TMIN),
-    T2long = Free(2mean(m.TE); lower = _TMIN),
+    T2long = Free(2 * mean(m.TE); lower = _TMIN),
 )
 
 # The T2 form: R2 = 1/T2 for each component, then R2BiexpDecay's signal (below).
@@ -90,7 +90,7 @@ parameters(m::R2BiexpDecay) = (
     S0 = Free(:scale; lower = 0),
     fshort = Free(0.2; lower = 0, upper = 1),
     R2short = Free(4 / mean(m.TE); lower = 0),         # rate of the short-T2 component
-    R2long = Free(1 / (2mean(m.TE)); lower = 0),
+    R2long = Free(1 / (2 * mean(m.TE)); lower = 0),
 )
 
 function signal!(out, m::R2BiexpDecay, p)

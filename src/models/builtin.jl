@@ -68,7 +68,7 @@ function _t1grid(t)
     tmin = minimum(x -> x > 0 ? float(x) : Inf, t)
     tmax = float(maximum(t))
     isfinite(tmin) || (tmin = tmax / 100)                  # all times 0: a nominal range
-    return _loggrid(tmin / 5, 5tmax, 30)
+    return _loggrid(tmin / 5, 5 * tmax, 30)
 end
 
 # Grouped by area, one file per model (or per family of closely related models). Names put the

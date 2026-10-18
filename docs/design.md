@@ -37,6 +37,9 @@ Decisions behind this:
     reading the protocol (scan time, plots) sees vectors too.
 - **`signal!` unpacks by name**: `(; TI, TD, magnitude) = m` and `(; PSR, ...) = p`. Never by
   position, because the order of `p` depends on which parameters are free.
+- **Multiplication is written out**: `2 * mean(TE)`, not `2mean(TE)`. Julia allows a number
+  directly before a name, but readers coming from MATLAB or Python may not know it, and it binds
+  tighter than `/` (`1 / 2x` is `1 / (2x)`).
 - **The supertype is `MRIModel`**, not `AbstractModel`. The generic name is used by other
   packages (e.g. AbstractMCMC.jl), and exporting the same name from two packages forces users
   to qualify it.
