@@ -382,6 +382,22 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     - Barral's method also searches over T1 (as we recall the paper and qMRLab's code; not
       checked here), and that search is what fixes the far-start failures. The grid start does
       that search without the sign choice, and works for any model with a `startgrid`.
+- **Log-linear start for T2Decay** (`datastart`; `_loglinear_rate` in `src/models/builtin.jl`,
+  `_data_start` in `src/fit/cache.jl`). Each voxel's T2 starts from a straight-line fit to
+  log(y) against TE, weighted by y² (the noise in log y is about σ/y), skipping points with
+  y ≤ 0; mean(TE) when the data do not decay. Exact on noise-free data.
+  - Measured (500 voxels of magnitude data per case, time per voxel of a dataset fit on 1
+    thread, best of 3 alternating runs; absolute times on a slower machine than some notes
+    above): faster in almost every case, most when T2 is far from mean(TE). 32 echoes (TE
+    10–320 ms), SNR 50: T2 = 40 ms 5.8 → 3.7 µs, 80 ms 5.1 → 3.1 µs, 2 s 8.0 → 2.8 µs, 10 s
+    12.1 → 3.0 µs (4.1×). 8 echoes (TE 10–80 ms), SNR 50: 0.5 s 4.2 → 1.3 µs, 2 s 6.2 → 2.3 µs.
+    Never slower beyond the noise (worst: 8 echoes, T2 = 40 ms, 1.69 → 1.80 µs).
+  - Bad fits and max-iteration counts unchanged (to within 1 voxel in 24 cases): a speed-up,
+    not a robustness fix; the dead-zone guard had already removed the time form's failures.
+  - Models without a `datastart` pay nothing (the check is decided when compiling): R2Decay
+    1.68 → 1.66 µs, T1IR 2.78 → 2.68 µs, QMTSIR 2.80 → 2.80 µs (one voxel's fit).
+  - Not (yet) for R2Decay: it is already robust and fast from 1/mean(TE); in a prototype the
+    same start gained it up to about 30% (single runs). ADCDecay could use the same helper.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
