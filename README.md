@@ -274,10 +274,13 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
-- Starts from neighbouring voxels
+- Starting values as candidates: the default, a user value, the model's data start and its grid
+  each propose starting points, and the fit starts from the one with the lowest SSE. One option
+  per fit chooses the set: `starts = :auto` (the model's recommendation, the default),
+  `(:data, :grid)`, or `:default` (plain defaults, for comparisons)
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
-  neighbouring voxels), then a refit from neighbour starts or replacement by a neighbourhood
-  average, marked in the status map
+  neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
+  replacement by a neighbourhood average, marked in the status map
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
@@ -291,4 +294,5 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
 - More data-driven starting values (with `datastart`): DESPOT1 for T1MFA, which needs the
-  voxel's B1, so `datastart` would also receive the fixed values
+  voxel's B1, so `datastart` would also receive the fixed values; R2Decay and ADCDecay
+- Variable projection: solve M0/S0 exactly at every iteration, not only at the start

@@ -482,16 +482,39 @@ weights, other data layouts, precompilation, more models.
      A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
 4. **Starting values and outliers**:
-   - Starting values: model-specific guesses, neighbour/previous-voxel starts with quality
-     gates.
-   - Outlier detection after a dataset fit, from what the fit already reports: status (hit
-     `maxiter`, failed, invalid), a parameter that ended at a bound (the `FitResult` flag of
-     item 1), and a large deviation from the local neighbourhood (e.g. distance from the
-     median of the surrounding voxels, in units of a robust spread such as the MAD).
-   - Then, per outlier, either refit starting from its neighbours' values (keep the refit if
-     it converges, within bounds, with a lower SSE), or replace it with a neighbourhood
-     average. Mark replaced voxels in the status map, so they are never mistaken for fitted
-     values.
+   - **Starts as candidates.** Today a voxel's start comes from fixed steps in order: the
+     default or user value, the model's `datastart`, its `startgrid`, then the `:scale` solve.
+     Unify the data start and the grid as candidate generators: each method proposes starting
+     points, EQUIP computes the SSE at each (with the `:scale` parameter solved for each, as
+     the grid does now) and runs one fit from the best. The default gives 1 candidate, a user
+     value 1, `datastart` 1, the grid about 30, neighbours (below) a few. A combination is then
+     the union of candidates, at about one signal evaluation each, and the two special code
+     paths become one. Candidates could be evaluated on a plain-number buffer (the grid now
+     uses the dual buffer: ~1 µs per voxel for 30).
+   - **One user option per fit**: `starts = :auto` (the model's recommended set: today's
+     behaviour, and the default), `starts = (:data, :grid)` (an explicit set), `starts =
+     :default` (plain defaults only, for benchmarks, comparisons of strategies, or reproducing
+     older results). Per-parameter `start` numbers and maps stay and still win. Names are
+     generic (`:data` is the log-linear fit for T2Decay, DESPOT1 for T1MFA); the method
+     actually used goes into the fit's settings (`FitResult`, item 1).
+   - `:scale` stays as it is: not a strategy but the exact least-squares solve for the one
+     parameter the signal is linear in (M0, S0), done for every candidate.
+   - More data-driven starts: DESPOT1 for T1MFA, which needs the voxel's B1, so `datastart`
+     would also receive this voxel's fixed values; `datastart` for R2Decay and ADCDecay (one
+     line each; R2Decay gained up to ~30% in a prototype).
+   - Later, if needed: multi-start, a full fit from each of the best few candidates, keeping the
+     lowest final SSE. More robust than picking the best candidate first, at that many fits
+     per voxel.
+   - **Neighbours as a second pass**, not a first-pass start: voxels are fitted in parallel in
+     no fixed order, so neighbours' results are not available during the fit. After a dataset
+     fit, detect outliers from what the fit already reports: status (hit `maxiter`, failed,
+     invalid), a parameter that ended at a bound (the `FitResult` flag of item 1), and a large
+     deviation from the local neighbourhood (e.g. distance from the median of the surrounding
+     voxels, in units of a robust spread such as the MAD).
+   - Then, per outlier, either refit with its neighbours' median as an extra candidate (e.g.
+     `refit = :neighbors`; keep the refit if it converges, within bounds, with a lower SSE), or
+     replace it with a neighbourhood average. Mark replaced voxels in the status map, so they
+     are never mistaken for fitted values.
    - Bounds stay on by default: measured on SIR-FSE (5-point scheme, SNR 100), they cost
      nothing for good voxels (2.98 vs 3.00 µs, same iterations and results) and make bad ones
      faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
@@ -553,7 +576,7 @@ weights, other data layouts, precompilation, more models.
      not adopted (Performance notes, grid-search start).
    - Bounds in the solver: if boundary problems remain that the dead-zone guard does not handle,
      compare against a trust-region-reflective step (SciPy's `trf`) or a change of variables.
-   - More data-driven starting values (`datastart`): DESPOT1 for T1MFA, which needs the
-     voxel's B1 map, so `datastart` would also receive this voxel's fixed values. The grid could
-     evaluate on a plain-number buffer to cut its ~1 µs per voxel.
+   - Variable projection for the `:scale` parameter: solve M0/S0 by least squares at every
+     iteration, not only at the start, so LM works on one parameter fewer (Golub & Pereyra;
+     Barral's RD-NLS does this for inversion recovery). To measure: speed and robustness.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
