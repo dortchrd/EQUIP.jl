@@ -304,7 +304,8 @@ src/
     diffusion/            adc_decay.jl, adc_kurtosis.jl
     qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
-                          (FitResult), cache.jl (init, fit!), fit.jl (fit)
+                          (FitResult), starts.jl (each voxel's starting point), cache.jl
+                          (init, fit!), fit.jl (fit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
 ```
 

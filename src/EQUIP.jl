@@ -59,6 +59,7 @@ include("models/builtin.jl")           # the built-in models, by area (relaxomet
 include("fit/levmar.jl")               # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + fixed/free/start -> FitSpec
 include("fit/result.jl")               # FitResult: what fit and fit! return
+include("fit/starts.jl")               # each voxel's starting point: datastart, grid, scale
 include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
 include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
 

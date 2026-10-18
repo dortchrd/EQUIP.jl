@@ -309,7 +309,8 @@ src/
     relaxometry/       T1IR, T1SR, T1MFA, T2Decay (+ R1/R2 and offset versions), T2BiexpDecay
     diffusion/         ADCDecay, ADCKurtosis
     qmt/               QMTSIR
-  fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
+  fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
+                       (FitResult), starts.jl (starting values: datastart, grid, scale),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
   sim/                 simulate (noise), TISSUES / tissue / truth (presets), phantom and
                        labelshapes, compare (fit vs truth)
@@ -386,7 +387,9 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   same runs). `@inline` on the one-liners is not needed: Julia already inlines them (the
   compiled `normal_equations` calls the rate model's `signal!` directly, checked with
   `code_typed`), and adding it changed one voxel's fit by −1.6% to +0.9%, the same as for the
-  unchanged rate models in the same runs. In practice the whole question is
+  unchanged rate models in the same runs. Where it does matter: `_score` in `src/fit/starts.jl`
+  (the scale solve and SSE of a candidate start), too large to be inlined automatically and
+  called 30 times per voxel by the grid start; without `@inline`, T1IR fits were 8% slower. In practice the whole question is
   small: a 128×128×90 dataset with 32 echoes and 25% of voxels in the mask (368k voxels) fits
   in 0.66–0.76 s on 1 thread and 0.16–0.19 s on 4, whichever variant (SIR 5-point on the same
   mask: 0.93 s and 0.24 s).
@@ -420,7 +423,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     or T1 is a question of precision (T2 = 2 s from TE ≤ 320 ms: 0.6–2.9× the truth at SNR 10),
     for CRLB and protocol design.
 - **Grid-search start for magnitude inversion recovery** (`startgrid`; `_grid_start` in
-  `src/fit/cache.jl`). |S| has local minima: from one start a fit can settle with the signal
+  `src/fit/starts.jl`). |S| has local minima: from one start a fit can settle with the signal
   null in the wrong place. Before LM, each voxel evaluates the signal at 30 values of T1
   (log-spaced from 1/5 of the shortest TI to 5× the longest; the R1 forms use the same values
   as rates), the `:scale` parameter at its least-squares value for each, and starts from the
@@ -473,7 +476,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       checked here), and that search is what fixes the far-start failures. The grid start does
       that search without the sign choice, and works for any model with a `startgrid`.
 - **Log-linear start for T2Decay** (`datastart`; `_loglinear_rate` in `src/models/builtin.jl`,
-  `_data_start` in `src/fit/cache.jl`). Each voxel's T2 starts from a straight-line fit to
+  `_data_start` in `src/fit/starts.jl`). Each voxel's T2 starts from a straight-line fit to
   log(y) against TE, weighted by y² (the noise in log y is about σ/y), skipping points with
   y ≤ 0; mean(TE) when the data do not decay. Exact on noise-free data.
   - Measured (500 voxels of magnitude data per case, time per voxel of a dataset fit on 1
@@ -488,6 +491,12 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     1.68 → 1.66 µs, T1IR 2.78 → 2.68 µs, QMTSIR 2.80 → 2.80 µs (one voxel's fit).
   - Not (yet) for R2Decay: it is already robust and fast from 1/mean(TE); in a prototype the
     same start gained it up to about 30% (single runs). ADCDecay could use the same helper.
+- **Starting values in one place** (`src/fit/starts.jl`): the data start, the grid and the scale
+  start, which used to be in `cache.jl`. One helper, `_score`, solves the scale and the SSE of a
+  candidate start; the grid scores each grid value with it, the scale start scores one. Before,
+  the grid repeated the scale calculation (and its fall-back to 1, unclamped there). Moving the
+  code changed no result: starting points and final fits identical, bit for bit, for 18 model
+  setups in Float64 and Float32. The helper is the core of the candidate starts of roadmap item 4.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
