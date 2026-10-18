@@ -205,6 +205,11 @@ end
         @test_throws ArgumentError setup(m; R1m = Free())                # a tie freed needs a start
         @test_throws ArgumentError setup(m; mask = trues(3))             # mask is for datasets
         @test_throws "solver = LM(maxiter" setup(m; maxiter = 50)        # solver settings go in LM
+        ir = T1IR(TI = [0.1, 0.5, 1.0])
+        @test_throws "M0 in T1IR" setup(ir; T1 = Free(start = :scale))                # only the model's scale
+        @test_throws "M0 in T1IR" setup(ir; T1 = Free(start = :scale), M0 = Free(start = 1000.0))
+        @test setup(ir; M0 = Free(start = 1000.0)).scale == 0                        # turned off: allowed
+        @test setup(ir; M0 = Free(start = :scale)).scale == 1                        # the model's own: allowed
         @test_throws ArgumentError setup(T2Decay(TE = [0.01]); S0 = 1.0, T2 = 0.1)   # nothing free
         e = try setup(m; kmff = 1.0) catch err err end
         @test occursin("PSR, R1f", e.msg) && occursin("mask, precision, solver", e.msg)

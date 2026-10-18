@@ -70,7 +70,9 @@ Role of a parameter that is estimated: its starting value and its bounds.
 In a model's [`parameters`](@ref), the defaults: `Free(0.1; lower = 0, upper = 1)`. A bound left
 out means none. `Free(:scale; lower = 0)` marks the parameter that multiplies the whole signal
 (S0, M0): it then starts, in every voxel, at the least-squares value given the other starting
-values, so the data need no normalization.
+values, so the data need no normalization. Only the model declares it: the rule assumes the
+signal is proportional to the parameter (true for M0, not for T1). A fit can turn it off by
+giving that parameter a start (`M0 = Free(start = 1000.0)`), but cannot move it to another one.
 
 In a fit, to estimate a parameter or change its start or bounds; whatever is left out keeps the
 model's default:
@@ -165,8 +167,10 @@ from the one that fits the data best. Use it for models whose fits can end in a 
 minimum from a single start, such as magnitude inversion recovery. The grid is skipped when
 the parameter is fixed or given a start in the call. The default, `nothing`, means no grid.
 
+T1IR's grid (`t1_ir.jl`), 30 values log-spaced from 1/5 of the shortest TI to 5× the longest:
+
 ```julia
-startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)
+startgrid(m::T1IR) = (T1 = _t1grid(m.TI),)
 ```
 """
 startgrid(::MRIModel) = nothing

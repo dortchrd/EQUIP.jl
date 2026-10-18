@@ -91,7 +91,9 @@ parameters(::QMTSIR) = (
 
 - `Free(init; lower, upper)`: estimated, starting at `init` and kept within the bounds.
   `init = :scale` is for the parameter that scales the whole signal (S0, M0). It starts at
-  the least-squares value given the other starts, so raw data need no normalization.
+  the least-squares value given the other starts, so raw data need no normalization. Only the
+  model declares it (the rule assumes the signal is proportional to the parameter): a fit can
+  turn it off, `M0 = Free(start = 1000.0)`, but not move it to another parameter.
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie.
@@ -250,10 +252,10 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
 - **`startgrid`** (optional): if fits can end in a wrong local minimum from one start, give a
-  grid of values for one free parameter, e.g.
-  `startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)`. Each voxel
-  evaluates the signal at every value (a `:scale` parameter at its best value for each) and
-  starts from the best fit. The default is no grid.
+  grid of values for one free parameter. T1IR's is `startgrid(m::T1IR) = (T1 = _t1grid(m.TI),)`:
+  30 values log-spaced from 1/5 of the shortest TI to 5× the longest. Each voxel evaluates the
+  signal at every value (a `:scale` parameter at its best value for each) and starts from the
+  best fit. The default is no grid.
 - **`datastart`** (optional): starting values computed from each voxel's data, such as a
   linearized fit. T2Decay's is a log-linear fit:
   `datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)`. Return NaN when the data
@@ -354,10 +356,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
-- Starting values as candidates: the default, a user value, the model's data start and its grid
-  each propose starting points, and the fit starts from the one with the lowest SSE. One option
-  per fit chooses the set: `starts = :auto` (the model's recommendation, the default),
-  `(:data, :grid)`, or `:default` (plain defaults, for comparisons)
+- Start options per parameter, in `Free`: a number or map, `:scale` (least squares, only for the
+  parameter the model declares), `Grid(values)` (try each, keep the best; a grid on several
+  parameters tries every combination) and `:data` (the model's estimate from the voxel's data).
+  Models declare theirs in `parameters(m)`, e.g. `T1 = Free(Grid(_t1grid(m.TI)); lower = ...)`;
+  a fit changes them like any start, e.g. `T1 = Free(start = Grid(logrange(0.05, 5, 50)))`
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
   neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
   replacement by a neighbourhood average, marked in the status map

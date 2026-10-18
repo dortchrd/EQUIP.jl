@@ -186,8 +186,11 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
 - `Free(init; lower, upper)`: estimated. `init` is a number, or `:scale` for the parameter that
   multiplies the whole signal. A `:scale` parameter starts, per voxel, at
   (s·y)/(s·s), where s is the signal at scale 1 given the other starts. This one generic rule
-  replaces data normalization. A model can also give a grid of starts for one parameter
-  (`startgrid`) or compute starts from each voxel's data (`datastart`).
+  replaces data normalization. Only the model declares it, since the rule assumes the signal
+  is proportional to the parameter: `setup` refuses `T1 = Free(start = :scale)` (before this
+  check it ran, giving T1 a meaningless start). A fit can turn it off,
+  `M0 = Free(start = 1000.0)`, but not move it. A model can also give a grid of starts for one
+  parameter (`startgrid`) or compute starts from each voxel's data (`datastart`).
 - `Fixed(value)`: not estimated. `value` is a number, a per-voxel map, or a tie, resolved after
   the free values are merged in, so derivatives flow through it. A tie may not refer to another
   tie.
@@ -616,40 +619,71 @@ weights, other data layouts, precompilation, more models.
      stored (σ̂, AIC, BIC come from `sse`, n and p). All assume Gaussian noise: biased for
      low-SNR magnitude data, documented once, next to the Rician-likelihood work.
 4. **Starting values and outliers**:
-   - **Starts as candidates.** Today a voxel's start comes from fixed steps in order: the
-     default or user value, the model's `datastart`, its `startgrid`, then the `:scale` solve.
-     Unify the data start and the grid as candidate generators: each method proposes starting
-     points, EQUIP computes the SSE at each (with the `:scale` parameter solved for each, as
-     the grid does now) and runs one fit from the best. The default gives 1 candidate, a user
-     value 1, `datastart` 1, the grid about 30, neighbours (below) a few. A combination is then
-     the union of candidates, at about one signal evaluation each, and the two special code
-     paths become one. Candidates could be evaluated on a plain-number buffer (the grid now
-     uses the dual buffer: ~1 µs per voxel for 30).
-   - **One user option per fit**: `starts = :auto` (the model's recommended set: today's
-     behaviour, and the default), `starts = (:data, :grid)` (an explicit set), `starts =
-     :default` (plain defaults only, for benchmarks, comparisons of strategies, or reproducing
-     older results). Starts given per parameter (`T1 = Free(start = ...)`) stay and still win.
-     `starts` would become a fourth reserved option name (see Parameter roles). Names are
-     generic (`:data` is the log-linear fit for T2Decay, DESPOT1 for T1MFA); the method
-     actually used goes into the fit's settings (`FitResult`, item 1).
-   - `:scale` stays as it is: not a strategy but the exact least-squares solve for the one
-     parameter the signal is linear in (M0, S0), done for every candidate.
-   - More data-driven starts: DESPOT1 for T1MFA, which needs the voxel's B1, so `datastart`
-     would also receive this voxel's fixed values; `datastart` for R2Decay and ADCDecay (one
-     line each; R2Decay gained up to ~30% in a prototype).
-   - Later, if needed: multi-start, a full fit from each of the best few candidates, keeping the
-     lowest final SSE. More robust than picking the best candidate first, at that many fits
-     per voxel.
+   - **Start options per parameter, in `Free`** (replaces the `startgrid` hook and the earlier
+     plan for a per-fit `starts` option). A free parameter's start says where it comes from:
+
+     | `start =` | per voxel | given by |
+     |---|---|---|
+     | a number or a map | start there | model default or the call |
+     | `:scale` | least squares given the other starts, a = (s·y)/(s·s) | the model only |
+     | `Grid(values)` | try each value (`:scale` solved for each), start from the lowest SSE | model default or the call |
+     | `:data` | the model's estimate from this voxel's data (`datastart`) | model default or the call |
+
+     Models declare theirs in `parameters(m)`, so a reader sees where each start comes from:
+     ```julia
+     parameters(m::T1IR) = (M0 = Free(:scale; lower = 0),
+                            T1 = Free(Grid(_t1grid(m.TI)); lower = _TMIN), Sf = Free(-1.0; ...))
+     parameters(m::T2Decay) = (S0 = Free(:scale; lower = 0), T2 = Free(:data; lower = _TMIN))
+     ```
+     A fit changes them like any start: `T1 = Free(start = 0.8)` (no grid),
+     `T1 = Free(start = Grid(logrange(0.05, 5, 50)))` (another grid), `T2 = Free(start = 0.05)`
+     (no data start). The model's defaults are the automatic choice, so there is no `:auto`.
+   - `Grid` is a wrapper because a plain vector start already means a per-voxel map.
+   - A grid on several parameters tries every combination (biexponential T2short × T2long:
+     10 × 10 = 100 signal evaluations, a few µs per voxel). `setup` now allows one.
+   - Per voxel, the order stays: numbers and maps, then `:data`, then the grid candidates with
+     `:scale` solved for each, then LM from the best. The fast path is unchanged.
+   - Simpler code: the `startgrid` hook and the `userstart` bookkeeping in `setup` go (a start
+     given in the call simply replaces the model's `:data` or `Grid`), and no fourth reserved
+     option name is needed. Comparing strategies (2b, A4) passes starts per parameter.
+   - `:scale` stays for the model to declare (done: `setup` refuses it on any other parameter,
+     see Parameter roles).
+   - **`:data` only for models with a `datastart`** (`setup` refuses it otherwise). `datastart`
+     returns its own fallback (T2Decay: mean(TE) when the data do not decay), since a `:data`
+     parameter has no default number to fall back to. It also receives the voxel's fixed values,
+     `datastart(m, y, p)`, which DESPOT1 needs for B1.
+   - History: VoxelFit 0.1 had a per-fit `init = :auto`, and 0.2 a per-parameter
+     `Estimate(:auto)` from `initial_guess(m, acq, y, p)`, with a guess for every model. The lean
+     rewrite (9a6e173) removed data starts and kept `Free(:scale)`. The 0.2 guesses are in git
+     (99a0367) to port as `datastart` methods: log-linear (mono-exponential), peeling
+     (bi-exponential: slow component from the late echoes, fast from the residual of the early
+     ones), the null point for inversion recovery (T1 = TI_null / ln 2), log(S0 − y) for
+     saturation recovery, DESPOT1 with B1 for SPGR/T1MFA, max |y| for M0f.
+   - Candidates for data starts: R2Decay and ADCDecay (the same log-linear fit; R2Decay gained
+     up to ~30% in a prototype; on hold), ADCKurtosis (quadratic in b of log y), T1SR/R1SR,
+     the offset models, the biexponential models, T1MFA/R1MFA. None for the IR family or
+     QMTSIR, where the grid is the tool. Test the IR null point against the grid in A4 (never
+     compared) rather than assume.
+   - **Starts as candidates** (the implementation underneath): every start option proposes
+     starting points, EQUIP computes the SSE at each (with the `:scale` parameter solved for
+     each) and runs one fit from the best. A combination is the union of candidates, at about
+     one signal evaluation each, so the data start and the grid share one code path.
+     Candidates could be evaluated on a plain-number buffer (the grid now uses the dual buffer:
+     ~1 µs per voxel for 30).
+   - Later, if needed: several `:scale` parameters (biexponential amplitudes, an offset) solved
+     together by linear least squares; multi-start, a full fit from each of the best few
+     candidates keeping the lowest final SSE (e.g. `Grid(values; keep = 3)`), more robust at
+     that many fits per voxel.
    - **Neighbours as a second pass**, not a first-pass start: voxels are fitted in parallel in
      no fixed order, so neighbours' results are not available during the fit. After a dataset
      fit, detect outliers from what the fit already reports: status (hit `maxiter`, failed,
      invalid), a parameter that ended at a bound (the `FitResult` flag of item 1), and a large
      deviation from the local neighbourhood (e.g. distance from the median of the surrounding
      voxels, in units of a robust spread such as the MAD).
-   - Then, per outlier, either refit with its neighbours' median as an extra candidate (a
-     second pass built on `refit`; keep the refit if it converges, within bounds, with a lower
-     SSE), or
-     replace it with a neighbourhood average. Mark replaced voxels in the status map, so they
+   - Then, per outlier, either refit with its neighbours' median as the start, a map start
+     over the outliers only: `refit(res, data; mask = bad, T1 = Free(start = neighbour_median))`
+     (keep the refit if it converges, within bounds, with a lower SSE), or replace it with a
+     neighbourhood average. Mark replaced voxels in the status map, so they
      are never mistaken for fitted values.
    - Bounds stay on by default: measured on SIR-FSE (5-point scheme, SNR 100), they cost
      nothing for good voxels (2.98 vs 3.00 µs, same iterations and results) and make bad ones

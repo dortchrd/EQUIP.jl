@@ -69,6 +69,24 @@ function _override(d::Fixed, x::Free, name)
     return Free(d.value, x.lower, x.upper)
 end
 
+# The name of the parameter the model declares `Free(:scale)` (M0, S0, M0f), or nothing. Also used
+# by `simulate` (its `snr` is relative to this parameter).
+function _scalename(m::MRIModel)
+    roles = parameters(m)
+    i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
+    return i === nothing ? nothing : keys(roles)[i]
+end
+
+# `:scale` assumes the signal is proportional to the parameter (true for M0, not for T1), so only
+# the model can declare it. A fit can turn it off (M0 = Free(start = 1000.0)) but not move it.
+function _check_scale(model, n)
+    s = _scalename(model)
+    s === n && return nothing
+    M = nameof(typeof(model))
+    throw(ArgumentError(s === nothing ? "`$n = Free(start = :scale)`: $M has no scale parameter" :
+        "`$n = Free(start = :scale)`: :scale is for the parameter the signal is proportional to ($s in $M)"))
+end
+
 # Numbers are converted to the working precision; a tie by name becomes a `_Tie` (see
 # models/interface.jl); maps and function ties are kept as they are.
 _value(x::Real, ::Type{T}) where {T} = T(x)
@@ -104,6 +122,7 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
             n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
             "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
             "nor an option ($(join(_OPTIONS, ", ")))"))
+        x isa Free && x.start === :scale && _check_scale(model, n)
         x isa Free && x.start !== nothing && x.start !== :scale && push!(userstart, n)
         roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
     end
