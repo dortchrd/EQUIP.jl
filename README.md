@@ -241,6 +241,43 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
   change the signal. The default changes nothing.
 
+## Simulation
+
+Simulated data, phantoms and published tissue values, for Monte Carlo studies, testing a
+protocol, or checking a model before scanning:
+
+```julia
+m = QMTSIR(; SIR_4POINT...)                   # the 4-point scheme of Dortch et al., MRM 2018
+t = truth(m, :SIR_lesion)                     # Table 1 values: PSR, R1f, Sf, M0f = 1, kmf = 20, ...
+Y = simulate(m, t; snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
+res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased below 5%
+compare(res, t)                               # bias, SD, RMSE, % converged
+
+m = T2Decay(TE = 0.01:0.01:0.32)
+labels = labelshapes((64, 64))                # synthetic shapes: labels 0 (background) to 3
+maps = phantom(labels, [1 => truth(m, :GM; S0 = 1000.0), 2 => truth(m, :WM; S0 = 1000.0),
+                        3 => truth(m, :blood; S0 = 1000.0)])
+res = fit(m, simulate(m, maps; snr = 100); mask = labels .> 0)
+compare(res, maps; labels)                    # per tissue
+```
+
+- `simulate(m, truth; snr or σ, noise, n, rng)`: `truth` holds numbers or maps. `snr` is
+  relative to the model's scale parameter (M0, S0, M0f: σ = scale/snr, "SNR at thermal
+  equilibrium"), so it does not depend on the protocol; `σ` sets the noise directly, in signal
+  units. Rician noise by default; Gaussian for models fitted to signed data
+  (`magnitude = false`). Pass `rng = MersenneTwister(seed)` for repeatable data.
+- `TISSUES`, `tissue(name)`: T1 and T2 at 3 T from Stanisz et al., MRM 2005 (in vitro, 37 °C:
+  `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...), and the SIR tissue classes of Dortch et al.,
+  MRM 2018, Table 1 (`:SIR_WM_I`, `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`).
+- `truth(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
+  where needed; the scale parameter is 1 unless given. Values that are not tissue properties
+  (an inversion efficiency `B`, a flip-angle scale `B1`) must be given.
+- `phantom(labels, tissues)`: parameter maps from a label image (NaN in the background);
+  `labelshapes(dims)`: a 2-D or 3-D image of nested ellipses and a small disc.
+- `compare(res, truth; labels, mask)`: per parameter, overall and per label: bias, relative
+  bias, SD, RMSE, relative RMSE, median relative error and % converged. `c.rows` is a table.
+- `SIR_5POINT`, `SIR_4POINT`: the optimized schemes of Dortch et al., MRM 2018, Table 2.
+
 ## How it works
 
 ```
@@ -266,8 +303,9 @@ src/
     relaxometry/          t1_ir.jl, t1_sr.jl, t1_mfa.jl, t2_decay.jl, t2_biexp_decay.jl
     diffusion/            adc_decay.jl, adc_kurtosis.jl
     qmt/                  qmt_sir.jl
-  fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec),
-                          cache.jl (init, fit!), fit.jl (fit)
+  fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
+                          (FitResult), cache.jl (init, fit!), fit.jl (fit)
+  sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
 ```
 
 `docs/design.md` records the design decisions.
@@ -277,9 +315,8 @@ src/
 Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
 `main` branches.
 
-- **sim/**: `simulate` (Rician/Gaussian noise), digital phantoms (label images → parameter maps,
-  synthetic shapes, later brain-like segmentations), tissue presets (the 2018 paper's Table 1
-  for SIR), and `compare` against the truth; shared by Monte Carlo, benchmarks and tests
+- **sim/** (started): phantoms with smooth variation, partial volume, a B1 field and lesions;
+  brain-like phantoms from segmentations (BrainWeb, KomaMRI's); CSF and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **analysis/**: fit statistics on `FitResult` under StatsAPI's names (`stderror`, `vcov`,

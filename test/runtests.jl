@@ -4,6 +4,7 @@ using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
+using Statistics: mean, std
 using Test
 
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
@@ -79,6 +80,7 @@ end
             c = init(m; precision = T)
             fit!(c, y)                              # first call compiles
             @test (@allocated fit!(c, y)) == 0
+            @inferred fit!(c, y)                    # the result's type is known when compiling
         end
     end
 
@@ -565,6 +567,59 @@ end
         @test occursin("kmf = 15.0", s) && occursin("R1m = R1f (tied)", s)
         s = sprint(show, MIME("text/plain"), res)
         @test occursin("19 of 20 voxels (mask)", s) && occursin("medians", s)
+    end
+
+    @testset "simulation: simulate, tissue presets, phantoms, compare" begin
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.08)
+        # shapes: one voxel, n copies; the same seed gives the same data
+        @test size(simulate(m, θ; snr = 50)) == (32,)
+        @test size(simulate(m, θ; snr = 50, n = 7)) == (7, 32)
+        @test simulate(m, θ; snr = 50, rng = MersenneTwister(1)) == simulate(m, θ; snr = 50, rng = MersenneTwister(1))
+        # snr is relative to the scale parameter (here σ = 1000/50 = 20); Gaussian SD; Rician floor
+        Y = simulate(m, θ; snr = 50, n = 20_000, noise = :gaussian, rng = MersenneTwister(2))
+        @test std(Y[:, 1]) ≈ 20 rtol = 0.03
+        @test mean(Y[:, 1]) ≈ signal(m, θ)[1] rtol = 0.003
+        Yr = simulate(m, (S0 = 1000.0, T2 = 1e-4); σ = 20, n = 20_000, rng = MersenneTwister(3))
+        @test mean(Yr[:, end]) ≈ 20 * sqrt(π / 2) rtol = 0.02              # Rayleigh: no signal left
+        @test EQUIP._default_noise(T1IR(TI = [0.1], magnitude = false)) == :gaussian
+        @test EQUIP._default_noise(T1IR(TI = [0.1])) == :rician
+        @test_throws ArgumentError simulate(m, θ)                            # no noise level
+        @test_throws ArgumentError simulate(m, θ; snr = 50, σ = 1.0)         # both
+        # tissue presets and truth
+        @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
+        @test truth(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
+        @test truth(T1IR(TI = [0.1]), :GM; B = 1.95, M0 = 1000.0) == (M0 = 1000.0, B = 1.95, T1 = 1.82)
+        @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # B is not a tissue value
+        @test_throws ArgumentError truth(m, :brain)                          # unknown tissue
+        @test truth(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
+              (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, Sm = 0.83)
+        @test SIR_5POINT.TI == TI5 && SIR_5POINT.TD == TD5
+        # a phantom, end to end: simulate, fit, compare
+        labels = labelshapes((24, 20))
+        @test sort(unique(labels)) == [0, 1, 2, 3]
+        tm = phantom(labels, [1 => truth(m, :GM; S0 = 1000.0), 2 => truth(m, :WM; S0 = 1000.0),
+                              3 => truth(m, :blood; S0 = 1000.0)])
+        @test isnan(tm.T2[1, 1]) && all(==(0.069), tm.T2[labels .== 2])
+        data = simulate(m, tm; snr = 100, rng = MersenneTwister(4))
+        @test all(isnan, data[1, 1, :])                                      # background
+        res = fit(m, data; mask = labels .> 0)
+        c = compare(res, tm; labels)
+        @test [r.group for r in c.rows if r.parameter == :T2] == [:all, 1, 2, 3]
+        @test all(r -> r.converged == 1, c.rows)
+        @test all(r -> abs(r.relbias) < 0.01 && r.relrmse < 0.03, c.rows)
+        @test occursin("rel bias", sprint(show, MIME("text/plain"), c))
+        # Dortch et al. 2018, Fig. 1 (RRMS lesion, Rician noise, SNR 200 at thermal equilibrium):
+        # fixing kmf at 12.5 (4-point scheme) biases PSR below its true 5%; the 5-point does not
+        for (mm, kw, lo, hi) in ((QMTSIR(; SIR_5POINT...), (free = (:kmf,),), 4.95, 5.2),
+                                 (QMTSIR(; SIR_4POINT...), (;), 4.65, 4.85))
+            t = truth(mm, :SIR_lesion)
+            r = compare(fit(mm, simulate(mm, t; snr = 200, n = 2000, rng = MersenneTwister(5)); kw...), t)
+            psr = only(filter(x -> x.parameter == :PSR, r.rows))
+            @test lo < 100 * psr.mean < hi
+            @test psr.converged == 1
+        end
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

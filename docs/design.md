@@ -261,6 +261,42 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   status, median and interquartile range of each parameter over converged voxels, fixed
   parameters).
 
+## Simulation
+
+`src/sim/` (uses models and fit): `simulate`, the tissue presets, phantoms and `compare`.
+
+- **SNR is relative to the scale parameter** (the one declared `Free(:scale)`: M0, S0, M0f),
+  σ = scale/snr, voxel by voxel: Dortch et al. 2018's "SNR = 200 at thermal equilibrium". It
+  does not depend on the protocol, as σ on a scanner, so protocols compare at equal noise. The
+  measured signal can be far below the scale (MFA at low flip angles, SIR schemes that never
+  reach full recovery), so image SNR and this SNR differ. `σ` gives the noise directly (e.g.
+  from an image background); an SNR relative to the measured signal can be added if needed.
+- **Rician noise by default** (|S + σ·(n₁ + i·n₂)|), Gaussian for models fitted to signed data
+  (`magnitude = false`). For magnitude inversion recovery, adding complex noise to the signed
+  signal and taking the magnitude depends only on |S|, so Rician noise on the model's |S| is
+  exact.
+- **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
+  Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
+  bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
+  2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). No CSF yet: Stanisz has none,
+  and a reference is still to choose. `truth(m, tissue)` converts T1/T2 to rates by name, sets
+  the scale parameter to 1, and refuses to guess free parameters that are not tissue properties
+  (B, B1, the Sf of T1IRTD): they are given as keywords.
+- **Phantoms**: `phantom(labels, tissues)` fills one map per parameter from label => truth
+  pairs, NaN elsewhere, so the background gives NaN data and is left out with
+  `mask = labels .> 0`. `labelshapes(dims)`: nested ellipses (labels 1, 2) and a small disc
+  (3), 2-D or 3-D.
+- **`compare`** uses every fitted voxel, converged or not (failures are part of the real
+  performance; % converged is reported beside them), overall and per label. Rows are named
+  tuples, so `c.rows` is a table for DataFrames or CSV. No timing: speed is measured in
+  `bench/`.
+- **Check against Dortch et al. 2018, Fig. 1** (RRMS lesion, Rician noise, SNR 200, 10,000
+  realizations): PSR 5.09% (5-point, kmf free) and 4.74–4.75% (4-point, kmf fixed at 12.5, the
+  bias the paper shows), R1f SD 0.015 and 0.017. The 5-point PSR distribution has a heavy upper
+  tail (99.9th percentile up to 11%), so its SD varies with the seed (0.77–0.90% over five
+  seeds) while a robust spread (IQR/1.349) stays at 0.72–0.75%: worth knowing when comparing
+  Monte Carlo SDs with the CRLB (item 3). `test/` runs a 2000-realization version.
+
 ## Package structure and name
 
 **One package, in layers.** Each layer only uses the layers before it:
@@ -275,8 +311,9 @@ src/
     qmt/               QMTSIR
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec),
                        cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
-  sim/                 (later) simulate (noise models), digital phantoms, tissue presets
-  analysis/            (later) compare (fit vs truth), Monte Carlo, CRLB, sensitivity
+  sim/                 simulate (noise), TISSUES / tissue / truth (presets), phantom and
+                       labelshapes, compare (fit vs truth)
+  analysis/            (later) Monte Carlo, CRLB, sensitivity
   design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
 ext/                   (later) package extensions: OptimExt (optimize_protocol), and one per file
@@ -479,19 +516,17 @@ weights, other data layouts, precompilation, more models.
    internal `SolverResult` stays as it is; the solver already computes JᵀJ at the solution.
 2. **Simulation, digital phantoms and benchmarks**: one simulation layer (`sim/`) shared by
    Monte Carlo, benchmarks, accuracy studies and tests, and useful to users directly.
-   - `simulate(m, truth; noise = :rician | :gaussian, snr or σ, rng)`: noisy data, observations
-     last. `truth` is a named tuple like `p` in `signal(m, p)`: numbers (one tissue) or maps
-     (a phantom). The SNR definition is stated explicitly (e.g. relative to M0).
-   - Digital phantoms: maps of tissue parameters with spatial structure. `phantom(labels,
-     tissues)` turns an integer label image into parameter maps (optional smooth variation,
-     partial volume, a B1 field, lesions, background); `phantom(:shapes, size; tissues)` makes
-     synthetic geometry with no external data. Later, brain-like phantoms from tissue
-     segmentations (BrainWeb, or the brain phantom KomaMRI uses, read from file) and real data
-     (qMRLab's OSF datasets).
-   - Tissue presets: the Table 1 classes of the 2018 paper for SIR; literature T1/T2 for
-     WM/GM/CSF.
-   - `compare(res, truth; mask, labels)`: bias, RMSE, % converged and time, overall and per
-     tissue label.
+   - Done (2a, see the Simulation section): `simulate` (Rician or Gaussian noise, `snr`
+     relative to the scale parameter or `σ`, `n` copies or maps, a seeded `rng`); `TISSUES`
+     (Stanisz et al. 2005, Table 1, 3 T; Dortch et al. 2018, Table 1) with `tissue` and
+     `truth`; `phantom(labels, tissues)` and `labelshapes(dims)`; `compare` (bias, SD, RMSE,
+     relative errors, % converged, overall and per label; no timing: speed belongs to
+     `bench/`); `SIR_5POINT` / `SIR_4POINT` (Dortch et al. 2018, Table 2); a seeded end-to-end
+     test and the Fig. 1 check in `test/`; `@inferred` checks of `fit!`.
+   - Still to do in `sim/`: phantoms with smooth variation, partial volume, a B1 field and
+     lesions; brain-like phantoms from tissue segmentations (BrainWeb, or the brain phantom
+     KomaMRI uses, read from file) and real data (qMRLab's OSF datasets); CSF and in vivo
+     tissue values (needs a reference).
    - Monte Carlo vs phantoms: Monte Carlo (independent noisy copies of chosen tissues) gives
      bias/SD/RMSE against the CRLB and accuracy vs SNR; phantoms are needed for everything that
      uses neighbours or geometry (neighbour starts, outlier detection, masks) and for realistic

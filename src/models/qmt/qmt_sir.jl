@@ -141,3 +141,15 @@ function signal!(out, m::QMTSIR, p)
     end
     return out
 end
+
+"""
+    SIR_5POINT, SIR_4POINT
+
+The optimized SIR-FSE sampling schemes of Dortch et al., Magn Reson Med 2018;80:1824, Table 2
+(TI and TD in s), e.g. `QMTSIR(; SIR_5POINT...)`:
+
+- `SIR_5POINT`: for the unconstrained model, kmf estimated (`fit(...; free = (:kmf,))`)
+- `SIR_4POINT`: for the constrained model, kmf fixed at 12.5 s⁻¹ (QMTSIR's default)
+"""
+const SIR_5POINT = (TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
+const SIR_4POINT = (TI = [0.010, 0.010, 0.278, 1.007], TD = [0.684, 4.171, 2.730, 0.010])

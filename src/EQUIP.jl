@@ -28,7 +28,9 @@ module EQUIP
 using LinearAlgebra                        # dot, Diagonal, diag
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
-using Statistics: mean, quantile           # default starts (e.g. T2 = mean(TE)); result summaries
+using Statistics: mean, median, quantile, std   # default starts; result summaries; compare
+using Random: AbstractRNG, randn            # simulate: noise
+import Random                               # Random.default_rng()
 import CommonSolve                         # owner of `init` (the SciML convention)
 using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
@@ -43,7 +45,8 @@ export fitted, residuals                                                    # fi
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
-export QMTSIR                                                              # qMT models
+export QMTSIR, SIR_5POINT, SIR_4POINT                                      # qMT models
+export simulate, TISSUES, tissue, truth, phantom, labelshapes, compare, Comparison  # simulation
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
@@ -58,5 +61,11 @@ include("fit/setup.jl")                # parameter roles + fixed/free/start -> F
 include("fit/result.jl")               # FitResult: what fit and fit! return
 include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
 include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
+
+# sim: simulated data and accuracy against the truth (uses models and fit)
+include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian), snr or σ
+include("sim/tissues.jl")              # TISSUES (published values), tissue, truth
+include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
+include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 
 end # module
