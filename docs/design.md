@@ -524,6 +524,15 @@ weights, other data layouts, precompilation, more models.
      pools saturated at the start of TD). Simulate with nonzero values, fit with the default.
      A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
+   - Fit statistics on `FitResult`, added together as one set under StatsAPI's names, with one
+     convention for the number of parameters (`dof`; packages differ on whether σ counts):
+     `rss` (the SSE), `nobs`, `dof`, `dof_residual` (n − p), the residual SD
+     σ̂ = √(SSE/(n − p)) per voxel (also a noise estimate, and the σ in the standard errors),
+     `stderror`, `vcov` and the parameter correlations from JᵀJ, the "ended at a bound" flag,
+     and `aic` / `bic` for choosing between models fitted to the same data (mono vs
+     bi-exponential, ADCDecay vs ADCKurtosis). No new fields where a value follows from what is
+     stored (σ̂, AIC, BIC come from `sse`, n and p). All assume Gaussian noise: biased for
+     low-SNR magnitude data, documented once, next to the Rician-likelihood work.
 4. **Starting values and outliers**:
    - **Starts as candidates.** Today a voxel's start comes from fixed steps in order: the
      default or user value, the model's `datastart`, its `startgrid`, then the `:scale` solve.

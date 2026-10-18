@@ -282,8 +282,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   for SIR), and `compare` against the truth; shared by Monte Carlo, benchmarks and tests
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/**: standard errors (in `FitResult`, with StatsAPI's `coef`, `stderror`, `vcov`, and
-  a flag for parameters that ended at a bound), CRLB for unbiased and biased estimators (Dortch et al. 2018,
+- **analysis/**: fit statistics on `FitResult` under StatsAPI's names (`stderror`, `vcov`,
+  `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing models such as mono vs
+  bi-exponential, and a flag for parameters that ended at a bound), CRLB for unbiased and biased estimators (Dortch et al. 2018,
   Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis (including model
   assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
