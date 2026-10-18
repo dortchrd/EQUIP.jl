@@ -288,5 +288,3 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - More data-driven starting values (`startgrid` is the first): a hook for a model to compute
   per-voxel starts from the data (e.g. a log-linear fit for `T2Decay`, which made it robust in
   tests; DESPOT1 for T1MFA)
-- Polarity restoration for magnitude inversion recovery (as in qMRLab), to compare with the grid
-  start

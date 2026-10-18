@@ -355,9 +355,29 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     signal evaluations, which run on the dual-number buffer; a plain-number buffer would make
     them cheaper (not done: more code for ~1 µs).
   - Skipped when the parameter is fixed or has a `start`, so a user's start always wins.
-  - Polarity restoration (Barral et al., MRM 2010, as in qMRLab) fixed the T1IR cases too, at
-    similar cost, but needs the TIs sorted with one signal null; with TD varying per TI (T1IRTD)
-    the null is not a single crossing. Deferred, to compare later.
+  - **Polarity restoration: tested, not adopted** (Barral et al., MRM 2010, as in qMRLab). As
+    tested: take the point with the smallest |y|, flip the signs of the points before it (as a
+    second candidate, of that point too), fit the signed model to each from the default start,
+    keep the lower SSE. "Before" means TI order for T1IR; for T1IRTD, a lower null T1 (the T1 at
+    which that point's signal is zero, from its TI and TD and the Sf start). Same data as the
+    table above (200 voxels, T1 0.05–4 s, SNR 100 and 20), bad fits:
+    - T1IR: 0 everywhere (grid start ≤ 2).
+    - R1IR at T1 = 0.05 s: 200/200 at SNR 100, 197/200 at SNR 20 (grid start 0). The signs were
+      right; the signed fit itself failed, from R1 = 1/s on an almost fully recovered curve.
+      Choosing the signs does not fix a start far from the answer.
+    - T1IRTD and R1IRTD at SNR 20: 4, 28 and 27 at T1 = 1, 2 and 4 s (grid start 0). With TD
+      varying per TI, the smallest |y| does not mark the null, so the wrong points get
+      flipped. Trying every split would fix that, at n + 1 signed fits per voxel.
+    - Time per voxel (one voxel, a slower machine than the table above): about the same as the
+      grid start at T1 = 0.9 s (T1IR 2.65 vs 2.75 µs), 2–3× slower at 0.1 s (8.1 vs 2.8 µs),
+      since both signed fits start far away; T1IRTD 4.5–7.5 vs 3.8 µs.
+    - Better in one case: with a TI right at the null (T1IR, T1 = 0.3 s, TI = 0.2 s) it found a
+      lower SSE than the grid start in 17–19% of 2000 voxels (two nearly equal minima, set by
+      the sign of the point at the null), but T1 was not more accurate: RMS error 1.9% for both
+      at SNR 100; 9.8% (polarity restoration) vs 9.3% (grid start) at SNR 20.
+    - Barral's method also searches over T1 (as we recall the paper and qMRLab's code; not
+      checked here), and that search is what fixes the far-start failures. The grid start does
+      that search without the sign choice, and works for any model with a `startgrid`.
 - **Solver size limits** (`levmar`, static-array method): no allocation and faster than LsqFit
   up to at least 28 free parameters (DKI-like test, 3 observations per parameter: P = 7 2.4 µs,
   P = 15 25 µs, P = 22 64 µs, P = 28 74 µs per fit; LsqFit 3.5–19× slower). Compile time grows
@@ -509,9 +529,8 @@ weights, other data layouts, precompilation, more models.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
      (default 0: no correction). Julia's `sinc` is the normalized sinc, matching the slice
      integral. Later: in-plane gradients (a product of sincs), non-rectangular slice profiles.
-   - Polarity restoration for magnitude inversion recovery (Barral's RD-NLS, as in qMRLab): try
-     each possible position of the signal null and keep the best fit. The grid-search start now
-     handles these local minima; compare the two later (accuracy, cost, varying TD).
+   - Polarity restoration for magnitude inversion recovery: tested against the grid start and
+     not adopted (Performance notes, grid-search start).
    - Bounds in the solver: if boundary problems remain that the dead-zone guard does not handle,
      compare against a trust-region-reflective step (SciPy's `trf`) or a change of variables.
    - More data-driven starting values (`startgrid` is the first): a hook for a model to
