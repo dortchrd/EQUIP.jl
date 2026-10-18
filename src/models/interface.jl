@@ -162,6 +162,22 @@ startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)
 """
 startgrid(::MRIModel) = nothing
 
+"""
+    datastart(m, y) -> nothing or (name = value, ...)
+
+Optional: starting values computed from one voxel's data `y` (plain numbers, in the working
+precision), e.g. a quick linearized fit. Used for free parameters that have no `start` from the
+user; values outside the bounds are clamped, and a NaN or Inf value leaves the usual start in
+place (return NaN when the data give no usable estimate). A `Free(:scale)` parameter is then set
+by least squares as usual, given these starts, and a `startgrid` works from them. Must not
+allocate: it runs once per voxel. The default, `nothing`, means no data-driven start.
+
+```julia
+datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)
+```
+"""
+datastart(::MRIModel, y) = nothing
+
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------

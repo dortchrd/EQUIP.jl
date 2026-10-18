@@ -219,6 +219,10 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `startgrid(m::T1IR) = (T1 = exp.(range(log(0.01), log(10.0); length = 30)),)`. Each voxel
   evaluates the signal at every value (a `:scale` parameter at its best value for each) and
   starts from the best fit. The default is no grid.
+- **`datastart`** (optional): starting values computed from each voxel's data, such as a
+  linearized fit. T2Decay's is a log-linear fit:
+  `datastart(m::T2Decay, y) = (T2 = 1 / _loglinear_rate(m.TE, y),)`. Return NaN when the data
+  give no estimate; the usual start then stays. A `start` from the user always wins.
 
 ## How it works
 
@@ -232,8 +236,9 @@ a dataset                         ──fit────▶  maps      threads ov
 Inside each LM step, the free values θ become dual numbers and are merged with the fixed values
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
-Before the first step, each voxel's start is set: a `:scale` parameter at its least-squares
-value and, for a model with a `startgrid`, the grid value that fits that voxel best.
+Before the first step, each voxel's start is set: the model's own estimates from the data, for
+a model with a `datastart`; a `:scale` parameter at its least-squares value; and, for a model with
+a `startgrid`, the grid value that fits that voxel best.
 
 The code is in layers; each only uses the ones before it:
 
@@ -285,6 +290,5 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
-- More data-driven starting values (`startgrid` is the first): a hook for a model to compute
-  per-voxel starts from the data (e.g. a log-linear fit for `T2Decay`, which made it robust in
-  tests; DESPOT1 for T1MFA)
+- More data-driven starting values (with `datastart`): DESPOT1 for T1MFA, which needs the
+  voxel's B1, so `datastart` would also receive the fixed values

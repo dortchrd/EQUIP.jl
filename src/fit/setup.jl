@@ -22,6 +22,8 @@ The resolved parameter roles of one fit (made by `setup`):
 - `fixed`: the fixed parameters (numbers, per-voxel maps or ties), by name
 - `grid`, `gridindex`: starting values to try for free parameter number `gridindex` (from the
   model's [`startgrid`](@ref)); `gridindex = 0` means no grid
+- `userstart`: for each free parameter, whether the user gave it a `start` (then the model's
+  [`datastart`](@ref) leaves it alone)
 
 `F` and `P` are type parameters rather than fields: the compiler then knows the names and the
 number of free parameters and generates code specialized for them (fixed-size vectors and
@@ -35,6 +37,7 @@ struct FitSpec{F,P,T,S,X}
     fixed::X        # NamedTuple with the fixed parameters' names
     grid::Vector{T} # starting values to try for one free parameter (empty = none)
     gridindex::Int  # which free parameter the grid is for (0 = none)
+    userstart::NTuple{P,Bool}   # true for free parameters with a `start` from the user
 end
 
 freenames(::FitSpec{F}) where {F} = F       # read the names back out of the type
@@ -137,6 +140,7 @@ function setup(model::MRIModel, ::Type{T} = Float64; fixed = (;), free = (), sta
     end
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
+    userstart = map(n -> haskey(start, n), F)
     return FitSpec{F,P,T,typeof(starts),typeof(fixedvals)}(lower, upper, starts, scale, fixedvals,
-                                                           grid, gridindex)
+                                                           grid, gridindex, userstart)
 end

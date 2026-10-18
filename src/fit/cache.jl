@@ -127,8 +127,10 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
         return _invalid(spec)
     end
     prob = VoxelProblem{F}(c.model, c.y, fixed)
-    # 4. Starting point from the data: the best value on the model's grid, if it has one (see
-    #    `startgrid`); a `Free(:scale)` parameter at the value that best matches the data's scale.
+    # 4. Starting point from the data: the model's own estimates, if it has them (`datastart`);
+    #    then the best value on the model's grid, if it has one (`startgrid`), or a `Free(:scale)`
+    #    parameter at the value that best matches the data's scale.
+    θ0 = _data_start(prob, θ0, spec)
     if spec.gridindex > 0
         θ0 = _grid_start(prob, θ0, spec, c.buf)
     elseif spec.scale > 0
@@ -137,6 +139,22 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
     # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...).
     r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
     return VoxelResult(NamedTuple{F}(Tuple(r.θ)), r.sse, r.iterations, r.status)
+end
+
+# Starting values from the model's own estimates on this voxel's data (see `datastart`), for the
+# free parameters without a `start` from the user. A NaN or Inf estimate is skipped (the usual
+# start stays); the others are clamped to the bounds. A `:scale` parameter is skipped too: it is
+# set afterwards, by least squares given the other starts.
+function _data_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec) where {F,P,T}
+    d = datastart(prob.model, prob.y)
+    d === nothing && return θ0                  # no data start: decided when compiling, no cost
+    for (name, x) in pairs(d)
+        k = findfirst(==(name), F)              # position among the free parameters, or nothing
+        if k !== nothing && k != spec.scale && !spec.userstart[k] && isfinite(x)
+            θ0 = Base.setindex(θ0, clamp(T(x), spec.lower[k], spec.upper[k]), k)
+        end
+    end
+    return θ0
 end
 
 # Starting point from a grid (see `startgrid`): for each grid value g of free parameter k, evaluate

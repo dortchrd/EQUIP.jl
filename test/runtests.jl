@@ -353,6 +353,36 @@ end
         @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
     end
 
+    @testset "data start: log-linear T2 for T2Decay" begin
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        y = signal(m, (S0 = 1000.0, T2 = 0.04))
+        # Noise-free data: the log-linear fit is exact, so the start is already the answer.
+        # `maxiter = 0` returns the starting point; S0 comes from least squares given that T2.
+        @test datastart(m, y).T2 ≈ 0.04
+        s = fit(m, y; maxiter = 0).params
+        @test s.T2 ≈ 0.04
+        @test s.S0 ≈ 1000
+        @test fit(m, Float32.(y); precision = Float32, maxiter = 0).params.T2 ≈ 0.04f0
+        # points ≤ 0 are skipped
+        @test datastart(m, [y[1:5]; zeros(27)]).T2 ≈ 0.04
+        # no usable estimate (rising data): NaN, and the default start, mean(TE), stays
+        @test isnan(datastart(m, collect(1.0:32.0)).T2)
+        @test fit(m, collect(1.0:32.0); maxiter = 0).params.T2 ≈ sum(te) / 32
+        # a start from the user wins; a fixed T2 is left alone
+        @test fit(m, y; start = (T2 = 0.2,), maxiter = 0).params.T2 == 0.2
+        @test setup(m; start = (T2 = 0.2,)).userstart == (false, true)
+        @test fit(m, y; fixed = (T2 = 0.04,)).params.S0 ≈ 1000
+        # noisy data: the same answer as from the old start, without allocating
+        yn = y .+ 10 .* randn(MersenneTwister(3), 32)
+        r, r0 = fit(m, yn), fit(m, yn; start = (T2 = sum(te) / 32,))
+        @test r.params.T2 ≈ r0.params.T2 rtol = 1e-6
+        @test r.iterations < r0.iterations
+        c = init(m); fit!(c, yn)
+        @test @allocated(fit!(c, yn)) == 0
+        @test datastart(R2Decay(TE = te), y) === nothing          # no data start by default
+    end
+
     @testset "grid start: magnitude inversion recovery's local minima" begin
         # From the single default start (T1 = 1 s), magnitude IR used to end in a wrong local
         # minimum (the signal null in the wrong place) at T1 = 0.05, 0.1 and 4 s with these TIs;

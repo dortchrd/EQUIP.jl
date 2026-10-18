@@ -69,13 +69,14 @@ Decisions behind this:
     but averages over voxels do not (mean(T̂) ≠ 1/mean(R̂)), and the API is simplest without
     conversions.
   - The rate form is more robust (measured: 500 noisy voxels per case, a fit counted bad if its
-    SSE exceeds the SSE at the true parameters). With a start of mean(x), the time form failed
-    silently when the true decay was much faster than the start, stepping to a tiny T where the
-    signal at every x > 0 vanishes and so does the gradient (e.g. all 500 voxels for a time
-    constant 1/4.5 of the start, SNR 50); the rate form failed in none. On nearly flat curves
-    the time form runs off to huge T (16% of voxels hit max iterations for T2 = 10 s at SNR 20
-    in an earlier test), the rate form settles near 0. A per-voxel log-linear start fixes most
-    of the time form's failures (roadmap: data-driven starts).
+    SSE exceeds the SSE at the true parameters). On nearly flat curves the time form runs off
+    to huge T and stops at max iterations, whatever its start (8 echoes, TE 10–80 ms, SNR 20:
+    152 of 500 voxels at T2 = 2 s, 245 at 10 s, from mean(TE) or from the log-linear start);
+    the rate form settles near 0 and converges in all of them. With a start of mean(x), the
+    time form also used to fail silently when the true decay was much faster than the start,
+    stepping to a tiny T where the signal at every x > 0 vanishes and so does the gradient (all
+    500 voxels for a time constant 1/4.5 of the start, SNR 50). The dead-zone guard
+    (Performance notes) removed those failures: 0 of 500 now, from mean(TE) and from T2 = 10 ms.
   - The T1 models come in both forms too (`T1IR`/`R1IR`, `T1IRTD`/`R1IRTD`, `T1SR`/`R1SR`,
     `T1MFA`/`R1MFA`). From the default starts (T1 = 1 s, R1 = 1/s), 200 voxels at SNR 100:
     - Short T1: the T1 forms failed silently in most or all voxels (IR at 0.1 s; IRTD at
@@ -154,6 +155,8 @@ loops); `@simd` gains nothing real here (`exp` prevents vectorization). `signal(
 
 Optional: `startgrid(m) = (T1 = values,)` gives a grid of starting values for one free
 parameter, for models with local minima (see the grid-search start under Performance notes).
+`datastart(m, y) = (T2 = value,)` computes starting values from each voxel's data, e.g. the
+log-linear fit of `T2Decay` (Performance notes).
 
 ## Parameter roles
 
@@ -161,7 +164,7 @@ parameter, for models with local minima (see the grid-search start under Perform
   multiplies the whole signal. A `:scale` parameter starts, per voxel, at
   (s·y)/(s·s), where s is the signal at scale 1 given the other starts. This one generic rule
   replaces data normalization. A model can also give a grid of starts for one parameter
-  (`startgrid`); other model-specific guesses are deferred.
+  (`startgrid`) or compute starts from each voxel's data (`datastart`).
 - `Fixed(value)`: not estimated. `value` is a number, a per-voxel map, or a tie, resolved after
   the free values are merged in, so derivatives flow through it. A tie may not refer to another
   tie.
@@ -189,7 +192,8 @@ the data, a fixed map or a start map marks that voxel invalid (status 6).
    vectors converted to the working precision. Together with solver options and buffers this
    gives a `FitCache`, one per thread.
 3. `fit!` handles one voxel (`fit(m, y)` with a vector is `fit!(init(m), y)`): pick its map
-   values, build θ0 (the grid start if the model has one, else the `:scale` start), run LM.
+   values, build θ0 (the model's data start if it has one; then the grid start if it has one,
+   else the `:scale` start), run LM.
    Each LM evaluation does `p = resolve_ties(merge(NamedTuple{F}(seeded duals), fixed))`, then
    `signal!(buf, m, p)`, then sums SSE, JᵀJ and Jᵀr from `buf`. The m×P Jacobian is never
    stored and nothing is allocated.
@@ -390,7 +394,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Scope so far
 
-In: the interface above (with `startgrid`), fourteen models: relaxometry (T1IR, R1IR, T1IRTD,
+In: the interface above (with `startgrid` and `datastart`), fourteen models: relaxometry (T1IR, R1IR, T1IRTD,
 R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset), diffusion (ADCDecay), qMT (QMTSIR), `fit` for one voxel or a dataset, Float64/Float32, bounds, masks, per-voxel maps, ties,
 threads, tests.
 
@@ -533,8 +537,7 @@ weights, other data layouts, precompilation, more models.
      not adopted (Performance notes, grid-search start).
    - Bounds in the solver: if boundary problems remain that the dead-zone guard does not handle,
      compare against a trust-region-reflective step (SciPy's `trf`) or a change of variables.
-   - More data-driven starting values (`startgrid` is the first): a hook for a model to
-     compute per-voxel starts from the data, as `:scale` does for S0. Next: a log-linear start
-     for `T2Decay` (in tests it turned 500/500 failures into 0 at SNR 50), DESPOT1 for T1MFA.
-     The grid could evaluate on a plain-number buffer to cut its ~1 µs per voxel.
+   - More data-driven starting values (`datastart`): DESPOT1 for T1MFA, which needs the
+     voxel's B1 map, so `datastart` would also receive this voxel's fixed values. The grid could
+     evaluate on a plain-number buffer to cut its ~1 µs per voxel.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
