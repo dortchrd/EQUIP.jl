@@ -395,3 +395,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   amplitudes, an offset) solved inside every LM step. Prototype measured (branch
   `varpro-proto`): biexponential 19–26% faster with more fits reaching the minimum; 0–22%
   faster with one linear parameter; no help with multiple minima, so `BestOf` stays
+- Positive parameters fitted in log coordinates, with a per-parameter relative stopping test
+  ("stop when every parameter changes by less than 0.01%"). Prototype measured (branch
+  `varpro-proto`): with VarPro, the biexponential 40–59% faster than today and more fits
+  reaching the minimum; no change for models whose starts already do the job

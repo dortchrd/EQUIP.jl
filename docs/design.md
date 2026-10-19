@@ -845,4 +845,53 @@ weights, other data layouts, precompilation, more models.
        reduced problem where it switches); standard errors from the full Jacobian at the end
        (item 3); several truths and SNRs, as a study (item 2). Least squares only: not with
        Rician-likelihood fitting, and magnitude data keep only the scale linear.
+   - **Log coordinates and a per-parameter stopping test** (prototype measured, branch
+     `varpro-proto`, `prototypes/varpro/logt.jl`, results in `results_logt.txt`): the solver works
+     in φ = log θ for chosen positive parameters and the model sees θ = exp(φ); the dual numbers
+     apply the chain rule, so no derivative code changes.
+     - Why: the step test (`xtol`) is one joint, relative test, ‖D^½ step‖ ≤ xtol·‖D^½ θ‖ (D the
+       diagonal of JᵀJ, so the units cancel). M0's term is about the size of the signal, so in
+       effect it says "the step changes the signal by less than xtol × the signal", not "every
+       parameter has settled": a weakly determined parameter can still be moving. Measured
+       (2000 voxels, SNR 50; biexponential SNR 100): the defaults (1e-8, 1e-12) stop about 10⁶
+       times finer than the noise (estimates within ~5 × 10⁻⁷ noise SDs of a very tight fit);
+       (1e-4, 1e-6) is 20–35% faster with changes under 1% of a noise SD for QMTSIR, T1IR and
+       T2Decay, but stops 20 of 2000 biexponential voxels more than one noise SD early, in
+       flat valleys where the SSE barely changes (Float32's default tolerances, 1e-5 and 1e-6, do
+       the same). A per-parameter test, "stop when every parameter changes by less than a
+       fraction of itself", is |Δ log θ| ≤ rtol in log coordinates.
+     - Results, biexponential (two truths: 15% at 20 ms + 85% at 80 ms / 40% at 15 ms + 60% at
+       100 ms; same starts; "early": voxels more than one noise SD from the same method's tight
+       fit):
+
+       | method | reached the minimum | early | µs per voxel |
+       |---|---|---|---|
+       | full fit, default tolerances (today) | 98.3% / 96.6% | 0 / 1 | 19.5 / 15.1 |
+       | full fit + log T2s | 98.8% / 100% | 12 / 0 | 24.3 / 12.0 |
+       | VarPro | 99.8% / 100% | 0 / 0 | 17.3 / 12.2 |
+       | VarPro + log T2s | 99.5% / 100% | 23 / 0 | 15.8 / 9.8 |
+       | VarPro + log T2s + per-parameter step 1e-4 | 99.5% / 100% | 0 / 0 | 11.6 / 6.3 |
+
+     - Log coordinates help the hard fit converge (with VarPro, max-iteration stops 21 → 1 at
+       tight tolerances and 15–25% fewer iterations; the full fit reached the minimum in 100%
+       instead of 96.6% of voxels on the second truth), but the joint step test misbehaves in
+       them (12–23 early stops at default tolerances: the "size" it compares the step with is a
+       vector of logs). With the per-parameter test there were none, and VarPro + log T2s + a
+       per-parameter relative step of 1e-4 was the best combination tested: 40–59% faster than
+       today's fit, more voxels reaching the minimum. (A step of 1e-3: faster still, still no
+       early stops.)
+     - T2Decay (T2 = 2 s, TE ≤ 320 ms, SNR 50, from its log-linear start) and T1IR (T1 = 0.1 and
+       0.9 s, from `BestOf`): log T2 / log T1 change nothing measurable; the starts already do the
+       job. (The prototype's wrapper adds some time there, e.g. T2Decay 0.83 → 1.17 µs; that path
+       is not optimized.)
+     - Proposal: an option to fit positive parameters in log coordinates, with the
+       per-parameter relative step test for them and the joint test for the rest; first for the
+       biexponential, together with VarPro. The relative test cannot serve parameters that can
+       be 0 or negative (Sf, PSR, fshort, an offset): they need an absolute tolerance or the
+       standard-error rule (stop when every step is a small fraction of the parameter's
+       standard error, the idea behind Bates & Watts' relative-offset criterion, which R's `nls`
+       uses as I recall; it adapts to the SNR, and would come with item 3's statistics). Loosening
+       the default tolerances alone: (1e-6, 1e-8) is the safe step (11–19% faster on the simple
+       models, 1 of 2000 biexponential voxels affected); check the hard models before changing.
+     - Limits: one seed, two biexponential truths, one SNR, solver time only.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
