@@ -718,8 +718,14 @@ weights, other data layouts, precompilation, more models.
      candidates, at about one signal evaluation each, so the data start and `BestOf` share one
      code path. Candidates could be evaluated on a plain-number buffer (`BestOf` now uses the
      dual buffer: ~1 µs per voxel for 30).
-   - Later, if needed: several `:scale` parameters (biexponential amplitudes, an offset) solved
-     together by linear least squares.
+   - Several linear parameters solved together (biexponential amplitudes, an offset): see
+     variable projection, item 8 (prototype measured).
+   - **A far start can end in a corner, reported as converged.** QMTSIR (5-point scheme, SNR 50,
+     2000 voxels) from PSR = 0.4, R1f = 3: every fit ends with PSR at its bound 0 and Sf at its
+     bound −1.2, R1f ≈ 4, at about 340× the SSE of the fit from the default starts (median),
+     with both the full fit and variable projection. The default starts avoid it. Argues for
+     the "ended at a bound" flag (item 3), and perhaps a `BestOf` start for QMTSIR (on PSR or
+     R1f), to test in the start-strategy study.
    - **Neighbours as a second pass**, not a first-pass start: voxels are fitted in parallel in
      no fixed order, so neighbours' results are not available during the fit. After a dataset
      fit, detect outliers from what the fit already reports: status (hit `maxiter`, failed,
@@ -793,7 +799,49 @@ weights, other data layouts, precompilation, more models.
      not adopted (Performance notes, grid-search start).
    - Bounds in the solver: if boundary problems remain that the dead-zone guard does not handle,
      compare against a trust-region-reflective step (SciPy's `trf`) or a change of variables.
-   - Variable projection for the `:scale` parameter: solve M0/S0 by least squares at every
-     iteration, not only at the start, so LM works on one parameter fewer (Golub & Pereyra;
-     Barral's RD-NLS does this for inversion recovery). To measure: speed and robustness.
+   - **Variable projection (VarPro)**: solve the parameters the signal is linear in (M0/S0, the
+     biexponential amplitudes, an offset) by least squares inside every LM evaluation, so LM
+     works on the nonlinear ones only (Golub & Pereyra 1973; Barral's RD-NLS does this for
+     inversion recovery). Alternating between the linear solve and LM steps would zig-zag when
+     the two are coupled (S0 and T2 are); VarPro re-solves the linear part at every evaluation.
+     Prototype measured (branch `varpro-proto`, `prototypes/varpro/`, with its README):
+     - How: a model wrapper with its own `normal_equations` method, so the unchanged `levmar`
+       solves the reduced problem. The amplitudes are computed in dual arithmetic, which gives
+       the exact Jacobian of the reduced problem (no Kaufman approximation). The columns of the
+       linear part come from the model's `signal!` with the linear parameters at unit values
+       (generic), or from functions the model supplies (only each column's own terms).
+     - From EQUIP's own starts (2000 voxels per case, one seed, SNR 50, biexponential SNR 100;
+       single thread, solver time, best of 3; "reached": final SSE within 1e-6 of the lowest
+       any method found for that voxel; full → VarPro):
+
+       | case | reached | median iterations | µs per voxel |
+       |---|---|---|---|
+       | T2Decay | 100 → 100% | 4 → 4 | 1.57 → 1.61 |
+       | T1IR, T1 = 0.1 s | 100 → 100% | 5 → 5 | 1.26 → 1.00 |
+       | T1IR, T1 = 0.9 s | 100 → 100% | 5 → 5 | 1.18 → 0.92 |
+       | QMTSIR, 5-point | 100 → 100% | 6 → 6 | 2.86 → 2.68 |
+       | biexp, 15% at 20 ms + 85% at 80 ms | 97.9 → 99.2% | 24 → 20 | 23.8 → 19.3 |
+       | biexp, 40% at 15 ms + 60% at 100 ms | 96.6 → 100% | 18 → 15 | 19.5 → 14.5 |
+       | T2DecayOffset | 100 → 100% | 10 → 11 | 5.2 → 5.0 |
+
+       (biexponential and offset with model-supplied columns; biexponential fits stopping at
+       max iterations: 43 → 18 of 2000.)
+     - From bad starts: it helps where the trouble is coupling (T2Decay from T2 = 2 ms: 34 → 8
+       iterations, 13.9 → 3.8 µs; offset from T2 = 1 s: 19 → 15 iterations), not with other
+       minima (T1IR at T1 = 0.1 s from one start: 0% and 0.7% reached; at 0.9 s from 4 s: 100%
+       and 97.5%; QMTSIR from a far start: 0% for both). Not a replacement for `BestOf`.
+     - Generic columns cost too much with two amplitudes (the whole model evaluated per column:
+       biexponential 23.1 → 27.2 µs, offset 5.2 → 6.5 µs), so those models need their own
+       columns. A 2-D grid of 64 T2 pairs with VarPro (biexponential): 7–12 iterations, but
+       ~50 µs per voxel and no more fits reaching the minimum.
+     - Reading: worth adopting for the two-amplitude models (biexponential, offset), with
+       model-supplied columns and the map back to the reported parameters (S0 = c₁ + c₂,
+       fshort = c₁/(c₁ + c₂)). With one `:scale` parameter: 0–22% faster, robustness unchanged
+       from EQUIP's starts (the `:scale` start already captures most of the gain), so optional;
+       it can be generic there (the column is the signal at scale 1, as in `_score`).
+     - Before adopting: how a model declares its linear parameters and columns (a generalized
+       `:scale`, or a hook); bounds on amplitudes (a small active set, with a kink in the
+       reduced problem where it switches); standard errors from the full Jacobian at the end
+       (item 3); several truths and SNRs, as a study (item 2). Least squares only: not with
+       Rician-likelihood fitting, and magnitude data keep only the scale linear.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
