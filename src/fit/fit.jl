@@ -134,7 +134,7 @@ end
 
 function _fit_chunk!(params, sse, iterations, status, cache, Y, voxels)
     for v in voxels
-        r = _fit1!(cache, view(Y, v, :), v)
+        r = _fit_voxel(cache, cache.spec, view(Y, v, :), v)
         # Store each free parameter in its map: `map` walks the two named tuples (maps and
         # fitted values) together, name by name.
         map((a, x) -> (@inbounds a[v] = x), params, r.params)

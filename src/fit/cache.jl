@@ -10,7 +10,7 @@
 #   FitResult            (starts.jl), run LM (levmar.jl). Allocates nothing.
 #
 # `fit!` is for your own loops, one voxel at a time. A dataset fit (fit.jl) runs the same steps,
-# `_fit1!` below, for every voxel, storing the results in maps, and gives each chunk of voxels
+# `_fit_voxel` below, for every voxel, storing the results in maps, and gives each chunk of voxels
 # (one task on a thread) its own copy of the buffers.
 # =================================================================================================
 
@@ -99,14 +99,8 @@ r.params.PSR
 function fit!(c::FitCache, y::AbstractVector; voxel::Integer = 1)
     length(y) == length(c.y) ||
         throw(DimensionMismatch("data have $(length(y)) values, the model has $(length(c.y)) observations"))
-    r = _fit1!(c, y, voxel)
+    r = _fit_voxel(c, c.spec, y, voxel)
     return FitResult(r.params, r.sse, r.iterations, r.status, c.model, c.settings)
-end
-
-# Copy one voxel's data into the cache and fit it (the dataset loop calls this directly).
-function _fit1!(c::FitCache, y, voxel)
-    copyto!(c.y, y)                    # into the cache: contiguous and in precision T
-    return _fit_voxel(c, c.spec, voxel)
 end
 # `fit!` is StatsAPI's function (imported in EQUIP.jl); this adds a method for FitCache.
 
@@ -123,9 +117,12 @@ function _invalid(::FitSpec{F,P,T}) where {F,P,T}
     return _VoxelFit(nan, T(NaN), Int32(0), InvalidData)
 end
 
+# Fit voxel `v`, whose data are `y`: the steps both `fit!` and the dataset loop (fit.jl) run.
+# Returns the lean per-voxel result (`_VoxelFit`); the callers check `y`'s length first.
 # `spec` is passed separately (not read from `c` inside) so that its type parameters F, P, T
-# can be named in the method signature and used below.
-function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
+# can be named in the method signature and used below (a "function barrier").
+function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
+    copyto!(c.y, y)                    # 0. the data, into the cache: contiguous and in precision T
     # 1. This voxel's fixed values: (kmf = 12.5, R1m = Fixed(:R1f), Sm = sm_map[v]).
     fixed = map(x -> _pick(x, v, T), spec.fixed)
     # 2. This voxel's starting point, as an SVector in the order F.
