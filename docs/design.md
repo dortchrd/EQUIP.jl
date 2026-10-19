@@ -236,8 +236,9 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
   - **By function**, `Fixed(p -> 0.8 * p.R1f)`: for real relations; a named function for long
     ones. Cannot be checked before it runs.
   - An R1 map as a constraint on SIR needs no extra feature: with R1m = R1f the slow two-pool
-    rate is exactly R1f, so `R1f = r1map` does it. (A formula R1f(R1obs, …) would
-    only be needed if R1m ≠ R1f; that would require auxiliary per-voxel inputs. Not planned.)
+    rate is exactly R1f, so `R1f = r1map` does it. A formula R1f(R1obs, …) is needed when
+    R1m ≠ R1f, and in the qMT-SPGR models (roadmap item 6). It needs no new feature either: a
+    tie by function, with the observed R1 map as a fixed parameter (a tie can use fixed maps).
 
 Fit-time keywords, one per parameter, in `fit`, `init` and `refit`: a value fixes the parameter
 (`kmf = 15.0`, `Sm = sm_map`, `R1m = :R1f`); `Free(...)` estimates it, and whatever it leaves
@@ -720,7 +721,7 @@ weights, other data layouts, precompilation, more models.
      code path. Candidates could be evaluated on a plain-number buffer (`BestOf` now uses the
      dual buffer: ~1 µs per voxel for 30).
    - Several linear parameters solved together (biexponential amplitudes, an offset): see
-     variable projection, item 9 (prototype measured).
+     variable projection, item 11 (prototype measured).
    - **A far start can end in a corner, reported as converged.** QMTSIR (5-point scheme, SNR 50,
      2000 voxels) from PSR = 0.4, R1f = 3: every fit ends with PSR at its bound 0 and Sf at its
      bound −1.2, R1f ≈ 4, at about 340× the SSE of the fit from the default starts (median),
@@ -774,11 +775,11 @@ weights, other data layouts, precompilation, more models.
      difference, ΔB0 = Δφ/(2π·ΔTE), is closed form per voxel when ΔTE is short enough that the
      phase does not wrap. Multi-echo B0 needs phase unwrapping across neighbouring voxels, which is
      not voxel-wise: use an existing Julia package (ROMEO.jl, MriResearchTools.jl, as I recall)
-     through a package extension, with the I/O layer (item 6).
+     through a package extension, with the I/O layer (item 8).
    - **Using the maps downstream**: a map is a fixed parameter, and a result's map passes straight
      in: `b1 = fit(B1DAM(FA = 60), b1data; mask).params.B1`, then
      `fit(MTsat(...), data; mask, B1 = b1)`. B0 later the same way (the effective MT offset in
-     qMT-SPGR, bSSFP, the through-slice sinc model of item 9). Registering or resampling a map to
+     qMT-SPGR, bSSFP, the through-slice sinc model of item 11). Registering or resampling a map to
      the data's grid stays outside EQUIP; the I/O layer can check that sizes match.
    - **Needed in EQUIP**:
      1. **Derived outputs**: a hook computing extra maps per voxel after the fit, from the fitted
@@ -790,7 +791,73 @@ weights, other data layouts, precompilation, more models.
      3. Complex or phase data, for B0 and Bloch–Siegert.
    - Order: MTR and MTsat, with derived outputs; then the B1 maps (DAM, AFI, the multi-angle fit);
      then B0, with complex data and the I/O layer.
-6. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+6. **More qMT models, from approximate to exact.** Here the cost per voxel is in the signal
+   (lineshape integrals, small matrix exponentials, steady states), so EQUIP's design (no
+   allocation, static arrays, exact derivatives from dual numbers, threads) matters most; the exact
+   models are where its speed may help most.
+   - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool
+     Bloch–McConnell equations under constant off-resonance saturation, in closed form. The
+     reference model, and the building block of the pulsed approximations.
+   - **Pulsed MT with SPGR**, the models of qMRLab's `qmt_spgr` (inputs: the MT data, R1, B1 and
+     B0 maps, a mask):
+     - Sled & Pike (J Magn Reson 2000): rectangular-pulse (`SledPikeRP`) and continuous-wave
+       (`SledPikeCW`) approximations;
+     - Ramani et al. (Magn Reson Imaging 2002): the continuous-wave power equivalent of the MT
+       pulse;
+     - Yarnykh (MRM 2002; Yarnykh & Yuan, NeuroImage 2004), and the single-point macromolecular
+       proton fraction (Yarnykh, MRM 2012): one MT image plus R1, B1 and B0 maps, the other
+       parameters constrained, so one parameter per voxel (the "exact data start" pattern of
+       item 5).
+     - Also in qMRLab: qMT with bSSFP (Gloor et al.), a later candidate.
+   - **MAMT** (Stanisz group): the MT pulse cut into pieces of constant RF amplitude, each solved
+     exactly (the constant-amplitude solution) and propagated through the sequence to the steady
+     state. (Reference to confirm; as I recall, Portnoy & Stanisz, MRM 2007, compared models of
+     pulsed MT.)
+   - **The full coupled equations, without approximations**: the two-pool Bloch–McConnell
+     equations through the actual sequence (shaped MT pulses, excitations, spoiling) to the steady
+     state, by piecewise-constant propagators (static matrix exponentials) or an ODE solver. The
+     steady state needs no simulation over many TRs: it is the fixed point of one TR's affine map,
+     M = (I − A)⁻¹ b. Hundreds of small matrix exponentials per MT offset and evaluation, with
+     dual numbers through them for exact derivatives: a per-voxel fit then costs milliseconds,
+     so speed decides whether whole-brain maps are practical (measure: per-voxel cost, threads,
+     and the precompute/dictionary ideas of item 4). Related, as I recall: Assländer's
+     generalized Bloch model for the bound pool under short pulses (MRM 2022) and his Julia
+     package MRIgeneralizedBloch.jl, a reference to compare against or build on.
+   - **Shared pieces**, written once: bound-pool lineshapes (Gaussian, Lorentzian,
+     super-Lorentzian; the super-Lorentzian's integral needs care near the magic angle, and a
+     fixed quadrature keeps it differentiable when the bound pool's T2 is fitted); MT pulse
+     shapes (Gaussian, sinc, Fermi, hard) and their power integrals; two-pool steady-state
+     solvers on static matrices.
+   - **Per-voxel inputs are fixed maps**, already supported: B1 (scales the MT and excitation
+     pulses), B0 (shifts the MT offsets), an observed R1. The usual constraint of R1f from the
+     observed R1 (qMRLab's "use R1map to constrain R1f", from Sled & Pike) is a tie by function,
+     with the R1 map as a fixed parameter the user gives: `R1f = p -> f(p.R1obs, ...)` (see
+     Parameter roles).
+   - **Validation**: against qMRLab's `qmt_spgr` on its example data (a `bench/` study), and the
+     exact model as the reference for the approximations' bias (short TR, high MT power, short
+     pulses).
+7. **Diffusion microstructure: NODDI and SMT**, many small fits on multi-shell data.
+   - **SMT**, the spherical mean technique (Kaden et al., MRM 2016; NeuroImage 2016): averaging
+     the signal over directions within each shell removes the fibre orientation distribution;
+     the microscopic model (per-axon parallel and perpendicular diffusivities; multi-compartment
+     SMT with an intra-axonal stick and an extra-axonal compartment) is fitted to a few shell
+     averages per voxel. Small, fast fits: a natural fit for EQUIP. It needs `erf` of dual
+     numbers (SpecialFunctions with ForwardDiff provides it). The averaging per shell is a
+     preprocessing step (needs the gradient directions, from the I/O layer), or the user gives
+     shell averages.
+   - **NODDI** (Zhang et al., NeuroImage 2012): intra-neurite sticks with Watson orientation
+     dispersion, an anisotropic extra-neurite compartment with tortuosity, isotropic CSF.
+     - Needs the gradient direction of each observation: an acquisition field of 3-vectors
+       (`nobs` already handles any vector field; converting to the working precision needs a
+       method for vectors of static vectors), and the special functions of the Watson integrals,
+       working with dual numbers.
+     - Known difficulties: local minima (`BestOf` on several parameters, item 4) and diffusivities
+       usually fixed (d∥, d_iso: fixed parameters, already supported).
+     - The volume fractions are nearly linear, so variable projection applies in part
+       (tortuosity ties the extra-neurite signal to the intra-neurite fraction); AMICO's
+       linearization (Daducci et al., NeuroImage 2015) is the dictionary idea of item 4.
+   - DTI, DKI with directions and IVIM stay under item 11.
+8. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -827,9 +894,9 @@ weights, other data layouts, precompilation, more models.
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-7. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+9. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-8. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
+10. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
    a second method of the same function, chosen by dispatch on the argument types:
    `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts, work::LevmarWorkspace)`, with a
    workspace allocated once per thread (JᵀJ, Jᵀr, step, Cholesky factor) and in-place
@@ -837,7 +904,7 @@ weights, other data layouts, precompilation, more models.
    parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
    method at no run-time cost. Derivatives may need chunked dual numbers
    (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
-9. **Later**: GPU, Rician-likelihood fitting, more models:
+11. **Later**: GPU, Rician-likelihood fitting, more models:
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted

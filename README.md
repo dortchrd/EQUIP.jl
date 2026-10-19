@@ -381,6 +381,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   closed-form answer, with B1 correction through a fixed B1 map; derived outputs (e.g. MTsat's
   empirical B1 correction, BPF from PSR); later B0 maps, with complex data and phase unwrapping
   from an existing package
+- More qMT models, from approximate to exact: Henkelman's continuous-wave steady state, pulsed
+  MT with SPGR (Sled & Pike, Ramani, Yarnykh, single-point MPF), MAMT (pulse pieces of constant
+  amplitude, propagated), and the full two-pool equations through the sequence without
+  approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
+- Diffusion microstructure: SMT (spherical mean technique) and NODDI
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
