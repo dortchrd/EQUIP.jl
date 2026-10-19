@@ -66,3 +66,45 @@ starts, all reported as converged.
   parameters, not multiple minima.
 - Open: how a model declares its linear parameters and columns; standard errors from the full
   Jacobian at the end; a wider study (several truths and SNRs) before adopting.
+
+## Log coordinates (`logt.jl`, `logt_compare.jl`, output in `results_logt.txt`)
+
+The solver works in φ = log θ for chosen parameters; the model sees θ = exp(φ) (the dual numbers
+apply the chain rule). `LogT` wraps a model or a VarPro wrapper. `levmar_pp` is EQUIP's `levmar`
+with one change: the step test is per parameter, |Δφ_j| ≤ rtol, i.e. with every parameter in
+log coordinates, "every parameter changes by less than a relative rtol". Same starts for all
+(EQUIP's), 2000 voxels, one seed, solver time. "off>1SD": voxels whose estimates differ from the
+same method's tight fit by more than one noise SD (stopped too early). At loose tolerances,
+"reached" (SSE within 1e-6 of the best) drops even when nothing is wrong; read "off>1SD" there.
+
+Biexponential (SNR 100), the two truths:
+
+| method, tolerance | reached | off>1SD | mean it | max-iteration stops | µs/voxel |
+|---|---|---|---|---|---|
+| full, default (today) | 98.3% / 96.6% | 0 / 1 | 27.2 / 21.1 | 43 / 0 | 19.5 / 15.1 |
+| full, loose (1e-4, 1e-6) | 96.5% / 95.8% | 19 / 2 | 21.5 / 17.2 | 21 / 0 | 15.7 / 11.9 |
+| full + log T2s, default | 98.8% / 100% | 12 / 0 | 27.9 / 16.2 | 29 / 0 | 24.3 / 12.0 |
+| VarPro, default | 99.8% / 100% | 0 / 0 | 22.8 / 15.7 | 18 / 0 | 17.3 / 12.2 |
+| VarPro + log T2s, default | 99.5% / 100% | 23 / 0 | 19.3 / 11.8 | 0 / 0 | 15.8 / 9.8 |
+| VarPro + log T2s, per-parameter step 1e-4 | 99.5% / 100% | 0 / 0 | 16.7 / 9.5 | 0 / 0 | 11.6 / 6.3 |
+| VarPro + log T2s, per-parameter step 1e-3 | 97.7% / 90.3% | 0 / 0 | 14.9 / 8.5 | 0 / 0 | 10.2 / 5.3 |
+
+T2Decay (T2 = 2 s, TE ≤ 320 ms, SNR 50, from its log-linear start) and T1IR (T1 = 0.1 and 0.9 s,
+from `BestOf`): log T2 / log T1 change nothing measurable (same iterations, no early stops); the
+good starts already do the job. (The `LogT` wrapper adds some time there, e.g. T2Decay 0.83 →
+1.17 µs at default tolerances; the prototype's path is not optimized.)
+
+Reading:
+
+- Log coordinates help the hard model: with VarPro, max-iteration stops 21 → 1 (tight
+  tolerances, first truth) and 15–25% fewer iterations; for the full fit, 96.6 → 100% reaching
+  the minimum on the second truth.
+- But the current joint step test misbehaves in log coordinates (12–23 early stops at default
+  tolerances): log coordinates need the per-parameter step test.
+- VarPro + log T2s + per-parameter relative step 1e-4 is the best combination tested for the
+  biexponential: 40–59% faster than today's full fit (19.5 → 11.6 µs, 15.1 → 6.3 µs), more
+  fits reaching the minimum (98.3 → 99.5%, 96.6 → 100%), no early stops, no max-iteration
+  stops.
+- The per-parameter relative test answers "stop when every parameter changes by less than
+  0.01%", but only for positive parameters (log coordinates); Sf, PSR, fshort or an offset need
+  another rule (an absolute tolerance, or the standard-error rule).
