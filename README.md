@@ -12,6 +12,8 @@ sensitivity analysis and protocol optimization will build on the same models (se
 
 ## Install and test
 
+Requires Julia 1.11 or later.
+
 ```julia
 ] dev /path/to/EQUIP.jl
 ```

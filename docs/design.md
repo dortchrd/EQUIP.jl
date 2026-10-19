@@ -371,6 +371,11 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 
 ## Package structure and name
 
+Julia 1.11 or later (`julia = "1.11"` in Project.toml), raised from 1.10 (the long-term-support
+release) so examples and code can use `logrange`, as in `BestOf(logrange(0.05, 5, 50))`. 1.11
+also brings the `public` keyword, for names that are part of the API without being exported
+(e.g. the `FitStatus` values, now reached as `EQUIP.MaxIterations`); not used yet.
+
 **One package, in layers.** Each layer only uses the layers before it:
 
 ```
