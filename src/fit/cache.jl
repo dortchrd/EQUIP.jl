@@ -3,11 +3,15 @@
 #
 #   FitSpec (setup.jl)
 #        │
-#        ▼  init         FitSpec + model + solver options + work buffers
-#   FitCache             reusable state, like LsqFit's OnceDifferentiable. Made ONCE (per thread).
-#        │
-#        ▼  fit!         copy one voxel's data in, pick its map values, run LM (levmar.jl).
-#   FitResult            Called once per voxel; allocates nothing.
+#        ▼  init         FitSpec + model (in the working precision) + solver settings + work
+#   FitCache             buffers: everything a voxel fit needs, prepared ONCE per fit call
+#        │               (`init` is SciML's name: prepare once, then solve many times).
+#        ▼  fit!         copy one voxel's data in, pick its map values, set its start
+#   FitResult            (starts.jl), run LM (levmar.jl). Allocates nothing.
+#
+# `fit!` is for your own loops, one voxel at a time. A dataset fit (fit.jl) runs the same steps,
+# `_fit1!` below, for every voxel, storing the results in maps, and gives each chunk of voxels
+# (one task on a thread) its own copy of the buffers.
 # =================================================================================================
 
 """
@@ -15,8 +19,9 @@
 
 Reusable state for fitting voxels with one model and one set of roles: the model (its
 acquisition converted to the working precision), the [`FitSpec`](@ref), solver options and work
-buffers. Make it with [`init`](@ref), use it with [`fit!`](@ref). Not thread-safe: use one
-cache per thread (`fit` on a dataset does this for you).
+buffers. Make it with [`init`](@ref), use it with [`fit!`](@ref). Not thread-safe: every fit
+overwrites the buffers, so use one cache per task or thread (`fit` on a dataset does this for
+you).
 """
 struct FitCache{M,S<:FitSpec,T,B,K}
     model::M            # the model, its acquisition vectors converted to precision T
@@ -63,7 +68,7 @@ end
 _cache(model, spec::FitSpec{F,P,T}, opts, n, settings) where {F,P,T} =
     FitCache(model, spec, opts, Vector{Dual{FitTag,T,P}}(undef, n), Vector{T}(undef, n), settings)
 
-# Same setup, fresh buffers: one per thread.
+# Same setup, fresh buffers: one copy per task (chunk of voxels) in a dataset fit.
 _copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings)
 
 # =================================================================================================

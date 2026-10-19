@@ -17,6 +17,7 @@ Main entry points:
 - [`fit`](@ref)`(m, y)`: fit one voxel (`y` a vector), or every voxel of a dataset (`y` a matrix
   or N-d array, observations last; threaded).
 - [`init`](@ref)`(m; ...)` + [`fit!`](@ref)`(cache, y)`: a reusable cache, for your own loops.
+- [`refit`](@ref)`(res, data; changes...)`: fit again from an earlier result, with changes.
 """
 module EQUIP
 

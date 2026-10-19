@@ -321,8 +321,8 @@ compare(res, maps; labels)                    # per tissue
 ## How it works
 
 ```
-parameters(m) + fixed/free/start  ──setup──▶  FitSpec   free names, bounds, starts, fixed values
-FitSpec + model + buffers         ──init───▶  FitCache  made once (one copy per thread)
+parameters(m) + keywords          ──setup──▶  FitSpec   free names, bounds, starts, fixed values
+FitSpec + model + buffers         ──init───▶  FitCache  made once (a copy per chunk of voxels)
 one voxel's data                  ──fit!───▶  FitResult numbers
 a dataset                         ──fit────▶  FitResult maps; threads over chunks of voxels
 ```

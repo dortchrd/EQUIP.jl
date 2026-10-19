@@ -1,5 +1,5 @@
 # =================================================================================================
-# fit: the one function users call
+# fit: the main function users call (and `refit`, at the end of this file)
 #
 # Two methods, chosen by the shape of the data (multiple dispatch):
 #

@@ -6,7 +6,14 @@
 #        ▼  setup        merge the user's choices into the model's default roles, then split the
 #   FitSpec              parameters into Free (estimated) and Fixed. Done ONCE per fit call.
 #
-# The next steps are in cache.jl (init -> FitCache, fit! -> one voxel) and fit.jl (all voxels).
+# What happens next, file by file:
+#   cache.jl    `init` wraps the FitSpec in a FitCache (with the model in the working precision,
+#               the solver settings and work buffers); `fit!` fits one voxel with it
+#   starts.jl   each voxel's starting point (:data, BestOf, :scale)
+#   levmar.jl   the solver (Levenberg–Marquardt) for one voxel
+#   fit.jl      `fit`: one voxel (a vector) or every voxel of a dataset, spread over threads;
+#               `refit`
+#   result.jl   FitResult: what `fit` and `fit!` return
 # =================================================================================================
 
 """

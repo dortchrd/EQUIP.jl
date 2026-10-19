@@ -278,7 +278,8 @@ of one of those names, and a keyword that is neither a parameter nor an option.
    `NamedTuple{F}(θ)` from a run-time list of names would be type-unstable and slow.
 2. `init` checks the acquisition lengths (`nobs`) and rebuilds the model with its numeric
    vectors converted to the working precision. Together with solver options and buffers this
-   gives a `FitCache`, one per thread.
+   gives a `FitCache`, made once per fit call; a dataset fit copies its buffers for each chunk
+   of voxels (one task each).
 3. `fit!` handles one voxel (`fit(m, y)` with a vector is `fit!(init(m), y)`): pick its map
    values, build θ0 (numbers and maps as given; `:data` parameters from `datastart`; then a
    `BestOf` parameter at its best value, else the `:scale` start), run LM.

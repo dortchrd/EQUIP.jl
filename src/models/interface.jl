@@ -2,8 +2,9 @@
 # The model interface
 #
 # Everything a model author needs: the supertype `MRIModel`, the two parameter roles `Free` and
-# `Fixed`, and the two functions every model defines, `parameters` and `signal!`. Plus `nobs`
-# (number of observations) and the simulation wrapper `signal`.
+# `Fixed` (with `BestOf`, a kind of start), and the two functions every model defines,
+# `parameters` and `signal!`. Plus the optional hooks `datastart` and `relabel`, `nobs` (number of
+# observations) and the simulation wrapper `signal`.
 #
 # Two separate inputs reach a signal equation:
 #
