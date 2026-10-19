@@ -348,7 +348,8 @@ src/
     qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
                           (FitResult), starts.jl (each voxel's starting point), cache.jl
-                          (init, fit!), fit.jl (fit)
+                          (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
+                          a dataset, threaded; refit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
 ```
 

@@ -388,7 +388,8 @@ src/
     qmt/               QMTSIR
   fit/                 levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
                        (FitResult), starts.jl (starting values: :data, BestOf, :scale),
-                       cache.jl (init, fit!), fit.jl (fit: one voxel or a dataset, threaded)
+                       cache.jl (init: the cache), voxel.jl (one voxel: fit!, and fit for a
+                       vector), dataset.jl (fit for a dataset, threaded; refit)
   sim/                 simulate (noise), TISSUES / tissue / truth (presets), phantom and
                        labelshapes, compare (fit vs truth)
   analysis/            (later) Monte Carlo, CRLB, sensitivity
@@ -583,7 +584,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   not change.
 - **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
   voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
-  work into one block per thread). See the comment in `src/fit/fit.jl`.
+  work into one block per thread). See the comment in `src/fit/dataset.jl`.
 
 ## Scope so far
 

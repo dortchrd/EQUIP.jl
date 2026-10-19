@@ -1,49 +1,21 @@
 # =================================================================================================
-# fit: the main function users call (and `refit`, at the end of this file)
+# Fitting a dataset: every voxel, spread over threads (and `refit`, at the end of this file)
 #
-# Two methods, chosen by the shape of the data (multiple dispatch):
-#
-#   fit(m, y::AbstractVector)    one voxel: r.params.T2 is a number
 #   fit(m, data::AbstractArray)  many voxels, observations along the LAST dimension
 #                                (voxels × M, X×Y×M, X×Y×Z×M, ...): r.params.T2 is a map
 #
-# Both return a FitResult (result.jl), with the same fields.
+# The one-voxel method, fit(m, y::AbstractVector), is in voxel.jl. Julia picks between the two
+# by the shape of the data (multiple dispatch): a Vector matches both signatures, and Julia picks
+# the more specific one (AbstractVector), so 1-D data always means "one voxel". Both return a
+# FitResult (result.jl), with the same fields.
 #
-# A Vector matches both signatures; Julia picks the more specific one (AbstractVector), so 1-D
-# data always means "one voxel".
-#
-# `fit` and `fit!` are not our own functions: they belong to StatsAPI.jl (the interface package
-# behind StatsBase, GLM, Distributions). We add methods for our types, so `using EQUIP,
-# StatsBase` works without a name clash.
-#
-# Many voxels: the dataset is never copied. `reshape(data, nvox, M)` is a 2-D *view* of the same
-# memory: row v holds voxel v's M observations. A mask becomes a list of voxel indices.
+# The dataset is never copied. `reshape(data, nvox, M)` is a 2-D *view* of the same memory: row v
+# holds voxel v's M observations. A mask becomes a list of voxel indices.
 #
 # Threads: the list of voxels is cut into chunks; each chunk runs as a task with its own copy of
 # the cache (its own buffers). Many chunks per thread balance the load when some voxels need
 # more iterations than others. Start Julia with threads (`julia -t auto`) to use them.
 # =================================================================================================
-
-"""
-    fit(model, y::AbstractVector; precision, solver, params...) -> FitResult
-
-Fit one voxel: `y` has one value per observation. Returns a [`FitResult`](@ref) with plain
-numbers, e.g. `r.params.T1`, `r.status`.
-
-Keywords named after the model's parameters change their roles: a value fixes one
-(`kmf = 15.0`), `Free(...)` estimates one, with any start and bounds given
-(`kmf = Free()`, `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`). Options: `precision`
-(`Float64` or `Float32`) and `solver` ([`LM`](@ref)`(maxiter = 50, ...)`).
-
-For many single-voxel fits in a loop, make the cache once with `init` and call `fit!` instead.
-
-```julia
-m = QMTSIR(TI = [0.010, 0.050, 0.277, 0.843], TD = 2.5)
-r = fit(m, y; kmf = 15.0)
-r.params.PSR
-```
-"""
-fit(model::MRIModel, y::AbstractVector; kwargs...) = fit!(init(model; kwargs...), y)
 
 """
     fit(model, data::AbstractArray; mask = nothing, precision, solver, params...) -> FitResult

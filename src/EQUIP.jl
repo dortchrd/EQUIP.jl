@@ -61,8 +61,9 @@ include("fit/levmar.jl")               # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + the keywords of a fit -> FitSpec
 include("fit/result.jl")               # FitResult: what fit and fit! return
 include("fit/starts.jl")               # each voxel's starting point: :data, BestOf, :scale
-include("fit/cache.jl")                # init -> FitCache; fit! -> one voxel
-include("fit/fit.jl")                  # fit: one voxel, or every voxel of a dataset (threaded)
+include("fit/cache.jl")                # init -> FitCache: everything a voxel fit needs, made once
+include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
+include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit
 
 # sim: simulated data and accuracy against the truth (uses models and fit)
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian), snr or σ

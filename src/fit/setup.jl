@@ -8,11 +8,11 @@
 #
 # What happens next, file by file:
 #   cache.jl    `init` wraps the FitSpec in a FitCache (with the model in the working precision,
-#               the solver settings and work buffers); `fit!` fits one voxel with it
+#               the solver settings and work buffers)
+#   voxel.jl    fitting one voxel with it: `fit!(cache, y)`, and `fit(m, y)` for a vector
 #   starts.jl   each voxel's starting point (:data, BestOf, :scale)
 #   levmar.jl   the solver (Levenberg–Marquardt) for one voxel
-#   fit.jl      `fit`: one voxel (a vector) or every voxel of a dataset, spread over threads;
-#               `refit`
+#   dataset.jl  `fit(m, data)`: every voxel of a dataset, spread over threads; `refit`
 #   result.jl   FitResult: what `fit` and `fit!` return
 # =================================================================================================
 

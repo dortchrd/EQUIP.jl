@@ -3,7 +3,7 @@
 #
 # Each free parameter's start says where it comes from (see `Free`). θ0, the voxel's starting
 # point (one value per free parameter), already holds the numbers and this voxel's value of any
-# start map; then, per voxel, in this order (called from `_fit_voxel` in cache.jl):
+# start map; then, per voxel, in this order (called from `_fit_voxel` in voxel.jl):
 #   1. parameters starting at `:data`: the model's estimates from the data (`datastart`)   _data_start
 #   2. a parameter starting from `BestOf(values)`: the value that fits best              _best_start
 #      or else the `:scale` parameter (M0, S0, ...) at its best value                     _scale_start
