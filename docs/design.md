@@ -720,7 +720,7 @@ weights, other data layouts, precompilation, more models.
      code path. Candidates could be evaluated on a plain-number buffer (`BestOf` now uses the
      dual buffer: ~1 µs per voxel for 30).
    - Several linear parameters solved together (biexponential amplitudes, an offset): see
-     variable projection, item 8 (prototype measured).
+     variable projection, item 9 (prototype measured).
    - **A far start can end in a corner, reported as converged.** QMTSIR (5-point scheme, SNR 50,
      2000 voxels) from PSR = 0.4, R1f = 3: every fit ends with PSR at its bound 0 and Sf at its
      bound −1.2, R1f ≈ 4, at about 340× the SSE of the fit from the default starts (median),
@@ -743,7 +743,54 @@ weights, other data layouts, precompilation, more models.
      faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
      values outside [0, 1]). Unbounded fits remain possible per fit:
      `PSR = Free(lower = -Inf, upper = Inf)`.
-5. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+5. **MT ratio, MTsat, B1 and B0 maps**: mostly closed-form estimators (a formula on as many
+   images as unknowns), brought in as ordinary models.
+   - **Approach: models whose data start is the exact answer.** Each method is a normal model
+     (acquisition struct, `parameters`, `signal!`) whose `datastart` returns the closed-form
+     solution. With as many images as parameters the start already fits exactly, and LM stops after
+     0–1 iterations (the cost, about one signal evaluation, to measure); with extra images
+     (repeats, more MT offsets) the same model becomes a least-squares fit started from the closed
+     form. Masks, threads, maps, `FitResult`, B1 as a fixed map, and (because `signal!` exists)
+     `simulate`, Monte Carlo and CRLB come for free. A solver-free path only if measurement shows
+     it matters. Names follow the convention, quantity first then method (e.g. `B1DAM`, `B1AFI`).
+   - **MTR**: images with and without the MT pulse (e.g. `MTR(mt = [false, true])`). Parameters M0
+     (`:scale`) and MTR; signal M0 for the reference images, M0·(1 − MTR) for the MT ones; data
+     start (S_ref − S_MT)/S_ref. qMRLab exports MTR only when the MT- and PD-weighted TRs match;
+     the model can check that.
+   - **MTsat** (Helms et al., MRM 2008), with the inputs of qMRLab's `mt_sat`: MT-, T1- and
+     PD-weighted SPGR images, a flip angle and TR per image, a B1 map and a mask. Parameters the
+     apparent amplitude A (`:scale`), R1 (or T1) and MTsat; signal the SPGR equation with the MT
+     image's extra saturation; data start Helms' closed form.
+     - B1 as a fixed map (`B1 = b1map`) scales every flip angle, as in T1MFA, which corrects A and
+       R1. MTsat keeps a residual B1 dependence, which qMRLab corrects empirically after the fit
+       (a factor of 0.4 by default; Weiskopf et al., Front Neurosci 2013; Helms, ISMRM 2015,
+       abstract 3360): not part of the signal model, so a derived output (below).
+     - Helms' formulas use the small-flip-angle approximation; `signal!` could use it or the exact
+       SPGR equation, with the closed form as the start. To decide.
+   - **B1 maps**: the double-angle method (DAM: α and 2α, long TR) and actual flip-angle imaging
+     (AFI: two TRs) are closed form from magnitude images, the same pattern. A multi-flip-angle B1
+     fit is an ordinary model. Bloch–Siegert needs phase data: later.
+   - **B0 maps**: need phase or complex data (EQUIP takes real-valued arrays now). A dual-echo phase
+     difference, ΔB0 = Δφ/(2π·ΔTE), is closed form per voxel when ΔTE is short enough that the
+     phase does not wrap. Multi-echo B0 needs phase unwrapping across neighbouring voxels, which is
+     not voxel-wise: use an existing Julia package (ROMEO.jl, MriResearchTools.jl, as I recall)
+     through a package extension, with the I/O layer (item 6).
+   - **Using the maps downstream**: a map is a fixed parameter, and a result's map passes straight
+     in: `b1 = fit(B1DAM(FA = 60), b1data; mask).params.B1`, then
+     `fit(MTsat(...), data; mask, B1 = b1)`. B0 later the same way (the effective MT offset in
+     qMT-SPGR, bSSFP, the through-slice sinc model of item 9). Registering or resampling a map to
+     the data's grid stays outside EQUIP; the I/O layer can check that sizes match.
+   - **Needed in EQUIP**:
+     1. **Derived outputs**: a hook computing extra maps per voxel after the fit, from the fitted
+        and fixed values: MTsat's empirical B1 correction, MTR from the MTsat images, R1 alongside
+        T1, QMTSIR's bound pool fraction BPF = PSR/(1 + PSR). (`relabel` sees only the fitted
+        values, so it cannot.)
+     2. The statistics of item 3 for as many images as parameters: zero residual degrees of
+        freedom, so σ̂ and the standard errors are NaN, not nonsense.
+     3. Complex or phase data, for B0 and Bloch–Siegert.
+   - Order: MTR and MTsat, with derived outputs; then the B1 maps (DAM, AFI, the multi-angle fit);
+     then B0, with complex data and the I/O layer.
+6. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -780,9 +827,9 @@ weights, other data layouts, precompilation, more models.
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-6. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+7. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-7. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
+8. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
    a second method of the same function, chosen by dispatch on the argument types:
    `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts, work::LevmarWorkspace)`, with a
    workspace allocated once per thread (JᵀJ, Jᵀr, step, Cholesky factor) and in-place
@@ -790,7 +837,7 @@ weights, other data layouts, precompilation, more models.
    parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
    method at no run-time cost. Derivatives may need chunked dual numbers
    (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
-8. **Later**: GPU, Rician-likelihood fitting, more models:
+9. **Later**: GPU, Rician-likelihood fitting, more models:
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted

@@ -377,6 +377,10 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
   neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
   replacement by a neighbourhood average, marked in the status map
+- MT ratio, MTsat (Helms) and B1 maps (DAM, AFI) as models whose data start is the exact
+  closed-form answer, with B1 correction through a fixed B1 map; derived outputs (e.g. MTsat's
+  empirical B1 correction, BPF from PSR); later B0 maps, with complex data and phase unwrapping
+  from an existing package
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
