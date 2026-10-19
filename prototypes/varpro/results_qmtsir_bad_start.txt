@@ -1,0 +1,3 @@
+
+[236] signal 15: Terminated
+in expression starting at /home/user/voxelfit.jl/prototypes/varpro/qmtsir_bad_start.jl:6

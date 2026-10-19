@@ -1,0 +1,5 @@
+T2Decay       SSE at truth 7.699999999999999e-25 | VP from EQUIP's start: ConvergedX iters 1 θ [0.08] c (1000.0,) | full: iters 1
+T1IR          SSE at truth 0.0 | VP from EQUIP's start: ConvergedX iters 5 θ [-0.95, 0.9] c (1000.0,) | full: iters 5
+QMTSIR        SSE at truth 1.7e-25 | VP from EQUIP's start: ConvergedX iters 4 θ [0.12, 1.0, -0.95] c (1000.0,) | full: iters 5
+T2BiexpDecay  SSE at truth 9.8e-25 | VP from EQUIP's start: ConvergedX iters 16 θ [0.02, 0.08] c (150.0, 850.0) | full: iters 21
+T2DecayOffset SSE at truth 4.1e-25 | VP from EQUIP's start: ConvergedX iters 11 θ [0.08] c (1000.0, 30.0) | full: iters 11

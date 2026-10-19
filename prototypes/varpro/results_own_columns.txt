@@ -1,0 +1,21 @@
+
+=== T2BiexpDecay, own columns, 15% at 20 ms + 85% at 80 ms, SNR 100
+  start                      method   reached  median it    mean it    µs/voxel  status: conv / maxiter / other
+  EQUIP's (defaults)         full       97.9%         24       27.2       23.56  1957 / 43 / 0
+  EQUIP's (defaults)         VarPro     99.2%         20       22.8       19.15  1982 / 18 / 0
+  T2s = 5 ms, T2l = 300 ms   full       97.7%         22       25.9       28.48  1958 / 42 / 0
+  T2s = 5 ms, T2l = 300 ms   VarPro     99.2%         19       22.3       19.28  1988 / 12 / 0
+  grid                       VarPro     99.0%         12       14.7       56.73  1988 / 12 / 0
+
+=== T2BiexpDecay, own columns, 40% at 15 ms + 60% at 100 ms, SNR 100
+  start                      method   reached  median it    mean it    µs/voxel  status: conv / maxiter / other
+  EQUIP's (defaults)         full       96.6%         18       21.1       18.12  2000 / 0 / 0
+  EQUIP's (defaults)         VarPro    100.0%         15       15.7       14.38  2000 / 0 / 0
+  grid                       VarPro    100.0%          7        7.6       58.85  2000 / 0 / 0
+
+=== T2DecayOffset, own columns, T2 = 80 ms, C = 30, SNR 50
+  start                      method   reached  median it    mean it    µs/voxel  status: conv / maxiter / other
+  EQUIP's (defaults)         full      100.0%         10       10.5        5.08  2000 / 0 / 0
+  EQUIP's (defaults)         VarPro    100.0%         11       10.8        5.11  2000 / 0 / 0
+  T2 = 1 s                   full      100.0%         19       18.9        8.92  2000 / 0 / 0
+  T2 = 1 s                   VarPro    100.0%         15       15.1        6.60  2000 / 0 / 0
