@@ -906,14 +906,49 @@ weights, other data layouts, precompilation, more models.
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
 9. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB.
-10. **`levmar` for ordinary arrays** (only when a model needs more than ~30–40 free parameters):
-   a second method of the same function, chosen by dispatch on the argument types:
-   `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts, work::LevmarWorkspace)`, with a
-   workspace allocated once per thread (JᵀJ, Jᵀr, step, Cholesky factor) and in-place
-   `mul!`/`cholesky!`/`ldiv!`. `setup` picks static or ordinary arrays from the number of free
-   parameters, once per fit (a threshold around 32), so every voxel dispatches to the right
-   method at no run-time cost. Derivatives may need chunked dual numbers
-   (`ForwardDiff.JacobianConfig`) at that size. The model interface does not change.
+10. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
+   - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
+     allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
+     see `src/fit/levmar.jl`). That leaves gaps: models that cannot take dual numbers (external
+     code, lookup tables, some ODE solvers), many free parameters (more than ~30–40), other
+     algorithms or objectives, and checking EQUIP against a reference solver.
+   - **The hook.** `solver` is already a value (`solver = LM()`), so the per-voxel solve can
+     dispatch on its type: `_fit_voxel` calls `solve_voxel(solver, prob, θ0, lo, hi, cache)`,
+     which for `LM` is today's `levmar`. Backends live in package extensions, so EQUIP depends on
+     none of them: e.g. `solver = LsqFitLM()` (LsqFit) or `solver = SciMLLeastSquares(alg)`
+     (NonlinearSolve). Models, roles, starts, masks, maps, threads, `FitResult` and simulation
+     do not change. `init` builds each solver's own state (for `LM`, its options and the dual
+     buffer), reused across voxels where the backend allows.
+   - **Jacobians come with the backends**, so EQUIP's own solver keeps dual numbers only: LsqFit
+     offers finite differences, forward AD or a user-supplied Jacobian; SciML chooses through
+     ADTypes (`AutoFiniteDiff()`, `AutoForwardDiff()`, ...). Measured, one signal evaluation:
+     with dual numbers (the value and all P derivatives in one pass) it costs 1.24× a plain
+     evaluation for T2Decay, 1.30× T1MFA, 1.63× T1IR, 1.92× the biexponential, 1.93–2.07×
+     QMTSIR (5- and 16-point). Forward finite differences need P + 1 plain evaluations, 2–2.6×
+     the dual cost, and are less accurate. A perfect analytical Jacobian could save at most
+     the gap between dual and plain (about 30–45% of the solver's time for the biexponential and
+     QMTSIR, 10–20% for T2Decay and T1MFA), at the price of hand-derived derivatives for every
+     model and form, right for every combination of free, fixed and tied parameters; variable
+     projection (fewer partials) and better stopping rules gain as much more cheaply. The
+     exception to measure: the exact qMT models (item 6), where dual numbers through many small
+     matrix exponentials may cost far more, and the derivative of a matrix exponential has a
+     closed form (Van Loan's block-matrix trick).
+   - **First uses**: LsqFit as the reference solver in the benchmark comparison (item 2); models
+     that cannot take dual numbers; models with many parameters (a backend may make the
+     ordinary-array method below unnecessary).
+   - **To check**: bounds (LsqFit's Levenberg–Marquardt takes them; SciML's NonlinearSolve
+     least-squares solvers mostly do not, as I recall, and Optimization.jl may serve there);
+     mapping each backend's outcome to `FitStatus`; backends allocate and are slower, which is
+     fine for these uses.
+   - **Ordinary arrays in EQUIP's own solver**, if no backend serves (only when a model needs more
+     than ~30–40 free parameters): a second method of the same function, chosen by dispatch on
+     the argument types: `levmar(prob, θ0::Vector, lo::Vector, hi::Vector, opts,
+     work::LevmarWorkspace)`, with a workspace allocated once per thread (JᵀJ, Jᵀr, step,
+     Cholesky factor) and in-place `mul!`/`cholesky!`/`ldiv!`. `setup` picks static or ordinary
+     arrays from the number of free parameters, once per fit (a threshold around 32), so every
+     voxel dispatches to the right method at no run-time cost. Derivatives may need chunked
+     dual numbers (`ForwardDiff.JacobianConfig`) at that size. The model interface does not
+     change.
 11. **Later**: GPU, Rician-likelihood fitting, more models:
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.

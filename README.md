@@ -401,8 +401,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings
 - Command line, Python and MATLAB front ends, built on io/
-- A `levmar` method for ordinary arrays, for models with more than ~30–40 free parameters
-  (chosen by dispatch; the current method uses static arrays and is faster below that)
+- Solver backends through package extensions, e.g. `solver = LsqFitLM()` or a SciML solver:
+  for checking EQUIP against a reference, models that cannot take dual numbers (finite
+  differences and user Jacobians come with the backends), and models with many parameters;
+  EQUIP's own static-array solver stays the default. Or a `levmar` method for ordinary arrays,
+  for models with more than ~30–40 free parameters
 - GPU, observation weights, other data layouts, precompilation for fast start-up
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
