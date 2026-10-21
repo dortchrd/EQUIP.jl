@@ -11,6 +11,16 @@ The design decisions, recorded so the code and the discussion share one referenc
 | **Fit configuration**: which parameters are estimated in this fit | no | keywords named after the parameters | `kmf = 15.0`, `kmf = Free()` |
 | **Data** | yes | N-d array, observations last | X×Y×Z×M |
 
+**Naming rule**, in code, docstrings and docs: "parameters" always means the quantities in the
+signal equation (T1, PSR, M0, B1, ...), estimated or fixed; the protocol's values (TI, TE, flip
+angles, ...) are always the "acquisition", never "parameters" (MRI speech also says "scan
+parameters"; EQUIP does not). A model is the signal equation (its type) plus its acquisition
+and options (its fields).
+- Kept: `MRIModel` (`SignalModel` would be slightly more exact but more generic, so more likely
+  to clash with another package's names) and `parameters(m)` (the word users and model authors
+  expect; ModelingToolkit exports a `parameters` with a different meaning, so a session using
+  both writes `EQUIP.parameters`).
+
 Decisions behind this:
 
 - **The acquisition lives in the model struct** (TI, TD, flip angles, ...), next to options

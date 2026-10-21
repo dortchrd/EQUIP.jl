@@ -31,6 +31,15 @@ Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 | **model** | the physics: acquisition + options, the same for every voxel | a struct | `QMTSIR(TI = [...], TD = 2.5)` |
 | **parameters** | tissue/model values | a named tuple | `(PSR = 0.1, R1f = 1.0, ...)` |
 
+Two words keep these apart throughout EQUIP:
+
+- **parameters** are the quantities in the signal equation (T1, PSR, M0, B1, ...), whether a
+  fit estimates them or holds them fixed;
+- the **acquisition** is the protocol (TI, TE, flip angles, ...), never called "parameters".
+
+A model is the signal equation (its type, e.g. `QMTSIR`) plus its acquisition and options (its
+fields).
+
 Acquisition fields have one value per observation. Where it makes sense, a single number
 stands for all of them, e.g. `T1MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
 
