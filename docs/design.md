@@ -461,7 +461,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   `LocalPreferences.toml`, not committed) switches the workload off: about 3 s per change;
   Julia keeps both compiled versions, so switching back costs nothing. Float32 is left out
   (it would roughly double the precompile time; Float32 users pay ~2.5 s once per session).
-  The test suite also runs faster (45 s vs ~60 s). Still to do for the command line (item 9): a
+  The test suite also runs faster (45 s vs ~60 s). Still to do for the command line (item 10): a
   system image or a standalone app (PackageCompiler.jl), or a Julia process kept running.
 
 - **QMTSIR `signal!` follows Li et al. 2010 (Eqs. 3–6) step by step**: recovery over TD from the
@@ -686,6 +686,12 @@ notes.)
      wrong, the same machinery as Eq. 3's b. First case: QMTSIR's `Mzf_td0 = Mzm_td0 = 0` (both
      pools saturated at the start of TD). Simulate with nonzero values, fit with the default.
      A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
+   - A sensitivity sweep in the shape of qMRLab's `SimVary` (vary one parameter's truth over a
+     range, the others at nominal values; noise; fit; mean, SD and bias of every fitted
+     parameter): `sensitivity(m, nominal; vary = (PSR = range(0.05, 0.25; length = 10),
+     kmf = 8:2:20), snr, n, fitkw)`. The noisy copies of each setting are one dataset fit (on
+     threads); `vary` takes free and fixed parameters alike, so assumption bias (simulate with
+     kmf = 20, fit with the default 12.5) is one more entry.
    - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
    - Fit statistics on `FitResult`, added together as one set under StatsAPI's names, with one
      convention for the number of parameters (`dof`; packages differ on whether σ counts):
@@ -756,7 +762,7 @@ notes.)
      code path. Candidates could be evaluated on a plain-number buffer (`BestOf` now uses the
      dual buffer: ~1 µs per voxel for 30).
    - Several linear parameters solved together (biexponential amplitudes, an offset): see
-     variable projection, item 11 (prototype measured).
+     variable projection, item 12 (prototype measured).
    - **A far start can end in a corner, reported as converged.** QMTSIR (5-point scheme, SNR 50,
      2000 voxels) from PSR = 0.4, R1f = 3: every fit ends with PSR at its bound 0 and Sf at its
      bound −1.2, R1f ≈ 4, at about 340× the SSE of the fit from the default starts (median),
@@ -810,11 +816,11 @@ notes.)
      difference, ΔB0 = Δφ/(2π·ΔTE), is closed form per voxel when ΔTE is short enough that the
      phase does not wrap. Multi-echo B0 needs phase unwrapping across neighbouring voxels, which is
      not voxel-wise: use an existing Julia package (ROMEO.jl, MriResearchTools.jl, as I recall)
-     through a package extension, with the I/O layer (item 8).
+     through a package extension, with the I/O layer (item 9).
    - **Using the maps downstream**: a map is a fixed parameter, and a result's map passes straight
      in: `b1 = fit(B1DAM(FA = 60), b1data; mask).params.B1`, then
      `fit(MTsat(...), data; mask, B1 = b1)`. B0 later the same way (the effective MT offset in
-     qMT-SPGR, bSSFP, the through-slice sinc model of item 11). Registering or resampling a map to
+     qMT-SPGR, bSSFP, the through-slice sinc model of item 12). Registering or resampling a map to
      the data's grid stays outside EQUIP; the I/O layer can check that sizes match.
    - **Needed in EQUIP**:
      1. **Derived outputs**: a hook computing extra maps per voxel after the fit, from the fitted
@@ -891,8 +897,73 @@ notes.)
      - The volume fractions are nearly linear, so variable projection applies in part
        (tortuosity ties the extra-neurite signal to the intra-neurite fraction); AMICO's
        linearization (Daducci et al., NeuroImage 2015) is the dictionary idea of item 4.
-   - DTI, DKI with directions and IVIM stay under item 11.
-8. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+   - DTI, DKI with directions and IVIM stay under item 12.
+8. **Custom models, and coming from other fitters.** EQUIP's model interface (a struct,
+   `parameters`, `signal!`) is short, but heavier than LsqFit's `model(x, p)` or MATLAB's
+   `lsqcurvefit`, and it makes side-by-side comparisons awkward.
+   - **`@mrimodel`**: an ordinary Julia function of one observation, with the macro in front,
+     becomes a model:
+     ```julia
+     @mrimodel MyT2(TE; S0, T2, C = 0.0) = S0 * exp(-TE / T2) + C
+
+     @mrimodel function MySIR(TI, TD, magnitude = true;
+                              PSR = Free(0.1; lower = 0, upper = 1), ..., kmf = 12.5, R1m = Fixed(:R1f))
+         ...                                   # a multi-line body; the last line is the signal
+     end
+     fit(MySIR(TI = ti, TD = td), data; mask, kmf = Free())
+     ```
+     - The function's name becomes the model type; its positional arguments the acquisition
+       (in the body, one observation's values); positional arguments with a default, options;
+       its keywords the parameters, in order, their defaults the default roles: `Free(...)`;
+       a plain number or `Fixed(...)` for fixed; no default for free with no start, given in
+       the call (LsqFit's way, `fit(m, y, p0)`, or `T2 = Free(start = ...)`). A docstring before
+       the macro goes on the type.
+     - A default may use the acquisition (`T2 = Free(mean(TE))`, `TE` then the whole vector),
+       as Julia's own keyword defaults may use earlier arguments.
+     - It generates the struct, `parameters`, and a `signal!` that calls the body as a plain
+       positional function for each observation: as fast as hand-written code, no allocation;
+       `@macroexpand` shows the result.
+     - Not in a first version: a whole-curve body (work shared across observations, like
+       `QMTSIR`'s eigenvalues: write `signal!` by hand) and hooks (`datastart`, `relabel`:
+       ordinary methods on the generated type, added afterwards). Not named `@model`, which
+       Turing.jl exports.
+     - Tests: macro-made versions give the same fits as `T2DecayOffset` and `QMTSIR`;
+       docstrings; zero allocations per fit.
+   - **`newmodel(...)`**, a template generator: writes a commented model file (struct,
+     `parameters`, `signal!` with a TODO, optional hooks, a test snippet) to edit, for models
+     that will grow, and as the route from a custom model to a built-in one.
+   - **The LsqFit bridge**: `fit(m, y, p0::AbstractVector)` (starts in parameter order, as in
+     `curve_fit(model, x, y, p0)`) and `coef(res)`, StatsAPI's name; with item 3's `stderror`,
+     `vcov`, `dof` and `rss`, comparison code is identical for LsqFit's and EQUIP's results. A
+     bare `fit(f::Function, x, y, p0)` would be type piracy on StatsAPI's `fit` (neither the
+     function nor the argument types are EQUIP's), so the function is always wrapped in an EQUIP
+     type first.
+   - Optionally, **`CurveModel`**: a model wrapping an existing function `f(x, p)` (LsqFit's
+     form; dotted, element-wise code works per observation unchanged), declared with keywords or
+     with qMRLab's and lsqcurvefit's vectors (`names`, `start`, `lower`, `upper`, `fixed` for
+     `xnames`, `st`, `lb`, `ub`, `fx`). The function gets the full parameters in declared order
+     (`p[1]` or `p.S0`), as qMRLab's `equation(obj, x)` does after `addfix`. Probably covered by
+     `@mrimodel`: decide after it.
+   - **Docs**: "Coming from LsqFit, lsqcurvefit or qMRLab", the same models side by side,
+     including a qMRLab model ported as-is (`Model.fx(3) = 1; Model.st(3) = 15` →
+     `fit(m, data; kmf = 15.0)`). **Decided**: not to rework the core to mirror qMRLab (five
+     parallel vectors kept in sync by position; fit settings changed in place on the model
+     object, unsafe across threads and easy to forget; maps and ties special-cased per model),
+     but to mirror its vocabulary and tools at the surface.
+   - **Closing over values**, to document: a value captured in the function is a hidden constant
+     (fine if it never changes; it cannot be freed, mapped, or simulated with another value); a
+     declared parameter can. Measured (a million evaluations): captured inside a function, a
+     `const` global, or through `let`: 4.9–6.3 ms, no allocation; a plain global, or a variable
+     reassigned after the closure captures it (Julia "boxes" it): 51–60 ms and 46 MB, 10× slower.
+   - **Small usability fixes**: print roles as written (`Free(0.1; lower = 0, upper = 1)`,
+     `Fixed(12.5)`, not `Free(0.1, 0.0, 1.0)` or `Fixed{Float64}(12.5)`); a REPL summary of a
+     model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties);
+     a clear error when `signal(m, p)` gets a map ("one voxel: give numbers; for maps, use
+     `simulate`"; today a `MethodError` on `float`), and a docstring note that values are not
+     checked against bounds; a public name for `_allparams` (every parameter's value, defaults
+     filled, ties resolved), for loops calling `signal!`; in "Writing a model", that a model whose
+     type parameters cannot be rebuilt from its fields needs a precision-conversion method.
+9. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -929,12 +1000,12 @@ notes.)
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-9. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
+10. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
    files out), Python, MATLAB. Start-up: the precompile workload (Performance notes) already
    makes a fresh process's first fit fast; for a command line called often, a system image or a
    standalone app (PackageCompiler.jl) removes most of the rest, and the Python and MATLAB front
    ends can keep one Julia session running (e.g. through juliacall).
-10. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
+11. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
    - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
      allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
      see `src/fit/levmar.jl`). That leaves gaps: models that cannot take dual numbers (external
@@ -977,7 +1048,7 @@ notes.)
      voxel dispatches to the right method at no run-time cost. Derivatives may need chunked
      dual numbers (`ForwardDiff.JacobianConfig`) at that size. The model interface does not
      change.
-11. **Later**: GPU, Rician-likelihood fitting, more models:
+12. **Later**: GPU, Rician-likelihood fitting, more models:
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted

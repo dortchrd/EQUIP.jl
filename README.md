@@ -409,6 +409,10 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   amplitude, propagated), and the full two-pool equations through the sequence without
   approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
 - Diffusion microstructure: SMT (spherical mean technique) and NODDI
+- Custom models in one step: `@mrimodel` in front of an ordinary signal function of one
+  observation (its keywords become the parameters and their default roles), a template
+  generator for models that will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a
+  "Coming from LsqFit, lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
