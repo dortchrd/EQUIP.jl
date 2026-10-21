@@ -71,4 +71,7 @@ include("sim/tissues.jl")              # TISSUES (published values), tissue, tru
 include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
 include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 
+# Compile the common cases while the package is installed (see the file).
+include("precompile.jl")
+
 end # module

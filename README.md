@@ -24,6 +24,20 @@ julia -t auto --project=. -e 'using Pkg; Pkg.test()'
 
 Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
+The first `using EQUIP` after installing (or after any change to its code) takes about 40 s:
+EQUIP then compiles small fits of every built-in model and saves the result, so that in every
+new session the first fit is as fast as later ones (the default roles, one voxel or a dataset,
+with or without a mask). Other combinations (other free parameters, `precision = Float32`)
+compile on their first use, about a second or two. When developing EQUIP, switch that step off
+to keep each change to about 3 s: put
+
+```toml
+[EQUIP]
+precompile_workload = false
+```
+
+in a `LocalPreferences.toml` next to `Project.toml` (it is not committed).
+
 ## Two inputs
 
 | input | what it is | Julia form | example |
@@ -406,7 +420,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   differences and user Jacobians come with the backends), and models with many parameters;
   EQUIP's own static-array solver stays the default. Or a `levmar` method for ordinary arrays,
   for models with more than ~30–40 free parameters
-- GPU, observation weights, other data layouts, precompilation for fast start-up
+- GPU, observation weights, other data layouts
+- Faster start for the command line: a Julia system image or a standalone app
+  (PackageCompiler.jl), or one Julia process kept running
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods

@@ -440,6 +440,30 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 
 ## Performance notes
 
+- **Precompile workload** (`src/precompile.jl`, PrecompileTools.jl): while EQUIP precompiles, it
+  fits every built-in model with its default roles (one voxel; a 2-voxel matrix with and without
+  a mask; 4-D data), runs `simulate` and the REPL summary, plus QMTSIR with kmf free and T1MFA
+  with a B1 map. Since Julia 1.9 the compiled code is saved with the package. Measured in fresh
+  processes, one thread, 10 000 voxels:
+
+  | | before | after |
+  |---|---|---|
+  | `using EQUIP` | 0.3 s | 0.4 s |
+  | first QMTSIR fit (compiles before) | 3.8–4.1 s | 0.03–0.05 s (as fast as a compiled fit) |
+  | first QMTSIR fit with kmf free | 1.6 s | 0.05–0.06 s |
+  | first T1IR fit | 1.3–1.4 s | 0.04 s |
+  | T1IR with Sf fixed (not in the workload) | 0.9 s | 0.6–0.7 s |
+  | T1IR in Float32 (not in the workload) | 2.3–2.5 s | 2.4–2.5 s |
+  | whole process (all of the above, with `simulate`) | 12–13 s | 4.6–4.9 s |
+
+  The price: precompiling EQUIP takes about 41 s instead of about 3 s, once per install or code
+  change. For development, the preference `precompile_workload = false` (in
+  `LocalPreferences.toml`, not committed) switches the workload off: about 3 s per change;
+  Julia keeps both compiled versions, so switching back costs nothing. Float32 is left out
+  (it would roughly double the precompile time; Float32 users pay ~2.5 s once per session).
+  The test suite also runs faster (45 s vs ~60 s). Still to do for the command line (item 9): a
+  system image or a standalone app (PackageCompiler.jl), or a Julia process kept running.
+
 - **QMTSIR `signal!` follows Li et al. 2010 (Eqs. 3–6) step by step**: recovery over TD from the
   start values, the inversion pulse, recovery over TI. It uses Li's names (R1⁺, R1⁻, bf⁺, bf⁻,
   and Mz as a fraction of equilibrium), so each line can be checked against the paper. Li's
@@ -606,7 +630,8 @@ threads, tests.
 
 Out for now; earlier implementations are on the `api-v0.2` and `main` branches:
 CLI / Python / MATLAB, GPU, other model-specific and neighbour starting values, standard errors,
-weights, other data layouts, precompilation, more models.
+weights, other data layouts, more models. (Precompilation is back: a workload, see Performance
+notes.)
 
 ## Roadmap
 
@@ -905,7 +930,10 @@ weights, other data layouts, precompilation, more models.
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
 9. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
-   files out), Python, MATLAB.
+   files out), Python, MATLAB. Start-up: the precompile workload (Performance notes) already
+   makes a fresh process's first fit fast; for a command line called often, a system image or a
+   standalone app (PackageCompiler.jl) removes most of the rest, and the Python and MATLAB front
+   ends can keep one Julia session running (e.g. through juliacall).
 10. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
    - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
      allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
