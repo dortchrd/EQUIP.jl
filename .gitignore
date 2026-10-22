@@ -3,3 +3,4 @@ Manifest.toml
 __pycache__/
 *.egg-info/
 LocalPreferences.toml
+examples/output/

@@ -24,6 +24,9 @@ julia -t auto --project=. -e 'using Pkg; Pkg.test()'
 
 Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
+A complete example, a Monte Carlo test of the 4-point SIR scheme in white matter at SNR 200
+(Dortch et al. 2018), saved as CSV files: `julia -t auto --project=. examples/sir_wm_4point.jl`.
+
 The first `using EQUIP` after installing (or after any change to its code) takes about 40 s:
 EQUIP then compiles small fits of every built-in model and saves the result, so that in every
 new session the first fit is as fast as later ones (the default roles, one voxel or a dataset,
