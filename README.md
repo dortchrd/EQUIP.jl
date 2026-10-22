@@ -421,15 +421,18 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings
-- Command line, Python and MATLAB front ends, built on io/
+- Command line, Python and MATLAB front ends, built on io/, each call compiling nothing: a
+  precompile workload covering every front-end call (checked by a test), `equip --init` to
+  prepare a case outside it once (compiled code saved on disk for later calls; prototype:
+  3.2–3.8 s → 0.06 s), juliacall for Python, a Julia server for MATLAB
 - Solver backends through package extensions, e.g. `solver = LsqFitLM()` or a SciML solver:
   for checking EQUIP against a reference, models that cannot take dual numbers (finite
   differences and user Jacobians come with the backends), and models with many parameters;
   EQUIP's own static-array solver stays the default. Or a `levmar` method for ordinary arrays,
   for models with more than ~30–40 free parameters
 - GPU, observation weights, other data layouts
-- Faster start for the command line: a Julia system image or a standalone app
-  (PackageCompiler.jl), or one Julia process kept running
+- Faster start for the command line: a Julia server for many calls in a row, or a system
+  image or standalone app (PackageCompiler.jl)
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods

@@ -1000,11 +1000,88 @@ notes.)
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
-10. **Front ends**, built on the `io/` layer: command line (data files + protocol file in, map
-   files out), Python, MATLAB. Start-up: the precompile workload (Performance notes) already
-   makes a fresh process's first fit fast; for a command line called often, a system image or a
-   standalone app (PackageCompiler.jl) removes most of the rest, and the Python and MATLAB front
-   ends can keep one Julia session running (e.g. through juliacall).
+10. **Front ends: command line, Python, MATLAB**, built on the `io/` layer (item 9): data files
+   and a protocol file in, map files out.
+   - **Why start-up needs a design.** Every command-line call is a new Julia process, and so is
+     every new Python or MATLAB session, so whatever is not already compiled compiles again
+     each time. Measured (4-point SIR, default roles, 4 threads), a fresh process that loads
+     EQUIP and fits 1 M voxels: 0.9 s to start Julia and load EQUIP, then 1.1 s to fit, and
+     nothing compiles, because the case is in the precompile workload. So a call costs about
+     1 s on top of the fit, and the speed advantage stays, as long as (a) a call fits a whole
+     dataset (not a voxel or a slice per call), and (b) everything the call runs is
+     precompiled.
+   - **The front ends are the easy case.** They offer the built-in models and a fixed menu of
+     options (which parameters are free or fixed, numbers or maps, precision, mask, file
+     formats), so the cases they reach are known in advance and can all be precompiled. Only
+     custom models compile at run time, and the people writing them work in Julia.
+   - **1. The workload covers every front-end call**: each built-in model with each option the
+     front ends offer, and file reading and writing. Also the simulation path, which today
+     compiles about 3.5 s in `examples/sir_wm_4point.jl` (measured, first calls in a fresh
+     process): `compare` 2.1 s (of which `median` alone 0.93 s: Julia's sorting code, not
+     shipped compiled for `Vector{Float64}` by Statistics), printing its table 0.73 s,
+     `simulate` 0.26 s (the preset's full parameter set has 6 names where the workload's had 4,
+     and a `MersenneTwister` is a different type from the default generator), `truth` 0.21 s,
+     and a fixed parameter given as a number (`kmf = 10.0`) 0.47 s. Code from Statistics and
+     Base called by the workload is saved with EQUIP too.
+   - **2. A test that nothing compiles**: a fresh process runs each front-end call with
+     `--trace-compile` and fails if anything compiled, so a change that silently breaks
+     precompilation is caught by the tests, not by users.
+   - **3. A prep step for cases outside the workload: `equip --init <the call's arguments>`.**
+     It runs the real call's code on 2 stand-in voxels of the same shape and types and saves the
+     compiled code on disk; the same call without `--init` then starts compiled, in any later
+     process, across reboots. How: a local "prep" package in the user's depot (PrecompileTools'
+     "startup package" pattern) whose workload runs the cases listed in a `cases.toml`;
+     `include_dependency` on that file makes Julia rebuild the package when a case is added;
+     `--init` adds the case and loads the package (which rebuilds it); every call loads it
+     with EQUIP. The core of the prototype:
+
+     ```julia
+     module EQUIPWarm
+     using EQUIP, PrecompileTools, TOML
+     const CASES = joinpath(@__DIR__, "..", "cases.toml")   # must exist, even empty
+     include_dependency(CASES)       # editing cases.toml makes Julia rebuild this package
+     @setup_workload begin
+         cases = get(TOML.parsefile(CASES), "case", [])
+         @compile_workload for c in cases
+             # build the model and options from c, then fit 2 stand-in voxels:
+             # fit(m, rand(2, nobs(m)); precision = ..., fixed...)
+         end
+     end
+     end
+     ```
+
+     Measured with the prototype (T1IR, 10 000 voxels, the first fit in a fresh process):
+
+     | case (not in EQUIP's workload) | before prep | after prep |
+     |---|---|---|
+     | `precision = Float32` | 3.2–3.8 s | 0.06 s |
+     | `Sf = -0.95` fixed | 0.6–0.7 s | 0.1 s |
+
+     The prep step took 9.9 s for both cases; loading stayed at 0.6 s. Points for the design:
+     - A case is a set of types, not values: the model, which parameters are free, numbers or
+       maps, precision, data dimensions, mask or not, file format. Other TIs or another fixed
+       value are the same case; a B1 map instead of a number is a new one. So `--init` must
+       run the real call's own code on stand-in data, never a hand-written copy of it.
+     - Adding a case rebuilds the whole prep package (seconds per case). An EQUIP update makes
+       Julia rebuild it once, at the next call, automatically (it depends on EQUIP).
+     - A lab can keep its cases in a file (`equip --init cases.toml`). Python and MATLAB load
+       the same prep package (`equip.prepare(...)`).
+   - **4. A server, for many calls in a row** (a script calling the command line per subject,
+     MATLAB): a Julia process that stays running; each call sends its arguments and file paths,
+     so it also skips the 0.9 s of start-up and loading, and whatever compiled once stays
+     compiled while the server runs (lost when it stops; the prep package survives). Existing
+     tools: DaemonMode.jl (command line), MATDaemon.jl (`jlcall` from MATLAB, used by DECAES.jl
+     for its MATLAB interface).
+   - **Per front end:**
+     - Command line: one call per dataset or per list of subjects; `--init` for other cases;
+       the server for many calls; a system image or app (PackageCompiler.jl) if start-up still
+       matters (not measured).
+     - Python: juliacall (PythonCall.jl) runs Julia inside the Python process. It starts on
+       `import`, and later calls cost only the fit, so a notebook stays fast all session.
+     - MATLAB: running Julia inside MATLAB is fragile, so a server; data passed in files. qMRLab
+       could call EQUIP as its fitting engine this way.
+   - **Order**: workload coverage and the no-compile test; the command line with `--init`;
+     Python; MATLAB.
 11. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
    - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
      allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
