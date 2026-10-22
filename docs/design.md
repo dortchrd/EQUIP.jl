@@ -410,8 +410,9 @@ ext/                   (later) package extensions: OptimExt (optimize_protocol),
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
 test/                  correctness and deterministic performance checks (no allocation, type
                        stability); no timings
-bench/                 (later) own Project.toml (BenchmarkTools, LsqFit): speed suite + accuracy
-                       studies, results.md
+bench/                 own Project.toml (BenchmarkTools, LsqFit, NonlinearSolve);
+                       sir_wm_4point_vs.jl: EQUIP vs LsqFit vs NonlinearSolve on the example's
+                       data. (later) speed suite + accuracy studies, results.md
 ```
 
 - Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
