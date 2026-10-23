@@ -33,7 +33,11 @@
 #                     the run with bounds the bound PSR ≥ 0 comes into play
 #   :biexp            T2BiexpDecay, 32 echoes 10-320 ms, values around those of myelin water
 #                     imaging: fshort 0.05-0.30, T2short 10-30 ms, T2long 60-120 ms, S0 0.8-1.2,
-#                     SNR 100 (relative to S0); two exponentials, the classic ill-conditioned fit
+#                     SNR 200 (relative to S0); two exponentials, the classic ill-conditioned fit.
+#                     How well the data determine it depends on the T2 separation, the amplitude
+#                     ratio, the TE sampling and the SNR; in practice it needs SNR above ~100-200
+#                     (median fshort error, every method: 28% at SNR 100, 11% at 200, 4% at 500)
+#   :biexp_snr100     the same at SNR 100: a stress case, where fshort is barely determined
 #
 # Starts: EQUIP's default starts (each model's `parameters`, with the scale parameter scaled to
 # the voxel's data), the same for every method, except :sir4_poorstart.
@@ -46,7 +50,7 @@
 using EQUIP, Random
 
 const ALLCASES = (:t2, :t1mfa, :t1ir, :sir4_range, :sir4_poorstart, :sir16_kmf, :sir16_kmf_snr50,
-                  :sir4_lowpsr, :biexp)
+                  :sir4_lowpsr, :biexp, :biexp_snr100)
 const NVOX = 10_000
 
 uniform(rng, (lo, hi), n) = lo .+ (hi - lo) .* rand(rng, n)      # n values, uniform in [lo, hi)
@@ -140,12 +144,13 @@ function makecase(name::Symbol; n = NVOX)
         Y = simulate(m, truth; snr = 50, rng)
         return (; name, title = "4-point SIR, small PSR (0.005-0.05), SNR 50", m, Y, truth,
                 roles = (;), starts = nothing, order! = nothing)
-    elseif name === :biexp
+    elseif name in (:biexp, :biexp_snr100)
+        snr = name === :biexp ? 200 : 100
         m = T2BiexpDecay(TE = collect(0.01:0.01:0.32))
         truth = (S0 = uniform(rng, (0.8, 1.2), n), fshort = uniform(rng, (0.05, 0.30), n),
                  T2short = uniform(rng, (0.010, 0.030), n), T2long = uniform(rng, (0.060, 0.120), n))
-        Y = simulate(m, truth; snr = 100, rng)
-        return (; name, title = "biexponential T2, 32 echoes, myelin-water-like values, SNR 100",
+        Y = simulate(m, truth; snr, rng)
+        return (; name, title = "biexponential T2, 32 echoes, myelin-water-like values, SNR $snr",
                 m, Y, truth, roles = (;), starts = nothing, order! = biexp_order!)
     end
     throw(ArgumentError("unknown case $name; the cases: $(join(ALLCASES, ", "))"))

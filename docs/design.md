@@ -803,8 +803,13 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       the default starts, not the conditioning; at SNR 100 they cluster at small T2 ratios
       (T2long/T2short 2-3: 40% of voxels; 3-5: 22%; 5-12: 11%) and, unexpectedly, at large fshort
       (0.05-0.13: 5%; 0.22-0.30: 37%).
-    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test; the
-      biexponential case at SNR 200 (the realistic minimum) with SNR 100 as a stress case; and,
+    - The benchmark's `biexp` case is now at SNR 200 (the realistic minimum); the SNR 100 case
+      the tables above call `biexp` is now `biexp_snr100`, kept as a stress case. 1000 voxels,
+      1 run, 4 threads, µs per voxel (not best), biexp / biexp_snr100: without bounds EQUIP
+      8.67 (180) / 14.7 (218), LsqFit 161 (133) / 294 (122), NonlinearSolve LM 2413 (2) / 3544
+      (16), TrustRegion 40.6 (16) / 67.6 (38), FastLM 32.0 (118) / 117 (151); with bounds EQUIP
+      9.40 (4) / 22.4 (4), LsqFit 128 (6) / 228 (22), FastLM 9.71 (282) / 31.2 (243).
+    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test; and,
       later, errors judged against the Cramér–Rao bound (roadmap item 3), so methods are compared
       where the data determine the parameters. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
