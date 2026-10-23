@@ -819,7 +819,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       disagreed on which was faster). VarPro removes the full fit's unbounded path problem: the
       amplitudes can no longer wander, so the two components do not merge.
       - Recommendation: add VarPro to EQUIP for models with linear amplitudes, starting with the
-        biexponential. To design: how a model declares its linear parameters and columns (a
+        biexponential (since designed: "Variable projection (VarPro): proposed design"). The
+        questions were: how a model declares its linear parameters and columns (a
         method like `linearparts(m)`, or columns from `signal!` at unit amplitudes); mapping
         amplitudes back to the model's parameters (S0, fshort); bounds (amplitudes ≥ 0 by the
         active set; other bounds on amplitudes?); Float32; statuses and `FitResult`; and when it
@@ -1613,7 +1614,9 @@ notes.)
        from EQUIP's starts (the `:scale` start already captures most of the gain), so optional;
        it can be generic there (the column is the signal at scale 1, as in `_score`).
      - Before adopting: answered in "Variable projection (VarPro): proposed design" above
-       (hooks, bounds, fallbacks, Float32, tests, order of work, open decisions).
+       (a `linear = true` label on parameters, checked at setup; columns from `signal!`, or a
+       model's `columns!`; `fromamplitudes` for parameters that are not amplitudes; bounds,
+       fallbacks, Float32, tests, order of work, open decisions).
    - **Log coordinates and a per-parameter stopping test** (prototype measured, branch
      `varpro-proto`, `prototypes/varpro/logt.jl`, results in `results_logt.txt`): the solver works
      in φ = log θ for chosen positive parameters and the model sees θ = exp(φ); the dual numbers
