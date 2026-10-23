@@ -621,6 +621,20 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 - **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
   voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
   work into one block per thread). See the comment in `src/fit/dataset.jl`.
+- **Against LsqFit and NonlinearSolve** (`bench/sir_wm_4point_vs.jl`, QMTSIR, 4-point SIR, white
+  matter at SNR 200). Everything shared: EQUIP's `signal!`, the starts, no bounds, ForwardDiff,
+  the threads, the number of runs, and the stopping rule: a relative parameter step of 1e-8,
+  every other test off. That rule cannot be made identical: EQUIP scales the step by
+  Marquardt's D^½, LsqFit does not, and NonlinearSolve's least-squares default tests the
+  residual, which never becomes small with noisy data, so the script gives it a step rule
+  (`RelNormSafeBestTerminationMode`, one step, relative to the start). Measured, 500 voxels,
+  4 threads, µs per voxel: EQUIP 0.94 (0.66 on 10 000 voxels, 200 runs), LsqFit 18, NonlinearSolve
+  TrustRegion 3.5, NonlinearSolve LevenbergMarquardt 155; mean steps per voxel 5.0, —, 3.0, 8.8;
+  all converged on every voxel, estimates within 5e-8 of EQUIP's. LsqFit and NonlinearSolve's
+  LevenbergMarquardt do not speed up with threads (LsqFit 17 µs on 1 thread, SciML's LM 58 µs
+  on 1 thread vs 155 on 4): they allocate on every voxel, and memory cleanup stops all threads.
+  TrustRegion is the closest; it takes fewer, Gauss–Newton-like steps. LsqFit's README still
+  describes central finite differences as its default; version 0.16 defaults to ForwardDiff.
 
 ## Scope so far
 
