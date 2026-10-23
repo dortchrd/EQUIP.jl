@@ -793,7 +793,20 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
         T2long = T2short + ΔT2, ΔT2 ≥ 0), or variable projection (`varpro-proto`: more
         biexponential fits reached the minimum). The trust radius helps poor starts (24 → 10)
         and 16-point kmf (4 → 0) without bounds only; not adopted.
-    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test. Candidates: Marquardt scaling recomputed
+    - The biexponential and SNR (1000 voxels, the benchmark's T2 ranges and starts; EQUIP vs
+      LsqFit, and NonlinearSolve's TrustRegion without bounds). The conditioning depends on the
+      T2 separation, the amplitude ratio, the TE sampling and the SNR; in practice it needs SNR
+      above about 100-200. Median fshort error with bounds, EQUIP / LsqFit: SNR 100 28% / 28%,
+      200 11% / 11%, 500 4% / 4%: at SNR 100 fshort is barely determined, for every method.
+      EQUIP not best with bounds: 4 at every SNR (LsqFit 22, 6, 0). Without bounds EQUIP's misses
+      barely fall with SNR (202, 178, 152; TrustRegion 30, 13, 17), so they are EQUIP's path from
+      the default starts, not the conditioning; at SNR 100 they cluster at small T2 ratios
+      (T2long/T2short 2-3: 40% of voxels; 3-5: 22%; 5-12: 11%) and, unexpectedly, at large fshort
+      (0.05-0.13: 5%; 0.22-0.30: 37%).
+    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test; the
+      biexponential case at SNR 200 (the realistic minimum) with SNR 100 as a stress case; and,
+      later, errors judged against the Cramér–Rao bound (roadmap item 3), so methods are compared
+      where the data determine the parameters. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
       a Gauss–Newton step first. Targets: the unbounded biexponential path (202), the crawling
       voxels, steps on every case; nothing may get worse with bounds. The benchmark should also
