@@ -656,6 +656,19 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     voxel EQUIP 0.72, TrustRegion 1.69, LsqFit 18.3, SciML LM 152; steps 5.3, 3.6, —, 8.7; all
     converged everywhere and reached EQUIP's minimum, except 3 voxels where TrustRegion stopped
     at a clearly higher SSE.
+  - SimpleNonlinearSolve (SciML's low-overhead solvers for small, static problems) is the real
+    competitor: set up its fast way (an out-of-place residual returning an SVector, EQUIP's
+    `signal!` inlined into it with `@inline` so its MVector stays off the heap, the
+    NonlinearFunction built once, a new problem per voxel: ~300 bytes per voxel, 0 inside the
+    solve) SimpleGaussNewton runs at EQUIP's speed: range data, 5 runs, µs per voxel on 1/4
+    threads EQUIP 2.39/0.83, SimpleGaussNewton 2.54/0.95, SimpleTrustRegion 3.12/1.02 (3 voxels
+    at a clearly higher SSE). Set up naively (a new problem from a plain function, no
+    `@inline`) the same solve took 15 µs. SimpleGaussNewton is pure Gauss–Newton (no damping, no
+    safeguard), and its default stop tests the residual norm, which only works here because
+    every fit is exact (4 points, 4 parameters); with more points than parameters it would run
+    to maxiters. So EQUIP's speed lead on this test is over typical usage (LsqFit, NonlinearSolve's
+    general solvers), not over the best hand-tuned SciML setup; the harder tests (more points
+    than parameters, poor starts) and the damping prototype decide the rest.
 
 ## Scope so far
 

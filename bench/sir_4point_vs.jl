@@ -2,7 +2,10 @@
 # Benchmark: EQUIP vs LsqFit.jl vs NonlinearSolve.jl (SciML), 4-point SIR
 #
 # Fits the voxels saved by one of the example scripts (run it first) with each method, times
-# each with BenchmarkTools, and checks that the methods find the same answers:
+# each with BenchmarkTools, and checks that the methods find the same answers. The methods:
+# EQUIP; LsqFit's Levenberg-Marquardt; NonlinearSolve's general solvers LevenbergMarquardt and
+# TrustRegion; and SimpleNonlinearSolve's SimpleGaussNewton and SimpleTrustRegion, SciML's
+# low-overhead solvers for small problems (loaded with NonlinearSolve). The data:
 #   DATASET = "sir_4point_range"   examples/sir_4point_range.jl: every voxel its own tissue (PSR,
 #                                  kmf, R1f over the range of Dortch 2018's tissue classes, Sf and
 #                                  M0f varied too), so the fits start away from the answer
@@ -33,6 +36,12 @@
 #     tests the residual, which never becomes small with noisy data, so the script sets a
 #     step-size rule instead (RelNormSafeBestTerminationMode, one step)
 #
+# SimpleNonlinearSolve needs its fast setup, or it is several times slower (measured: 15 instead
+# of 2.1 µs per voxel): a residual that returns a static vector (SVector), with EQUIP's
+# `signal!` inlined into it so its small work vector stays off the heap; the NonlinearFunction
+# built once; and a new, cheap problem per voxel. SimpleGaussNewton is pure Gauss-Newton: no
+# damping and no safeguard against bad steps, so it relies on good starts.
+#
 # Same answers: a method can stop at a different point than EQUIP (another local minimum, or
 # not converged). For every voxel the script compares each method's SSE with EQUIP's and counts
 # the voxels where it is clearly lower or higher (by more than 1e-8 of the voxel's Σy²).
@@ -45,7 +54,7 @@
 # =================================================================================================
 
 using EQUIP, LsqFit, NonlinearSolve, BenchmarkTools
-using DelimitedFiles, LinearAlgebra, Statistics, Printf
+using DelimitedFiles, LinearAlgebra, StaticArrays, Statistics, Printf
 
 # --- Settings ------------------------------------------------------------------------------------
 const DATASET = "sir_4point_range"   # or "sir_wm_4point" (see above)
@@ -144,12 +153,36 @@ function fit_sciml(m, Y, P0, alg)
     return est, ok, steps
 end
 
+# SimpleNonlinearSolve, set up the fast way (see the header): one voxel per problem, static vectors
+function fit_simple(m, Y, P0, alg)
+    function resid(p, y)                            # out of place: returns a new SVector
+        s = MVector{4,eltype(p)}(undef)
+        @inline signal!(s, m, sirparams(p))         # inlined, so `s` can stay off the heap
+        return SVector(s) - y
+    end
+    f = NonlinearFunction{false}(resid)             # built once ({false}: out of place)
+    est = similar(P0)
+    ok = falses(size(Y, 1))
+    Threads.@threads for v in axes(Y, 1)
+        prob = NonlinearLeastSquaresProblem{false}(f, SVector{4}(view(P0, :, v)),
+                                                   SVector{4}(view(Y, v, :)))
+        sol = solve(prob, alg; SCIML_STOP...)
+        est[:, v] .= sol.u
+        ok[v] = NonlinearSolve.SciMLBase.successful_retcode(sol)
+    end
+    return est, ok, nothing                         # the Simple solvers do not count their steps
+end
+
 methods = [("EQUIP", () -> fit_equip(m, Y, P0)),
            ("LsqFit (Levenberg-Marquardt)", () -> fit_lsqfit(m, Y, P0, lower, upper)),
            ("NonlinearSolve LevenbergMarquardt",
             () -> fit_sciml(m, Y, P0, LevenbergMarquardt(autodiff = AutoForwardDiff()))),
            ("NonlinearSolve TrustRegion",
-            () -> fit_sciml(m, Y, P0, TrustRegion(autodiff = AutoForwardDiff())))]
+            () -> fit_sciml(m, Y, P0, TrustRegion(autodiff = AutoForwardDiff()))),
+           ("NonlinearSolve SimpleGaussNewton",
+            () -> fit_simple(m, Y, P0, SimpleGaussNewton(autodiff = AutoForwardDiff()))),
+           ("NonlinearSolve SimpleTrustRegion",
+            () -> fit_simple(m, Y, P0, SimpleTrustRegion(autodiff = AutoForwardDiff())))]
 
 # Each voxel's SSE at a method's estimates, with the same signal code for every method
 function sse_all(m, Y, est)
