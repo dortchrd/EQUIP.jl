@@ -824,7 +824,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
         amplitudes back to the model's parameters (S0, fshort); bounds (amplitudes ≥ 0 by the
         active set; other bounds on amplitudes?); Float32; statuses and `FitResult`; and when it
         is used (automatically for such models, or `solver = LM(varpro = true)`).
-    - Next: VarPro in EQUIP (design above); and,
+    - Next: VarPro in EQUIP (see "Variable projection (VarPro): proposed design"); and,
       later, errors judged against the Cramér–Rao bound (roadmap item 3), so methods are compared
       where the data determine the parameters. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
@@ -845,6 +845,162 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     - The 4-point scheme from poor starts: every method converges, but the median PSR error is
       350–450% for all of them. With 4 observations and 4 free parameters there can be more than
       one exact fit, and far starts find the wrong one: the scheme depends on sensible starts.
+
+## Variable projection (VarPro): proposed design
+
+Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
+with its README); measurements in the Performance notes. On the benchmark's biexponential
+(`bench/cases.jl`, 1000 voxels, every voxel different): voxels not best, EQUIP's full fit →
+VarPro, SNR 200 without bounds 180 → 8 (NonlinearSolve's TrustRegion 15), with bounds 4 → 4;
+SNR 100 without bounds 213 → 16 (TrustRegion 42), with bounds 13 → 11; ~20% fewer steps
+everywhere; speed about the same.
+
+### What it is
+
+Many signals are linear in some of their parameters: S = Σₖ aₖ·sₖ(θ), with K amplitudes aₖ and
+columns sₖ that depend only on the nonlinear parameters θ (T2s, T1, ...). For any θ the best
+amplitudes are a small linear least-squares solve, a(θ) = (SᵀS)⁻¹Sᵀy with S = [s₁ … s_K]
+(M × K). Variable projection (Golub & Pereyra 1973) lets LM fit θ only, with the amplitudes
+solved at every evaluation: it minimizes ‖S(θ)·a(θ) − y‖². LM then has fewer, less correlated
+parameters, and the amplitudes can never wander. The biexponential's misses without bounds were
+exactly that: its full fit drifts through unphysical amplitudes until the two components merge.
+
+In EQUIP the amplitudes are solved in dual arithmetic, so the reduced problem's derivatives are
+exact (no Kaufman approximation), and `levmar` does not change: the reduced problem supplies its
+own `normal_equations`, as in the prototype. Least squares only: not for Rician-likelihood
+fitting (roadmap), and with magnitude data only amplitudes that keep the signal's sign are
+linear (|M0·shape| = M0·|shape| for M0 ≥ 0; a sum of decays with amplitudes ≥ 0 is positive).
+
+### Which models
+
+1. **Several amplitudes**, which the model declares (below): the biexponential (a₁ = S0·fshort,
+   a₂ = S0·(1 − fshort)) and the decay with offset (S0 and C), in both forms (T2 and R2). This
+   is where VarPro pays: robustness on the biexponential.
+2. **One amplitude, the `:scale` parameter** (M0, S0, M0f): K = 1, and the column is the signal at
+   scale 1, which `_score` already computes for the starts. Generic: no model code. Measured in the
+   prototype: 0–22% faster, robustness unchanged from EQUIP's starts (the `:scale` start already
+   gives most of the benefit), so optional at first (below).
+
+### How a model declares its linear part
+
+Three optional methods in `models/interface.jl`, defined together. The default,
+`linearpart(m) = nothing`, means "only the generic scale, if any".
+
+```julia
+# The linear parameters, and which amplitudes must be ≥ 0 when the model's own bounds apply
+linearpart(::T2BiexpDecay) = (params = (:S0, :fshort), nonneg = (true, true))
+
+# The K columns at the nonlinear parameters p (a named tuple that may hold dual numbers):
+# only each column's own terms, no amplitudes
+function columns!(cols, m::T2BiexpDecay, p)
+    cshort, clong = cols
+    @inbounds for j in eachindex(m.TE)
+        cshort[j] = exp(-m.TE[j] / p.T2short)
+        clong[j] = exp(-m.TE[j] / p.T2long)
+    end
+    return cols
+end
+
+# The linear parameters from the amplitudes
+fromamplitudes(::T2BiexpDecay, a) = (S0 = a[1] + a[2], fshort = a[1] / (a[1] + a[2]))
+```
+
+- Model-supplied columns, because the generic route (the model's `signal!` with unit amplitudes,
+  one evaluation per column) costs too much with two columns (prototype: biexponential 23.1 →
+  27.2 µs per voxel); own columns compute each exponential once.
+- A test for every model that declares a linear part: Σₖ aₖ·sₖ equals `signal!` with the linear
+  parameters from `fromamplitudes(a)`, at random values, in both precisions.
+
+### When it is used
+
+A solver setting, `solver = LM(varpro = :auto)` by default, or `true`, or `false`:
+- `:auto`: on when the model declares a linear part and the fit can use it (below); off
+  otherwise, so every other model's fits stay exactly as they are today.
+- `true`: also the generic K = 1 VarPro for `:scale` models. `false`: never.
+- The fit can use the model's linear part when every parameter `linearpart` lists is free (not
+  fixed, tied or a map) and its bounds are the model's own (then `nonneg` applies) or none (then
+  the amplitudes are unconstrained). Otherwise: a fixed or tied linear parameter (e.g.
+  `fshort = 0.2`) leaves the generic K = 1 VarPro if a `:scale` parameter is free and `varpro =
+  true`, else the full fit; a user bound the amplitudes cannot express (`fshort = Free(upper =
+  0.5)`, `S0 = Free(lower = 100)`) gives the full fit. `res.settings` and the REPL summary say
+  which was used.
+- Why not on for every `:scale` model at once: the gain there is small, and it changes every
+  fit's path (same minima within the tolerance, but not bit for bit). Decide with the benchmark
+  (every case, both precisions) first.
+
+### Inside the fit
+
+- `setup`: splits the free names F into the reduced (nonlinear) names Fn and the linear ones;
+  Fn, K and `nonneg` go into the type, as F does now, so everything is specialized and nothing is
+  looked up at run time.
+- `init`: K column buffers of dual numbers per cache, so one set per task, as the model buffer
+  today.
+- Per voxel (`_fit_voxel`): the nonlinear parameters' starts as today (numbers, maps, `:data`,
+  `BestOf`). `BestOf` scores each value with the K amplitudes solved (`_score` generalized from
+  K = 1). The linear parameters need no start. Then `levmar` on the reduced problem; then the
+  amplitudes at the solution → `fromamplitudes` → every parameter → `relabel` as today (the
+  biexponential's components in order).
+- `normal_equations` of the reduced problem: fill the columns at θ (duals), solve the K × K
+  system for the amplitudes in dual arithmetic, then residuals rᵢ = Σₖ aₖ·sₖᵢ − yᵢ with their
+  partials → JᵀJ, Jᵀr and SSE as now. K = 1: a = (s·y)/(s·s); K = 2: closed form; larger K:
+  the small Cholesky already in `levmar.jl`.
+- Amplitudes ≥ 0 (`nonneg`): an active set. An amplitude that comes out negative is set to 0 and
+  the others re-solved (K = 2: closed form, as the prototype; larger K: Lawson–Hanson NNLS). The
+  reduced problem has a kink where the active set switches; LM's acceptance test copes
+  (prototype).
+- Collinear columns (the two T2s equal): the 2 × 2 system is singular. Detect it (determinant
+  ≤ ε·g₁₁·g₂₂) and keep the better single-column fit, so the result is a monoexponential
+  (fshort 0 or 1), not NaN.
+- Float32: the K × K normal equations square the columns' condition number, and nearly collinear
+  columns lose the amplitudes in Float32. Proposed: accumulate the K × K Gram matrix and Sᵀy in
+  Float64 (cheap for K ≤ 3); measure against the full fit in Float32 before deciding.
+
+### What the user sees
+
+- The same `fit` call and the same `FitResult`: every parameter (S0, fshort, T2short, T2long),
+  the SSE, the status, and the iterations (of the reduced problem, so fewer).
+- Statuses as today; a voxel whose amplitudes cannot be computed (zero or NaN columns) is
+  `Failed`.
+- Standard errors (roadmap item 3) from the full Jacobian at the solution, in the model's own
+  parameters, so they do not depend on how the fit got there.
+- Starts given for linear parameters (`S0 = Free(start = 1000)`) are not used when VarPro is on;
+  documented in `LM` and `Free`.
+
+### Tests and acceptance
+
+- The hooks (columns × amplitudes = `signal!`), for every model that declares them.
+- Noise-free recovery from the default starts; full fit and VarPro agree within the tolerance on
+  well-conditioned data.
+- Bounds: amplitudes held at 0 (fshort exactly 0 or 1); user bounds → full fit; no bounds → no
+  constraint. Fixed and tied linear parameters → fallback.
+- No allocation per voxel; Float32; statuses; `refit`; maps of fixed values on nonlinear
+  parameters.
+- The benchmark: an "EQUIP VarPro" row in `bench/solvers.jl` until it is the default. The
+  biexponential cases at least as good as the prototype (not best 8 / 4 / 16 / 11); every other
+  case bit-identical to today (`:auto` leaves them alone: the fingerprint check); speed no worse
+  beyond noise (10 000 voxels, at least 10 runs).
+
+### Order of work
+
+1. The hooks and the biexponential (T2 and R2 forms): K = 2, `nonneg`, `varpro = :auto`; tests;
+   benchmark.
+2. The decay with offset (K = 2; S0 ≥ 0, C unconstrained).
+3. The generic K = 1 for `:scale` models behind `varpro = true`; measure every case; then decide
+   whether `:auto` includes them.
+4. Separately, later: log coordinates for positive nonlinear parameters with the per-parameter
+   step test (with VarPro on the biexponential: 40–59% faster, more fits reaching the minimum;
+   see the roadmap).
+
+### Open decisions
+
+- Default: `:auto` (on for the models that declare a linear part; proposed) or opt-in
+  (`varpro = true`) everywhere at first.
+- A bound on a linear parameter that the amplitudes cannot express: fall back to the full fit
+  (proposed) or an error.
+- A start given for a linear parameter: ignored (proposed) or a reason to turn VarPro off.
+- Float32: Float64 accumulation for the K × K solve (proposed), or the full fit in Float32.
+- Where the switch lives: in `LM` (proposed: it is how the solver treats the problem), or a
+  separate solver type through the solver hook (roadmap item 11), e.g. `VarPro(LM())`.
 
 ## Scope so far
 
@@ -1400,11 +1556,8 @@ notes.)
        fshort = c₁/(c₁ + c₂)). With one `:scale` parameter: 0–22% faster, robustness unchanged
        from EQUIP's starts (the `:scale` start already captures most of the gain), so optional;
        it can be generic there (the column is the signal at scale 1, as in `_score`).
-     - Before adopting: how a model declares its linear parameters and columns (a generalized
-       `:scale`, or a hook); bounds on amplitudes (a small active set, with a kink in the
-       reduced problem where it switches); standard errors from the full Jacobian at the end
-       (item 3); several truths and SNRs, as a study (item 2). Least squares only: not with
-       Rician-likelihood fitting, and magnitude data keep only the scale linear.
+     - Before adopting: answered in "Variable projection (VarPro): proposed design" above
+       (hooks, bounds, fallbacks, Float32, tests, order of work, open decisions).
    - **Log coordinates and a per-parameter stopping test** (prototype measured, branch
      `varpro-proto`, `prototypes/varpro/logt.jl`, results in `results_logt.txt`): the solver works
      in φ = log θ for chosen positive parameters and the model sees θ = exp(φ); the dual numbers
