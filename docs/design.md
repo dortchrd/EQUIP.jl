@@ -851,7 +851,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
         method like `linearparts(m)`, or columns from `signal!` at unit amplitudes); mapping
         amplitudes back to the model's parameters (S0, fshort); bounds (amplitudes ≥ 0 by the
         active set; other bounds on amplitudes?); Float32; statuses and `FitResult`; and when it
-        is used (automatically for such models, or `solver = LM(varpro = true)`).
+        is used (automatically for such models, or `solver = LM(varpro = true)`). Since answered
+        there: `varpro = true` per parameter, `LM(varpro = false)` to turn it off.
     - Next: VarPro in EQUIP (see "Variable projection (VarPro): proposed design"); and,
       later, errors judged against the Cramér–Rao bound (roadmap item 3), so methods are compared
       where the data determine the parameters. Candidates: Marquardt scaling recomputed
@@ -885,11 +886,12 @@ everywhere; speed about the same.
 
 ### What it is
 
-Many signals are linear in some of their parameters: S = Σₖ aₖ·sₖ(θ), with K amplitudes aₖ and
-columns sₖ that depend only on the nonlinear parameters θ (T2s, T1, ...). For any θ the best
-amplitudes are a small linear least-squares solve, a(θ) = (SᵀS)⁻¹Sᵀy with S = [s₁ … s_K]
-(M × K). Variable projection (Golub & Pereyra 1973) lets LM fit θ only, with the amplitudes
-solved at every evaluation: it minimizes ‖S(θ)·a(θ) − y‖². LM then has fewer, less correlated
+Many signals are linear in some of their parameters: S = s₀(θ) + Σₖ aₖ·sₖ(θ), with K amplitudes
+aₖ and columns sₖ that depend only on the nonlinear parameters θ (T2s, T1, ...), plus an affine
+part s₀ when fixed parameters add to the signal. For any θ the best amplitudes are a small
+linear least-squares solve, a(θ) = (SᵀS)⁻¹Sᵀ(y − s₀) with S = [s₁ … s_K] (M × K). Variable
+projection (Golub & Pereyra 1973) lets LM fit θ only, with the amplitudes solved at every
+evaluation: it minimizes ‖s₀(θ) + S(θ)·a(θ) − y‖². LM then has fewer, less correlated
 parameters, and the amplitudes can never wander. The biexponential's misses without bounds were
 exactly that: its full fit drifts through unphysical amplitudes until the two components merge.
 
@@ -899,56 +901,80 @@ own `normal_equations`, as in the prototype. Least squares only: not for Rician-
 fitting (roadmap), and with magnitude data only amplitudes that keep the signal's sign are
 linear (|M0·shape| = M0·|shape| for M0 ≥ 0; a sum of decays with amplitudes ≥ 0 is positive).
 
-### Declaring it: the start `:varpro`
+### Declaring it: `varpro = true`, a setting of its own
 
-A parameter the signal is linear in is declared by its start, in the model's `parameters`, as
-`:scale` is today:
+A parameter to be solved by projection says so with its own keyword on `Free`, next to its start
+and bounds, in the model's `parameters` or in a fit:
 
 ```julia
 parameters(m::T2DecayOffset) = (
-    S0 = Free(:scale; lower = 0),
-    T2 = Free(mean(m.TE); lower = _TMIN),
-    C = Free(:varpro),                      # offset
+    S0 = Free(start = :scale, lower = 0, varpro = true),   # a start and solved: both
+    T2 = Free(start = mean(m.TE), lower = _TMIN),
+    C = Free(varpro = true),                              # offset: no start needed
 )
 ```
 
-- Why the start: the start field says where a parameter's starting value comes from, and for a
-  linear parameter the answer is "solved", so it carries no start number that would go unused.
-  With VarPro on, it is solved exactly at every step. In the fallback (the full fit: a bound the
-  amplitudes cannot express, or `varpro = false`), it starts at its least-squares value given the
-  nonlinear parameters' starts (`_score`, generalized from one amplitude to K), then is fitted
-  like any parameter. Either way the data need no normalization and no number is needed.
-- `:scale` is the one-amplitude case of `:varpro`, and keeps its other job: it names the parameter
-  `simulate`'s `snr` is relative to (σ = S0/snr). A fit's linear part is its `:varpro` parameters
-  plus the `:scale` one.
-- Per fit, like any start: `C = Free(start = 30.0)` makes C an ordinary nonlinear parameter in
-  that fit; `C = Free(:varpro)` on a custom model's parameter opts in, with no code to write.
-- Bounds stay where they are: used as constraints on the amplitudes (below), or in the fallback.
-- Simulation does not change: `signal` and `simulate` take values and ignore roles and starts
-  (passing roles is an error), so `:varpro` never reaches them.
+- **Decision: `varpro` is its own setting, not a start.** A start says where the iteration
+  begins; `varpro = true` says how the parameter is determined (solved exactly at every
+  evaluation, never iterated). They are different questions, and a scale parameter has an
+  answer to both: `S0 = Free(start = :scale, lower = 0, varpro = true)`. This replaces the
+  start `Free(:varpro)` proposed first (751d249), under which a scale parameter could not be
+  projected without giving up `:scale`, and a per-fit `Free(start = 0.2)` silently turned
+  projection off. The keyword-only `Free` (8be779a) makes the new setting read like the others.
+- **Linear parameters other than the scale need no start**: `fshort = Free(lower = 0,
+  upper = 1, varpro = true)`. When the parameter is projected, it is solved and a start would go
+  unused. When it is fitted the ordinary way instead (`LM(varpro = false)`, a per-fit
+  `varpro = false`, or a voxel's fallback, below), it starts at its least-squares value given
+  the nonlinear parameters' starts (`_score`, generalized from one amplitude to K), so the data
+  still need no normalization. A start given anyway is used only in that ordinary fit.
+- **`:scale` stays a model fact**: "the signal is proportional to this parameter". That gives
+  its start (the least-squares scale), the parameter `simulate`'s `snr` is relative to
+  (σ = S0/snr), and its linearity, so `S0 = Free(varpro = true)` in a fit needs nothing else.
+  A scale parameter without `varpro = true` is fitted the ordinary way, as today.
+- **`varpro = true` in a model's `parameters` also declares the parameter linear** (checked at
+  setup, below), which is what gives the ordinary fit its least-squares start.
+- **Per fit**, like the start and bounds (whatever is left out keeps the model's default):
+  `S0 = Free(varpro = true)` projects a scale parameter the model leaves to LM;
+  `C = Free(varpro = false)` fits the offset the ordinary way; on a custom model's parameter,
+  `varpro = true` opts in with no code to write (the check decides). `solver = LM(varpro =
+  false)` turns projection off for the whole fit (for comparisons, and as an escape hatch).
+- **Built-in models set `varpro = true` only where it was measured**: the biexponential
+  (robustness, above) and the decay with offset (the prototype's other two-amplitude model).
+  The scale parameter alone in the other models (M0, S0, M0f) waits for a measurement: the
+  prototype found 0–22% faster and robustness unchanged there, and it changes every fit's path
+  (same minima within the tolerance, not bit for bit).
+- **Simulation does not change**: `varpro` is part of a role, and `signal` and `simulate` take
+  values (passing roles is an error), so it never reaches them.
 - Plain amplitudes need nothing else: M0, S0, an offset C, the components of a multi-compartment
   model written as amplitudes. EQUIP builds the columns from the model's own `signal!` (below).
 
 ### What EQUIP does with them
 
-For each fit, `setup` takes the free parameters starting at `:varpro`, plus the `:scale` one
-(the "linear part", K parameters; `:varpro` parameters that are fixed or tied in this fit are
-simply fixed), and:
+For each fit, `setup` takes the free parameters with `varpro = true` (the "linear part", K
+parameters; a `varpro` parameter fixed or tied in this fit is simply fixed), and:
 
-1. **Builds the columns from `signal!`.** With the nonlinear parameters at θ: the affine part
-   s₀(θ) = the signal with every linear parameter at 0 (non-zero when a fixed parameter adds to
-   the signal, e.g. a fixed offset), and column k, sₖ(θ) = the signal with linear parameter k at
-   1 and the others at 0, minus s₀. Then S = s₀ + Σₖ aₖ·sₖ, and the amplitudes fit y − s₀.
-   Setup finds out whether s₀ is zero and skips it if so.
+1. **Builds the columns from `signal!`, as differences around a base point.** With the
+   nonlinear parameters at θ and the amplitudes at a base point b: column k is
+   sₖ(θ) = signal(b + eₖ) − signal(b), and the affine part s₀(θ) = signal(b) − Σₖ bₖ·sₖ(θ).
+   For plain amplitudes b = 0 works (then s₀ = signal(0), skipped when setup finds it zero).
+   With `fromamplitudes` (below), b has every amplitude non-zero, b = (1, …, 1): unit vectors
+   eₖ themselves can map to invalid parameters (for SIR, Sf = a₂/a₁ = 1/0). So K + 1 model
+   evaluations, in dual numbers, per LM evaluation (K when b = 0 and s₀ = 0).
 2. **Checks that the signal really is linear** in those parameters, once per fit call: at a few
    random amplitudes (within the parameters' bounds) and the start's nonlinear values, the
    signal must equal s₀ + Σₖ aₖ·sₖ to within rounding. A wrong declaration is an error that
    names the parameter ("the signal of T2DecayOffset is not linear in T2"). The check also
    catches magnitude data: |M0·shape| = M0·|shape| holds for M0 ≥ 0, so a magnitude model's M0
-   passes with its bound M0 ≥ 0 and fails without it.
-3. **Turns the bounds into constraints on the amplitudes.** A linear parameter's bounds can be
-   (0, ∞): its amplitude is kept ≥ 0; or none: unconstrained. Any other bound (S0 ≥ 100,
-   C ≤ 5) cannot be expressed: the fit falls back to the full fit for this call.
+   passes with its bound M0 ≥ 0 and fails without it, and magnitude SIR fails for Sf (below).
+3. **Sorts the bounds.** Bounds that say "amplitudes ≥ 0" are kept inside the projection by an
+   active set (below): a plain amplitude with `lower = 0` and no upper bound, or a model's
+   default bounds when its `fromamplitudes` says they mean a ≥ 0 (the biexponential's S0 ≥ 0
+   and 0 ≤ fshort ≤ 1). No bounds: unconstrained. **Any other bound** (S0 ≥ 100, C ≤ 5, SIR's
+   −1.2 ≤ Sf ≤ 0, i.e. −1.2·a₁ ≤ a₂ ≤ 0, a cone rather than a ≥ 0): the projection solves
+   without it, and a voxel whose answer leaves the bounds is refitted with the full fit,
+   starting from the VarPro answer moved into the bounds. When the bound does not bind (most
+   voxels, for sensible bounds), VarPro's answer is the bounded answer; only the voxels where
+   it binds pay for a second fit. (The first design fell back for the whole fit call.)
 
 ### Parameters that are not themselves amplitudes: one optional mapping
 
@@ -960,32 +986,50 @@ amplitudes:
 
 ```julia
 parameters(m::T2BiexpDecay) = (
-    S0 = Free(:scale; lower = 0),
-    fshort = Free(:varpro; lower = 0, upper = 1),
-    T2short = Free(mean(m.TE) / 4; lower = _TMIN),
-    T2long = Free(2 * mean(m.TE); lower = _TMIN),
+    S0 = Free(start = :scale, lower = 0, varpro = true),
+    fshort = Free(lower = 0, upper = 1, varpro = true),  # fraction of S0 in the short component
+    T2short = Free(start = mean(m.TE) / 4, lower = _TMIN),
+    T2long = Free(start = 2 * mean(m.TE), lower = _TMIN),
 )
 fromamplitudes(::T2BiexpDecay, a) = (S0 = a[1] + a[2], fshort = a[1] / (a[1] + a[2]))
 ```
 
-- With it, EQUIP takes column k as the signal at `fromamplitudes(eₖ)` (amplitude k at 1, the
-  others 0: S0 = 1, fshort = 1 or 0 here), checks linearity in the amplitudes the same way, and
-  reports the linear parameters through `fromamplitudes` after the fit. Such a model's linear
-  part has no affine term (checked).
-- Bounds: the linear parameters at the model's own bounds mean amplitudes ≥ 0 (S0 ≥ 0 and
-  0 ≤ fshort ≤ 1 here); no bounds, unconstrained; anything else, the full fit.
-- Not all of them free or linear in this fit (e.g. `fshort = 0.2` fixed, or `fshort =
-  Free(start = 0.2)`): the mapping does not apply; the remaining linear parameters are treated as
-  plain amplitudes, and the check decides (here S0 alone passes: the signal is linear in S0 at a
-  given fshort, so K = 1).
+- With it, EQUIP builds the columns from the signal at `fromamplitudes(b)` and
+  `fromamplitudes(b + eₖ)` (the base point above: b = (1, 1) is S0 = 2, fshort = 0.5), checks
+  linearity in the amplitudes the same way, and reports the linear parameters through
+  `fromamplitudes` after the fit. Setup checks that `fromamplitudes(b)` is finite.
+- Bounds: the biexponential's default bounds (S0 ≥ 0, 0 ≤ fshort ≤ 1) are exactly a ≥ 0, which
+  the model states (how: an open decision); bounds changed in a fit (fshort ≤ 0.5) take the
+  per-voxel fallback above.
+- Not all of them free or projected in this fit (e.g. `fshort = 0.2` fixed, or `fshort =
+  Free(varpro = false)`): the mapping does not apply; the remaining `varpro` parameters are
+  treated as plain amplitudes, and the check decides (here S0 alone passes: the signal is
+  linear in S0 at a given fshort, so K = 1).
+- With projection off, fshort now starts at its least-squares value rather than today's 0.2:
+  a change to the ordinary biexponential fit, measured before the declaration is adopted.
+- **A second example, SIR on signed data.** The free-pool signal of QMTSIR (Dortch et al., MRM
+  2018, Eq. 1) is Mzf = M0f·[Sf·g(θ) + h(θ)], with θ = (PSR, R1f, kmf, R1m, Sm, ...): Sf enters
+  only through the inversion of the free pool, and M0f scales everything. So with
+  `magnitude = false` (phase-corrected data) the signal is linear in the amplitudes a₁ = M0f
+  and a₂ = M0f·Sf, with `fromamplitudes(::QMTSIR, a) = (M0f = a[1], Sf = a[2] / a[1])`, and
+  LM would fit PSR and R1f only (kmf fixed). The unit vector e₂ maps to M0f = 0, Sf = 1/0,
+  which is why the columns come from a base point with every amplitude non-zero. Magnitude
+  data (the default) is not linear in Sf: |M0f·(Sf·g + h)| changes form where the signal
+  crosses zero, so the check refuses Sf there (M0f alone, with M0f ≥ 0, still passes).
+  Checked numerically (4-point scheme, PSR 0.12, R1f 1, Mzf_td0 0.05, columns from the base
+  point (1, 1), 200 random M0f 0.5–1.5 and Sf −1.2–0): signed, the signal equals a₁·s₁ + a₂·s₂
+  to 1e-15·M0f, with no affine part; magnitude, it misses by up to 2.3·M0f. Its
+  bounds, M0f ≥ 0 and −1.2 ≤ Sf ≤ 0, are a cone in (a₁, a₂), not a ≥ 0: the per-voxel
+  fallback. Not proposed for QMTSIR's defaults until measured (a signed SIR case in the
+  benchmark first).
 - The alternative, parametrizing the model by its amplitudes (Sshort, Slong) and reporting S0
   and fshort as derived values, is cleaner for the solver but changes what the model fits and
   reports, and needs derived outputs (roadmap); not proposed.
 
 ### An optional speed hook: the columns
 
-Columns built from `signal!` cost one full model evaluation per column (plus one for s₀ if it is
-not zero), in dual numbers, at every LM evaluation. For the biexponential the prototype measured
+Columns built from `signal!` cost one full model evaluation per column (plus one for the base
+point), in dual numbers, at every LM evaluation. For the biexponential the prototype measured
 that route slower than the full fit (23.1 → 27.2 µs per voxel), against 19.3 µs with columns
 computed directly. So a model may also give its columns, each computing only its own terms:
 
@@ -1004,37 +1048,36 @@ Not needed for correctness: a test checks it against the columns built from `sig
 
 ### When it is used
 
-A solver setting, `solver = LM(varpro = :auto)` by default, or `true`, or `false`:
-- `:auto`: VarPro when the fit has at least one free `:varpro` parameter (that passes the check,
-  with bounds it can express); the full fit otherwise. So models with only a `:scale` parameter
-  fit exactly as today.
-- `true`: also the `:scale` parameter alone (K = 1) when there is no `:varpro` parameter.
-  `false`: never (the `:varpro` parameters then start at their least-squares values).
-- Built-in models declare `:varpro` only where the benchmark shows a gain: first the
-  biexponential (robustness, above) and the decay with offset. Using the `:scale` parameter alone
-  in every model (M0, S0, M0f) waits for a measurement: the prototype found 0–22% faster and
-  robustness unchanged there, and it changes every fit's path (same minima within the
-  tolerance, not bit for bit).
-- `res.settings` and the REPL summary say whether VarPro was used, and if not, why (a bound it
-  cannot express, or `varpro = false`).
+- Per parameter: a free parameter with `varpro = true` (the model's default or the fit's) is
+  projected; the others are fitted by LM as today. A fit with no such parameter fits exactly
+  as today, so models that declare none are unchanged, bit for bit.
+- Per fit: `solver = LM(varpro = false)` fits every parameter the ordinary way (the `varpro`
+  ones from their least-squares starts). The default, `LM(varpro = true)`, follows the
+  parameters' settings.
+- Per voxel: the full fit for a voxel whose projected answer leaves a bound the projection
+  cannot hold (above).
+- `res.settings` and the REPL summary say which parameters were projected, and how many voxels
+  fell back to the full fit.
 
 ### Inside the fit
 
 - `setup`: splits the free names F into the nonlinear names Fn and the linear ones (K); Fn, K,
   the amplitude constraints and whether there is an affine part go into the type, as F does now,
-  so everything is specialized and nothing is looked up at run time.
-- `init`: K (+ 1) column buffers of dual numbers per cache, so one set per task, as the model
+  so everything is specialized and nothing is looked up at run time. The full problem is
+  compiled too, for the per-voxel fallback (more compile time for such fits).
+- `init`: K + 1 column buffers of dual numbers per cache, so one set per task, as the model
   buffer today.
 - Per voxel (`_fit_voxel`): the nonlinear parameters' starts as today (numbers, maps, `:data`,
   `BestOf`). `BestOf` scores each value with the K amplitudes solved (`_score` generalized from
   K = 1). Then `levmar` on the reduced problem; then the amplitudes at the solution → the linear
-  parameters (themselves, or `fromamplitudes`) → every parameter → `relabel` as today (the
-  biexponential's components in order). In the fallback, `_score`'s amplitudes are the linear
-  parameters' starts, and `levmar` runs on the full problem as today.
+  parameters (themselves, or `fromamplitudes`) → the bound check (the fallback if outside) →
+  every parameter → `relabel` as today (the biexponential's components in order). In the
+  ordinary fit, `_score`'s amplitudes are the linear parameters' starts, and `levmar` runs on
+  the full problem as today.
 - `normal_equations` of the reduced problem: fill the columns at θ (duals), solve the K × K
-  system for the amplitudes in dual arithmetic, then residuals rᵢ = s₀ᵢ + Σₖ aₖ·sₖᵢ − yᵢ with their
-  partials → JᵀJ, Jᵀr and SSE as now. K = 1: a = (s·(y − s₀))/(s·s); K = 2: closed form; larger
-  K: the small Cholesky already in `levmar.jl`.
+  system for the amplitudes in dual arithmetic, then residuals rᵢ = s₀ᵢ + Σₖ aₖ·sₖᵢ − yᵢ with
+  their partials → JᵀJ, Jᵀr and SSE as now. K = 1: a = (s·(y − s₀))/(s·s); K = 2: closed form;
+  larger K: the small Cholesky already in `levmar.jl`.
 - Amplitudes ≥ 0: an active set. An amplitude that comes out negative is set to 0 and the others
   re-solved (K = 2: closed form, as the prototype; larger K: Lawson–Hanson NNLS). The reduced
   problem has a kink where the active set switches; LM's acceptance test copes (prototype).
@@ -1048,58 +1091,68 @@ A solver setting, `solver = LM(varpro = :auto)` by default, or `true`, or `false
 ### What the user sees
 
 - The same `fit` call and the same `FitResult`: every parameter (S0, fshort, T2short, T2long),
-  the SSE, the status, and the iterations (of the reduced problem, so fewer).
+  the SSE, the status, and the iterations (of the reduced problem, so fewer; of the full fit
+  for a voxel that fell back).
 - Statuses as today; a voxel whose amplitudes cannot be computed (zero or NaN columns) is
   `Failed`.
 - Standard errors (roadmap item 3) from the full Jacobian at the solution, in the model's own
   parameters, so they do not depend on how the fit got there.
-- `parameters(m)` shows the declaration: `fshort = Free(start = :varpro, lower = 0.0,
-  upper = 1.0)`.
+- `parameters(m)` shows the setting: `fshort = Free(lower = 0.0, upper = 1.0, varpro = true)`.
 
 ### Tests and acceptance
 
-- The declarations: the linearity check passes for every built-in `:varpro` and fails, with a
-  clear message, for a wrong one (`T2 = Free(:varpro)`) and for a magnitude model's amplitude
-  without its bound ≥ 0. Fixed and tied `:varpro` parameters; `Free(start = ...)` per fit.
+- The declarations: the linearity check passes for every built-in `varpro = true` and fails,
+  with a clear message, for a wrong one (`T2 = Free(varpro = true)`), for a magnitude model's
+  amplitude without its bound ≥ 0, and for magnitude SIR's Sf; signed SIR passes with its
+  mapping. Fixed and tied `varpro` parameters; `Free(varpro = false)` and `LM(varpro = false)`
+  give the ordinary fit with least-squares starts; a start given with `varpro = true` is used
+  only there.
 - The hooks: columns from `columns!` equal the columns built from `signal!`; `fromamplitudes`
-  round-trips.
+  round-trips; the base point gives the same columns as b = 0 for plain amplitudes.
 - Noise-free recovery from the default starts; full fit and VarPro agree within the tolerance on
-  well-conditioned data; the fallback's least-squares starts.
-- Bounds: amplitudes held at 0 (fshort exactly 0 or 1); a bound it cannot express → full fit; no
-  bounds → no constraint; the affine part (a fixed offset).
+  well-conditioned data; the least-squares starts.
+- Bounds: amplitudes held at 0 (fshort exactly 0 or 1); a bound the projection cannot hold
+  (S0 ≥ 100 on data with S0 = 50; SIR's Sf ≤ 0 on data that want Sf > 0) → those voxels, and
+  only those, refitted, their answers on the bound; no bounds → no constraint; the affine part
+  (a fixed offset).
 - No allocation per voxel; Float32; statuses; `refit`; maps of fixed values on nonlinear
-  parameters. Simulation unchanged (`signal`, `simulate` and `truth` ignore `:varpro`).
+  parameters. Simulation unchanged (`signal`, `simulate` and `truth` never see `varpro`).
 - The benchmark: an "EQUIP VarPro" row in `bench/solvers.jl` until the built-in models declare
-  `:varpro`. The biexponential cases at least as good as the prototype (not best 8 / 4 / 16 /
-  11); every other case bit-identical to today (nothing else declared: the fingerprint check);
-  speed no worse beyond noise (10 000 voxels, at least 10 runs).
+  `varpro = true`. The biexponential cases at least as good as the prototype (not best 8 / 4 /
+  16 / 11); every other case bit-identical to today (nothing else declared: the fingerprint
+  check); speed no worse beyond noise (10 000 voxels, at least 10 runs).
 
 ### Order of work
 
-1. The start `:varpro`, setup's grouping, the linearity check, columns from `signal!`, the reduced
-   problem with amplitudes ≥ 0, the fallback's least-squares starts, `LM(varpro = ...)`: first on
-   the decay with offset (plain amplitudes S0 and C), which exercises the generic route with no
-   hook.
+1. The `varpro` keyword on `Free` (and its printing), setup's grouping, the linearity check,
+   columns from `signal!` at a base point, the reduced problem with amplitudes ≥ 0, the
+   per-voxel fallback for other bounds, the least-squares starts, `LM(varpro = false)`: first
+   on the decay with offset (plain amplitudes S0 and C), which exercises the generic route with
+   no hook.
 2. The biexponential (T2 and R2 forms): `fromamplitudes` and `columns!`; tests; the benchmark
    acceptance above.
-3. The `:scale` parameter alone in the other models (`varpro = true` as default for them?):
-   measure every case first, then decide.
-4. Separately, later: log coordinates for positive nonlinear parameters with the per-parameter
+3. The scale parameter alone in the other models (`varpro = true` on M0, S0, M0f?): measure
+   every case first, then decide.
+4. Signed SIR (`magnitude = false`): a benchmark case, then M0f and Sf through
+   `fromamplitudes` if it helps.
+5. Separately, later: log coordinates for positive nonlinear parameters with the per-parameter
    step test (with VarPro on the biexponential: 40–59% faster, more fits reaching the minimum;
-   see the roadmap). And, if useful, a model-level declaration of the SNR's reference parameter,
-   so `:scale` becomes `:varpro` everywhere.
+   see the roadmap).
 
 ### Open decisions
 
-- Default: `:auto` (VarPro wherever a `:varpro` parameter is free; proposed) or opt-in
-  (`varpro = true`) at first.
-- A bound on a linear parameter that the amplitudes cannot express: fall back to the full fit
-  (proposed) or an error.
+- A bound the projection cannot hold: refit the voxels where it binds (proposed), fall back
+  for the whole fit call (the first design), or an error.
+- How a model with `fromamplitudes` says its default bounds mean a ≥ 0: a method next to it
+  (e.g. `nonnegative(m) = true`, proposed), or found by sampling at setup. Either way the bound
+  check at the answer catches a wrong statement, through the fallback.
+- A start given with `varpro = true`: used only in the ordinary fit (proposed), or an error.
 - Float32: Float64 accumulation for the K × K solve (proposed), or the full fit in Float32.
-- Where the switch lives: in `LM` (proposed: it is how the solver treats the problem), or a
-  separate solver type through the solver hook (roadmap item 11), e.g. `VarPro(LM())`.
-- Settled by the `:varpro` start: the label's name, and what happens to a linear parameter's start
-  (there is none; the fallback starts at the least-squares value).
+- Where the whole-fit switch lives: in `LM` (proposed: it is how the solver treats the
+  problem), or a separate solver type through the solver hook (roadmap item 11), e.g.
+  `VarPro(LM())`.
+- Settled: the name and place of the declaration (`varpro = true` on `Free`, its own setting),
+  and what a projected parameter's start is for (nothing, unless it is fitted the ordinary way).
 
 ## Scope so far
 
@@ -1657,9 +1710,10 @@ notes.)
        from EQUIP's starts (the `:scale` start already captures most of the gain), so optional;
        it can be generic there (the column is the signal at scale 1, as in `_score`).
      - Before adopting: answered in "Variable projection (VarPro): proposed design" above
-       (the start `Free(:varpro)`, with `:scale` as its one-amplitude case, checked at setup;
-       columns from `signal!`, or a model's `columns!`; `fromamplitudes` for parameters that are
-       not amplitudes; bounds, fallbacks, Float32, tests, order of work, open decisions).
+       (`varpro = true`, a setting of its own on `Free`, checked at setup; columns from
+       `signal!` at a base point, or a model's `columns!`; `fromamplitudes` for parameters that
+       are not amplitudes, e.g. the biexponential and signed SIR; bounds, the per-voxel
+       fallback, Float32, tests, order of work, open decisions).
    - **Log coordinates and a per-parameter stopping test** (prototype measured, branch
      `varpro-proto`, `prototypes/varpro/logt.jl`, results in `results_logt.txt`): the solver works
      in φ = log θ for chosen positive parameters and the model sees θ = exp(φ); the dual numbers

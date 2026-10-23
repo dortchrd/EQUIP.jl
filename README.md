@@ -453,7 +453,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - More data-driven starting values (with `datastart`): DESPOT1 for T1MFA (with the voxel's B1),
   R2Decay and ADCDecay, ADCKurtosis, saturation recovery, the offset and biexponential models
 - Variable projection: the parameters the signal is linear in (M0/S0, the biexponential
-  amplitudes, an offset) solved inside every LM step. Prototype measured (branch
+  amplitudes, an offset) solved inside every LM step, chosen per parameter with a setting of
+  its own, `fshort = Free(lower = 0, upper = 1, varpro = true)` (design in docs/design.md).
+  Prototype measured (branch
   `varpro-proto`): biexponential 19–26% faster with more fits reaching the minimum; 0–22%
   faster with one linear parameter; no help with multiple minima, so `BestOf` stays
 - Positive parameters fitted in log coordinates, with a per-parameter relative stopping test
