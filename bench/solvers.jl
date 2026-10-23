@@ -99,8 +99,8 @@ function prepare(name, bounds)
     upper = bounds ? collect(spec.upper) : fill(Inf, P)
     # EQUIP's keywords: the case's roles, every free parameter with these bounds and a start
     # (`nothing`: its default start)
-    roles(starts) = merge(c.roles, NamedTuple{F}(ntuple(j -> Free(starts[j]; lower = lower[j],
-                                                                  upper = upper[j]), P)))
+    roles(starts) = merge(c.roles, NamedTuple{F}(ntuple(j -> Free(start = starts[j], lower = lower[j],
+                                                              upper = upper[j]), P)))
     st = fit(c.m, c.Y; solver = LM(maxiter = 0), roles(ntuple(_ -> nothing, P))...).params
     P0 = permutedims(reduce(hcat, [st[n] for n in F]))   # EQUIP's starts (0 iterations)
     c.starts === nothing || (P0 = c.starts(MersenneTwister(2), P0, F))

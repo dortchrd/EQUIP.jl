@@ -34,7 +34,8 @@ Example (see `src/models/` for more):
     TE::A                          # echo times (s), one per observation
 end
 
-parameters(::MyDecay) = (S0 = Free(:scale; lower = 0), T2 = Free(0.05; lower = 1e-6))
+parameters(::MyDecay) = (S0 = Free(start = :scale, lower = 0),
+                         T2 = Free(start = 0.05, lower = 1e-6))
 
 function signal!(out, m::MyDecay, p)
     (; TE) = m                     # unpack the acquisition by name ...
@@ -63,13 +64,12 @@ abstract type MRIModel end
 # -------------------------------------------------------------------------------------------------
 
 """
-    Free(start; lower, upper)
     Free(; start, lower, upper)
 
-Role of a parameter that is estimated: its starting value and its bounds.
+Role of a parameter that is estimated: its starting value and its bounds, each given by name.
 
-In a model's [`parameters`](@ref), the defaults: `Free(0.1; lower = 0, upper = 1)`. A bound left
-out means none. The start says where each voxel's starting value comes from:
+In a model's [`parameters`](@ref), the defaults: `Free(start = 0.1, lower = 0, upper = 1)`. A
+bound left out means none. The start says where each voxel's starting value comes from:
 
 - a number, or a map (one value per voxel, in a fit): start there;
 - `:scale`, for the parameter that multiplies the whole signal (S0, M0): the least-squares
@@ -94,6 +94,18 @@ struct Free
     start::Any                         # a number, a map, :scale, :data, a BestOf, or nothing (keep the default)
     lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
     upper::Union{Nothing,Float64}
+    # The one constructor, by keyword: `Free()`, `Free(start = 0.8)`, `Free(start = :scale,
+    # lower = 0)`. Written inside the struct (an "inner constructor"), it replaces the positional
+    # `Free(start, lower, upper)` Julia would otherwise define, so every Free is made here: the
+    # start is checked, numbers become Float64, and `new` (only available inside) builds it.
+    function Free(; start = nothing, lower = nothing, upper = nothing)
+        start === nothing || start === :scale || start === :data || start isa Real ||
+            start isa AbstractArray || start isa BestOf ||
+            throw(ArgumentError("Free: the start must be a number, a map, :scale, :data or " *
+                                "BestOf(values), got $(repr(start))"))
+        tofloat(x) = x === nothing ? nothing : Float64(x)
+        return new(start isa Real ? Float64(start) : start, tofloat(lower), tofloat(upper))
+    end
 end
 """
     BestOf(values)
@@ -106,7 +118,7 @@ start, such as magnitude inversion recovery. Values outside the parameter's boun
 One parameter per fit can start from `BestOf` (several, trying every combination, are planned).
 
 ```julia
-parameters(m::T1IR) = (..., T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN))   # the model's default
+parameters(m::T1IR) = (..., T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN))  # the default
 fit(m, data; T1 = Free(start = BestOf(logrange(0.05, 5, 50))))                  # other values
 ```
 
@@ -124,8 +136,8 @@ struct BestOf
         return new(v)
     end
 end
-# How roles print, e.g. in `parameters(m)`: only what is set, by name, so
-# `Free(start = :scale, lower = 0.0)` rather than the positional `Free(:scale, 0.0, nothing)`.
+# How roles print, e.g. in `parameters(m)`: only what is set, by name, as they are written:
+# `Free(start = :scale, lower = 0.0)` rather than the raw fields `Free(:scale, 0.0, nothing)`.
 # A map prints as its summary (`64×64 Matrix{Float64}`), not its values.
 _showvalue(x::AbstractArray) = summary(x)
 _showvalue(x::Function) = "<function>"             # a tie such as p -> 0.8 * p.R1f
@@ -146,17 +158,17 @@ function Base.show(io::IO, b::BestOf)
         print(io, "BestOf(", length(v), " values from ", r(minimum(v)), " to ", r(maximum(v)), ")")
 end
 
-# Julia automatically defines the "default constructor" `Free(start, lower, upper)` (all three
-# fields, positional). The method below adds the friendlier forms: `Free()`, `Free(0.8)`,
-# `Free(start = 0.8)`, `Free(0.8; lower = 0)`. The keyword `start` defaults to the positional one,
-# so either spelling works. It checks the start and converts numbers to Float64.
-function Free(s = nothing; start = s, lower = nothing, upper = nothing)
-    s !== nothing && start !== s && throw(ArgumentError("give the start once: Free(0.8) or Free(start = 0.8)"))
-    start === nothing || start === :scale || start === :data || start isa Real ||
-        start isa AbstractArray || start isa BestOf ||
-        throw(ArgumentError("Free: the start must be a number, a map, :scale, :data or BestOf(values), got $(repr(start))"))
-    return Free(start isa Real ? Float64(start) : start, lower === nothing ? nothing : Float64(lower),
-                upper === nothing ? nothing : Float64(upper))
+# A positional start, `Free(0.8)` or `Free(:scale; lower = 0)`, is an error that shows the call
+# written by name. (`args...` collects any positional arguments; a call with none goes to the
+# constructor above, the more specific method.)
+function Free(args...; kwargs...)
+    names = (:start, :lower, :upper)
+    length(args) <= 3 ||
+        throw(ArgumentError("Free takes keywords: Free(start = ..., lower = ..., upper = ...)"))
+    parts = ["$(names[i]) = $(_showvalue(args[i]))" for i in eachindex(args)]
+    append!(parts, ["$k = $(_showvalue(v))" for (k, v) in kwargs])
+    throw(ArgumentError("Free takes keywords, so the start is named like the bounds: write " *
+                        "Free($(join(parts, ", ")))"))
 end
 
 """
@@ -188,7 +200,7 @@ is the order of the outputs. A fit can change any role with a keyword named afte
 `fit(m, data; kmf = 15.0)` (fixed at a value), `fit(m, data; kmf = Free())` (estimated).
 
 ```julia
-parameters(::T1SR) = (M0 = Free(:scale; lower = 0), T1 = Free(1.0; lower = 1e-6))
+parameters(::T1SR) = (M0 = Free(start = :scale, lower = 0), T1 = Free(start = 1.0, lower = 1e-6))
 ```
 """
 function parameters end
@@ -222,8 +234,8 @@ function signal! end
 
 Optional: starting values computed from one voxel's data `y` (plain numbers, in the working
 precision), e.g. a quick linearized fit, for the parameters that start at `:data`
-(`T2 = Free(:data; ...)` in [`parameters`](@ref), or `T2 = Free(start = :data)` in a fit). `p`
-holds the voxel's fixed parameters by name (numbers, e.g. `p.B1`, which a DESPOT1 estimate
+(`T2 = Free(start = :data, ...)` in [`parameters`](@ref), or `T2 = Free(start = :data)` in a
+fit). `p` holds the voxel's fixed parameters by name (numbers, e.g. `p.B1`, which a DESPOT1 estimate
 needs; ties appear as ties). Return a finite value for each of them, with a fallback when the
 data give no estimate (T2Decay: mean(TE) if the data do not decay). Values outside the bounds
 are clamped; a NaN makes that voxel's fit fail (status `Failed`). A `:scale` parameter is then

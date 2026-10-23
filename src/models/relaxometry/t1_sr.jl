@@ -22,8 +22,8 @@ Rate version: [`R1SR`](@ref).
 end
 
 parameters(::T1SR) = (
-    M0 = Free(:scale; lower = 0),
-    T1 = Free(1.0; lower = _TMIN),
+    M0 = Free(start = :scale, lower = 0),
+    T1 = Free(start = 1.0, lower = _TMIN),
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1SR's signal (below; see builtin.jl
@@ -43,8 +43,8 @@ signal!(out, m::T1SR, p) = signal!(out, R1SR(m.TD), (; p.M0, R1 = 1 / p.T1))
 end
 
 parameters(::R1SR) = (
-    M0 = Free(:scale; lower = 0),
-    R1 = Free(1.0; lower = 0),
+    M0 = Free(start = :scale, lower = 0),
+    R1 = Free(start = 1.0, lower = 0),
 )
 
 function signal!(out, m::R1SR, p)

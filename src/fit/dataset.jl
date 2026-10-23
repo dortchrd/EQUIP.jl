@@ -140,7 +140,8 @@ function refit(res::FitResult, data; changes...)
         haskey(changes, n) && continue                       # changed: as the keyword says
         current = get(settings, n, Free())                   # this fit's role for n, if given
         current isa Free || continue
-        push!(starts, n => Free(res.params[n], current.lower, current.upper))
+        push!(starts, n => Free(start = res.params[n], lower = current.lower,
+                                upper = current.upper))
     end
     return fit(res.model, data; merge(settings, (; starts...))...)   # the starts win
 end

@@ -17,8 +17,8 @@
 # all voxels when T1 was very short or very long compared with the TIs (T1IR at 0.05 and 4 s,
 # T1IRTD at 0.05-0.1 s and about half at 4 s; the T1 form also at T1IR 0.1 s and T1IRTD
 # 0.2-0.3 s). So every voxel first tries 30 values of T1 spanning the TIs and starts from the
-# best (`T1 = Free(BestOf(_t1grid(m.TI)); ...)` in `parameters`; `_t1grid` is in builtin.jl:
-# log-spaced from 1/5 of the shortest TI to 5× the longest). Tested with T1 from 0.05 to 4 s at
+# best (`T1 = Free(start = BestOf(_t1grid(m.TI)), ...)` in `parameters`; `_t1grid` is in
+# builtin.jl: log-spaced from 1/5 of the shortest TI to 5× the longest). Tested with T1 from 0.05 to 4 s at
 # SNR 20 and 100, both forms: at most 2 of 200 voxels failed in any case, for about 1 µs more
 # per voxel. The R1 forms try the same values as rates, so both forms start from the same place.
 # Another start for T1 (or R1) in the call replaces it: `T1 = Free(start = 0.2)`, a start map, or
@@ -54,9 +54,9 @@ Rate version: [`R1IR`](@ref).
 end
 
 parameters(m::T1IR) = (
-    M0 = Free(:scale; lower = 0),
-    Sf = Free(-0.95; lower = -1.2, upper = 0),          # as in T1IRTD
-    T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN),   # the best of 30 values (see the top of this file)
+    M0 = Free(start = :scale, lower = 0),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),  # as in T1IRTD
+    T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN),  # the best of 30 values (see above)
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1IR's signal (below; see builtin.jl
@@ -78,9 +78,9 @@ signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.Sf, 
 end
 
 parameters(m::R1IR) = (
-    M0 = Free(:scale; lower = 0),
-    Sf = Free(-0.95; lower = -1.2, upper = 0),
-    R1 = Free(BestOf(1 ./ _t1grid(m.TI)); lower = 0),  # T1IR's values, as rates
+    M0 = Free(start = :scale, lower = 0),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    R1 = Free(start = BestOf(1 ./ _t1grid(m.TI)), lower = 0),  # T1IR's values, as rates
 )
 
 function signal!(out, m::R1IR, p)
@@ -135,9 +135,9 @@ end
 T1IRTD(TI, TD::Real, magnitude) = T1IRTD(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
 parameters(m::T1IRTD) = (
-    M0 = Free(:scale; lower = 0),
-    Sf = Free(-0.95; lower = -1.2, upper = 0),
-    T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN),
+    M0 = Free(start = :scale, lower = 0),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN),
     Mz_td0 = Fixed(0.0),                # Mz at the start of TD, as a fraction of M0: 0 = saturated
 )
 
@@ -167,9 +167,9 @@ end
 R1IRTD(TI, TD::Real, magnitude) = R1IRTD(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
 parameters(m::R1IRTD) = (
-    M0 = Free(:scale; lower = 0),
-    Sf = Free(-0.95; lower = -1.2, upper = 0),
-    R1 = Free(BestOf(1 ./ _t1grid(m.TI)); lower = 0),
+    M0 = Free(start = :scale, lower = 0),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    R1 = Free(start = BestOf(1 ./ _t1grid(m.TI)), lower = 0),
     Mz_td0 = Fixed(0.0),
 )
 

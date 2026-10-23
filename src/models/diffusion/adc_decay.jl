@@ -24,8 +24,8 @@ m = ADCDecay(b = [0, 250, 500, 750, 1000])
 end
 
 parameters(m::ADCDecay) = (
-    S0 = Free(:scale; lower = 0),
-    ADC = Free(1 / mean(m.b); lower = 0),
+    S0 = Free(start = :scale, lower = 0),
+    ADC = Free(start = 1 / mean(m.b), lower = 0),
 )
 
 function signal!(out, m::ADCDecay, p)

@@ -3,8 +3,9 @@
 #
 # The noise level is set by `snr` or `σ`:
 #   snr   relative to the model's scale parameter (M0, S0, M0f: the parameter declared
-#         `Free(:scale)`), σ = scale / snr: the "SNR at thermal equilibrium" of Dortch et al. 2018.
-#         It does not depend on the protocol, as on a scanner, where σ is set by the hardware.
+#         `Free(start = :scale)`), σ = scale / snr: the "SNR at thermal equilibrium" of Dortch
+#         et al. 2018. It does not depend on the protocol, as on a scanner, where σ is set by the
+#         hardware.
 #   σ     absolute, in the units of the signal (e.g. estimated from an image's background).
 # =================================================================================================
 
@@ -46,7 +47,8 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing,
     noise in (:rician, :gaussian) || throw(ArgumentError("`noise` must be :rician or :gaussian"))
     scale = _scalename(m)
     snr !== nothing && scale === nothing &&
-        throw(ArgumentError("$(nameof(typeof(m))) has no `Free(:scale)` parameter to define the SNR; give `σ`"))
+        throw(ArgumentError("$(nameof(typeof(m))) has no `Free(start = :scale)` parameter to " *
+                            "define the SNR; give `σ`"))
 
     # The voxels: the size of the maps, or n copies, or one voxel.
     maps = filter(x -> x isa AbstractArray, Tuple(values(truth)))

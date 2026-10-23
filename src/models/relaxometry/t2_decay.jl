@@ -20,8 +20,8 @@
 # faster than its start, stepping to a tiny T2 where the gradient vanishes; the solver now rejects
 # such steps, see src/fit/levmar.jl.)
 #
-# Starting values: T2Decay starts each voxel from a log-linear fit to its data (`T2 = Free(:data)`;
-# `datastart`, after its `signal!`), which makes it much faster when T2 is far from the echo
+# Starting values: T2Decay starts each voxel from a log-linear fit to its data
+# (`T2 = Free(start = :data)`; `datastart`, after its `signal!`), which makes it much faster when T2 is far from the echo
 # times. The others start from the acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable
 # to the sampled range). S0 starts at the least-squares scale.
 #
@@ -55,8 +55,8 @@ m = T2Decay(TE = 0.01:0.01:0.32)
 end
 
 parameters(m::T2Decay) = (
-    S0 = Free(:scale; lower = 0),
-    T2 = Free(:data; lower = _TMIN),                  # a log-linear fit (datastart, below)
+    S0 = Free(start = :scale, lower = 0),
+    T2 = Free(start = :data, lower = _TMIN),          # a log-linear fit (datastart, below)
 )
 
 # The T2 form is the R2 form with R2 = 1/T2: convert, then R2Decay's signal (below; see
@@ -93,8 +93,8 @@ m = R2Decay(TE = 0.01:0.01:0.32)
 end
 
 parameters(m::R2Decay) = (
-    S0 = Free(:scale; lower = 0),
-    R2 = Free(1 / mean(m.TE); lower = 0),
+    S0 = Free(start = :scale, lower = 0),
+    R2 = Free(start = 1 / mean(m.TE), lower = 0),
 )
 
 function signal!(out, m::R2Decay, p)
@@ -132,9 +132,9 @@ m = T2DecayOffset(TE = 0.01:0.01:0.32)
 end
 
 parameters(m::T2DecayOffset) = (
-    S0 = Free(:scale; lower = 0),
-    T2 = Free(mean(m.TE); lower = _TMIN),
-    C = Free(0.0),                      # offset, in signal units
+    S0 = Free(start = :scale, lower = 0),
+    T2 = Free(start = mean(m.TE), lower = _TMIN),
+    C = Free(start = 0.0),              # offset, in signal units
 )
 
 # The T2 form: R2 = 1/T2, then R2DecayOffset's signal (below).
@@ -162,9 +162,9 @@ m = R2DecayOffset(TE = 0.01:0.01:0.32)
 end
 
 parameters(m::R2DecayOffset) = (
-    S0 = Free(:scale; lower = 0),
-    R2 = Free(1 / mean(m.TE); lower = 0),
-    C = Free(0.0),                      # offset, in signal units
+    S0 = Free(start = :scale, lower = 0),
+    R2 = Free(start = 1 / mean(m.TE), lower = 0),
+    C = Free(start = 0.0),              # offset, in signal units
 )
 
 function signal!(out, m::R2DecayOffset, p)

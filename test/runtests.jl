@@ -12,7 +12,8 @@ using Test
 struct DataStartTest <: MRIModel
     t::Vector{Float64}
 end
-EQUIP.parameters(::DataStartTest) = (S0 = Free(:scale; lower = 0), T2 = Free(:data; lower = 1e-6), c = Fixed(1.0))
+EQUIP.parameters(::DataStartTest) = (S0 = Free(start = :scale, lower = 0),
+                                     T2 = Free(start = :data, lower = 1e-6), c = Fixed(1.0))
 function EQUIP.signal!(out, m::DataStartTest, p)
     for j in eachindex(out, m.t)
         out[j] = p.S0 * abs(p.c) * exp(-m.t[j] / p.T2)
@@ -178,13 +179,13 @@ end
 
     @testset "roles print readably" begin
         @test repr(Free()) == "Free()"
-        @test repr(Free(0.1; lower = 0, upper = 1)) == "Free(start = 0.1, lower = 0.0, upper = 1.0)"
-        @test repr(Free(:scale; lower = 0)) == "Free(start = :scale, lower = 0.0)"
+        @test repr(Free(start = 0.1, lower = 0, upper = 1)) == "Free(start = 0.1, lower = 0.0, upper = 1.0)"
+        @test repr(Free(start = :scale, lower = 0)) == "Free(start = :scale, lower = 0.0)"
         @test repr(Free(start = [0.1, 0.2])) == "Free(start = 2-element Vector{Float64})"
         @test repr(Fixed(12.5)) == "Fixed(12.5)"
         @test repr(Fixed(:R1f)) == "Fixed(:R1f)"
         @test repr(Fixed(p -> p.R1f)) == "Fixed(<function>)"
-        @test repr(Free(BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
+        @test repr(Free(start = BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin
@@ -227,17 +228,20 @@ end
         s = setup(m; kmf = Free())
         @test freenames(s) == (:PSR, :R1f, :Sf, :M0f, :kmf) && s.start.kmf == 12.5
         @test s.lower[end] == -Inf && s.upper[end] == Inf
-        s = setup(m; kmf = Free(20.0; lower = 5, upper = 50))           # with start and bounds
+        s = setup(m; kmf = Free(start = 20.0, lower = 5, upper = 50))   # with start and bounds
         @test s.lower[end] == 5 && s.upper[end] == 50 && s.start.kmf == 20
         # Free(...) over a free parameter keeps whatever it leaves out
         s = setup(m; Sf = Free(lower = -1.5))
         @test s.lower[3] == -1.5 && s.upper[3] == 0 && s.start.Sf == -0.95
         s = setup(m; R1f = Free(start = 0.8))
         @test s.start.R1f == 0.8 && s.lower[2] == 0.05 && s.fromdata == (false, false, false, false)
-        @test Free(0.8) == Free(start = 0.8)
-        @test Free(:data).start === :data && Free(start = BestOf([0.3, 0.8])).start isa BestOf
-        @test_throws ArgumentError Free(0.8; start = 0.9)               # the start given twice
-        @test_throws ArgumentError Free(:auto)                         # not a start option
+        @test Free(start = 0.8).start === 0.8 && Free(start = 1).start === 1.0   # numbers: Float64
+        @test Free(start = :data).start === :data && Free(start = BestOf([0.3, 0.8])).start isa BestOf
+        @test_throws ArgumentError Free(start = :auto)                  # not a start option
+        # the start is a keyword, like the bounds: a positional one says how to write it
+        @test_throws "write Free(start = 0.8)" Free(0.8)
+        @test_throws "write Free(start = :scale, lower = 0)" Free(:scale; lower = 0)
+        @test_throws "write Free(start = 0.1, lower = 0, upper = 1)" Free(0.1, 0, 1)
         # starts and precision; an explicit start replaces :scale
         mfa = T1MFA(FA = [2, 10], TR = 0.015)
         s = setup(mfa, Float32; T1 = Free(start = 2))
@@ -266,7 +270,7 @@ end
                  Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         y = signal(m, truth)
         # kmf estimated: exact
-        r = fit!(init(m; kmf = Free(12.5; lower = 1, upper = 50)), y)
+        r = fit!(init(m; kmf = Free(start = 12.5, lower = 1, upper = 50)), y)
         @test r.params.kmf ≈ 15 rtol = 1e-5
         @test r.params.PSR ≈ 0.12 rtol = 1e-5
         # kmf assumed correctly: exact; assumed wrongly (default 12.5): PSR is biased

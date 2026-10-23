@@ -112,10 +112,10 @@ Every model declares each parameter's default **role** with `parameters(m)`. For
 
 ```julia
 parameters(::QMTSIR) = (
-    PSR = Free(0.1; lower = 0, upper = 1),
-    R1f = Free(1.0; lower = 0.05, upper = 10),
-    Sf  = Free(-0.95; lower = -1.2, upper = 0),
-    M0f = Free(:scale; lower = 0),
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf  = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),
     kmf = Fixed(12.5),
     R1m = Fixed(:R1f),           # a tie: always equal to R1f
     Sm  = Fixed(0.83),
@@ -124,19 +124,20 @@ parameters(::QMTSIR) = (
 )
 ```
 
-- `Free(start; lower, upper)`: estimated, kept within the bounds. The start says where each
-  voxel's starting value comes from:
+- `Free(; start, lower, upper)`: estimated, kept within the bounds. Each part is a keyword,
+  named in the call (`Free(start = 0.1, lower = 0)`). The start says where each voxel's
+  starting value comes from:
   - a number (or, in a fit, a map with one value per voxel);
   - `:scale`, for the parameter that scales the whole signal (S0, M0): the least-squares value
     given the other starts, so raw data need no normalization. Only the model declares it (the
     rule assumes the signal is proportional to the parameter): a fit can turn it off,
     `M0 = Free(start = 1000.0)`, but not move it to another parameter;
   - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
-    log-linear fit, `T2 = Free(:data; lower = ...)`;
+    log-linear fit, `T2 = Free(start = :data, lower = ...)`;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
-    `T1 = Free(BestOf(_t1grid(m.TI)); lower = ...)`, 30 values spanning the TIs. One parameter
-    per fit for now. `BestOf` wraps the values because a plain vector start is a map.
+    `T1 = Free(start = BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs. One
+    parameter per fit for now. `BestOf` wraps the values because a plain vector start is a map.
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie. `defaults(m)` gives the fixed
@@ -253,9 +254,9 @@ import EQUIP: parameters, signal!     # we add methods to these functions
 end
 
 parameters(::StretchedDecay) = (
-    S0   = Free(:scale; lower = 0),
-    T2   = Free(0.05; lower = 1e-6),
-    beta = Free(0.9; lower = 0.1, upper = 1),   # stretching exponent (1 = mono-exponential)
+    S0   = Free(start = :scale, lower = 0),
+    T2   = Free(start = 0.05, lower = 1e-6),
+    beta = Free(start = 0.9, lower = 0.1, upper = 1),  # stretching exponent (1 = mono-exponential)
 )
 
 function signal!(out, m::StretchedDecay, p)
@@ -299,7 +300,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 - **Starting values** are declared in `parameters(m)` with each `Free` role (see Free and fixed
   parameters): a number, `:scale`, `:data` or `BestOf(values)`. If fits can end in a wrong
   local minimum from one start, give the parameter several values to try: T1IR's is
-  `T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN)`, 30 values log-spaced from 1/5 of the
+  `T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5 of the
   shortest TI to 5× the longest.
 - **`datastart`** (optional): starting values computed from each voxel's data `y`, such as a
   linearized fit, for the parameters declared `:data`. `p` holds the voxel's fixed values (e.g.

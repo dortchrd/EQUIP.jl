@@ -6,8 +6,8 @@
 # the ADC is in mm²/s.
 #
 # Default starting values are mostly fixed numbers. The parameter that scales the whole signal
-# (S0, M0, M0f) is declared `Free(:scale)` and starts, voxel by voxel, at the least-squares scale
-# given the other starting values, so raw data (values in the hundreds or thousands) need no
+# (S0, M0, M0f) is declared `Free(start = :scale)` and starts, voxel by voxel, at the
+# least-squares scale given the other starting values, so raw data (values in the hundreds or thousands) need no
 # normalization. A few start from the data: T2Decay's T2 (`:data`, a log-linear fit) and the
 # inversion-recovery T1 (`BestOf` 30 values). Override any start in the call, e.g.
 # `T1 = Free(start = 0.8)` (a number or a per-voxel map).

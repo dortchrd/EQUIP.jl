@@ -63,10 +63,10 @@ end
 QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)
 
 parameters(::QMTSIR) = (
-    PSR = Free(0.1; lower = 0, upper = 1),
-    R1f = Free(1.0; lower = 0.05, upper = 10),
-    Sf = Free(-0.95; lower = -1.2, upper = 0),
-    M0f = Free(:scale; lower = 0),
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),
     kmf = Fixed(12.5),
     R1m = Fixed(:R1f),                  # tie: R1m equals R1f
     Sm = Fixed(0.83),

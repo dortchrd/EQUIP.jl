@@ -33,9 +33,9 @@ m = ADCKurtosis(b = [0, 500, 1000, 1500, 2000, 2500])
 end
 
 parameters(m::ADCKurtosis) = (
-    S0 = Free(:scale; lower = 0),
-    ADC = Free(1 / mean(m.b); lower = 0),
-    K = Free(1.0; lower = 0, upper = 3),
+    S0 = Free(start = :scale, lower = 0),
+    ADC = Free(start = 1 / mean(m.b), lower = 0),
+    K = Free(start = 1.0, lower = 0, upper = 3),
 )
 
 function signal!(out, m::ADCKurtosis, p)

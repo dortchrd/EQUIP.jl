@@ -35,7 +35,7 @@ Decisions behind this:
 - **The model never holds parameter values.** One model object is reused for millions of
   voxels, while `p` changes at every LM step.
 - **A parameter keeps its place in the model whether it is fixed or estimated.** Its role
-  (`Free(init; lower, upper)` / `Fixed(value)`) sits next to it, so the starting value, the
+  (`Free(start = ..., lower = ..., upper = ...)` / `Fixed(value)`) sits next to it, so the starting value, the
   bounds and the default value live in one place. A fit changes roles through keywords, so
   sensitivity analyses (e.g. fix kmf at different values) never edit the model.
 - **Model structs use `@kwdef`**, with one type parameter per vector field and no inner
@@ -157,10 +157,10 @@ end
 QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)   # one TD for all
 
 parameters(::QMTSIR) = (                          # 2. every parameter with its default role
-    PSR = Free(0.1; lower = 0, upper = 1),
-    R1f = Free(1.0; lower = 0.05, upper = 10),
-    Sf  = Free(-0.95; lower = -1.2, upper = 0),
-    M0f = Free(:scale; lower = 0),             # starts at the least-squares signal scale
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf  = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),     # starts at the least-squares signal scale
     kmf = Fixed(12.5),
     R1m = Fixed(:R1f),                         # tie: always equal to R1f
     Sm  = Fixed(0.83),
@@ -193,7 +193,7 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
 
 ## Parameter roles
 
-- `Free(start; lower, upper)`: estimated. The start says where each voxel's starting value
+- `Free(; start, lower, upper)`: estimated. The start says where each voxel's starting value
   comes from:
 
   | `start =` | per voxel | given by |
@@ -205,9 +205,10 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
 
   Models declare theirs in `parameters(m)`, so a reader sees where each start comes from:
   ```julia
-  parameters(m::T1IR) = (M0 = Free(:scale; lower = 0), Sf = Free(-0.95; ...),
-                         T1 = Free(BestOf(_t1grid(m.TI)); lower = _TMIN))
-  parameters(m::T2Decay) = (S0 = Free(:scale; lower = 0), T2 = Free(:data; lower = _TMIN))
+  parameters(m::T1IR) = (M0 = Free(start = :scale, lower = 0), Sf = Free(start = -0.95, ...),
+                         T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN))
+  parameters(m::T2Decay) = (S0 = Free(start = :scale, lower = 0),
+                            T2 = Free(start = :data, lower = _TMIN))
   ```
   A fit changes them like any start: `T1 = Free(start = 0.8)` (one start, no search),
   `T1 = Free(start = BestOf(logrange(0.05, 5, 50)))` (other values), `T2 = Free(start = 0.05)`
@@ -231,6 +232,17 @@ when they can swap without changing the signal (the two components of `T2BiexpDe
     spacing; a generic name other packages use). A wrapper at all because a plain vector start
     already means a per-voxel map. The internal helpers that do make log-spaced grids keep
     their names (`_t1grid`, `_loggrid`).
+  - **Decision: the start is a keyword, the only form: `Free(start = 0.1, lower = 0)`.**
+    `Free(0.1; lower = 0)` used to work too, so the same role was written two ways (the models
+    positionally, fits by keyword), and a bare value beside named bounds did not say what it
+    was. With every part named, a model's `parameters` reads like a fit's keywords, and a later
+    setting such as `varpro = true` (see the VarPro design) sits beside the others the same way.
+    `Free` has one constructor, by keyword (an inner constructor, so Julia's positional
+    `Free(start, lower, upper)` is gone too); a positional call is an error that shows the call
+    written by name (`Free(0.8)` → "write Free(start = 0.8)"). Results unchanged: every model's
+    roles as printed, and the starts and fits of every bench case (bounded and unbounded, two
+    solver settings, both precisions) are identical bit for bit; dataset fit times equal within
+    noise (10 000 voxels: T2 4.2–5.3 ms, SIR 4-point 5.0–5.6 ms, biexponential 42–44 ms).
   - **Decision: starts declared in `parameters(m)`**, replacing the `startgrid(m)` hook and a
     `userstart` list in `setup` (which tracked which parameters the call had given a start, so
     that the data start and the grid would leave them alone): a start given in the call now
@@ -334,8 +346,8 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   rebuild its curve: the voxel index is not stored.
 - Refit: `fit(res.model, data; res.settings...)` repeats the fit with the same choices.
   `refit(res, data; changes...)` merges the changes into the settings and starts every free
-  parameter not changed from its previous estimate (`name = Free(res.params.name, lower,
-  upper)`, keeping the bounds of the first fit), e.g. `refit(res, data; kmf = Free())`. A voxel
+  parameter not changed from its previous estimate (`name = Free(start = res.params.name)`,
+  with the bounds of the first fit), e.g. `refit(res, data; kmf = Free())`. A voxel
   whose previous estimate is NaN becomes `InvalidData`, as for any non-finite start map.
 - Display: one line in `print` and inside collections; at the REPL a summary (one voxel: status,
   iterations, SSE, values, fixed parameters; a dataset: voxels fitted, % converged, counts per
@@ -358,7 +370,7 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   parameter took its default silently. `fitted(res)` merges in `defaults(m)` itself, since a
   fit's fixed values are its own settings. Checked: the bench cases and both examples give the
   same data and fits as before (byte-identical CSVs, equal hashes).
-- **SNR is relative to the scale parameter** (the one declared `Free(:scale)`: M0, S0, M0f),
+- **SNR is relative to the scale parameter** (the one declared `Free(start = :scale)`: M0, S0, M0f),
   σ = scale/snr, voxel by voxel: Dortch et al. 2018's "SNR = 200 at thermal equilibrium". It
   does not depend on the protocol, as σ on a scanner, so protocols compare at equal noise. The
   measured signal can be far below the scale (MFA at low flip angles, SIR schemes that never
@@ -551,8 +563,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     first echo came at ≥ 2× T2 at low SNR (an earlier first echo removed every failure); long T2
     or T1 is a question of precision (T2 = 2 s from TE ≤ 320 ms: 0.6–2.9× the truth at SNR 10),
     for CRLB and protocol design.
-- **Grid-search start for magnitude inversion recovery** (`T1 = Free(BestOf(_t1grid(m.TI)))`;
-  `_best_start` in `src/fit/starts.jl`; it was the `startgrid` hook when measured). |S| has local minima: from one start a fit can settle with the signal
+- **Grid-search start for magnitude inversion recovery**
+  (`T1 = Free(start = BestOf(_t1grid(m.TI)))`; `_best_start` in `src/fit/starts.jl`; it was the `startgrid` hook when measured). |S| has local minima: from one start a fit can settle with the signal
   null in the wrong place. Before LM, each voxel evaluates the signal at 30 values of T1
   (log-spaced from 1/5 of the shortest TI to 5× the longest; the R1 forms use the same values
   as rates), the `:scale` parameter at its least-squares value for each, and starts from the
@@ -1212,7 +1224,7 @@ notes.)
      for which models.
    - **More data starts.** History: VoxelFit 0.1 had a per-fit `init = :auto`, and 0.2 a
      per-parameter `Estimate(:auto)` from `initial_guess(m, acq, y, p)`, with a guess for every
-     model. The lean rewrite (9a6e173) removed data starts and kept `Free(:scale)`. The 0.2
+     model. The lean rewrite (9a6e173) removed data starts and kept `Free(start = :scale)`. The 0.2
      guesses are in git (99a0367) to port as `datastart` methods: log-linear
      (mono-exponential), peeling (bi-exponential: slow component from the late echoes, fast
      from the residual of the early ones), the null point for inversion recovery
@@ -1375,7 +1387,8 @@ notes.)
      @mrimodel MyT2(TE; S0, T2, C = 0.0) = S0 * exp(-TE / T2) + C
 
      @mrimodel function MySIR(TI, TD, magnitude = true;
-                              PSR = Free(0.1; lower = 0, upper = 1), ..., kmf = 12.5, R1m = Fixed(:R1f))
+                              PSR = Free(start = 0.1, lower = 0, upper = 1), ...,
+                              kmf = 12.5, R1m = Fixed(:R1f))
          ...                                   # a multi-line body; the last line is the signal
      end
      fit(MySIR(TI = ti, TD = td), data; mask, kmf = Free())
@@ -1386,8 +1399,8 @@ notes.)
        a plain number or `Fixed(...)` for fixed; no default for free with no start, given in
        the call (LsqFit's way, `fit(m, y, p0)`, or `T2 = Free(start = ...)`). A docstring before
        the macro goes on the type.
-     - A default may use the acquisition (`T2 = Free(mean(TE))`, `TE` then the whole vector),
-       as Julia's own keyword defaults may use earlier arguments.
+     - A default may use the acquisition (`T2 = Free(start = mean(TE))`, `TE` then the whole
+       vector), as Julia's own keyword defaults may use earlier arguments.
      - It generates the struct, `parameters`, and a `signal!` that calls the body as a plain
        positional function for each observation: as fast as hand-written code, no allocation;
        `@macroexpand` shows the result.
@@ -1423,8 +1436,8 @@ notes.)
      declared parameter can. Measured (a million evaluations): captured inside a function, a
      `const` global, or through `let`: 4.9–6.3 ms, no allocation; a plain global, or a variable
      reassigned after the closure captures it (Julia "boxes" it): 51–60 ms and 46 MB, 10× slower.
-   - **Small usability fixes**: print roles as written (`Free(0.1; lower = 0, upper = 1)`,
-     `Fixed(12.5)`, not `Free(0.1, 0.0, 1.0)` or `Fixed{Float64}(12.5)`); a REPL summary of a
+   - **Small usability fixes**: (done: roles print as written, by name,
+     `Free(start = 0.1, lower = 0.0, upper = 1.0)` and `Fixed(12.5)`); a REPL summary of a
      model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties);
      a clear error when `signal(m, p)` gets a map ("one voxel: give numbers; for maps, use
      `simulate`"; today a `MethodError` on `float`), and a docstring note that values are not

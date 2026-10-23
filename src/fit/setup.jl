@@ -25,7 +25,7 @@ The resolved parameter roles of one fit (made by `setup`):
 - `P = length(F)`, `T`: the working float type
 - `lower`, `upper`: bounds of the free parameters (`SVector{P,T}`)
 - `start`: starting values of the free parameters (numbers or per-voxel maps), names `F`
-- `scale`: position in `F` of the `Free(:scale)` parameter, or 0 if there is none
+- `scale`: position in `F` of the `Free(start = :scale)` parameter, or 0 if there is none
 - `fixed`: the fixed parameters (numbers, per-voxel maps or ties), by name
 - `candidates`, `candindex`: the [`BestOf`](@ref) values to try for free parameter number
   `candindex` (those within its bounds); `candindex = 0` means none
@@ -66,18 +66,19 @@ _role(default, x, name) = Fixed(x)
 
 _keep(new, default) = new === nothing ? default : new
 # Over a default Free: the new start and bounds where given, the default's elsewhere.
-_override(d::Free, x::Free, name) = Free(_keep(x.start, d.start), _keep(x.lower, d.lower), _keep(x.upper, d.upper))
+_override(d::Free, x::Free, name) = Free(start = _keep(x.start, d.start),
+                                         lower = _keep(x.lower, d.lower), upper = _keep(x.upper, d.upper))
 # A parameter fixed by default, now estimated: it starts at its fixed value unless given a start;
 # no bounds unless given.
 function _override(d::Fixed, x::Free, name)
     x.start !== nothing && return x
     d.value isa Real ||
         throw(ArgumentError("`$name` is fixed by default to $(repr(d.value)); give it a start: $name = Free(start = ...)"))
-    return Free(d.value, x.lower, x.upper)
+    return Free(start = d.value, lower = x.lower, upper = x.upper)
 end
 
-# The name of the parameter the model declares `Free(:scale)` (M0, S0, M0f), or nothing. Also used
-# by `simulate` (its `snr` is relative to this parameter).
+# The name of the parameter the model declares `Free(start = :scale)` (M0, S0, M0f), or nothing.
+# Also used by `simulate` (its `snr` is relative to this parameter).
 function _scalename(m::MRIModel)
     roles = parameters(m)
     i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
@@ -113,7 +114,7 @@ and fixed. Each keyword is named after a parameter of the model:
   `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`.
 """
 function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
-    # 1. The model's defaults, e.g. (PSR = Free(0.1; ...), ..., kmf = Fixed(12.5), ...).
+    # 1. The model's defaults, e.g. (PSR = Free(start = 0.1, ...), ..., kmf = Fixed(12.5), ...).
     roles = parameters(model)
     names = keys(roles)
     for n in names
