@@ -2,6 +2,19 @@
 # Test cases for bench/solvers.jl, from easy to hard. Each makes a model, simulated data (one row
 # per voxel), the truth and EQUIP's roles, from a fixed seed, so the data are the same every time.
 #
+# The everyday relaxometry models, with T1 and T2 over the range of the 3 T values of Stanisz et
+# al., Magn Reson Med 2005;54:507, Table 1 (`TISSUES`: T1 0.81-1.93 s, T2 27-275 ms, liver to
+# blood), each uniform, and the scale (M0 or S0) 0.8-1.2:
+#   :t2               T2Decay, 32 echoes 10-320 ms, SNR 100: two parameters, many observations,
+#                     a data-driven start; every method should agree here
+#   :t1mfa            T1MFA (variable flip angle), FA 2, 5, 10, 15, 20, 30°, TR 15 ms, B1 = 1,
+#                     σ = M0/1000 (spoiled gradient-echo signals are a few % of M0: image SNR
+#                     about 20-90): strongly nonlinear in T1
+#   :t1ir             T1IR, TI 50 ms to 3.2 s (7 values, doubling), magnitude data, Sf -1.0 to
+#                     -0.8, SNR 100: the sign is lost around the null point, so there are false
+#                     minima (EQUIP's start is the best of a grid of T1 values)
+#
+# Selective inversion recovery (qMT) and a biexponential:
 #   :sir4_range       4-point SIR (SIR_4POINT), tissue values over the range of the four SIR
 #                     classes of Dortch et al., Magn Reson Med 2018;80:1824, Table 1 (PSR
 #                     0.05-0.20, kmf 5-20 s⁻¹, R1f 0.5-1.5 s⁻¹, each uniform), Sf -1.0 to -0.8,
@@ -32,11 +45,15 @@
 
 using EQUIP, Random
 
-const ALLCASES = (:sir4_range, :sir4_poorstart, :sir16_kmf, :sir16_kmf_snr50, :sir4_bounds, :biexp)
+const ALLCASES = (:t2, :t1mfa, :t1ir, :sir4_range, :sir4_poorstart, :sir16_kmf, :sir16_kmf_snr50,
+                  :sir4_bounds, :biexp)
 const NVOX = 10_000
 
 uniform(rng, (lo, hi), n) = lo .+ (hi - lo) .* rand(rng, n)      # n values, uniform in [lo, hi)
 sirclass(name) = [tissue(c)[name] for c in (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)]
+const STANISZ = (:liver, :muscle, :heart, :kidney, :cartilage_0, :cartilage_55, :WM, :GM,
+                 :optic_nerve, :spinal_cord, :blood)
+stanisz(name) = extrema(tissue(t)[name] for t in STANISZ)        # e.g. (0.812, 1.932) for T1
 
 # SIR tissue values, each uniform over the range of the four classes (or a given PSR range), in the
 # same order of random draws as examples/sir_4point_range.jl: PSR, R1f, kmf, then Sf, then M0f.
@@ -83,7 +100,26 @@ function putting the estimates in a standard order before comparing (or `nothing
 """
 function makecase(name::Symbol; n = NVOX)
     rng = MersenneTwister(1)
-    if name in (:sir4_range, :sir4_poorstart)
+    if name === :t2
+        m = T2Decay(TE = collect(0.01:0.01:0.32))
+        truth = (S0 = uniform(rng, (0.8, 1.2), n), T2 = uniform(rng, stanisz(:T2), n))
+        Y = simulate(m, truth; snr = 100, rng)
+        return (; name, title = "T2 decay, 32 echoes, T2 27-275 ms, SNR 100", m, Y, truth,
+                roles = (;), bounds = false, starts = nothing, order! = nothing)
+    elseif name === :t1mfa
+        m = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
+        truth = (M0 = uniform(rng, (0.8, 1.2), n), T1 = uniform(rng, stanisz(:T1), n))
+        Y = simulate(m, truth; snr = 1000, rng)
+        return (; name, title = "T1 variable flip angle, 6 angles, T1 0.81-1.93 s, σ = M0/1000", m, Y,
+                truth, roles = (;), bounds = false, starts = nothing, order! = nothing)
+    elseif name === :t1ir
+        m = T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2])
+        truth = (M0 = uniform(rng, (0.8, 1.2), n), Sf = uniform(rng, (-1.0, -0.8), n),
+                 T1 = uniform(rng, stanisz(:T1), n))
+        Y = simulate(m, truth; snr = 100, rng)
+        return (; name, title = "T1 inversion recovery, 7 TIs, magnitude, T1 0.81-1.93 s, SNR 100", m,
+                Y, truth, roles = (;), bounds = false, starts = nothing, order! = nothing)
+    elseif name in (:sir4_range, :sir4_poorstart)
         m = QMTSIR(; SIR_4POINT...)
         truth = sirtruth(rng, n)
         Y = simulate(m, truth; snr = 200, rng)

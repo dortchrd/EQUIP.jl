@@ -698,6 +698,22 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     | FastLevenbergMarquardt | 5.63 (0) | 5.25 (33) | 8.10 (10) | 23.9 (24) | 14.0 (211) | 140 (151) |
 
     \* without bounds (they take none), compared among themselves.
+
+    The everyday relaxometry models, added after (same settings): µs per voxel (not best)
+
+    | method | t2 | t1mfa | t1ir |
+    |---|---|---|---|
+    | EQUIP | 0.79 (0) | 0.74 (0) | 0.69 (9) |
+    | LsqFit | 14.5 (0) | 15.4 (0) | 15.2 (8) |
+    | NonlinearSolve LM | 716 (0) | 965 (0) | 1354 (7) |
+    | NonlinearSolve TrustRegion | 11.8 (0) | 11.6 (0) | 12.0 (10) |
+    | SimpleGaussNewton | 91.6 (0) | 51.9 (0) | 48.5 (10) |
+    | SimpleTrustRegion | 172 (39) | 83.5 (0) | 94.1 (11) |
+    | FastLevenbergMarquardt | 2.17 (0) | 6.86 (0) | 1.26 (10) |
+
+    On T2 decay and variable flip angle every method finds the same fits; on magnitude
+    inversion recovery every method misses the best fit in ~1% of voxels (false minima around
+    the null point), EQUIP no more often than the others.
     - The SciML solvers stop by their own least-squares default here: a shared step rule makes
       them stop early on hard fits, because their stopping machinery sees a rejected step as no
       movement (biexp, 2000 voxels, NonlinearSolve TrustRegion: worse than the best in 1934
