@@ -10,7 +10,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Tests: `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (test/runtests.jl, about 1000 tests)
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only)
-- Benchmark vs LsqFit and NonlinearSolve (after an example; `DATASET` picks which): `julia -t auto --project=bench bench/sir_4point_vs.jl`
+- Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
 - The first `using EQUIP` after a code change takes about 40 s (precompile workload,

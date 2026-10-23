@@ -26,7 +26,8 @@
 #
 # Fitted twice, as in sir_wm_4point.jl: kmf fixed at 12.5 s⁻¹ (what the 4-point scheme was
 # designed for; the true kmf now varies from 5 to 20 s⁻¹), and kmf fixed at each voxel's true
-# value. Everything is saved as CSV files, for bench/sir_4point_vs.jl, MATLAB, Python or qMRLab.
+# value. Everything is saved as CSV files, for MATLAB, Python or qMRLab. bench/solvers.jl uses the
+# same data (its case :sir4_range, made from the same seed).
 #
 # Run from the repository folder, with threads:
 #   julia -t auto --project=. examples/sir_4point_range.jl

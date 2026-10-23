@@ -27,8 +27,10 @@ Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 Complete examples, Monte Carlo tests of the 4-point SIR scheme at SNR 200 (Dortch et al. 2018),
 saved as CSV files: `examples/sir_wm_4point.jl` (white matter) and `examples/sir_4point_range.jl`
 (tissue values over the range of the paper's tissue classes), e.g.
-`julia -t auto --project=. examples/sir_4point_range.jl`. `bench/sir_4point_vs.jl` fits the same
-data with EQUIP, LsqFit and NonlinearSolve and compares speed and answers.
+`julia -t auto --project=. examples/sir_4point_range.jl`. `bench/solvers.jl` compares EQUIP with
+LsqFit, NonlinearSolve (SciML) and FastLevenbergMarquardt on test cases from easy to hard
+(`bench/cases.jl`: the same 4-point data, poor starts, 16-point SIR with kmf estimated, low SNR,
+bounds, a biexponential): speed, and whether each finds the best fit.
 
 The first `using EQUIP` after installing (or after any change to its code) takes about 40 s:
 EQUIP then compiles small fits of every built-in model and saves the result, so that in every

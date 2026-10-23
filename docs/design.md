@@ -410,10 +410,9 @@ ext/                   (later) package extensions: OptimExt (optimize_protocol),
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
 test/                  correctness and deterministic performance checks (no allocation, type
                        stability); no timings
-bench/                 own Project.toml (BenchmarkTools, LsqFit, NonlinearSolve);
-                       sir_4point_vs.jl: EQUIP vs LsqFit vs NonlinearSolve on an example's data
-                       (examples/sir_4point_range.jl or sir_wm_4point.jl). (later) speed suite +
-                       accuracy studies, results.md
+bench/                 own Project.toml (BenchmarkTools, LsqFit, NonlinearSolve, FastLM);
+                       solvers.jl: EQUIP vs the other solvers over the test cases in cases.jl.
+                       (later) speed suite + accuracy studies, results.md
 ```
 
 - Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
@@ -622,7 +621,7 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 - **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
   voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
   work into one block per thread). See the comment in `src/fit/dataset.jl`.
-- **Against LsqFit and NonlinearSolve** (`bench/sir_4point_vs.jl`, QMTSIR, 4-point SIR; first on
+- **Against LsqFit and NonlinearSolve** (`bench/solvers.jl`, formerly `sir_4point_vs.jl`; first on
   `examples/sir_wm_4point.jl`'s data, every voxel white matter at SNR 200). Everything shared: EQUIP's `signal!`, the starts, no bounds, ForwardDiff,
   the threads, the number of runs, and the stopping rule: a relative parameter step of 1e-8,
   every other test off. That rule cannot be made identical: EQUIP scales the step by
@@ -683,6 +682,36 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     once its overhead is gone. The choice between them is robustness, bounds, stopping and status
     codes, load time and maintenance, so the harder tests decide; EQUIP's threaded dataset
     driver (0.80 vs FastLM's plain threaded loop at 0.66 on 4 threads) is worth a look.
+  - **The harder cases** (`bench/cases.jl`; 1000 voxels per case, 1 run, 4 threads, cloud
+    machine). "Not best": voxels where the method's fit is clearly worse (SSE above the best by
+    more than 1e-8 Σy²) than the best any method found (among methods solving the same problem:
+    with bounds or without), or failed. µs per voxel (not best):
+
+    | method | sir4_range | sir4_poorstart | sir16_kmf | sir16_kmf_snr50 | sir4_bounds | biexp |
+    |---|---|---|---|---|---|---|
+    | EQUIP | 1.18 (0) | 4.11 (26) | 4.58 (5) | 9.78 (20) | 1.32 (0) | 20.5 (218) |
+    | LsqFit | 16.7 (0) | 20.7 (2) | 34.0 (3) | 115 (30) | 153 (214) | 316 (122) |
+    | NonlinearSolve LM | 178 (0) | 607 (9) | 2965 (4) | 5250 (36) | 182 (0)* | 3758 (16) |
+    | NonlinearSolve TrustRegion | 2.85 (0) | 11.9 (18) | 109 (59) | 153 (71) | 4.48 (0)* | 92 (38) |
+    | SimpleGaussNewton | 2.16 (0) | 4.49 (138) | 184 (281) | 298 (430) | 2.41 (0)* | 2948 (951) |
+    | SimpleTrustRegion | 5.15 (0) | 7.06 (11) | 1053 (427) | 1394 (561) | 3.43 (1)* | 2265 (995) |
+    | FastLevenbergMarquardt | 5.63 (0) | 5.25 (33) | 8.10 (10) | 23.9 (24) | 14.0 (211) | 140 (151) |
+
+    \* without bounds (they take none), compared among themselves.
+    - The SciML solvers stop by their own least-squares default here: a shared step rule makes
+      them stop early on hard fits, because their stopping machinery sees a rejected step as no
+      movement (biexp, 2000 voxels, NonlinearSolve TrustRegion: worse than the best in 1934
+      voxels with a one-step rule, 639 with ten steps, 70 with its default).
+    - EQUIP is the fastest on every case, and the most reliable with bounds (LsqFit and FastLM
+      stall at the bound: ~210 worse fits). Its weak spot is the biexponential: 218 of 1000 voxels
+      not best (SciML's LM 16, TrustRegion 38, LsqFit 122), ~88 steps per voxel, 94.7% converged,
+      larger fshort and T2short errors. From poor starts it is also slightly worse than LsqFit
+      (26 vs 2). Both point at EQUIP's damping and stopping, the next prototype.
+    - Pure Gauss–Newton (SimpleGaussNewton) fails once the fits are not exact or the starts are
+      poor; SimpleTrustRegion converges on few voxels of the 16-point and biexponential cases.
+    - The 4-point scheme from poor starts: every method converges, but the median PSR error is
+      350–450% for all of them. With 4 observations and 4 free parameters there can be more than
+      one exact fit, and far starts find the wrong one: the scheme depends on sensible starts.
 
 ## Scope so far
 
