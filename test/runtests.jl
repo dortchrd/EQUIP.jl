@@ -155,6 +155,23 @@ end
         @test_throws ArgumentError signal(m, (PSR = 0.1,))                     # Free value missing
         @test_throws ArgumentError signal(m, merge(θfree, (nope = 1.0,)))       # unknown name
         @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), θfree)
+        # roles are not values: passing parameters(m), or a Fixed(...), is a clear error
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        @test occursin("is a role", msg(() -> signal(m, parameters(m))))
+        @test occursin("is a role", msg(() -> simulate(m, parameters(m); snr = 100)))
+        @test occursin("write `kmf = 10.0`", msg(() -> signal(m, merge(θfree, (kmf = Fixed(10.0),)))))
+        @test occursin("must give a value for `R1f`", msg(() -> signal(m, (PSR = 0.1,))))
+    end
+
+    @testset "roles print readably" begin
+        @test repr(Free()) == "Free()"
+        @test repr(Free(0.1; lower = 0, upper = 1)) == "Free(start = 0.1, lower = 0.0, upper = 1.0)"
+        @test repr(Free(:scale; lower = 0)) == "Free(start = :scale, lower = 0.0)"
+        @test repr(Free(start = [0.1, 0.2])) == "Free(start = 2-element Vector{Float64})"
+        @test repr(Fixed(12.5)) == "Fixed(12.5)"
+        @test repr(Fixed(:R1f)) == "Fixed(:R1f)"
+        @test repr(Fixed(p -> p.R1f)) == "Fixed(<function>)"
+        @test repr(Free(BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin

@@ -124,6 +124,20 @@ struct BestOf
         return new(v)
     end
 end
+# How roles print, e.g. in `parameters(m)`: only what is set, by name, so
+# `Free(start = :scale, lower = 0.0)` rather than the positional `Free(:scale, 0.0, nothing)`.
+# A map prints as its summary (`64×64 Matrix{Float64}`), not its values.
+_showvalue(x::AbstractArray) = summary(x)
+_showvalue(x::Function) = "<function>"             # a tie such as p -> 0.8 * p.R1f
+_showvalue(x) = repr(x)
+function Base.show(io::IO, f::Free)
+    parts = String[]
+    f.start === nothing || push!(parts, "start = " * _showvalue(f.start))
+    f.lower === nothing || push!(parts, "lower = " * repr(f.lower))
+    f.upper === nothing || push!(parts, "upper = " * repr(f.upper))
+    print(io, "Free(", join(parts, ", "), ")")
+end
+
 # Printed in full when short, else summarized: BestOf(30 values from 0.01 to 12.0).
 function Base.show(io::IO, b::BestOf)
     v = b.values
@@ -164,6 +178,7 @@ end
 # `Fixed{Float64}`, `Fixed(b1map)` a `Fixed{Matrix{Float64}}`, `Fixed(:R1f)` a `Fixed{Symbol}`
 # and `Fixed(p -> 0.8 * p.R1f)` a `Fixed{var"#1#2"}` (every anonymous function has its own type).
 # Keeping the exact type lets the compiler generate fast, specialized code for each case.
+Base.show(io::IO, f::Fixed) = print(io, "Fixed(", _showvalue(f.value), ")")   # e.g. Fixed(12.5), Fixed(:R1f)
 
 """
     parameters(m) -> NamedTuple
@@ -334,10 +349,20 @@ end
 function _allparams(m::MRIModel, p::NamedTuple)
     roles = parameters(m)
     _check_names("p", keys(p), keys(roles))
+    # Roles are not values: `parameters(m)` says how each parameter is fitted (start, bounds), so
+    # passing it here is an easy mistake that would otherwise fail deep inside the model.
+    for (n, x) in pairs(p)
+        x isa Union{Free,Fixed} || continue
+        hint = x isa Fixed && x.value isa Real ? "write `$n = $(x.value)`" : "give a number or a map"
+        throw(ArgumentError("`$n` is a role, $(repr(x)), not a value: $hint. `signal` and " *
+            "`simulate` take values; `parameters(m)` says how each parameter is fitted, and " *
+            "`truth(m, tissue)` gives values for a tissue"))
+    end
     vals = map(keys(roles)) do n          # `do n ... end` is the body of an anonymous function n -> ...
         haskey(p, n) ? p[n] :
         roles[n] isa Fixed ? roles[n].value :
-        throw(ArgumentError("`p` must give `$n`: it is Free and has no fixed default"))
+        throw(ArgumentError("`p` must give a value for `$n`: it has no default " *
+            "(the parameters with a default are the ones fixed in `parameters(m)`)"))
     end
     q = NamedTuple{keys(roles)}(vals)
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
@@ -348,8 +373,10 @@ end
     signal(m, p) -> Vector
 
 Simulate one voxel's signal. Allocating version of [`signal!`](@ref), for simulation and
-plotting. `p` must give the Free parameters; Fixed ones default to their values in
-[`parameters`](@ref)`(m)` and can be overridden; ties are resolved.
+plotting. `p` gives values (numbers). A parameter with a default value, i.e. fixed in
+[`parameters`](@ref)`(m)` (e.g. QMTSIR's `kmf = 12.5`), can be left out or overridden; every other
+parameter must be given; ties are resolved. Roles (`Free`, `Fixed`) are not values: passing
+`parameters(m)` itself is an error.
 
 ```julia
 m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
