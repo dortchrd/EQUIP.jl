@@ -871,28 +871,87 @@ own `normal_equations`, as in the prototype. Least squares only: not for Rician-
 fitting (roadmap), and with magnitude data only amplitudes that keep the signal's sign are
 linear (|M0·shape| = M0·|shape| for M0 ≥ 0; a sum of decays with amplitudes ≥ 0 is positive).
 
-### Which models
+### Declaring it: a label on the parameter
 
-1. **Several amplitudes**, which the model declares (below): the biexponential (a₁ = S0·fshort,
-   a₂ = S0·(1 − fshort)) and the decay with offset (S0 and C), in both forms (T2 and R2). This
-   is where VarPro pays: robustness on the biexponential.
-2. **One amplitude, the `:scale` parameter** (M0, S0, M0f): K = 1, and the column is the signal at
-   scale 1, which `_score` already computes for the starts. Generic: no model code. Measured in the
-   prototype: 0–22% faster, robustness unchanged from EQUIP's starts (the `:scale` start already
-   gives most of the benefit), so optional at first (below).
-
-### How a model declares its linear part
-
-Three optional methods in `models/interface.jl`, defined together. The default,
-`linearpart(m) = nothing`, means "only the generic scale, if any".
+A parameter the signal is linear in is labelled in the model's `parameters`, next to its start
+and bounds, as `:scale` is today:
 
 ```julia
-# The linear parameters, and which amplitudes must be ≥ 0 when the model's own bounds apply
-linearpart(::T2BiexpDecay) = (params = (:S0, :fshort), nonneg = (true, true))
+parameters(m::T2DecayOffset) = (
+    S0 = Free(:scale; lower = 0, linear = true),
+    T2 = Free(mean(m.TE); lower = _TMIN),
+    C = Free(0.0; linear = true),             # offset
+)
+```
 
-# The K columns at the nonlinear parameters p (a named tuple that may hold dual numbers):
-# only each column's own terms, no amplitudes
-function columns!(cols, m::T2BiexpDecay, p)
+- A flag, not a start value: "solved exactly at every step" is a property of the parameter,
+  while the start is still needed whenever VarPro is off or cannot apply (then `S0` starts at
+  `:scale` as today). A parameter can be both `:scale` and `linear`.
+- Per fit, like any role: `C = Free(linear = false)` takes C out of the linear part; a custom
+  model's author, or a user, can label a parameter `linear = true` without writing any code.
+- Plain amplitudes need nothing else: M0, S0, an offset C, the components of a multi-compartment
+  model written as amplitudes. EQUIP builds the columns from the model's own `signal!` (below).
+
+### What EQUIP does with the labels
+
+For each fit, `setup` takes the free parameters labelled linear (the "linear part", K of them;
+labelled parameters that are fixed or tied in this fit are simply fixed) and:
+
+1. **Builds the columns from `signal!`.** With the nonlinear parameters at θ: the affine part
+   s₀(θ) = the signal with every linear parameter at 0 (non-zero when a fixed parameter adds to
+   the signal, e.g. a fixed offset), and column k, sₖ(θ) = the signal with linear parameter k at
+   1 and the others at 0, minus s₀. Then S = s₀ + Σₖ aₖ·sₖ, and the amplitudes fit y − s₀.
+   Setup finds out whether s₀ is zero and skips it if so.
+2. **Checks that the signal really is linear** in those parameters, once per fit call: at a few
+   random amplitudes (within the parameters' bounds) and the start's nonlinear values, the
+   signal must equal s₀ + Σₖ aₖ·sₖ to within rounding. A wrong label is an error that names the
+   parameter ("the signal of T2DecayOffset is not linear in T2"). The check also catches
+   magnitude data: |M0·shape| = M0·|shape| holds for M0 ≥ 0, so a magnitude model's M0 passes with
+   its bound M0 ≥ 0 and fails without it.
+3. **Turns the bounds into constraints on the amplitudes.** A labelled parameter's bounds can be
+   (0, ∞): its amplitude is kept ≥ 0; or none: unconstrained. Any other bound (S0 ≥ 100,
+   C ≤ 5) cannot be expressed: the fit falls back to the full fit for this call.
+
+### Parameters that are not themselves amplitudes: one optional mapping
+
+The biexponential, S = S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)], is linear in
+the amplitudes a₁ = S0·fshort and a₂ = S0·(1 − fshort), but not in S0 and fshort (they multiply
+each other), so labelling S0 and fshort alone fails the check. Such a model keeps its
+parameters (myelin water users want fshort) and adds one method, the parameters from the
+amplitudes:
+
+```julia
+parameters(m::T2BiexpDecay) = (
+    S0 = Free(:scale; lower = 0, linear = true),
+    fshort = Free(0.2; lower = 0, upper = 1, linear = true),
+    T2short = Free(mean(m.TE) / 4; lower = _TMIN),
+    T2long = Free(2 * mean(m.TE); lower = _TMIN),
+)
+fromamplitudes(::T2BiexpDecay, a) = (S0 = a[1] + a[2], fshort = a[1] / (a[1] + a[2]))
+```
+
+- With it, EQUIP takes column k as the signal at `fromamplitudes(eₖ)` (amplitude k at 1, the
+  others 0: S0 = 1, fshort = 1 or 0 here), checks linearity in the amplitudes the same way, and
+  reports the labelled parameters through `fromamplitudes` after the fit. Such a model's linear
+  part has no affine term (checked).
+- Bounds: the labelled parameters at the model's own bounds mean amplitudes ≥ 0 (S0 ≥ 0 and
+  0 ≤ fshort ≤ 1 here); no bounds, unconstrained; anything else, the full fit.
+- Not all of them free (e.g. `fshort = 0.2` fixed): the mapping does not apply; the free
+  labelled parameters are treated as plain amplitudes, and the check decides (here S0 alone
+  passes: the signal is linear in S0 at a fixed fshort, so K = 1).
+- The alternative, parametrizing the model by its amplitudes (Sshort, Slong) and reporting S0
+  and fshort as derived values, is cleaner for the solver but changes what the model fits and
+  reports, and needs derived outputs (roadmap); not proposed.
+
+### An optional speed hook: the columns
+
+Columns built from `signal!` cost one full model evaluation per column (plus one for s₀ if it is
+not zero), in dual numbers, at every LM evaluation. For the biexponential the prototype measured
+that route slower than the full fit (23.1 → 27.2 µs per voxel), against 19.3 µs with columns
+computed directly. So a model may also give its columns, each computing only its own terms:
+
+```julia
+function columns!(cols, m::T2BiexpDecay, p)       # p: the parameters (may hold dual numbers)
     cshort, clong = cols
     @inbounds for j in eachindex(m.TE)
         cshort[j] = exp(-m.TE[j] / p.T2short)
@@ -900,54 +959,44 @@ function columns!(cols, m::T2BiexpDecay, p)
     end
     return cols
 end
-
-# The linear parameters from the amplitudes
-fromamplitudes(::T2BiexpDecay, a) = (S0 = a[1] + a[2], fshort = a[1] / (a[1] + a[2]))
 ```
 
-- Model-supplied columns, because the generic route (the model's `signal!` with unit amplitudes,
-  one evaluation per column) costs too much with two columns (prototype: biexponential 23.1 →
-  27.2 µs per voxel); own columns compute each exponential once.
-- A test for every model that declares a linear part: Σₖ aₖ·sₖ equals `signal!` with the linear
-  parameters from `fromamplitudes(a)`, at random values, in both precisions.
+Not needed for correctness: a test checks it against the columns built from `signal!`.
 
 ### When it is used
 
 A solver setting, `solver = LM(varpro = :auto)` by default, or `true`, or `false`:
-- `:auto`: on when the model declares a linear part and the fit can use it (below); off
-  otherwise, so every other model's fits stay exactly as they are today.
-- `true`: also the generic K = 1 VarPro for `:scale` models. `false`: never.
-- The fit can use the model's linear part when every parameter `linearpart` lists is free (not
-  fixed, tied or a map) and its bounds are the model's own (then `nonneg` applies) or none (then
-  the amplitudes are unconstrained). Otherwise: a fixed or tied linear parameter (e.g.
-  `fshort = 0.2`) leaves the generic K = 1 VarPro if a `:scale` parameter is free and `varpro =
-  true`, else the full fit; a user bound the amplitudes cannot express (`fshort = Free(upper =
-  0.5)`, `S0 = Free(lower = 100)`) gives the full fit. `res.settings` and the REPL summary say
-  which was used.
-- Why not on for every `:scale` model at once: the gain there is small, and it changes every
-  fit's path (same minima within the tolerance, but not bit for bit). Decide with the benchmark
-  (every case, both precisions) first.
+- `:auto`: VarPro wherever the fit has a linear part (labelled parameters that pass the check
+  and bounds it can express), the full fit otherwise.
+- `true`: as `:auto`, and also a model's `:scale` parameter as the linear part (K = 1) when
+  nothing is labelled. `false`: never.
+- Built-in models are labelled only where the benchmark shows a gain: first the biexponential
+  (robustness, above) and the decay with offset. Labelling the `:scale` parameter of every model
+  (M0, S0, M0f) waits for a measurement: the prototype found 0–22% faster and robustness
+  unchanged there, and labelling changes every fit's path (same minima within the tolerance,
+  not bit for bit). Until then those models fit exactly as today.
+- `res.settings` and the REPL summary say whether VarPro was used, and if not, why (a bound it
+  cannot express, or `varpro = false`).
 
 ### Inside the fit
 
-- `setup`: splits the free names F into the reduced (nonlinear) names Fn and the linear ones;
-  Fn, K and `nonneg` go into the type, as F does now, so everything is specialized and nothing is
-  looked up at run time.
-- `init`: K column buffers of dual numbers per cache, so one set per task, as the model buffer
-  today.
+- `setup`: splits the free names F into the nonlinear names Fn and the linear ones (K); Fn, K,
+  the amplitude constraints and whether there is an affine part go into the type, as F does now,
+  so everything is specialized and nothing is looked up at run time.
+- `init`: K (+ 1) column buffers of dual numbers per cache, so one set per task, as the model
+  buffer today.
 - Per voxel (`_fit_voxel`): the nonlinear parameters' starts as today (numbers, maps, `:data`,
   `BestOf`). `BestOf` scores each value with the K amplitudes solved (`_score` generalized from
   K = 1). The linear parameters need no start. Then `levmar` on the reduced problem; then the
-  amplitudes at the solution → `fromamplitudes` → every parameter → `relabel` as today (the
-  biexponential's components in order).
+  amplitudes at the solution → the linear parameters (themselves, or `fromamplitudes`) → every
+  parameter → `relabel` as today (the biexponential's components in order).
 - `normal_equations` of the reduced problem: fill the columns at θ (duals), solve the K × K
-  system for the amplitudes in dual arithmetic, then residuals rᵢ = Σₖ aₖ·sₖᵢ − yᵢ with their
-  partials → JᵀJ, Jᵀr and SSE as now. K = 1: a = (s·y)/(s·s); K = 2: closed form; larger K:
-  the small Cholesky already in `levmar.jl`.
-- Amplitudes ≥ 0 (`nonneg`): an active set. An amplitude that comes out negative is set to 0 and
-  the others re-solved (K = 2: closed form, as the prototype; larger K: Lawson–Hanson NNLS). The
-  reduced problem has a kink where the active set switches; LM's acceptance test copes
-  (prototype).
+  system for the amplitudes in dual arithmetic, then residuals rᵢ = s₀ᵢ + Σₖ aₖ·sₖᵢ − yᵢ with their
+  partials → JᵀJ, Jᵀr and SSE as now. K = 1: a = (s·(y − s₀))/(s·s); K = 2: closed form; larger
+  K: the small Cholesky already in `levmar.jl`.
+- Amplitudes ≥ 0: an active set. An amplitude that comes out negative is set to 0 and the others
+  re-solved (K = 2: closed form, as the prototype; larger K: Lawson–Hanson NNLS). The reduced
+  problem has a kink where the active set switches; LM's acceptance test copes (prototype).
 - Collinear columns (the two T2s equal): the 2 × 2 system is singular. Detect it (determinant
   ≤ ε·g₁₁·g₂₂) and keep the better single-column fit, so the result is a monoexponential
   (fshort 0 or 1), not NaN.
@@ -968,34 +1017,41 @@ A solver setting, `solver = LM(varpro = :auto)` by default, or `true`, or `false
 
 ### Tests and acceptance
 
-- The hooks (columns × amplitudes = `signal!`), for every model that declares them.
+- The labels: the linearity check passes for every built-in label and fails, with a clear
+  message, for a wrong one (`T2 = Free(linear = true)`) and for a magnitude model's amplitude
+  without its bound ≥ 0. Fixed and tied labelled parameters; `linear = false` per fit.
+- The hooks: columns from `columns!` equal the columns built from `signal!`; `fromamplitudes`
+  round-trips.
 - Noise-free recovery from the default starts; full fit and VarPro agree within the tolerance on
   well-conditioned data.
-- Bounds: amplitudes held at 0 (fshort exactly 0 or 1); user bounds → full fit; no bounds → no
-  constraint. Fixed and tied linear parameters → fallback.
+- Bounds: amplitudes held at 0 (fshort exactly 0 or 1); a bound it cannot express → full fit; no
+  bounds → no constraint; the affine part (a fixed offset).
 - No allocation per voxel; Float32; statuses; `refit`; maps of fixed values on nonlinear
   parameters.
-- The benchmark: an "EQUIP VarPro" row in `bench/solvers.jl` until it is the default. The
-  biexponential cases at least as good as the prototype (not best 8 / 4 / 16 / 11); every other
-  case bit-identical to today (`:auto` leaves them alone: the fingerprint check); speed no worse
-  beyond noise (10 000 voxels, at least 10 runs).
+- The benchmark: an "EQUIP VarPro" row in `bench/solvers.jl` until labels are on in the built-in
+  models. The biexponential cases at least as good as the prototype (not best 8 / 4 / 16 / 11);
+  every other case bit-identical to today (nothing else labelled: the fingerprint check); speed
+  no worse beyond noise (10 000 voxels, at least 10 runs).
 
 ### Order of work
 
-1. The hooks and the biexponential (T2 and R2 forms): K = 2, `nonneg`, `varpro = :auto`; tests;
-   benchmark.
-2. The decay with offset (K = 2; S0 ≥ 0, C unconstrained).
-3. The generic K = 1 for `:scale` models behind `varpro = true`; measure every case; then decide
-   whether `:auto` includes them.
+1. The label (`Free(...; linear = true)`), setup's grouping, the linearity check, columns from
+   `signal!`, the reduced problem with amplitudes ≥ 0, `LM(varpro = ...)`: first on the decay
+   with offset (plain amplitudes S0 and C), which exercises the generic route with no hook.
+2. The biexponential (T2 and R2 forms): `fromamplitudes` and `columns!`; tests; the benchmark
+   acceptance above.
+3. Labelling the `:scale` parameter in the other models: measure every case first, then decide.
 4. Separately, later: log coordinates for positive nonlinear parameters with the per-parameter
    step test (with VarPro on the biexponential: 40–59% faster, more fits reaching the minimum;
    see the roadmap).
 
 ### Open decisions
 
-- Default: `:auto` (on for the models that declare a linear part; proposed) or opt-in
-  (`varpro = true`) everywhere at first.
-- A bound on a linear parameter that the amplitudes cannot express: fall back to the full fit
+- The flag's name: `linear = true` (proposed: a property of the model, true whatever the solver)
+  or `varpro = true` (the method).
+- Default: `:auto` (VarPro wherever something is labelled; proposed) or opt-in
+  (`varpro = true`) at first.
+- A bound on a labelled parameter that the amplitudes cannot express: fall back to the full fit
   (proposed) or an error.
 - A start given for a linear parameter: ignored (proposed) or a reason to turn VarPro off.
 - Float32: Float64 accumulation for the K × K solve (proposed), or the full fit in Float32.
