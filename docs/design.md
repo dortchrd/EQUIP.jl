@@ -669,6 +669,20 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     to maxiters. So EQUIP's speed lead on this test is over typical usage (LsqFit, NonlinearSolve's
     general solvers), not over the best hand-tuned SciML setup; the harder tests (more points
     than parameters, poor starts) and the damping prototype decide the rest.
+  - FastLevenbergMarquardt.jl (Kames; a small Levenberg–Marquardt for static arrays, with
+    bounds, depending only on StaticArrays and the standard library, `using` 0.43 s; v0.1.0, one
+    maintainer; needs a Jacobian function, here ForwardDiff on the same static residual): range
+    data, one thread, µs per voxel EQUIP 2.08, FastLM 2.12 (steps 5.3 vs 5.1; same answers on
+    every voxel, nothing allocated per voxel); 4 threads, 5 runs: FastLM 0.66, SimpleGaussNewton
+    0.76, EQUIP 0.80, SimpleTrustRegion 0.92. Its defaults: initial damping 1e-6, damping ÷13
+    after a good step, ×3 after a rejected one; per-parameter step test; returns the reason it
+    stopped (ftol, xtol, gtol, iteration limit) and the iteration count.
+  - Conclusion so far: three independent static implementations (EQUIP, SimpleGaussNewton,
+    FastLevenbergMarquardt) land at the same speed. On small problems the time is the model and
+    its dual-number derivatives times the number of steps; the solver library hardly matters
+    once its overhead is gone. The choice between them is robustness, bounds, stopping and status
+    codes, load time and maintenance, so the harder tests decide; EQUIP's threaded dataset
+    driver (0.80 vs FastLM's plain threaded loop at 0.66 on 4 threads) is worth a look.
 
 ## Scope so far
 

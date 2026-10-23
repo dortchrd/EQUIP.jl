@@ -4,8 +4,10 @@
 # Fits the voxels saved by one of the example scripts (run it first) with each method, times
 # each with BenchmarkTools, and checks that the methods find the same answers. The methods:
 # EQUIP; LsqFit's Levenberg-Marquardt; NonlinearSolve's general solvers LevenbergMarquardt and
-# TrustRegion; and SimpleNonlinearSolve's SimpleGaussNewton and SimpleTrustRegion, SciML's
-# low-overhead solvers for small problems (loaded with NonlinearSolve). The data:
+# TrustRegion; SimpleNonlinearSolve's SimpleGaussNewton and SimpleTrustRegion, SciML's
+# low-overhead solvers for small problems (loaded with NonlinearSolve); and
+# FastLevenbergMarquardt.jl, a small Levenberg-Marquardt package for static arrays (Kames,
+# github.com/kamesy/FastLevenbergMarquardt.jl) that takes a Jacobian function. The data:
 #   DATASET = "sir_4point_range"   examples/sir_4point_range.jl: every voxel its own tissue (PSR,
 #                                  kmf, R1f over the range of Dortch 2018's tissue classes, Sf and
 #                                  M0f varied too), so the fits start away from the answer
@@ -35,6 +37,7 @@
 #   - NonlinearSolve: ‖Δθ‖ ≤ XTOL (‖Δθ‖ + ‖θ₀‖), θ₀ the start; its own least-squares default
 #     tests the residual, which never becomes small with noisy data, so the script sets a
 #     step-size rule instead (RelNormSafeBestTerminationMode, one step)
+#   - FastLevenbergMarquardt: |Δθⱼ| < XTOL (XTOL + |θⱼ|) for every parameter j
 #
 # SimpleNonlinearSolve needs its fast setup, or it is several times slower (measured: 15 instead
 # of 2.1 µs per voxel): a residual that returns a static vector (SVector), with EQUIP's
@@ -53,8 +56,8 @@
 # With -t 1 instead of -t auto, the same comparison on one thread.
 # =================================================================================================
 
-using EQUIP, LsqFit, NonlinearSolve, BenchmarkTools
-using DelimitedFiles, LinearAlgebra, StaticArrays, Statistics, Printf
+using EQUIP, LsqFit, NonlinearSolve, FastLevenbergMarquardt, BenchmarkTools
+using DelimitedFiles, ForwardDiff, LinearAlgebra, StaticArrays, Statistics, Printf
 
 # --- Settings ------------------------------------------------------------------------------------
 const DATASET = "sir_4point_range"   # or "sir_wm_4point" (see above)
@@ -173,6 +176,30 @@ function fit_simple(m, Y, P0, alg)
     return est, ok, nothing                         # the Simple solvers do not count their steps
 end
 
+# FastLevenbergMarquardt: the same static residual, and its Jacobian from ForwardDiff (a 4×4
+# static matrix, computed with dual numbers like every other method's)
+function fit_fastlm(m, Y, P0, lower, upper)
+    function resid(p, y)
+        s = MVector{4,eltype(p)}(undef)
+        @inline signal!(s, m, sirparams(p))
+        return SVector(s) - y
+    end
+    jac(p, y) = ForwardDiff.jacobian(q -> resid(q, y), p)
+    lb, ub = BOUNDS ? (SVector{4}(lower), SVector{4}(upper)) : (nothing, nothing)
+    est = similar(P0)
+    ok = falses(size(Y, 1))
+    steps = zeros(Int, size(Y, 1))
+    Threads.@threads for v in axes(Y, 1)
+        x, _, converged, iterations = lmsolve(resid, jac, SVector{4}(view(P0, :, v)),
+                                              SVector{4}(view(Y, v, :)), lb, ub;
+                                              xtol = XTOL, ftol = 0.0, gtol = 0.0, maxit = MAXITER)
+        est[:, v] .= x
+        ok[v] = converged > 0                       # 1-3 converged, -1 iteration limit
+        steps[v] = iterations
+    end
+    return est, ok, steps
+end
+
 methods = [("EQUIP", () -> fit_equip(m, Y, P0)),
            ("LsqFit (Levenberg-Marquardt)", () -> fit_lsqfit(m, Y, P0, lower, upper)),
            ("NonlinearSolve LevenbergMarquardt",
@@ -182,7 +209,8 @@ methods = [("EQUIP", () -> fit_equip(m, Y, P0)),
            ("NonlinearSolve SimpleGaussNewton",
             () -> fit_simple(m, Y, P0, SimpleGaussNewton(autodiff = AutoForwardDiff()))),
            ("NonlinearSolve SimpleTrustRegion",
-            () -> fit_simple(m, Y, P0, SimpleTrustRegion(autodiff = AutoForwardDiff())))]
+            () -> fit_simple(m, Y, P0, SimpleTrustRegion(autodiff = AutoForwardDiff()))),
+           ("FastLevenbergMarquardt", () -> fit_fastlm(m, Y, P0, lower, upper))]
 
 # Each voxel's SSE at a method's estimates, with the same signal code for every method
 function sse_all(m, Y, est)
