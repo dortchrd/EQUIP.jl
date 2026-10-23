@@ -411,8 +411,9 @@ ext/                   (later) package extensions: OptimExt (optimize_protocol),
 test/                  correctness and deterministic performance checks (no allocation, type
                        stability); no timings
 bench/                 own Project.toml (BenchmarkTools, LsqFit, NonlinearSolve);
-                       sir_wm_4point_vs.jl: EQUIP vs LsqFit vs NonlinearSolve on the example's
-                       data. (later) speed suite + accuracy studies, results.md
+                       sir_4point_vs.jl: EQUIP vs LsqFit vs NonlinearSolve on an example's data
+                       (examples/sir_4point_range.jl or sir_wm_4point.jl). (later) speed suite +
+                       accuracy studies, results.md
 ```
 
 - Why not several packages: CRLB (biased, Eq. 3), Monte Carlo and sensitivity analysis all
@@ -621,8 +622,8 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
 - **Threads**: chunks of voxels as tasks (`Threads.@spawn`), about 64 per thread with at least 16
   voxels each; plain `Threads.@threads` was 2× slower when slow voxels cluster (it splits the
   work into one block per thread). See the comment in `src/fit/dataset.jl`.
-- **Against LsqFit and NonlinearSolve** (`bench/sir_wm_4point_vs.jl`, QMTSIR, 4-point SIR, white
-  matter at SNR 200). Everything shared: EQUIP's `signal!`, the starts, no bounds, ForwardDiff,
+- **Against LsqFit and NonlinearSolve** (`bench/sir_4point_vs.jl`, QMTSIR, 4-point SIR; first on
+  `examples/sir_wm_4point.jl`'s data, every voxel white matter at SNR 200). Everything shared: EQUIP's `signal!`, the starts, no bounds, ForwardDiff,
   the threads, the number of runs, and the stopping rule: a relative parameter step of 1e-8,
   every other test off. That rule cannot be made identical: EQUIP scales the step by
   Marquardt's D^½, LsqFit does not, and NonlinearSolve's least-squares default tests the
@@ -635,6 +636,26 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
   on 1 thread vs 155 on 4): they allocate on every voxel, and memory cleanup stops all threads.
   TrustRegion is the closest; it takes fewer, Gauss–Newton-like steps. LsqFit's README still
   describes central finite differences as its default; version 0.16 defaults to ForwardDiff.
+  - On an Apple M2 Max (10 000 voxels, 20 runs, ms per run, 1/2/4/8 threads): EQUIP 14.3/7.6/
+    4.3/2.3, TrustRegion 38.1/20.4/11.1/5.8, LsqFit 94.3/77.2/97.3/165, SciML LM 284/405/625/729.
+    Per core EQUIP is 2.7× faster than TrustRegion, 6.6× than LsqFit, 20× than SciML's LM.
+  - Why TrustRegion takes fewer steps: by default it is Moré's trust region (MINPACK `lmpar`),
+    i.e. Levenberg–Marquardt with the damping chosen to fit a trust radius, and zero (a pure
+    Gauss–Newton step) whenever the Gauss–Newton step fits. EQUIP's Nielsen update always keeps
+    some damping. With 4 observations and 4 free parameters every fit is exact (median SSE
+    ~1e-23), which favours Gauss–Newton steps. A lower initial damping (1e-5) took EQUIP from 5
+    to 4 steps, 11% faster, same answers. To try next: Moré-style damping in `levmar`
+    (prototype branch), then possibly a `TrustRegion` solver option (item 11).
+  - Bounds cost nothing measurable here (no voxel reaches one): EQUIP 1.90–1.93 µs/voxel without,
+    1.93–2.00 with (3 rounds of 50 runs, alternating), LsqFit 18.0 vs 17.6 µs (one thread).
+  - EQUIP allocates nothing per voxel (`fit!` with a cache: 0 bytes); a dataset call allocates its
+    result maps (48 bytes per voxel) and ~2600 small objects (setup, per-task caches, tasks),
+    whatever the number of voxels. LsqFit allocates ~8.7 KB per voxel.
+  - On `examples/sir_4point_range.jl`'s data (PSR, kmf, R1f uniform over the range of the four
+    SIR classes, Sf -1 to -0.8, M0f 0.8–1.2, SNR 200; 4 threads, 3 runs, cloud machine): µs per
+    voxel EQUIP 0.72, TrustRegion 1.69, LsqFit 18.3, SciML LM 152; steps 5.3, 3.6, —, 8.7; all
+    converged everywhere and reached EQUIP's minimum, except 3 voxels where TrustRegion stopped
+    at a clearly higher SSE.
 
 ## Scope so far
 

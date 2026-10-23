@@ -1,19 +1,25 @@
 # =================================================================================================
-# Benchmark: EQUIP vs LsqFit.jl vs NonlinearSolve.jl (SciML), 4-point SIR in white matter
+# Benchmark: EQUIP vs LsqFit.jl vs NonlinearSolve.jl (SciML), 4-point SIR
 #
-# Fits the 10 000 voxels saved by examples/sir_wm_4point.jl (run that first) with each method,
-# times each with BenchmarkTools, and compares the estimates. To keep the comparison about the
-# fitting, everything else is the same for every method:
+# Fits the voxels saved by one of the example scripts (run it first) with each method, times
+# each with BenchmarkTools, and checks that the methods find the same answers:
+#   DATASET = "sir_4point_range"   examples/sir_4point_range.jl: every voxel its own tissue (PSR,
+#                                  kmf, R1f over the range of Dortch 2018's tissue classes, Sf and
+#                                  M0f varied too), so the fits start away from the answer
+#   DATASET = "sir_wm_4point"      examples/sir_wm_4point.jl: every voxel the same white matter
+#
+# To keep the comparison about the fitting, everything else is the same for every method:
 #   - the signal equation: LsqFit and NonlinearSolve call EQUIP's own QMTSIR `signal!`, the same
 #     code EQUIP's solver uses
 #   - the model: kmf fixed at 12.5 s⁻¹, R1m = R1f, Sm = 0.83 (QMTSIR's defaults, what the 4-point
 #     scheme was designed for); PSR, R1f, Sf and M0f estimated
-#   - the starting values: EQUIP's per-voxel starts, computed once, given to every method
-#     (EQUIP included, as start maps)
+#   - the starting values: EQUIP's default starts (PSR 0.1, R1f 1, Sf -0.95, M0f scaled to the
+#     voxel's data), computed once and given to every method (EQUIP included, as start maps)
 #   - the bounds: none by default (`BOUNDS = false`), so every method solves the same problem;
 #     with `BOUNDS = true`, EQUIP and LsqFit use QMTSIR's bounds (NonlinearSolve's least-squares
 #     solvers take none)
 #   - the stopping rule (see "Convergence" below), and the iteration limit
+#   - derivatives: ForwardDiff (dual numbers), set explicitly for LsqFit and NonlinearSolve
 #   - the threads: every method spreads the voxels over all of Julia's threads
 #   - the number of runs: every method fits all voxels `RUNS` times; the median and the fastest
 #     run are reported
@@ -27,12 +33,14 @@
 #     tests the residual, which never becomes small with noisy data, so the script sets a
 #     step-size rule instead (RelNormSafeBestTerminationMode, one step)
 #
-# Derivatives: ForwardDiff (dual numbers) for every method, set explicitly for LsqFit and
-# NonlinearSolve (`autodiff = AutoForwardDiff()`). EQUIP uses ForwardDiff's dual numbers itself.
+# Same answers: a method can stop at a different point than EQUIP (another local minimum, or
+# not converged). For every voxel the script compares each method's SSE with EQUIP's and counts
+# the voxels where it is clearly lower or higher (by more than 1e-8 of the voxel's Σy²).
 #
 # Run, from the repository folder:
+#   julia -t auto --project=. examples/sir_4point_range.jl     # the data (once)
 #   julia --project=bench -e 'using Pkg; Pkg.instantiate()'    # once: installs LsqFit, SciML, ...
-#   julia -t auto --project=bench bench/sir_wm_4point_vs.jl
+#   julia -t auto --project=bench bench/sir_4point_vs.jl
 # With -t 1 instead of -t auto, the same comparison on one thread.
 # =================================================================================================
 
@@ -40,6 +48,7 @@ using EQUIP, LsqFit, NonlinearSolve, BenchmarkTools
 using DelimitedFiles, LinearAlgebra, Statistics, Printf
 
 # --- Settings ------------------------------------------------------------------------------------
+const DATASET = "sir_4point_range"   # or "sir_wm_4point" (see above)
 const RUNS = 20          # every method fits all voxels this many times (1000: about 30 min, mostly
                          # NonlinearSolve's LevenbergMarquardt, ~1.5 s per run on 4 threads)
 const BOUNDS = false     # false: no bounds for anyone; true: QMTSIR's bounds for EQUIP and LsqFit
@@ -48,16 +57,21 @@ const MAXITER = 1000     # the same iteration limit for every method
 
 BLAS.set_num_threads(1)  # Julia's threads already use every core; avoid oversubscription
 
-# --- The data saved by examples/sir_wm_4point.jl -------------------------------------------------
-const DIR = joinpath(@__DIR__, "..", "examples", "output", "sir_wm_4point")
-isfile(joinpath(DIR, "data.csv")) || error("no data in $DIR: run examples/sir_wm_4point.jl first")
+# --- The data saved by the example script --------------------------------------------------------
+const DIR = joinpath(@__DIR__, "..", "examples", "output", DATASET)
+isfile(joinpath(DIR, "data.csv")) ||
+    error("no data in $DIR: run examples/$DATASET.jl first")
 
 readcsv(name) = readdlm(joinpath(DIR, name), ',', Float64; header = true)   # (values, header)
 Y, _ = readcsv("data.csv")                         # one row per voxel, one column per observation
 prot, _ = readcsv("protocol.csv")                  # columns TI, TD (s)
-tvals, tnames = readcsv("truth.csv")
-θtrue = NamedTuple{Tuple(Symbol.(vec(tnames)))}(Tuple(tvals))   # (PSR = 0.12, R1f = 1.0, ...)
 m = QMTSIR(TI = prot[:, 1], TD = prot[:, 2])
+nvox = size(Y, 1)
+
+# The truth, one value per voxel (a file with one row, the same tissue everywhere, is repeated)
+tvals, tnames = readcsv("truth.csv")
+θtrue = NamedTuple{Tuple(Symbol.(vec(tnames)))}(
+    Tuple(size(tvals, 1) == 1 ? fill(tvals[1, j], nvox) : tvals[:, j] for j in axes(tvals, 2)))
 
 # --- Bounds, starting values and stopping rule, shared by every method ---------------------------
 const NAMES = (:PSR, :R1f, :Sf, :M0f)               # the free parameters, in this order everywhere
@@ -137,19 +151,28 @@ methods = [("EQUIP", () -> fit_equip(m, Y, P0)),
            ("NonlinearSolve TrustRegion",
             () -> fit_sciml(m, Y, P0, TrustRegion(autodiff = AutoForwardDiff())))]
 
+# Each voxel's SSE at a method's estimates, with the same signal code for every method
+function sse_all(m, Y, est)
+    s = zeros(size(Y, 2))
+    return [(signal!(s, m, sirparams(view(est, :, v))); sum(abs2, s .- view(Y, v, :)))
+            for v in axes(Y, 1)]
+end
+
 # --- Run: each method once (compiles it, and gives the estimates), then RUNS timed runs ----------
-nvox = size(Y, 1)
 println("Julia ", VERSION, ", ", Threads.nthreads(), " threads, ", Sys.cpu_info()[1].model)
-println("QMTSIR, SIR_4POINT, ", nvox, " voxels, ", BOUNDS ? "with bounds" : "no bounds",
-        ", stop at relative step ", XTOL, ", ", RUNS, " runs per method")
-println("truth: ", θtrue, "\n")
+println("QMTSIR, SIR_4POINT, dataset ", DATASET, ", ", nvox, " voxels, ",
+        BOUNDS ? "with bounds" : "no bounds", ", stop at relative step ", XTOL, ", ",
+        RUNS, " runs per method")
+println("truth (min to max over voxels): ",
+        join(("$n $(round(minimum(θtrue[n]); sigdigits = 3)) to $(round(maximum(θtrue[n]); sigdigits = 3))"
+              for n in (NAMES..., :kmf)), ", "), "\n")
 results = map(methods) do (name, run)
     est, ok, steps = run()
     # exactly RUNS runs: the time limit (seconds) is set far beyond what they need
     b = @benchmark $run() samples = RUNS evals = 1 seconds = 1e6
     @printf("  %-36s median %8.4f s per run\n", name, median(b.times) / 1e9)
-    (; name, est, ok, steps, time = median(b.times) / 1e9, tmin = minimum(b.times) / 1e9,
-     memory = b.memory)
+    (; name, est, ok, steps, sse = sse_all(m, Y, est), time = median(b.times) / 1e9,
+     tmin = minimum(b.times) / 1e9, memory = b.memory)
 end
 
 # --- Speed ---------------------------------------------------------------------------------------
@@ -164,15 +187,22 @@ for r in results
 end
 println("  (µs/voxel: median time / voxels; steps: mean iterations per voxel, rejected ones too)")
 
-# --- Estimates: do the methods find the same answers? --------------------------------------------
-ref = results[1].est
-println("\nEstimates: mean ± SD over voxels (truth: ",
-        join(("$n = $(θtrue[n])" for n in NAMES), ", "), ")")
-@printf("  %-36s %10s %18s %18s %18s %18s %10s\n", "method", "converged", "PSR", "R1f", "Sf", "M0f",
-        "max diff")
+# --- Answers: do the methods reach the same minimum, and how close to the truth? -----------------
+ref = results[1]
+tol = 1e-8 .* vec(sum(abs2, Y; dims = 2))          # "clearly different SSE": 1e-8 of each Σy²
+println("\nAnswers, compared with EQUIP's voxel by voxel, and with the truth")
+@printf("  %-36s %10s %10s %10s %10s %11s %11s %11s\n", "method", "converged", "same as", "lower SSE",
+        "higher SSE", "PSR error", "R1f error", "Sf error")
+@printf("  %-36s %10s %10s %10s %10s %11s %11s %11s\n", "", "", "EQUIP", "than EQUIP", "than EQUIP",
+        "(median)", "(median)", "(median)")
 for r in results
-    cells = [@sprintf("%.4f ± %.4f", mean(r.est[j, :]), std(r.est[j, :])) for j in eachindex(NAMES)]
-    rel = maximum(abs.(r.est .- ref) ./ abs.(ref))          # worst voxel and parameter vs EQUIP
-    @printf("  %-36s %9.1f%% %18s %18s %18s %18s %10.1e\n", r.name, 100 * mean(r.ok), cells..., rel)
+    same = count(v -> maximum(abs.(r.est[:, v] .- ref.est[:, v]) ./ abs.(ref.est[:, v])) <= 1e-4, 1:nvox)
+    lower_sse = count(r.sse .< ref.sse .- tol)
+    higher_sse = count(r.sse .> ref.sse .+ tol)
+    err(j) = 100 * median(abs.(r.est[j, :] .- θtrue[NAMES[j]]) ./ abs.(θtrue[NAMES[j]]))
+    @printf("  %-36s %9.1f%% %9.1f%% %10d %10d %10.2f%% %10.2f%% %10.2f%%\n", r.name,
+            100 * mean(r.ok), 100 * same / nvox, lower_sse, higher_sse, err(1), err(2), err(3))
 end
-println("  (max diff: largest relative difference from EQUIP's estimate, any voxel or parameter)")
+println("  (same as EQUIP: every estimate within 1e-4 relative; lower/higher SSE: voxels where the ",
+        "method's\n   fit is clearly better/worse than EQUIP's; error: median |estimate - truth| / ",
+        "truth, with kmf\n   fixed at 12.5 while the true kmf varies, so it includes that model error)")
