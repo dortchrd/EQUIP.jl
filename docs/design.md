@@ -774,7 +774,26 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       EQUIP finds the lowest SSE (26 vs 409 and 357) yet its median PSR error is 230% against
       FastLM's 73%. Several exact fits exist; FastLM's stuck, higher-SSE answers happen to lie
       nearer the truth. Judge that case by the truth error, not the SSE.
-    - Next (prototype branch): EQUIP's step control. Candidates: Marquardt scaling recomputed
+    - **Step-control prototype** (branch `step-proto`: LM options `scaling`, `update`, `gnfirst`,
+      `guard`, `trust`; `bench/steps.jl`, results in `bench/steps_results.txt`). Every case, 1000
+      voxels, with and without bounds; "not best" against the best of all variants and LsqFit,
+      FastLM and NonlinearSolve's TrustRegion. Totals over the nine cases (without / with
+      bounds): today's solver 262 / 71; Marquardt update 260 / 92; damping 1e-6 283 / 70;
+      Gauss–Newton step first 300 / 73; dead-zone guard off 264 / 220; scaling recomputed each
+      step (as LsqFit) 432 / 347; recomputed for the damping only, growing for the step test
+      411 / 348; a MINPACK-style trust radius 272 / 75; LsqFit 160 / 674, FastLM 220 / 859.
+      - Decision: keep today's step control. With bounds (normal use) it is already the best;
+        the growing Marquardt scaling and the dead-zone guard both protect the path (biexponential
+        with bounds: 6 misses; recomputed scaling 280, guard off 158). Recomputing the scaling
+        halves the biexponential steps (86 → 44) but lands on worse fits.
+      - Without bounds no variant closes the biexponential gap (today 209, best variant 199,
+        NonlinearSolve's TrustRegion 41): the fits stop in the degenerate region where the two
+        components merge. Better handled by the model than by the solver: keep bounds (the
+        default), parametrize the biexponential so the components cannot swap or merge (e.g.
+        T2long = T2short + ΔT2, ΔT2 ≥ 0), or variable projection (`varpro-proto`: more
+        biexponential fits reached the minimum). The trust radius helps poor starts (24 → 10)
+        and 16-point kmf (4 → 0) without bounds only; not adopted.
+    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
       a Gauss–Newton step first. Targets: the unbounded biexponential path (202), the crawling
       voxels, steps on every case; nothing may get worse with bounds. The benchmark should also
