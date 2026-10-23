@@ -60,14 +60,14 @@ function fitted(res::FitResult)
     fixed = _fixed_settings(res)
     any(x -> x isa AbstractArray, values(fixed)) &&
         throw(ArgumentError("fixed maps: the voxel is not known; fit the dataset with `fit` instead"))
-    return signal(res.model, merge(fixed, res.params))
+    return signal(res.model, merge(defaults(res.model), fixed, res.params))
 end
 
 function fitted(res::FitResult, I...)
     _onevoxel(res) && throw(ArgumentError("a one-voxel result: use fitted(res)"))
     v = LinearIndices(res.status)[I...]                  # the voxel's linear index
     fixed = map(x -> _pick_value(x, v), _fixed_settings(res))
-    return signal(res.model, merge(fixed, map(x -> x[v], res.params)))
+    return signal(res.model, merge(defaults(res.model), fixed, map(x -> x[v], res.params)))
 end
 
 """
@@ -85,7 +85,7 @@ function residuals(res::FitResult, data::AbstractArray, I...)
 end
 
 # The parameters the call fixed (keywords that are parameters of the model and not `Free`), by
-# name: numbers, maps or ties. The model's own fixed defaults are filled in later by `signal`.
+# name: numbers, maps or ties. `fitted` adds the model's own fixed defaults (`defaults(m)`).
 _fixed_settings(res) =
     (; (n => _value_of(x) for (n, x) in pairs(res.settings) if haskey(parameters(res.model), n) && !(x isa Free))...)
 _value_of(x::Fixed) = x.value                            # `kmf = Fixed(15.0)`

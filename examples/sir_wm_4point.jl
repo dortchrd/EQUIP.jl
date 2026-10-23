@@ -30,7 +30,9 @@ const OUTDIR = joinpath(@__DIR__, "output", "sir_wm_4point")
 
 # --- The model and the truth ---------------------------------------------------------------------
 m = QMTSIR(; SIR_4POINT...)       # TI and TD of the 4-point scheme; everything else default
-θ = truth(m, TISSUE)              # PSR, R1f, Sf, M0f (= 1) from the preset, plus kmf and Sm
+θ = truth(m, TISSUE)              # PSR, R1f, Sf, M0f (= 1), kmf and Sm from the preset, and
+                                  # QMTSIR's defaults for the rest: R1m = :R1f (tied), Mzf_td0
+                                  # and Mzm_td0 = 0 (see `defaults(m)`)
 println("Protocol: TI = ", m.TI, " s, TD = ", m.TD, " s")
 println("Truth ($TISSUE): ", θ)
 
@@ -62,7 +64,8 @@ end
 
 mkpath(OUTDIR)
 writecsv(joinpath(OUTDIR, "protocol.csv"), ("TI_s", "TD_s"), (m.TI, m.TD))
-writecsv(joinpath(OUTDIR, "truth.csv"), keys(θ), Tuple([v] for v in values(θ)))
+untie(x) = x isa Symbol ? θ[x] : x      # a tie (R1m = :R1f): the value it names
+writecsv(joinpath(OUTDIR, "truth.csv"), keys(θ), Tuple([untie(v)] for v in values(θ)))
 writecsv(joinpath(OUTDIR, "data.csv"), ("y$j" for j in 1:size(Y, 2)), Tuple(eachcol(Y)))
 for (name, r) in (("fit_kmf12.5.csv", res), ("fit_kmftrue.csv", res_true))
     names = keys(r.params)

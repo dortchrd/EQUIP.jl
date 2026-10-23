@@ -39,7 +39,7 @@ import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (St
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
-export MRIModel, Free, Fixed, BestOf, parameters, signal!, signal, nobs     # model interface
+export MRIModel, Free, Fixed, BestOf, parameters, defaults, signal!, signal, nobs   # model interface
 export datastart, relabel                                                   # optional hooks
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves

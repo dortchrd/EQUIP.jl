@@ -21,7 +21,8 @@
 # And for every voxel, independently:
 #   - Sf (free-pool inversion efficiency): uniform between -1.0 and -0.8
 #   - M0f: uniform between 0.8 and 1.2
-#   - Sm = 0.83 and R1m = R1f, as in Table 1 (QMTSIR's defaults)
+#   - Sm = 0.83 and R1m = R1f, as in Table 1 (QMTSIR's defaults), and no Mz left over at the
+#     start of TD (Mzf_td0 = Mzm_td0 = 0)
 #   - noise: SNR 200 at thermal equilibrium, voxel by voxel (σ = M0f / 200), Rician
 #
 # Fitted twice, as in sir_wm_4point.jl: kmf fixed at 12.5 s⁻¹ (what the 4-point scheme was
@@ -77,7 +78,10 @@ t = tissuevalues(rng, SAMPLING, NSIM)
      Sf = uniform(rng, SF_RANGE, NSIM),
      M0f = uniform(rng, M0F_RANGE, NSIM),
      kmf = t.kmf,
-     Sm = 0.83)                   # fixed, as in Table 1; R1m stays tied to R1f (QMTSIR's default)
+     R1m = :R1f,                  # tied: R1m = R1f in every voxel, as in Table 1
+     Sm = 0.83,                   # the same in every voxel, as in Table 1
+     Mzf_td0 = 0.0,               # Mz at the start of TD (0: fully saturated by the readout)
+     Mzm_td0 = 0.0)
 
 println("Protocol: TI = ", m.TI, " s, TD = ", m.TD, " s")
 println("Truth over ", NSIM, " voxels, sampling ", SAMPLING, " (min, median, max):")
@@ -113,9 +117,10 @@ function writecsv(path, header, columns)
 end
 
 perVoxel(x) = x isa AbstractArray ? x : fill(x, NSIM)   # a number becomes a column of NSIM values
+untie(x) = x isa Symbol ? θ[x] : x                      # a tie (R1m = :R1f): the values it names
 mkpath(OUTDIR)
 writecsv(joinpath(OUTDIR, "protocol.csv"), ("TI_s", "TD_s"), (m.TI, m.TD))
-writecsv(joinpath(OUTDIR, "truth.csv"), keys(θ), map(perVoxel, Tuple(values(θ))))
+writecsv(joinpath(OUTDIR, "truth.csv"), keys(θ), map(x -> perVoxel(untie(x)), Tuple(values(θ))))
 writecsv(joinpath(OUTDIR, "data.csv"), ("y$j" for j in 1:size(Y, 2)), Tuple(eachcol(Y)))
 for (name, r) in (("fit_kmf12.5.csv", res), ("fit_kmftrue.csv", res_true))
     names = keys(r.params)

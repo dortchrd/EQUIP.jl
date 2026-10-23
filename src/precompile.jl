@@ -40,21 +40,21 @@ using PrecompileTools: @setup_workload, @compile_workload
     @compile_workload begin
         # Code here runs during precompilation, and what it compiles is saved with the package.
         for (m, θ) in cases
-            y = signal(m, θ)
+            y = signal(m, merge(defaults(m), θ))
             fit(m, y)                                        # one voxel
             Y = permutedims(hcat(y, 0.9 .* y))               # a dataset: 2 voxels × observations
             res = fit(m, Y)
             fit(m, Y; mask = [true, false])                  # with a mask
             fit(m, reshape(Y, 2, 1, 1, :))                   # 4-D data (X×Y×Z×observations)
-            simulate(m, θ; snr = 50, n = 2)
+            simulate(m, merge(defaults(m), θ); snr = 50, n = 2)
             show(IOBuffer(), MIME"text/plain"(), res)        # the summary the REPL prints
         end
         # Common variations: QMTSIR with kmf estimated, T1MFA with a B1 map.
         m = QMTSIR(; SIR_5POINT...)
-        y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
+        y = signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
         fit(m, permutedims(hcat(y, y)); kmf = Free())
         m = T1MFA(FA = fa, TR = 0.015)
-        y = signal(m, (M0 = 1000.0, T1 = 1.2))
+        y = signal(m, merge(defaults(m), (M0 = 1000.0, T1 = 1.2)))
         fit(m, permutedims(hcat(y, y)); B1 = [1.0, 0.9])
     end
 end

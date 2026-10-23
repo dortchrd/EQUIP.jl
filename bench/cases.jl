@@ -67,11 +67,10 @@ function sirtruth(rng, n; psr = extrema(sirclass(:PSR)))
     kmf = uniform(rng, extrema(sirclass(:kmf)), n)
     Sf = uniform(rng, (-1.0, -0.8), n)
     M0f = uniform(rng, (0.8, 1.2), n)
-    return (; PSR, R1f, Sf, M0f, kmf, Sm = 0.83)   # Sm fixed; R1m stays tied to R1f (the default)
+    # every value, as simulate needs: Sm fixed, R1m tied to R1f, no Mz left at the start of TD
+    return (; PSR, R1f, Sf, M0f, kmf, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
 end
 
-# Poor starts: random values far from the answer, a fresh draw for every voxel. P0 holds the
-# usual starts (one column per voxel, one row per free parameter, in the order of `names`).
 # Put every biexponential fit in the same order, T2short ≤ T2long (est: one column per voxel)
 function biexp_order!(est, names)
     f, s, l = findfirst(==(:fshort), names), findfirst(==(:T2short), names), findfirst(==(:T2long), names)
@@ -84,6 +83,8 @@ function biexp_order!(est, names)
     return est
 end
 
+# Poor starts: random values far from the answer, a fresh draw for every voxel. P0 holds the
+# usual starts (one column per voxel, one row per free parameter, in the order of `names`).
 const POOR = (PSR = (0.02, 0.5), R1f = (0.3, 3.0), Sf = (-1.2, -0.6))
 function poorstarts(rng, P0, names)
     P = copy(P0)
@@ -112,7 +113,7 @@ function makecase(name::Symbol; n = NVOX)
                 roles = (;), starts = nothing, order! = nothing)
     elseif name === :t1mfa
         m = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
-        truth = (M0 = uniform(rng, (0.8, 1.2), n), T1 = uniform(rng, stanisz(:T1), n))
+        truth = (M0 = uniform(rng, (0.8, 1.2), n), T1 = uniform(rng, stanisz(:T1), n), B1 = 1.0)
         Y = simulate(m, truth; snr = 1000, rng)
         return (; name, title = "T1 variable flip angle, 6 angles, T1 0.81-1.93 s, σ = M0/1000", m, Y,
                 truth, roles = (;), starts = nothing, order! = nothing)

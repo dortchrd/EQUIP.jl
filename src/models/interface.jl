@@ -344,8 +344,9 @@ function _check_names(kind, given, known)
     end
 end
 
-# Every parameter of `m`, in model order: values given in `p`, the `Fixed` defaults of
-# `parameters(m)` for the rest, ties resolved. Used by `signal` (simulation), not by the fitter.
+# Every parameter of `m`, in model order, from `p`, which must give them all (no silent defaults:
+# a simulation's truth should be visible in the script), ties resolved. Used by `signal`
+# (simulation), not by the fitter.
 function _allparams(m::MRIModel, p::NamedTuple)
     roles = parameters(m)
     _check_names("p", keys(p), keys(roles))
@@ -358,30 +359,51 @@ function _allparams(m::MRIModel, p::NamedTuple)
             "`simulate` take values; `parameters(m)` says how each parameter is fitted, and " *
             "`truth(m, tissue)` gives values for a tissue"))
     end
-    vals = map(keys(roles)) do n          # `do n ... end` is the body of an anonymous function n -> ...
-        haskey(p, n) ? p[n] :
-        roles[n] isa Fixed ? roles[n].value :
-        throw(ArgumentError("`p` must give a value for `$n`: it has no default " *
-            "(the parameters with a default are the ones fixed in `parameters(m)`)"))
+    missing = Tuple(n for n in keys(roles) if !haskey(p, n))
+    if !isempty(missing)
+        M = nameof(typeof(m))
+        d = defaults(m)
+        hint = isempty(d) ? "" : " The model's fitting defaults are `defaults(m)` = $d; to simulate " *
+            "with them, merge them in: `merge(defaults(m), p)`."
+        throw(ArgumentError("$M needs a value for every parameter; missing: $(join(missing, ", ")).$hint"))
     end
-    q = NamedTuple{keys(roles)}(vals)
+    q = NamedTuple{keys(roles)}(map(n -> p[n], keys(roles)))   # every parameter, in model order
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
     return _resolve_ties(map(_tie, q))
 end
 
 """
+    defaults(m) -> named tuple
+
+The values of the parameters that [`parameters`](@ref)`(m)` fixes by default: the model's fitting
+assumptions, e.g. for QMTSIR `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)`
+(`R1m = :R1f`: a tie, R1m equals R1f). Empty for a model with none.
+
+[`signal`](@ref) and [`simulate`](@ref) need every parameter's value; to use these, merge them in,
+so the choice is visible in the script (later values win):
+
+```julia
+simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); snr = 200)
+```
+"""
+defaults(m::MRIModel) = (; (n => r.value for (n, r) in pairs(parameters(m)) if r isa Fixed)...)
+
+"""
     signal(m, p) -> Vector
 
 Simulate one voxel's signal. Allocating version of [`signal!`](@ref), for simulation and
-plotting. `p` gives values (numbers). A parameter with a default value, i.e. fixed in
-[`parameters`](@ref)`(m)` (e.g. QMTSIR's `kmf = 12.5`), can be left out or overridden; every other
-parameter must be given; ties are resolved. Roles (`Free`, `Fixed`) are not values: passing
-`parameters(m)` itself is an error.
+plotting. `p` gives a value for every parameter of the model: a number, or a tie to another
+parameter (`R1m = :R1f`, or a function of the others); ties are resolved. Nothing is filled in
+silently: the model's fitting defaults (QMTSIR's `kmf = 12.5`, ...) are [`defaults`](@ref)`(m)`,
+merged in explicitly, and [`truth`](@ref) gives every value for a tissue. Roles (`Free`,
+`Fixed`) are not values: passing `parameters(m)` itself is an error.
 
 ```julia
 m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
-signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0))
-signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 15.0))   # override a fixed one
+θ = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)
+signal(m, merge(defaults(m), θ))                  # with the model's defaults for the rest
+signal(m, merge(defaults(m), θ, (kmf = 15.0,)))   # one of them changed
+signal(m, truth(m, :SIR_WM_II))                   # every value from a tissue
 ```
 """
 function signal(m::MRIModel, p::NamedTuple)

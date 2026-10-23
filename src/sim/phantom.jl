@@ -11,7 +11,8 @@
     phantom(labels, tissues) -> named tuple of maps
 
 Parameter maps from an integer label image: `tissues` gives each label's parameters, e.g.
-`[1 => truth(m, :GM), 2 => truth(m, :WM)]`. Every tissue gives the same parameter names (numbers).
+`[1 => truth(m, :GM), 2 => truth(m, :WM)]`. Every tissue gives the same parameter names: numbers,
+which become maps, or ties (`R1m = :R1f`), which must be the same in every tissue and are kept.
 Voxels with any other label (e.g. 0, the background) hold NaN. The result is ready for
 [`simulate`](@ref), and is the truth for [`compare`](@ref).
 
@@ -30,12 +31,23 @@ function phantom(labels::AbstractArray{<:Integer}, tissues)
     names = keys(last(first(list)))
     all(p -> keys(last(p)) == names, list) ||
         throw(ArgumentError("every tissue must give the same parameters, in the same order"))
-    maps = NamedTuple{names}(ntuple(_ -> fill(NaN, size(labels)), length(names)))
+    # A tie is kept as it is (the same for every voxel); every number becomes a map.
+    tied(n) = _istie(last(first(list))[n])
+    for n in names
+        if tied(n)
+            all(p -> last(p)[n] == last(first(list))[n], list) ||
+                throw(ArgumentError("`$n` is a tie; it must be the same tie in every tissue"))
+        else
+            all(p -> last(p)[n] isa Real, list) ||
+                throw(ArgumentError("phantom values must be numbers or ties; `$n` is not"))
+        end
+    end
+    maps = NamedTuple{names}(ntuple(i -> tied(names[i]) ? last(first(list))[names[i]] :
+                                         fill(NaN, size(labels)), length(names)))
     for (label, t) in list
         voxels = findall(==(label), labels)
         for n in names
-            t[n] isa Real || throw(ArgumentError("phantom values must be numbers; `$n` is $(t[n])"))
-            maps[n][voxels] .= t[n]
+            tied(n) || (maps[n][voxels] .= t[n])
         end
     end
     return maps

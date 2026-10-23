@@ -73,8 +73,9 @@ using EQUIP
 
 m = QMTSIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
-# Simulate. Fixed parameters (kmf, R1m, Sm, ...) take their defaults unless you give them.
-y = signal(m, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
+# Simulate. Every parameter needs a value: here the free ones, with the model's fixed defaults
+# (`defaults(m)`: kmf = 12.5, R1m = :R1f, Sm = 0.83, ...) merged in, explicitly.
+y = signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
 
 # Fit one voxel: y is a vector.
 r = fit(m, y)
@@ -138,7 +139,8 @@ parameters(::QMTSIR) = (
     per fit for now. `BestOf` wraps the values because a plain vector start is a map.
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
-  `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie.
+  `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie. `defaults(m)` gives the fixed
+  values as a named tuple, e.g. `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)`.
 
 Any fit can change a role with a keyword named after the parameter, in `fit` and `init`. A
 value fixes the parameter; `Free(...)` estimates it, and whatever it leaves out (start, bounds)
@@ -317,7 +319,8 @@ protocol, or checking a model before scanning:
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)                   # the 4-point scheme of Dortch et al., MRM 2018
-t = truth(m, :SIR_lesion)                     # Table 1 values: PSR, R1f, Sf, M0f = 1, kmf = 20, ...
+t = truth(m, :SIR_lesion)                     # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
+                                              # Sm), and the model's defaults for the rest
 Y = simulate(m, t; snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
 res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased below 5%
 compare(res, t)                               # bias, SD, RMSE, % converged
@@ -330,7 +333,10 @@ res = fit(m, simulate(m, maps; snr = 100); mask = labels .> 0)
 compare(res, maps; labels)                    # per tissue
 ```
 
-- `simulate(m, truth; snr or σ, noise, n, rng)`: `truth` holds numbers or maps. `snr` is
+- `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
+  `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
+  is filled in silently, so the script shows everything the data were made with: `truth(m,
+  tissue)` gives every value, or merge in the model's defaults, `merge(defaults(m), θ)`. `snr` is
   relative to the model's scale parameter (M0, S0, M0f: σ = scale/snr, "SNR at thermal
   equilibrium"), so it does not depend on the protocol; `σ` sets the noise directly, in signal
   units. Rician noise by default; Gaussian for models fitted to signed data
@@ -342,8 +348,9 @@ compare(res, maps; labels)                    # per tissue
   `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`). Your own values: `truth(m, (T1 = 4.3, T2 = 2.0))`,
   or one value changed: `truth(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
 - `truth(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
-  where needed; the scale parameter is 1 unless given. Values that are not tissue properties
-  (an inversion efficiency `Sf`, a flip-angle scale `B1`) must be given.
+  where needed; the scale parameter is 1 unless given, and a parameter the model fixes takes
+  its default (`defaults(m)`), shown in the result. Free values that are not tissue properties
+  (an inversion efficiency `Sf`) must be given.
 - `phantom(labels, tissues)`: parameter maps from a label image (NaN in the background);
   `labelshapes(dims)`: a 2-D or 3-D image of nested ellipses and a small disc.
 - `compare(res, truth; labels, mask)`: per parameter, overall and per label: bias, relative

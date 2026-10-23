@@ -183,7 +183,8 @@ per call (no measurable cost), after which `@inbounds` is safe whoever calls `si
 fitter, `signal`, or future CRLB / protocol code with its own buffers). Measured: `@inbounds`
 gains ~4–7% in a `signal!` loop and up to 1.16–1.41× over whole fits (mostly the solver's own
 loops); `@simd` gains nothing real here (`exp` prevents vectorization). `signal(m, p)`
-(provided) allocates the output and fills in fixed defaults, for simulation.
+(provided) allocates the output and resolves ties, for simulation; `p` gives every parameter
+(see Simulation: no silent defaults).
 
 Optional hooks: `datastart(m, y, p) = (T2 = value,)` computes starting values from each voxel's
 data, for the parameters declared `:data`, e.g. the log-linear fit of `T2Decay` (Performance
@@ -345,6 +346,18 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 
 `src/sim/` (uses models and fit): `simulate`, the tissue presets, phantoms and `compare`.
 
+- **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
+  need a value for every parameter of the model (a number, a map, or a tie such as
+  `R1m = :R1f`); a missing one is an error that lists every missing name and points to
+  `merge(defaults(m), p)`. `defaults(m)` is the named tuple of the values `parameters(m)` fixes
+  (QMTSIR: `kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0`), and `truth(m,
+  tissue)` returns every parameter, the defaults included. Why: the fixed defaults are fitting
+  assumptions (kmf = 12.5 is the 4-point scheme's assumption, not a tissue value), and a
+  simulation that used them without saying so hides part of its truth; e.g. a Monte Carlo of
+  "kmf fixed wrongly" needs the true kmf written in the script. Before this, a left-out fixed
+  parameter took its default silently. `fitted(res)` merges in `defaults(m)` itself, since a
+  fit's fixed values are its own settings. Checked: the bench cases and both examples give the
+  same data and fits as before (byte-identical CSVs, equal hashes).
 - **SNR is relative to the scale parameter** (the one declared `Free(:scale)`: M0, S0, M0f),
   σ = scale/snr, voxel by voxel: Dortch et al. 2018's "SNR = 200 at thermal equilibrium". It
   does not depend on the protocol, as σ on a scanner, so protocols compare at equal noise. The
@@ -364,9 +377,11 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   6.9 s); T2 = 1.75 s, the middle of the usual 1.5–2 s at 3 T, a placeholder (the review has no
   CSF T2). Users give their own values as a named tuple, or change one with `merge`. `truth(m, tissue)` converts T1/T2 to rates by name, sets
   the scale parameter to 1, and refuses to guess free parameters that are not tissue properties
-  (the inversion efficiency Sf of the inversion recovery models, B1): they are given as keywords.
+  (the inversion efficiency Sf of the inversion recovery models): they are given as keywords.
+  A parameter the model fixes by default takes that default (B1 = 1, QMTSIR's kmf, R1m = :R1f),
+  in the result.
 - **Phantoms**: `phantom(labels, tissues)` fills one map per parameter from label => truth
-  pairs, NaN elsewhere, so the background gives NaN data and is left out with
+  pairs (a tie, the same in every tissue, stays a tie), NaN elsewhere, so the background gives NaN data and is left out with
   `mask = labels .> 0`. `labelshapes(dims)`: nested ellipses (labels 1, 2) and a small disc
   (3), 2-D or 3-D.
 - **`compare`** uses every fitted voxel, converged or not (failures are part of the real
@@ -1413,8 +1428,8 @@ notes.)
      model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties);
      a clear error when `signal(m, p)` gets a map ("one voxel: give numbers; for maps, use
      `simulate`"; today a `MethodError` on `float`), and a docstring note that values are not
-     checked against bounds; a public name for `_allparams` (every parameter's value, defaults
-     filled, ties resolved), for loops calling `signal!`; in "Writing a model", that a model whose
+     checked against bounds; a public name for `_allparams` (every parameter's value checked,
+     ties resolved), for loops calling `signal!`; in "Writing a model", that a model whose
      type parameters cannot be rebuilt from its fields needs a precision-conversion method.
 9. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per

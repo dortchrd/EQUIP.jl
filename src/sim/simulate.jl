@@ -14,16 +14,17 @@
 Noisy data for model `m`, with the observations along the last dimension (the layout `fit`
 takes).
 
-- `truth`: the parameters, as for [`signal`](@ref)`(m, truth)`: the free ones, and fixed ones to
-  override. Each value is a number or a map; numbers apply to every voxel, and all maps have
-  the same size.
+- `truth`: a value for every parameter of the model, as for [`signal`](@ref)`(m, truth)` (see
+  [`truth`](@ref) for a tissue's values, [`defaults`](@ref)`(m)` for the model's fitting
+  defaults, merged in explicitly). Each value is a number, a map, or a tie (`R1m = :R1f`);
+  numbers and ties apply to every voxel, and all maps have the same size.
 - noise level, one of:
   - `snr`: relative to the model's scale parameter (`M0`, `S0`, `M0f`), σ = scale/snr, voxel by
     voxel (the SNR at thermal equilibrium, as in Dortch et al., MRM 2018);
   - `σ`: absolute, in the units of the signal, the same in every voxel.
 - `noise`: `:rician` (magnitude images: |S + σ·(n₁ + i·n₂)|), or `:gaussian` (S + σ·n, for
   signed data). The default is `:gaussian` for a model with `magnitude = false`, else `:rician`.
-- `n`: number of noisy copies when every value in `truth` is a number (Monte Carlo).
+- `n`: number of noisy copies when no value in `truth` is a map (Monte Carlo).
 - `rng`: the random number generator, e.g. `MersenneTwister(1)` for repeatable data.
 
 The result is a vector (one voxel), an `n × M` matrix (`n` copies), or an array with the size

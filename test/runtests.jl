@@ -118,7 +118,8 @@ end
 
     @testset "QMTSIR matches the matrix form, also with nonzero start values" begin
         TI = [0.010, 0.015, 0.020, 0.050, 0.100, 0.200, 0.500, 1.0, 2.0, 5.0]
-        θ = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 14.5, R1m = 1.2, Sm = 0.83)
+        θ = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 14.5, R1m = 1.2, Sm = 0.83,
+             Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         for TD in (0.01, 1.0, 2.5, 5.0), mag in (true, false)
             @test signal(QMTSIR(TI = TI, TD = TD, magnitude = mag), θ) ≈
                   sir_matrix(TI, fill(TD, length(TI)); θ..., magnitude = mag)
@@ -134,7 +135,7 @@ end
         end
         # special cases with known answers
         m = QMTSIR(TI = TI5, TD = TD5, magnitude = false)
-        θ0 = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)
+        θ0 = merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0))
         # no macromolecular pool (PSR = 0): single-pool inversion recovery (Li et al. 2010, Eq. 1)
         @test signal(m, merge(θ0, (PSR = 0.0, Mzf_td0 = 0.1))) ≈
               @. 1000 * (-0.95 * (1 - 0.9 * exp(-TD5)) * exp(-TI5) + 1 - exp(-TI5))
@@ -146,21 +147,33 @@ end
         @test signal(m, merge(θ0, (Sf = 1.0, Sm = 1.0, Mzf_td0 = 1.0, Mzm_td0 = 1.0))) ≈ fill(1000.0, 5)
     end
 
-    @testset "signal fills fixed defaults and resolves ties" begin
+    @testset "signal needs every value; defaults(m) are merged in explicitly" begin
         m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
+        @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+        @test defaults(T1MFA(FA = [2, 10], TR = 0.015)) == (B1 = 1.0,)
+        @test defaults(T2Decay(TE = [0.01])) == (;)                        # nothing fixed
         θfree = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
         everything = merge(θfree, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
-        @test signal(m, θfree) == signal(m, everything)
-        @test signal(m, merge(θfree, (kmf = 20.0,))) != signal(m, θfree)
-        @test_throws ArgumentError signal(m, (PSR = 0.1,))                     # Free value missing
-        @test_throws ArgumentError signal(m, merge(θfree, (nope = 1.0,)))       # unknown name
-        @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), θfree)
-        # roles are not values: passing parameters(m), or a Fixed(...), is a clear error
+        @test signal(m, merge(defaults(m), θfree)) == signal(m, everything)
+        @test signal(m, merge(defaults(m), θfree, (kmf = 20.0,))) != signal(m, everything)
+        # nothing is filled in silently: a missing value is an error that lists every one missing
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        @test_throws ArgumentError signal(m, θfree)                          # fixed ones missing
+        @test_throws ArgumentError simulate(m, θfree; snr = 100)
+        @test occursin("missing: kmf, R1m, Sm, Mzf_td0, Mzm_td0", msg(() -> signal(m, θfree)))
+        @test occursin("merge(defaults(m), p)", msg(() -> signal(m, θfree)))
+        @test occursin("missing: R1f, Sf, M0f", msg(() -> signal(m, merge(defaults(m), (PSR = 0.1,)))))
+        @test_throws ArgumentError signal(m, merge(everything, (nope = 1.0,)))   # unknown name
+        @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), everything)
+        # roles are not values: passing parameters(m), or a Fixed(...), is a clear error
         @test occursin("is a role", msg(() -> signal(m, parameters(m))))
         @test occursin("is a role", msg(() -> simulate(m, parameters(m); snr = 100)))
-        @test occursin("write `kmf = 10.0`", msg(() -> signal(m, merge(θfree, (kmf = Fixed(10.0),)))))
-        @test occursin("must give a value for `R1f`", msg(() -> signal(m, (PSR = 0.1,))))
+        @test occursin("write `kmf = 10.0`", msg(() -> signal(m, merge(everything, (kmf = Fixed(10.0),)))))
+        # truth gives every value, the defaults included, so it simulates as it is
+        t = truth(m, :SIR_WM_II)
+        @test keys(t) == keys(parameters(m)) && t.R1m == :R1f && t.Mzf_td0 == 0
+        @test signal(m, t) == signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -1.0, M0f = 1.0,
+                                                             kmf = 10.0)))
     end
 
     @testset "roles print readably" begin
@@ -178,7 +191,7 @@ end
         m = QMTSIR(TI = TI5, TD = TD5)
         @test parameters(m).R1m == Fixed(:R1f)                       # the default for QMTSIR
         @test setup(m).fixed.R1m isa EQUIP._Tie{:R1f}       # name known to the compiler
-        θfree = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0)
+        θfree = merge(defaults(m), (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1000.0))
         # simulation: tie by name == tie by function == the value written out
         @test signal(m, θfree) == signal(m, merge(θfree, (R1m = p -> p.R1f,))) ==
               signal(m, merge(θfree, (R1m = 1.1,)))
@@ -359,10 +372,10 @@ end
             M0, Sf, T1 = 1000 * rand(rng), -0.5 - 0.6 * rand(rng), 0.2 + 3 * rand(rng)
             # Li et al. 2010, Eq. 1, written as in the paper
             li = @. M0 * (Sf * (1 - exp(-TD6 / T1)) * exp(-TI6 / T1) + 1 - exp(-TI6 / T1))
-            @test signal(m, (M0 = M0, Sf = Sf, T1 = T1)) ≈ li
-            @test signal(R1IRTD(TI = TI6, TD = TD6, magnitude = false), (M0 = M0, Sf = Sf, R1 = 1 / T1)) ≈ li
+            @test signal(m, (M0 = M0, Sf = Sf, T1 = T1, Mz_td0 = 0.0)) ≈ li
+            @test signal(R1IRTD(TI = TI6, TD = TD6, magnitude = false), (M0 = M0, Sf = Sf, R1 = 1 / T1, Mz_td0 = 0.0)) ≈ li
         end
-        θ = (M0 = 1000.0, T1 = 0.9)
+        θ = (M0 = 1000.0, T1 = 0.9, Mz_td0 = 0.0)
         # a perfect inversion: the textbook form with TR = TI + TD
         @test signal(m, merge(θ, (Sf = -1.0,))) ≈ @. 1000 * (1 - 2 * exp(-TI6 / 0.9) + exp(-(TI6 + TD6) / 0.9))
         # a long TD, or Mz at equilibrium at the start of TD: T1IR, with the same parameters
@@ -385,7 +398,7 @@ end
         end
         mfa = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
         for T1 in (0.05, 0.2)
-            @test fit(mfa, signal(mfa, (M0 = 1000.0, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
+            @test fit(mfa, signal(mfa, (M0 = 1000.0, T1 = T1, B1 = 1.0))).params.T1 ≈ T1 rtol = 1e-6
         end
         # fits whose answer lies on a bound still end exactly there (there the parameter still
         # affects the signal, so the guard does not apply)
@@ -394,7 +407,7 @@ end
         @test r.params.R2 == 0
         @test isconverged(r)
         m = QMTSIR(TI = TI5, TD = TD5)
-        r = fit(m, signal(m, (PSR = 0.0, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))   # no MT
+        r = fit(m, signal(m, merge(defaults(m), (PSR = 0.0, R1f = 1.0, Sf = -0.95, M0f = 1000.0))))   # no MT
         @test r.params.PSR == 0
         @test r.params.R1f ≈ 1.0 rtol = 1e-6
         # the guard itself: parameter 2 loses (almost) all influence; frozen parameters don't count
@@ -483,7 +496,7 @@ end
         @test_throws "no data start" setup(R2Decay(TE = te); R2 = Free(start = :data))
         # datastart gets the voxel's fixed values (here c, a number or a map); a NaN fails
         mt = DataStartTest([0.01, 0.02, 0.04, 0.08])
-        yt = signal(mt, (S0 = 100.0, T2 = 0.05))
+        yt = signal(mt, (S0 = 100.0, T2 = 0.05, c = 1.0))
         @test fit(mt, yt; solver = LM(maxiter = 0)).params.T2 ≈ 0.05
         @test fit(mt, permutedims([yt yt]); c = [1.0, 2.0], solver = LM(maxiter = 0)).params.T2 ≈ [0.05, 0.1]
         @test fit(mt, yt; c = -1.0).status == EQUIP.Failed
@@ -501,8 +514,8 @@ end
         end
         for T1 in (0.05, 0.1, 0.2, 0.3, 4.0)
             m, mr = T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6)
-            @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1))).params.T1 ≈ T1 rtol = 1e-6
-            @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1))).params.R1 ≈ 1 / T1 rtol = 1e-6
+            @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1, Mz_td0 = 0.0))).params.T1 ≈ T1 rtol = 1e-6
+            @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1, Mz_td0 = 0.0))).params.R1 ≈ 1 / T1 rtol = 1e-6
         end
         # 30 values spanning the TIs; replaced by any other start, absent when T1 is fixed
         s = setup(T1IR(TI = ti))
@@ -533,9 +546,9 @@ end
         td = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]
         fa = [2.0, 5, 10, 15, 20, 30]
         pairs = ((T1IR(TI = ti), R1IR(TI = ti), (M0 = 1000.0, Sf = -0.9)),
-                 (T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.95)),
+                 (T1IRTD(TI = TI6, TD = TD6), R1IRTD(TI = TI6, TD = TD6), (M0 = 1000.0, Sf = -0.95, Mz_td0 = 0.0)),
                  (T1SR(TD = td), R1SR(TD = td), (M0 = 1000.0,)),
-                 (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0,)))
+                 (T1MFA(FA = fa, TR = 0.015), R1MFA(FA = fa, TR = 0.015), (M0 = 1000.0, B1 = 1.0)))
         for (mT, mR, θ) in pairs, _ in 1:10
             T1 = 0.6 + 1.2 * rand(rng)
             @test signal(mR, merge(θ, (R1 = 1 / T1,))) ≈ signal(mT, merge(θ, (T1 = T1,)))
@@ -599,7 +612,7 @@ end
         @test sum(abs2, residuals(r, y)) ≈ r.sse rtol = 1e-8
         # fixed values (numbers and ties) are used by `fitted`
         mq = QMTSIR(TI = [0.01, 0.03, 0.1, 0.3, 1.0], TD = 1.0)
-        yq = signal(mq, (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0))
+        yq = signal(mq, merge(defaults(mq), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0)))
         rq = fit(mq, yq; kmf = 15.0)
         @test fitted(rq) ≈ yq rtol = 1e-6
         @test fit(mq, yq; kmf = Fixed(15.0)).params == rq.params                # role or number
@@ -666,7 +679,8 @@ end
         @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value
         @test_throws ArgumentError truth(m, :brain)                          # unknown tissue
         @test truth(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
-              (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, Sm = 0.83)
+              (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, R1m = :R1f, Sm = 0.83,
+               Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         @test SIR_5POINT.TI == TI5 && SIR_5POINT.TD == TD5
         @test SIR_16POINT.TI == [0.010, 0.015, 0.021, 0.031, 0.045, 0.066, 0.097, 0.141, 0.206, 0.301,
                                  0.440, 0.643, 0.938, 1.370, 2.000, 10.0]

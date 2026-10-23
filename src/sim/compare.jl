@@ -25,7 +25,7 @@ end
     compare(res, truth; labels = nothing, mask = nothing) -> Comparison
 
 Bias, SD, RMSE (absolute and relative) and % converged of a dataset fit, for every free
-parameter that `truth` gives (numbers or maps, as for [`simulate`](@ref)). Over all fitted
+parameter that `truth` gives (numbers, maps or ties, as for [`simulate`](@ref)). Over all fitted
 voxels, and per label when `labels` (an integer map, e.g. a phantom's) is given; `mask`
 restricts the voxels further. Speed is not measured here (see the benchmarks in `bench/`).
 """
@@ -46,7 +46,8 @@ function compare(res::FitResult, truth::NamedTuple; labels = nothing, mask = not
         haskey(truth, n) || continue
         count(sel) == 0 && continue
         est = res.params[n][sel]
-        tv = truth[n] isa AbstractArray ? truth[n][sel] : fill(float(truth[n]), count(sel))
+        t = truth[n] isa Symbol ? truth[truth[n]] : truth[n]    # a tie (R1m = :R1f): the value it names
+        tv = t isa AbstractArray ? t[sel] : fill(float(t), count(sel))
         err = est .- tv
         rel = err ./ tv
         push!(rows, (group = g, parameter = n, voxels = count(sel), converged = count(conv .& sel) / count(sel),

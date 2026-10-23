@@ -72,14 +72,16 @@ For each parameter of `m`, the value comes from, in order:
 1. the keywords, e.g. `truth(m, :WM; M0 = 1000.0, Sf = -0.95)`;
 2. the tissue, by name, or converted between time and rate (R1 = 1/T1, R2 = 1/T2);
 3. for the scale parameter (`M0`, `S0`, `M0f`): 1;
-4. for a fixed parameter: its default, left out of the result (e.g. QMTSIR's `R1m = R1f`).
+4. for a parameter the model fixes by default: that default ([`defaults`](@ref)`(m)`, e.g.
+   QMTSIR's `kmf = 12.5`, `R1m = :R1f`), included in the result, so every value is visible.
 
 A free parameter with no value is an error that names it: values that are not properties of the
-tissue (an inversion efficiency `Sf`, a flip-angle scale `B1`) are your choice, so give them.
+tissue (an inversion efficiency `Sf`) are your choice, so give them.
 
 ```julia
 truth(R1IR(TI = ti), :GM; Sf = -0.95)      # (M0 = 1.0, Sf = -0.95, R1 = 0.549...)
-truth(QMTSIR(; SIR_4POINT...), :SIR_lesion)  # PSR, R1f, Sf, M0f, and kmf = 20, Sm = 0.83
+truth(QMTSIR(; SIR_4POINT...), :SIR_lesion)  # PSR, R1f, Sf, M0f, kmf = 20, Sm = 0.83 (the tissue),
+                                             # R1m = :R1f, Mzf_td0 = 0, Mzm_td0 = 0 (the defaults)
 ```
 """
 function truth(m::MRIModel, t; kwargs...)
@@ -98,8 +100,10 @@ function truth(m::MRIModel, t; kwargs...)
         if x === nothing && n === scale
             x = 1.0
         end
+        if x === nothing && r isa Fixed
+            x = r.value                                # the model's default, shown in the result
+        end
         if x === nothing
-            r isa Fixed && continue                    # keep the model's default
             throw(ArgumentError("no value for `$n` in this tissue; give it, e.g. truth(m, ...; $n = value)"))
         end
         push!(vals, n => x)
