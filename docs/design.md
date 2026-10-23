@@ -809,7 +809,22 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       8.67 (180) / 14.7 (218), LsqFit 161 (133) / 294 (122), NonlinearSolve LM 2413 (2) / 3544
       (16), TrustRegion 40.6 (16) / 67.6 (38), FastLM 32.0 (118) / 117 (151); with bounds EQUIP
       9.40 (4) / 22.4 (4), LsqFit 128 (6) / 228 (22), FastLM 9.71 (282) / 31.2 (243).
-    - Next: the biexponential's parametrization or VarPro, with this benchmark as the test; and,
+    - **VarPro on these biexponential cases** (branch `varpro-proto`,
+      `prototypes/varpro/biexp_bench.jl`; LM on the two T2s, the two amplitudes solved exactly,
+      ≥ 0 with bounds). Not best out of 1000, EQUIP full → VarPro (best reference): SNR 200 no
+      bounds 180 → 8 (TrustRegion 15); with bounds 4 → 4 (LsqFit 6); SNR 100 no bounds 213 → 16
+      (TrustRegion 42); with bounds 13 → 11 (LsqFit 26). Steps ~20% fewer (34.5 → 27.4, 31.1 →
+      25.6, 80.1 → 62.3, 86.3 → 67.0). Without bounds its errors drop to the best any method
+      reached (SNR 100 median fshort error 43.7% → 28.0%). Speed about the same (two runs
+      disagreed on which was faster). VarPro removes the full fit's unbounded path problem: the
+      amplitudes can no longer wander, so the two components do not merge.
+      - Recommendation: add VarPro to EQUIP for models with linear amplitudes, starting with the
+        biexponential. To design: how a model declares its linear parameters and columns (a
+        method like `linearparts(m)`, or columns from `signal!` at unit amplitudes); mapping
+        amplitudes back to the model's parameters (S0, fshort); bounds (amplitudes ≥ 0 by the
+        active set; other bounds on amplitudes?); Float32; statuses and `FitResult`; and when it
+        is used (automatically for such models, or `solver = LM(varpro = true)`).
+    - Next: VarPro in EQUIP (design above); and,
       later, errors judged against the Cramér–Rao bound (roadmap item 3), so methods are compared
       where the data determine the parameters. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
