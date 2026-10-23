@@ -24,12 +24,44 @@ julia -t auto --project=. -e 'using Pkg; Pkg.test()'
 
 Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
+Complete examples, Monte Carlo tests of the 4-point SIR scheme at SNR 200 (Dortch et al. 2018),
+saved as CSV files: `examples/sir_wm_4point.jl` (white matter) and `examples/sir_4point_range.jl`
+(tissue values over the range of the paper's tissue classes), e.g.
+`julia -t auto --project=. examples/sir_4point_range.jl`. `bench/solvers.jl` compares EQUIP with
+LsqFit, NonlinearSolve (SciML) and FastLevenbergMarquardt on test cases from easy to hard
+(`bench/cases.jl`: T2 decay, variable flip angle and inversion recovery T1, the same 4-point data,
+poor starts, 16-point SIR with kmf estimated, low SNR, a small PSR, a biexponential), each run
+without bounds and with the models' bounds: speed, and whether each finds the best fit.
+
+The first `using EQUIP` after installing (or after any change to its code) takes about 40 s:
+EQUIP then compiles small fits of every built-in model and saves the result, so that in every
+new session the first fit is as fast as later ones (the default roles, one voxel or a dataset,
+with or without a mask). Other combinations (other free parameters, `precision = Float32`)
+compile on their first use, about a second or two. When developing EQUIP, switch that step off
+to keep each change to about 3 s: put
+
+```toml
+[EQUIP]
+precompile_workload = false
+```
+
+in a `LocalPreferences.toml` next to `Project.toml` (it is not committed).
+
 ## Two inputs
 
 | input | what it is | Julia form | example |
 |---|---|---|---|
 | **model** | the physics: acquisition + options, the same for every voxel | a struct | `QMTSIR(TI = [...], TD = 2.5)` |
 | **parameters** | tissue/model values | a named tuple | `(PSR = 0.1, R1f = 1.0, ...)` |
+
+Two words keep these apart throughout EQUIP:
+
+- **parameters** are the quantities in the signal equation (T1, PSR, M0, B1, ...), whether a
+  fit estimates them or holds them fixed;
+- the **acquisition** is the protocol (TI, TE, flip angles, ...), never called "parameters".
+
+A model is the signal equation (its type, e.g. `QMTSIR`) plus its acquisition and options (its
+fields).
 
 Acquisition fields have one value per observation. Where it makes sense, a single number
 stands for all of them, e.g. `T1MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
@@ -348,7 +380,8 @@ src/
     qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
                           (FitResult), starts.jl (each voxel's starting point), cache.jl
-                          (init, fit!), fit.jl (fit)
+                          (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
+                          a dataset, threaded; refit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
 ```
 
@@ -376,18 +409,46 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
   neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
   replacement by a neighbourhood average, marked in the status map
+- MT ratio, MTsat (Helms) and B1 maps (DAM, AFI) as models whose data start is the exact
+  closed-form answer, with B1 correction through a fixed B1 map; derived outputs (e.g. MTsat's
+  empirical B1 correction, BPF from PSR); later B0 maps, with complex data and phase unwrapping
+  from an existing package
+- More qMT models, from approximate to exact: Henkelman's continuous-wave steady state, pulsed
+  MT with SPGR (Sled & Pike, Ramani, Yarnykh, single-point MPF), MAMT (pulse pieces of constant
+  amplitude, propagated), and the full two-pool equations through the sequence without
+  approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
+- Diffusion microstructure: SMT (spherical mean technique) and NODDI
+- Custom models in one step: `@mrimodel` in front of an ordinary signal function of one
+  observation (its keywords become the parameters and their default roles), a template
+  generator for models that will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a
+  "Coming from LsqFit, lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
 - **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
   PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings
-- Command line, Python and MATLAB front ends, built on io/
-- A `levmar` method for ordinary arrays, for models with more than ~30–40 free parameters
-  (chosen by dispatch; the current method uses static arrays and is faster below that)
-- GPU, observation weights, other data layouts, precompilation for fast start-up
+- Command line, Python and MATLAB front ends, built on io/, each call compiling nothing: a
+  precompile workload covering every front-end call (checked by a test), `equip --init` to
+  prepare a case outside it once (compiled code saved on disk for later calls; prototype:
+  3.2–3.8 s → 0.06 s), juliacall for Python, a Julia server for MATLAB
+- Solver backends through package extensions, e.g. `solver = LsqFitLM()` or a SciML solver:
+  for checking EQUIP against a reference, models that cannot take dual numbers (finite
+  differences and user Jacobians come with the backends), and models with many parameters;
+  EQUIP's own static-array solver stays the default. Or a `levmar` method for ordinary arrays,
+  for models with more than ~30–40 free parameters
+- GPU, observation weights, other data layouts
+- Faster start for the command line: a Julia server for many calls in a row, or a system
+  image or standalone app (PackageCompiler.jl)
 - More models: gradient-echo decay with the through-slice sinc term for macroscopic field
   gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
   tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
 - More data-driven starting values (with `datastart`): DESPOT1 for T1MFA (with the voxel's B1),
   R2Decay and ADCDecay, ADCKurtosis, saturation recovery, the offset and biexponential models
-- Variable projection: solve M0/S0 exactly at every iteration, not only at the start
+- Variable projection: the parameters the signal is linear in (M0/S0, the biexponential
+  amplitudes, an offset) solved inside every LM step. Prototype measured (branch
+  `varpro-proto`): biexponential 19–26% faster with more fits reaching the minimum; 0–22%
+  faster with one linear parameter; no help with multiple minima, so `BestOf` stays
+- Positive parameters fitted in log coordinates, with a per-parameter relative stopping test
+  ("stop when every parameter changes by less than 0.01%"). Prototype measured (branch
+  `varpro-proto`): with VarPro, the biexponential 40–59% faster than today and more fits
+  reaching the minimum; no change for models whose starts already do the job

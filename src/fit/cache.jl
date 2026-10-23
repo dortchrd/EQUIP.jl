@@ -1,17 +1,14 @@
 # =================================================================================================
-# The reusable cache and fitting one voxel
+# The reusable cache: everything a voxel fit needs, prepared once
 #
 #   FitSpec (setup.jl)
 #        │
 #        ▼  init         FitSpec + model (in the working precision) + solver settings + work
-#   FitCache             buffers: everything a voxel fit needs, prepared ONCE per fit call
-#        │               (`init` is SciML's name: prepare once, then solve many times).
-#        ▼  fit!         copy one voxel's data in, pick its map values, set its start
-#   FitResult            (starts.jl), run LM (levmar.jl). Allocates nothing.
+#   FitCache             buffers, prepared ONCE per fit call (`init` is SciML's name: prepare
+#                        once, then solve many times).
 #
-# `fit!` is for your own loops, one voxel at a time. A dataset fit (fit.jl) runs the same steps,
-# `_fit1!` below, for every voxel, storing the results in maps, and gives each chunk of voxels
-# (one task on a thread) its own copy of the buffers.
+# Next: voxel.jl fits one voxel with it (`fit!`); dataset.jl fits every voxel of a dataset,
+# giving each chunk of voxels (one task on a thread) its own copy of the buffers (`_copycache`).
 # =================================================================================================
 
 """
@@ -70,82 +67,3 @@ _cache(model, spec::FitSpec{F,P,T}, opts, n, settings) where {F,P,T} =
 
 # Same setup, fresh buffers: one copy per task (chunk of voxels) in a dataset fit.
 _copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings)
-
-# =================================================================================================
-# Fitting one voxel
-# =================================================================================================
-
-# One voxel's fit, inside the package: `fit!` adds the model and settings to make a FitResult,
-# and the dataset loop (fit.jl) stores the fields in maps.
-struct _VoxelFit{NT,T}
-    params::NT
-    sse::T
-    iterations::Int32
-    status::FitStatus
-end
-
-"""
-    fit!(cache, y; voxel = 1) -> FitResult
-
-Fit one voxel's data `y` (one value per observation). `voxel` is the voxel's linear index into
-any per-voxel maps given as parameter keywords (fixed values or starts). Does not allocate.
-
-```julia
-cache = init(QMTSIR(TI = TI, TD = TD); kmf = 15.0)
-r = fit!(cache, y)
-r.params.PSR
-```
-"""
-function fit!(c::FitCache, y::AbstractVector; voxel::Integer = 1)
-    length(y) == length(c.y) ||
-        throw(DimensionMismatch("data have $(length(y)) values, the model has $(length(c.y)) observations"))
-    r = _fit1!(c, y, voxel)
-    return FitResult(r.params, r.sse, r.iterations, r.status, c.model, c.settings)
-end
-
-# Copy one voxel's data into the cache and fit it (the dataset loop calls this directly).
-function _fit1!(c::FitCache, y, voxel)
-    copyto!(c.y, y)                    # into the cache: contiguous and in precision T
-    return _fit_voxel(c, c.spec, voxel)
-end
-# `fit!` is StatsAPI's function (imported in EQUIP.jl); this adds a method for FitCache.
-
-# Per-voxel values: a map is indexed by the voxel; numbers and ties pass through unchanged.
-@inline _pick(x::AbstractArray, v, ::Type{T}) where {T} = @inbounds T(x[v])
-@inline _pick(x, v, ::Type{T}) where {T} = x
-
-# NaN/Inf checks that skip ties (functions).
-@inline _finite(x::Real) = isfinite(x)
-@inline _finite(x) = true
-
-function _invalid(::FitSpec{F,P,T}) where {F,P,T}
-    nan = NamedTuple{F}(ntuple(_ -> T(NaN), Val(P)))
-    return _VoxelFit(nan, T(NaN), Int32(0), InvalidData)
-end
-
-# `spec` is passed separately (not read from `c` inside) so that its type parameters F, P, T
-# can be named in the method signature and used below.
-function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, v) where {F,P,T}
-    # 1. This voxel's fixed values: (kmf = 12.5, R1m = Fixed(:R1f), Sm = sm_map[v]).
-    fixed = map(x -> _pick(x, v, T), spec.fixed)
-    # 2. This voxel's starting point, as an SVector in the order F.
-    θ0 = SVector{P,T}(Tuple(map(x -> _pick(x, v, T), spec.start)))
-    # 3. Bad inputs mark the voxel invalid instead of producing a meaningless fit.
-    if !(all(isfinite, c.y) && all(_finite, values(fixed)) && all(isfinite, θ0))
-        return _invalid(spec)
-    end
-    prob = VoxelProblem{F}(c.model, c.y, fixed)
-    # 4. Starting point from the data (starts.jl): parameters starting at `:data` from the model's
-    #    estimates (`datastart`); then a `BestOf` parameter at its best value, or else the `:scale`
-    #    parameter at the value that best matches the data's scale.
-    θ0 = _data_start(prob, θ0, spec)
-    if spec.candindex > 0
-        θ0 = _best_start(prob, θ0, spec, c.buf)
-    elseif spec.scale > 0
-        θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
-    end
-    # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...). A model whose labels can swap
-    #    picks the ones to report (see `relabel`; the default changes nothing).
-    r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
-    return _VoxelFit(relabel(c.model, NamedTuple{F}(Tuple(r.θ))), r.sse, r.iterations, r.status)
-end

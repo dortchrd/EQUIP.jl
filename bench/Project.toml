@@ -1,0 +1,22 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+EQUIP = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
+FastLevenbergMarquardt = "7a0df574-e128-4d35-8cbd-3d84502bf7ce"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+NonlinearSolve = "8913a72c-1f9b-4ce2-8d82-65094dcecaec"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[sources]
+EQUIP = {path = ".."}
+
+[compat]
+BenchmarkTools = "1"
+FastLevenbergMarquardt = "0.1"
+ForwardDiff = "0.10, 1"
+LsqFit = "0.16"
+NonlinearSolve = "4"
