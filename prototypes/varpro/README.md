@@ -108,3 +108,23 @@ Reading:
 - The per-parameter relative test answers "stop when every parameter changes by less than
   0.01%", but only for positive parameters (log coordinates); Sf, PSR, fshort or an offset need
   another rule (an absolute tolerance, or the standard-error rule).
+
+## On the benchmark's biexponential cases (`biexp_bench.jl`)
+
+`bench/cases.jl`'s :biexp (SNR 200) and :biexp_snr100: 1000 voxels each, T2short 10-30 ms, T2long
+60-120 ms, fshort 0.05-0.30, every voxel different; the same starts and stopping rule as
+`bench/solvers.jl`; "not best": a clearly worse fit than the best any method found. Output in
+`results_biexp_bench.txt`.
+
+| case | EQUIP full | EQUIP VarPro | best reference |
+|---|---|---|---|
+| SNR 200, no bounds | 180 not best, 34.5 steps | 8, 27.4 steps | TrustRegion 15 |
+| SNR 200, bounds | 4, 31.1 steps, 8.0 µs | 4, 25.6 steps, 5.6 µs | LsqFit 6 |
+| SNR 100, no bounds | 213, 80.1 steps | 16, 62.3 steps | TrustRegion 42 |
+| SNR 100, bounds | 13, 86.3 steps, 17.6 µs | 11, 67.0 steps, 14.5 µs | LsqFit 26 |
+
+VarPro removes EQUIP's unbounded biexponential problem (the full fit's path into the region
+where the two components merge): its misses drop to below NonlinearSolve's TrustRegion, and its
+errors to the best any method reached (SNR 100, median fshort error 43.7% → 28.0%). With bounds
+it is as good or better, with ~20% fewer steps and faster. Without bounds at SNR 200 it was
+slower in this run (6.5 → 8.5 µs), single timings.
