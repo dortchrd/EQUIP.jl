@@ -747,6 +747,33 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       case, and is fastest except T2 decay (1.86 vs FastLM 1.48, one run; without bounds EQUIP
       0.80). The unbounded table is in the earlier bullet (`sir4_bounds` there is now
       `sir4_lowpsr`, and its rows there were mixed: bounded EQUIP/LsqFit/FastLM, unbounded SciML).
+    - On an Apple M3, 8 threads, Julia 1.13.2 (1000 voxels, 3 runs; the "not best" counts are the
+      same as on the cloud machine, since the data come from fixed seeds), µs per voxel (not best):
+
+      | without bounds | t2 | t1mfa | t1ir | sir4_range | sir4_poorstart | sir16_kmf | sir16_kmf_snr50 | sir4_lowpsr | biexp |
+      |---|---|---|---|---|---|---|---|---|---|
+      | EQUIP | 0.30 (0) | 0.29 (0) | 0.30 (9) | 0.44 (0) | 1.74 (26) | 2.09 (5) | 5.41 (20) | 0.38 (0) | 9.67 (218) |
+      | LsqFit | 11.9 (0) | 13.4 (0) | 14.4 (8) | 13.9 (0) | 18.1 (2) | 25.8 (3) | 86.1 (30) | 14.2 (0) | 254 (122) |
+      | NonlinearSolve LM | 590 (0) | 559 (0) | 776 (7) | 86.7 (0) | 285 (9) | 1509 (4) | 2551 (36) | 89.5 (0) | 2626 (16) |
+      | NonlinearSolve TrustRegion | 4.19 (0) | 3.26 (0) | 4.08 (10) | 1.16 (0) | 6.02 (18) | 51.4 (59) | 54.9 (71) | 1.28 (0) | 30.3 (38) |
+      | SimpleGaussNewton | 46.9 (0) | 61.2 (0) | 62.9 (10) | 0.76 (0) | 4.05 (138) | 164 (281) | 256 (430) | 0.75 (0) | 2569 (951) |
+      | SimpleTrustRegion | 139 (39) | 94.8 (0) | 98.6 (11) | 0.85 (0) | 3.59 (11) | 988 (426) | 1288 (557) | 0.96 (1) | 2085 (995) |
+      | FastLM | 0.75 (0) | 0.55 (0) | 0.51 (10) | 0.60 (0) | 2.09 (33) | 4.10 (10) | 9.60 (24) | 0.61 (0) | 17.0 (151) |
+
+      | with bounds | t2 | t1mfa | t1ir | sir4_range | sir4_poorstart | sir16_kmf | sir16_kmf_snr50 | sir4_lowpsr | biexp |
+      |---|---|---|---|---|---|---|---|---|---|
+      | EQUIP | 0.31 (0) | 0.29 (0) | 0.30 (9) | 0.39 (0) | 0.79 (26) | 1.43 (3) | 2.79 (11) | 0.41 (0) | 9.90 (4) |
+      | LsqFit | 11.7 (0) | 13.1 (0) | 14.0 (8) | 14.3 (0) | 547 (409) | 26.1 (1) | 84.7 (13) | 126 (214) | 207 (22) |
+      | FastLM | 0.66 (0) | 0.53 (0) | 0.48 (10) | 0.68 (0) | 13.2 (357) | 3.89 (7) | 8.70 (24) | 6.99 (211) | 12.9 (243) |
+
+      EQUIP is the fastest on every case in both runs: 1.2-2.5× FastLM without bounds (1.3-17×
+      with), 10-50× LsqFit, 160-2500× NonlinearSolve's LM. With bounds it misses the best fit
+      about as rarely as the best of the others everywhere (t1ir 9 vs 8, sir16_kmf 3 vs 1) and far
+      more rarely on poor starts, small PSR and the biexponential.
+    - "Not best" is not "less accurate" where the fit is not unique: on sir4_poorstart with bounds
+      EQUIP finds the lowest SSE (26 vs 409 and 357) yet its median PSR error is 230% against
+      FastLM's 73%. Several exact fits exist; FastLM's stuck, higher-SSE answers happen to lie
+      nearer the truth. Judge that case by the truth error, not the SSE.
     - Next (prototype branch): EQUIP's step control. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
       a Gauss–Newton step first. Targets: the unbounded biexponential path (202), the crawling
