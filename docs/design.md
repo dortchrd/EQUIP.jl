@@ -714,6 +714,30 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     On T2 decay and variable flip angle every method finds the same fits; on magnitude
     inversion recovery every method misses the best fit in ~1% of voxels (false minima around
     the null point), EQUIP no more often than the others.
+  - **Diagnosis of EQUIP's misses** (1000 voxels, one thread, settings only, no code change):
+    - Biexponential without bounds: 202 voxels not best. 199 of them stopped on the step test
+      (a stationary point: restarting there does not move it), at SSE ~2.1× the best, with the
+      two components merged (T2short ≈ T2long ≈ 63-65 ms) and fshort outside 0-1 (median -0.06;
+      some T2s absurd, -2.3e4 and 4e3 s). LsqFit from the same starts finds the biexponential
+      (fshort 0.31, T2s 27 and 80 ms). Not early stopping: EQUIP's normal tolerances, 10× the
+      iterations, xtol 1e-12, damping 1e-6 or a restart change nothing (202-226). EQUIP's path
+      runs into the degenerate region, the other solvers' paths less often.
+    - With the model's bounds (normal use) the problem disappears: not best 4 (EQUIP, benchmark
+      settings), 22 (EQUIP's defaults; LsqFit bounded 22, FastLM bounded 243). No final fit sits
+      on a bound: the bounds keep the path physical, the answers are interior.
+    - EQUIP's defaults on the bounded biexponential: ~6% of voxels crawl in a narrow valley
+      (MaxIterations at 100: 65 voxels; at 1000 still 60). Raising maxiter barely helps (worse
+      than a very thorough fit: 18 at 100, 16 at 300, 13 at 1000 iterations, 21.6 → 58.2 µs per
+      voxel), so the default stays. The crawl is the target for step control (below).
+    - Poor starts without bounds: 23 of EQUIP's 24 misses ran away (R1f → 0, M0f → ~4e5) to the
+      iteration limit; bounds prevent that (R1f ≥ 0.05). With bounds and the same poor starts,
+      every bounded method misses the best fit in ~37-42% of voxels (EQUIP 383, LsqFit 415,
+      FastLM 367): the 4-point scheme's several exact fits, not a solver problem.
+    - Next (prototype branch): EQUIP's step control. Candidates: Marquardt scaling recomputed
+      each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
+      a Gauss–Newton step first. Targets: the unbounded biexponential path (202), the crawling
+      voxels, steps on every case; nothing may get worse with bounds. The benchmark should also
+      report the bounded configuration, EQUIP's normal use, next to the unbounded one.
     - The SciML solvers stop by their own least-squares default here: a shared step rule makes
       them stop early on hard fits, because their stopping machinery sees a rejected step as no
       movement (biexp, 2000 voxels, NonlinearSolve TrustRegion: worse than the best in 1934
