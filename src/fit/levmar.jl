@@ -96,6 +96,19 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
 
 Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
 Float64, `1e-5, 1e-6, 1e-5` for Float32.
+
+PROTOTYPE (branch step-proto), step-control variants; the defaults are the current solver:
+- `scaling`: `:max` (Marquardt's scaling D only grows, as in MINPACK), `:current` (D =
+  diag(JᵀJ) at the current point, recomputed after every accepted step, as in LsqFit), or
+  `:hybrid` (the current D for the damping, the growing one for the step test)
+- `update`: `:nielsen` (Nielsen's damping update) or `:marquardt` (÷10 after an accepted step,
+  ×10 after a rejected one)
+- `gnfirst`: try the undamped Gauss–Newton step first in every iteration; take it if it lowers
+  the SSE, else the damped step as usual
+- `guard`: the dead-zone guard (`_lost_influence`) on or off
+- `trust`: cap the scaled step length ‖D^½h‖ by a trust radius Δ, as in MINPACK (Moré 1978):
+  while the step is longer than Δ, damp more; after the step, Δ shrinks if ρ < 1/4 and grows to
+  at least 2‖D^½h‖ if ρ > 3/4. Δ starts at 100·‖D^½θ₀‖ (MINPACK's `factor`)
 """
 Base.@kwdef struct LM
     maxiter::Int = 100
@@ -103,6 +116,11 @@ Base.@kwdef struct LM
     ftol::Union{Nothing,Float64} = nothing
     gtol::Union{Nothing,Float64} = nothing
     damping::Float64 = 1e-3
+    scaling::Symbol = :max                          # PROTOTYPE: step-control variants
+    update::Symbol = :nielsen
+    gnfirst::Bool = false
+    guard::Bool = true
+    trust::Bool = false
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -112,6 +130,12 @@ struct SolverOptions{T<:AbstractFloat}
     ftol::T
     gtol::T
     damping::T
+    scalemax::Bool                                  # PROTOTYPE: scaling == :max
+    hybrid::Bool                                    # PROTOTYPE: scaling == :hybrid
+    nielsen::Bool                                   # PROTOTYPE: update == :nielsen
+    gnfirst::Bool
+    guard::Bool
+    trust::Bool
 end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
@@ -120,8 +144,13 @@ _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 # `something(a, b)` returns `a` unless it is `nothing`, then `b`.
 function SolverOptions{T}(s::LM) where {T}
     dx, df, dg = _default_tols(T)
+    s.scaling in (:max, :current, :hybrid) ||
+        throw(ArgumentError("LM scaling must be :max, :current or :hybrid"))
+    s.update in (:nielsen, :marquardt) || throw(ArgumentError("LM update must be :nielsen or :marquardt"))
     return SolverOptions{T}(Int32(s.maxiter), T(something(s.xtol, dx)), T(something(s.ftol, df)),
-                            T(something(s.gtol, dg)), T(s.damping))
+                            T(something(s.gtol, dg)), T(s.damping), s.scaling === :max,
+                            s.scaling === :hybrid, s.update === :nielsen, s.gnfirst, s.guard,
+                            s.trust)
 end
 
 # Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).
@@ -301,6 +330,24 @@ end
 # The solver
 # -------------------------------------------------------------------------------------------------
 
+# Evaluate a trial point θn = θ + s and decide whether to accept it: the new SSE, JᵀJ and Jᵀr, the
+# ratio ρ of actual to predicted decrease, and whether the step is acceptable (finite, both
+# decreases positive, and not into a dead zone unless the guard is off).
+@inline function _try_step(prob, θn, s, sse, A, g, fm, opts, buf)
+    ssen, An, gn = normal_equations(prob, θn, buf)
+    pred = -(2 * dot(g, s) + dot(s, A * s))      # decrease predicted by the linear model
+    actual = sse - ssen
+    ok = isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 &&
+         (!opts.guard || !_lost_influence(A, An, fm))   # not into a dead zone (see above)
+    return ok, θn, ssen, An, gn, actual, pred
+end
+
+# The damping after an accepted step (ρ: actual / predicted decrease) and after a rejected one.
+@inline _shrink(μ, ρ, opts::SolverOptions{T}) where {T} =
+    opts.nielsen ? max(μ * max(T(1 / 3), 1 - (2ρ - 1)^3), eps(T)) :    # Nielsen
+                   max(μ / 10, eps(T))                                  # Marquardt
+@inline _grow(μ, ν, opts) = opts.nielsen ? (μ * ν, 2ν) : (10μ, ν)
+
 """
     levmar(prob, θ0, lower, upper, opts, buf) -> SolverResult
 
@@ -317,7 +364,11 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
     if !(isfinite(sse) && _allfinite(g) && _allfinite(diag(A)))
         return SolverResult(θ, sse, Int32(0), Failed)
     end
-    d = max.(diag(A), floatmin(T) / eps(T))     # Marquardt scaling (kept strictly positive)
+    floor_d = floatmin(T) / eps(T)
+    d = max.(diag(A), floor_d)                  # Marquardt scaling (kept strictly positive)
+    dstep = d                                   # PROTOTYPE: the scaling of the step test
+    Δ = 100 * sqrt(sum(d .* θ .* θ))            # PROTOTYPE: trust radius (scaled step length)
+    Δ > zero(T) || (Δ = T(100))
     μ = opts.damping                            # damping
     ν = T(2)                                    # growth factor of μ after rejected steps
     iter = Int32(0)
@@ -328,37 +379,74 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
     while iter < opts.maxiter
         iter += Int32(1)
 
-        # --- solve the damped normal equations for the movable parameters ---------------------
         # `fm` is 1 for movable, 0 for frozen parameters. Masking rows/columns of the matrix
         # and putting 1 on the frozen diagonal gives step 0 for frozen parameters.
         fm = map(b -> ifelse(b, one(T), zero(T)), _movable(θ, g, lo, hi))
-        M = (fm * fm') .* (A + Diagonal(μ * d)) + Diagonal(one(T) .- fm)
-        L, ok = _cholesky(M)
-        if !ok                                   # numerically singular: damp more, retry
-            μ *= ν
-            ν *= 2
-            continue
-        end
-        h = _chol_solve(L, -(fm .* g))
-        θn = clamp.(θ + h, lo, hi)               # trial point, projected onto the bounds
-        s = θn - θ
-        if _step_small(s, θ, d, opts.xtol)
-            status = ConvergedX
-            break
+        accepted = false
+        actual = pred = zero(T)
+        θn, ssen, An, gn = θ, sse, A, g
+
+        # --- PROTOTYPE: the undamped Gauss–Newton step first ----------------------------------
+        if opts.gnfirst
+            Lg, okg = _cholesky((fm * fm') .* A + Diagonal(one(T) .- fm))
+            if okg
+                θg = clamp.(θ + _chol_solve(Lg, -(fm .* g)), lo, hi)
+                sg = θg - θ
+                if !_step_small(sg, θ, dstep, opts.xtol)
+                    accepted, θn, ssen, An, gn, actual, pred = _try_step(prob, θg, sg, sse, A, g, fm,
+                                                                         opts, buf)
+                end
+            end
         end
 
-        # --- evaluate the trial point and compare actual vs predicted SSE decrease ------------
-        ssen, An, gn = normal_equations(prob, θn, buf)
-        pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
-        actual = sse - ssen
-        if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 &&
-           !_lost_influence(A, An, fm)                      # not into a dead zone (see above)
-            # accept the step
+        # --- the damped step: solve the damped normal equations for the movable parameters ----
+        if !accepted
+            M = (fm * fm') .* (A + Diagonal(μ * d)) + Diagonal(one(T) .- fm)
+            L, ok = _cholesky(M)
+            if !ok                               # numerically singular: damp more, retry
+                μ, ν = _grow(μ, ν, opts)
+                continue
+            end
+            h = _chol_solve(L, -(fm .* g))
+            if opts.trust                        # PROTOTYPE: a step longer than Δ: damp more
+                tries = 0
+                while sqrt(sum(d .* h .* h)) > Δ && tries < 30
+                    μ *= 4
+                    tries += 1
+                    L, ok = _cholesky((fm * fm') .* (A + Diagonal(μ * d)) + Diagonal(one(T) .- fm))
+                    ok || break
+                    h = _chol_solve(L, -(fm .* g))
+                end
+            end
+            θt = clamp.(θ + h, lo, hi)           # trial point, projected onto the bounds
+            s = θt - θ
+            if _step_small(s, θ, dstep, opts.xtol)
+                status = ConvergedX
+                break
+            end
+            accepted, θn, ssen, An, gn, actual, pred = _try_step(prob, θt, s, sse, A, g, fm, opts, buf)
+        end
+
+        # --- PROTOTYPE: update the trust radius from the step's quality ------------------------
+        if opts.trust
+            δ = sqrt(sum(d .* (θn - θ) .* (θn - θ)))
+            ρt = pred > 0 ? actual / pred : -one(T)
+            if !accepted || ρt < T(0.25)
+                Δ = T(0.5) * min(Δ, max(δ, eps(T)))
+            elseif ρt > T(0.75)
+                Δ = max(Δ, 2δ)
+            end
+        end
+
+        # --- accept or reject ---------------------------------------------------------------------
+        if accepted
             ρ = actual / pred                    # ≈ 1 when the linear model is accurate
             fsmall = actual <= opts.ftol * sse && pred <= opts.ftol * sse
             θ, sse, A, g = θn, ssen, An, gn
-            d = max.(d, diag(A))
-            μ = max(μ * max(T(1 / 3), 1 - (2ρ - 1)^3), eps(T))   # Nielsen's update: shrink μ
+            dgrow = max.(dstep, diag(A))         # the growing scaling
+            d = opts.scalemax ? dgrow : max.(diag(A), floor_d)
+            dstep = opts.hybrid ? dgrow : d
+            μ = _shrink(μ, ρ, opts)
             ν = T(2)
             if fsmall
                 status = ConvergedF
@@ -373,8 +461,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
                 status = ConvergedF
                 break
             end
-            μ *= ν
-            ν *= 2
+            μ, ν = _grow(μ, ν, opts)
         end
     end
     return SolverResult(θ, sse, iter, status)
