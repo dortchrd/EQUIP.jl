@@ -119,12 +119,14 @@ Reading:
 | case | EQUIP full | EQUIP VarPro | best reference |
 |---|---|---|---|
 | SNR 200, no bounds | 180 not best, 34.5 steps | 8, 27.4 steps | TrustRegion 15 |
-| SNR 200, bounds | 4, 31.1 steps, 8.0 µs | 4, 25.6 steps, 5.6 µs | LsqFit 6 |
+| SNR 200, bounds | 4, 31.1 steps | 4, 25.6 steps | LsqFit 6 |
 | SNR 100, no bounds | 213, 80.1 steps | 16, 62.3 steps | TrustRegion 42 |
-| SNR 100, bounds | 13, 86.3 steps, 17.6 µs | 11, 67.0 steps, 14.5 µs | LsqFit 26 |
+| SNR 100, bounds | 13, 86.3 steps | 11, 67.0 steps | LsqFit 26 |
 
 VarPro removes EQUIP's unbounded biexponential problem (the full fit's path into the region
 where the two components merge): its misses drop to below NonlinearSolve's TrustRegion, and its
 errors to the best any method reached (SNR 100, median fshort error 43.7% → 28.0%). With bounds
-it is as good or better, with ~20% fewer steps and faster. Without bounds at SNR 200 it was
-slower in this run (6.5 → 8.5 µs), single timings.
+it is as good or better, with ~20% fewer steps. Speed: about the same; two runs gave different
+orders (µs per voxel, full → VarPro, 4 threads, 1000 voxels: SNR 200 bounds 8.0 → 5.6 and
+7.9 → 9.0; SNR 100 no bounds 14.0 → 12.3 and 18.8 → 11.9), so at this size the timings are
+within run-to-run noise. The answers and step counts are identical between runs.
