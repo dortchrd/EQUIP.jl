@@ -29,8 +29,9 @@ saved as CSV files: `examples/sir_wm_4point.jl` (white matter) and `examples/sir
 (tissue values over the range of the paper's tissue classes), e.g.
 `julia -t auto --project=. examples/sir_4point_range.jl`. `bench/solvers.jl` compares EQUIP with
 LsqFit, NonlinearSolve (SciML) and FastLevenbergMarquardt on test cases from easy to hard
-(`bench/cases.jl`: the same 4-point data, poor starts, 16-point SIR with kmf estimated, low SNR,
-bounds, a biexponential): speed, and whether each finds the best fit.
+(`bench/cases.jl`: T2 decay, variable flip angle and inversion recovery T1, the same 4-point data,
+poor starts, 16-point SIR with kmf estimated, low SNR, a small PSR, a biexponential), each run
+without bounds and with the models' bounds: speed, and whether each finds the best fit.
 
 The first `using EQUIP` after installing (or after any change to its code) takes about 40 s:
 EQUIP then compiles small fits of every built-in model and saves the result, so that in every

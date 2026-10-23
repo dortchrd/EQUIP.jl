@@ -733,6 +733,20 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       iteration limit; bounds prevent that (R1f ≥ 0.05). With bounds and the same poor starts,
       every bounded method misses the best fit in ~37-42% of voxels (EQUIP 383, LsqFit 415,
       FastLM 367): the 4-point scheme's several exact fits, not a solver problem.
+    - The benchmark now runs every case twice: without bounds (every method) and with the
+      models' bounds (EQUIP, LsqFit, FastLM). With bounds (1000 voxels, 1 run, 4 threads), µs per
+      voxel (not best among the three):
+
+      | method | t2 | t1mfa | t1ir | sir4_range | sir4_poorstart | sir16_kmf | sir16_kmf_snr50 | sir4_lowpsr | biexp |
+      |---|---|---|---|---|---|---|---|---|---|
+      | EQUIP | 1.86 (0) | 0.68 (0) | 0.84 (9) | 1.26 (0) | 2.60 (26) | 4.83 (3) | 5.42 (11) | 1.19 (0) | 17.3 (4) |
+      | LsqFit | 13.9 (0) | 14.8 (0) | 16.8 (8) | 19.3 (0) | 610 (409) | 27.2 (1) | 95.8 (13) | 139 (214) | 230 (22) |
+      | FastLM | 1.48 (0) | 2.04 (0) | 1.45 (10) | 1.92 (0) | 27.5 (357) | 11.2 (7) | 22.8 (24) | 14.3 (211) | 31.6 (243) |
+
+      With bounds EQUIP finds the best fit as often as or more often than the others on every
+      case, and is fastest except T2 decay (1.86 vs FastLM 1.48, one run; without bounds EQUIP
+      0.80). The unbounded table is in the earlier bullet (`sir4_bounds` there is now
+      `sir4_lowpsr`, and its rows there were mixed: bounded EQUIP/LsqFit/FastLM, unbounded SciML).
     - Next (prototype branch): EQUIP's step control. Candidates: Marquardt scaling recomputed
       each step (LsqFit) instead of only growing (`d = max.(d, diag(A))`), the damping update,
       a Gauss–Newton step first. Targets: the unbounded biexponential path (202), the crawling

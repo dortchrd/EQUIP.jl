@@ -28,9 +28,9 @@
 #                     observations and 5 free parameters, so the fits are least squares, not exact;
 #                     same tissue ranges, SNR 200
 #   :sir16_kmf_snr50  the same at SNR 50
-#   :sir4_bounds      4-point SIR with a small macromolecular pool (PSR 0.005-0.05, other values as
-#                     :sir4_range) at SNR 50, fitted with QMTSIR's bounds: many voxels' best
-#                     unbounded fit has PSR < 0, so the bound PSR ≥ 0 comes into play
+#   :sir4_lowpsr      4-point SIR with a small macromolecular pool (PSR 0.005-0.05, other values as
+#                     :sir4_range) at SNR 50: many voxels' best unbounded fit has PSR < 0, so in
+#                     the run with bounds the bound PSR ≥ 0 comes into play
 #   :biexp            T2BiexpDecay, 32 echoes 10-320 ms, values around those of myelin water
 #                     imaging: fshort 0.05-0.30, T2short 10-30 ms, T2long 60-120 ms, S0 0.8-1.2,
 #                     SNR 100 (relative to S0); two exponentials, the classic ill-conditioned fit
@@ -46,7 +46,7 @@
 using EQUIP, Random
 
 const ALLCASES = (:t2, :t1mfa, :t1ir, :sir4_range, :sir4_poorstart, :sir16_kmf, :sir16_kmf_snr50,
-                  :sir4_bounds, :biexp)
+                  :sir4_lowpsr, :biexp)
 const NVOX = 10_000
 
 uniform(rng, (lo, hi), n) = lo .+ (hi - lo) .* rand(rng, n)      # n values, uniform in [lo, hi)
@@ -93,10 +93,10 @@ end
 """
     makecase(name; n = NVOX)
 
-One test case: `(; name, title, m, Y, truth, roles, bounds, starts, order!)`. `roles` are the
-keywords for EQUIP's `fit` (e.g. `kmf = Free()`), `bounds` whether the case is fitted with the
-model's bounds, `starts` a function changing the default starts (or `nothing`), `order!` a
-function putting the estimates in a standard order before comparing (or `nothing`).
+One test case: `(; name, title, m, Y, truth, roles, starts, order!)`. `roles` are the keywords
+for EQUIP's `fit` (e.g. `kmf = Free()`), `starts` a function changing the default starts (or
+`nothing`), `order!` a function putting the estimates in a standard order before comparing (or
+`nothing`). bench/solvers.jl fits every case twice, without bounds and with the model's bounds.
 """
 function makecase(name::Symbol; n = NVOX)
     rng = MersenneTwister(1)
@@ -105,20 +105,20 @@ function makecase(name::Symbol; n = NVOX)
         truth = (S0 = uniform(rng, (0.8, 1.2), n), T2 = uniform(rng, stanisz(:T2), n))
         Y = simulate(m, truth; snr = 100, rng)
         return (; name, title = "T2 decay, 32 echoes, T2 27-275 ms, SNR 100", m, Y, truth,
-                roles = (;), bounds = false, starts = nothing, order! = nothing)
+                roles = (;), starts = nothing, order! = nothing)
     elseif name === :t1mfa
         m = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
         truth = (M0 = uniform(rng, (0.8, 1.2), n), T1 = uniform(rng, stanisz(:T1), n))
         Y = simulate(m, truth; snr = 1000, rng)
         return (; name, title = "T1 variable flip angle, 6 angles, T1 0.81-1.93 s, σ = M0/1000", m, Y,
-                truth, roles = (;), bounds = false, starts = nothing, order! = nothing)
+                truth, roles = (;), starts = nothing, order! = nothing)
     elseif name === :t1ir
         m = T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2])
         truth = (M0 = uniform(rng, (0.8, 1.2), n), Sf = uniform(rng, (-1.0, -0.8), n),
                  T1 = uniform(rng, stanisz(:T1), n))
         Y = simulate(m, truth; snr = 100, rng)
         return (; name, title = "T1 inversion recovery, 7 TIs, magnitude, T1 0.81-1.93 s, SNR 100", m,
-                Y, truth, roles = (;), bounds = false, starts = nothing, order! = nothing)
+                Y, truth, roles = (;), starts = nothing, order! = nothing)
     elseif name in (:sir4_range, :sir4_poorstart)
         m = QMTSIR(; SIR_4POINT...)
         truth = sirtruth(rng, n)
@@ -126,28 +126,27 @@ function makecase(name::Symbol; n = NVOX)
         poor = name === :sir4_poorstart
         title = poor ? "4-point SIR, tissue range, SNR 200, poor random starts" :
                        "4-point SIR, tissue range, SNR 200"
-        return (; name, title, m, Y, truth, roles = (;), bounds = false,
-                starts = poor ? poorstarts : nothing, order! = nothing)
+        return (; name, title, m, Y, truth, roles = (;), starts = poor ? poorstarts : nothing, order! = nothing)
     elseif name in (:sir16_kmf, :sir16_kmf_snr50)
         snr = name === :sir16_kmf ? 200 : 50
         m = QMTSIR(; SIR_16POINT...)
         truth = sirtruth(rng, n)
         Y = simulate(m, truth; snr, rng)
         return (; name, title = "16-point SIR, kmf estimated, tissue range, SNR $snr", m, Y, truth,
-                roles = (kmf = Free(),), bounds = false, starts = nothing, order! = nothing)
-    elseif name === :sir4_bounds
+                roles = (kmf = Free(),), starts = nothing, order! = nothing)
+    elseif name === :sir4_lowpsr
         m = QMTSIR(; SIR_4POINT...)
         truth = sirtruth(rng, n; psr = (0.005, 0.05))
         Y = simulate(m, truth; snr = 50, rng)
-        return (; name, title = "4-point SIR, PSR 0.005-0.05, SNR 50, with bounds", m, Y, truth,
-                roles = (;), bounds = true, starts = nothing, order! = nothing)
+        return (; name, title = "4-point SIR, small PSR (0.005-0.05), SNR 50", m, Y, truth,
+                roles = (;), starts = nothing, order! = nothing)
     elseif name === :biexp
         m = T2BiexpDecay(TE = collect(0.01:0.01:0.32))
         truth = (S0 = uniform(rng, (0.8, 1.2), n), fshort = uniform(rng, (0.05, 0.30), n),
                  T2short = uniform(rng, (0.010, 0.030), n), T2long = uniform(rng, (0.060, 0.120), n))
         Y = simulate(m, truth; snr = 100, rng)
         return (; name, title = "biexponential T2, 32 echoes, myelin-water-like values, SNR 100",
-                m, Y, truth, roles = (;), bounds = false, starts = nothing, order! = biexp_order!)
+                m, Y, truth, roles = (;), starts = nothing, order! = biexp_order!)
     end
     throw(ArgumentError("unknown case $name; the cases: $(join(ALLCASES, ", "))"))
 end

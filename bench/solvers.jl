@@ -1,10 +1,11 @@
 # =================================================================================================
 # Benchmark: EQUIP vs other Julia fitting packages, over test cases from easy to hard
 #
-# Every case in bench/cases.jl (4-point SIR, poor starts, 16-point SIR with kmf estimated, low
-# SNR, bounds that come into play, a biexponential) is fitted by every method, timed with
-# BenchmarkTools, and checked: does each method find the same answer as EQUIP, a better or a
-# worse one, or fail? The methods:
+# Every case in bench/cases.jl (T2 decay, variable flip angle and inversion recovery T1; 4-point
+# SIR, poor starts, 16-point SIR with kmf estimated, low SNR, a small PSR; a biexponential) is
+# fitted twice, without bounds and with the model's bounds, by every method that can, timed with
+# BenchmarkTools, and checked: does each method find the best answer any method found, the same
+# one as EQUIP, or fail? The methods:
 #   - EQUIP (its own Levenberg-Marquardt)
 #   - LsqFit's Levenberg-Marquardt
 #   - NonlinearSolve's general solvers LevenbergMarquardt and TrustRegion (SciML)
@@ -17,8 +18,11 @@
 #   - the signal: every method calls EQUIP's own `signal!` for the case's model
 #   - the free and fixed parameters (EQUIP's roles for the case, e.g. QMTSIR's kmf fixed at 12.5
 #     or estimated), and the starting values (EQUIP's default starts, or the case's)
-#   - the bounds: as the case says (the model's bounds, or none); NonlinearSolve and the Simple
-#     solvers take none, so in a case with bounds their rows say "(no bounds)"
+#   - the bounds: each case runs twice (BOUNDS). Without bounds, every method: the like-for-like
+#     comparison. With the model's bounds (e.g. QMTSIR's PSR 0-1, R1f ≥ 0.05; the biexponential's
+#     fshort 0-1, T2s > 0), EQUIP's normal use: only the methods that take bounds (EQUIP, LsqFit,
+#     FastLevenbergMarquardt; the SciML least-squares solvers take none). With bounds, starts
+#     outside them are moved onto them (every method gets the same starts).
 #   - the stopping rule and the iteration limit (see "Convergence")
 #   - derivatives: ForwardDiff (dual numbers) everywhere
 #   - the threads, and the number of timed runs (RUNS)
@@ -44,11 +48,11 @@
 # safeguard against bad steps).
 #
 # Answers, voxel by voxel: "not best" = the method's fit is clearly worse (SSE higher by more than
-# 1e-8 of the voxel's Σy²) than the best fit any method found for that voxel, or failed; in a case
-# with bounds, the best among the methods that solve the same problem (with bounds, or without).
-# "same" = every estimate within 1e-4 (relative) of EQUIP's; "lower" and "higher" = the method's
-# SSE is clearly lower or higher than EQUIP's; "failed" = no finite answer (an error, or NaN). Biexponential fits are put in the
-# same order first (T2short ≤ T2long), so swapped components are not counted as different.
+# 1e-8 of the voxel's Σy²) than the best fit any method found for that voxel in the same run (with
+# bounds, or without), or failed. "same" = every estimate within 1e-4 (relative) of EQUIP's;
+# "lower" and "higher" = the method's SSE is clearly lower or higher than EQUIP's; "failed" = no
+# finite answer (an error, or NaN). Biexponential fits are put in the same order first
+# (T2short ≤ T2long), so swapped components are not counted as different.
 #
 # Run, from the repository folder:
 #   julia --project=bench -e 'using Pkg; Pkg.instantiate()'    # once: installs the packages
@@ -62,12 +66,12 @@ include("cases.jl")
 
 # --- Settings ------------------------------------------------------------------------------------
 const CASES = ALLCASES   # or some of them, e.g. (:sir4_range, :biexp); see bench/cases.jl
-const NVOXELS = 2_000    # voxels per case (more: steadier numbers, but a longer run)
+const BOUNDS = (false, true)   # each case without bounds, then with them; or (false,) or (true,)
+const NVOXELS = 1_000    # voxels per case (more: steadier numbers, but a longer run)
 const RUNS = 3           # every method fits every voxel of a case this many times
 # Run time: the slow methods on the hard cases dominate (NonlinearSolve's LevenbergMarquardt
-# takes ~3-5 ms per voxel on the 16-point and biexponential cases). With these settings, all six
-# cases take roughly 5-10 minutes on 4 threads; 1000 voxels and 1 run, about 2 minutes.
-const BOUNDS = nothing   # nothing: as each case says; true or false: for every case
+# takes 1-5 ms per voxel on most cases). All cases, both runs, these settings: about 5 minutes on
+# 4 threads (cloud machine; 1 run: 2.5 minutes); BOUNDS = (true,) alone is much quicker.
 const XTOL = 1e-8        # the shared stopping rule: relative parameter step (see above)
 const MAXITER = 1000     # the same iteration limit for every method
 
@@ -86,9 +90,8 @@ const SCIML_STOP = (termination_condition = AbsNormSafeBestTerminationMode(Base.
     EQUIP._resolve_ties(merge(NamedTuple{F}(ntuple(j -> p[j], Val(length(F)))), fixed))
 
 # --- One case, ready to fit: free names F, starts P0 (one column per voxel), bounds, fixed values -
-function prepare(name)
+function prepare(name, bounds)
     c = makecase(name; n = NVOXELS)
-    bounds = BOUNDS === nothing ? c.bounds : BOUNDS
     spec = init(c.m; c.roles...).spec                # EQUIP's setup: free names, bounds, fixed
     F = EQUIP.freenames(spec)
     P = length(F)
@@ -101,6 +104,7 @@ function prepare(name)
     st = fit(c.m, c.Y; solver = LM(maxiter = 0), roles(ntuple(_ -> nothing, P))...).params
     P0 = permutedims(reduce(hcat, [st[n] for n in F]))   # EQUIP's starts (0 iterations)
     c.starts === nothing || (P0 = c.starts(MersenneTwister(2), P0, F))
+    bounds && (P0 = clamp.(P0, lower, upper))        # starts outside the bounds: onto them
     return (; c..., F, P0, lower, upper, bounds, fixed = spec.fixed, roles)
 end
 
@@ -211,28 +215,28 @@ function fit_fastlm(m, Y, P0, lower, upper, bounds, vF::Val{F}, fixed, vM::Val{M
     end
     return est, ok, steps
 end
-# Every method for one case, as (name, function that fits all voxels, can it take bounds). Val(F)
-# and Val(M) carry the free names and the number of observations as types, so the static methods
-# compile for them.
+# Every method for one case, as (name, function that fits all voxels); with bounds, only those
+# that take bounds. Val(F) and Val(M) carry the free names and the number of observations as
+# types, so the static methods compile for them.
 function solvers(c)
     vF, vM = Val(c.F), Val(size(c.Y, 2))
     (; m, Y, P0, lower, upper, bounds, fixed) = c
-    nb = bounds ? " (no bounds)" : ""               # for the solvers that cannot take bounds
-    return [("EQUIP", () -> fit_equip(c), true),
+    every = [("EQUIP", () -> fit_equip(c), true),
             ("LsqFit (Levenberg-Marquardt)", () -> fit_lsqfit(m, Y, P0, lower, upper, bounds, vF, fixed),
              true),
-            ("NonlinearSolve LevenbergMarquardt" * nb,
+            ("NonlinearSolve LevenbergMarquardt",
              () -> fit_sciml(m, Y, P0, LevenbergMarquardt(autodiff = AutoForwardDiff()), vF, fixed), false),
-            ("NonlinearSolve TrustRegion" * nb,
+            ("NonlinearSolve TrustRegion",
              () -> fit_sciml(m, Y, P0, TrustRegion(autodiff = AutoForwardDiff()), vF, fixed), false),
-            ("SimpleGaussNewton" * nb,
+            ("SimpleGaussNewton",
              () -> fit_simple(m, Y, P0, SimpleGaussNewton(autodiff = AutoForwardDiff()), vF, fixed, vM),
              false),
-            ("SimpleTrustRegion" * nb,
+            ("SimpleTrustRegion",
              () -> fit_simple(m, Y, P0, SimpleTrustRegion(autodiff = AutoForwardDiff()), vF, fixed, vM),
              false),
             ("FastLevenbergMarquardt", () -> fit_fastlm(m, Y, P0, lower, upper, bounds, vF, fixed, vM),
              true)]
+    return [(name, run) for (name, run, takesbounds) in every if takesbounds || !bounds]
 end
 
 # Each voxel's SSE at a method's estimates (NaN for a failed voxel), with the same signal code
@@ -247,24 +251,23 @@ end
 println("Julia ", VERSION, ", ", Threads.nthreads(), " threads, ", Sys.cpu_info()[1].model, "; ",
         RUNS, " runs per method; EQUIP, LsqFit and FastLevenbergMarquardt stop at relative step ",
         XTOL, ", the SciML solvers by their default rule")
-overview = Dict{Tuple{Symbol,String},Any}()       # (case, method) => speed and failures
-methodnames = String[]
-for name in CASES
-    c = prepare(name)
+overview = Dict{Tuple{Symbol,Bool,String},Any}()  # (case, bounds, method) => speed, not best
+methodnames = Dict(b => String[] for b in BOUNDS)
+for name in CASES, bounded in BOUNDS
+    c = prepare(name, bounded)
     nvox, M = size(c.Y)
-    println("\n", "="^100, "\nCase ", name, ": ", c.title)
+    println("\n", "="^100, "\nCase ", name, bounded ? ", with bounds: " : ", without bounds: ", c.title)
     println("  ", nvox, " voxels, ", M, " observations, free: ", join(c.F, ", "),
             c.bounds ? "; with the model's bounds" : "; no bounds")
     println("  truth (min to max): ", join(("$n $(round(minimum(c.truth[n]); sigdigits = 3)) to " *
                                             "$(round(maximum(c.truth[n]); sigdigits = 3))"
                                             for n in c.F if haskey(c.truth, n)), ", "))
-    results = map(solvers(c)) do (mname, run, takesbounds)
+    results = map(solvers(c)) do (mname, run)
         est, ok, steps = run()                      # compiles it, and gives the estimates
         c.order! === nothing || c.order!(est, c.F)  # e.g. biexponential components in order
         b = @benchmark $run() samples = RUNS evals = 1 seconds = 1e6   # exactly RUNS runs
         (; name = mname, est, ok, steps, sse = sse_all(c.m, c.Y, est, Val(c.F), c.fixed),
-         time = median(b.times) / 1e9, tmin = minimum(b.times) / 1e9, memory = b.memory,
-         group = c.bounds && takesbounds)            # which problem it solved: bounded or not
+         time = median(b.times) / 1e9, tmin = minimum(b.times) / 1e9, memory = b.memory)
     end
 
     # Speed
@@ -281,8 +284,7 @@ for name in CASES
     ref = results[1]
     tol = 1e-8 .* vec(sum(abs2, c.Y; dims = 2))
     finite(x) = isfinite(x) ? x : Inf
-    best = Dict(g => [minimum(finite(r.sse[v]) for r in results if r.group == g) for v in 1:nvox]
-                for g in unique(r.group for r in results))
+    best = [minimum(finite(r.sse[v]) for r in results) for v in 1:nvox]   # the best fit found
     errnames = [n for n in c.F if haskey(c.truth, n)]
     @printf("\n  %-42s %9s %8s %7s %7s %7s %7s", "method", "converged", "not best", "failed", "same",
             "lower", "higher")
@@ -292,7 +294,7 @@ for name in CASES
         same = count(v -> all(abs.(r.est[:, v] .- ref.est[:, v]) .<= 1e-4 .* (abs.(ref.est[:, v]) .+ 1e-3)),
                      1:nvox)
         failed = count(!isfinite, r.sse)
-        notbest = count(v -> !isfinite(r.sse[v]) || r.sse[v] > best[r.group][v] + tol[v], 1:nvox)
+        notbest = count(v -> !isfinite(r.sse[v]) || r.sse[v] > best[v] + tol[v], 1:nvox)
         nlower = count(r.sse .< ref.sse .- tol)
         nhigher = count(r.sse .> ref.sse .+ tol)
         @printf("  %-42s %8.1f%% %8d %7d %7d %7d %7d", r.name, 100 * mean(r.ok), notbest, failed, same,
@@ -303,28 +305,27 @@ for name in CASES
             @printf(" %8.2f%%", 100 * median(filter(isfinite, e)))
         end
         println()
-        base = replace(r.name, " (no bounds)" => "")
-        base in methodnames || push!(methodnames, base)
-        overview[(name, base)] = (; us = 1e6 * r.time / nvox, notbest)
+        r.name in methodnames[bounded] || push!(methodnames[bounded], r.name)
+        overview[(name, bounded, r.name)] = (; us = 1e6 * r.time / nvox, notbest)
     end
-    println("  (not best: voxels whose fit is clearly worse than the best any method found, or failed;",
-            " same: every\n   estimate within 1e-4 of EQUIP's; lower/higher: SSE clearly lower/higher than",
-            " EQUIP's;\n   err: median |estimate - truth| / truth", c.bounds ? "; with bounds, the methods" *
-            " without them solve another problem,\n   so they are compared among themselves)" : ")")
+    println("  (not best: voxels whose fit is clearly worse than the best any method found in this run,",
+            " or failed;\n   same: every estimate within 1e-4 of EQUIP's; lower/higher: SSE clearly",
+            " lower/higher than EQUIP's;\n   err: median |estimate - truth| / truth)")
 end
 
-# --- Summary over the cases: µs per voxel, and voxels with a worse fit than EQUIP's or no answer --
-if length(CASES) > 1
-    println("\n", "="^100, "\nSummary: µs per voxel (voxels not best: a clearly worse fit than the best",
-            " any method found, or failed)")
-    @printf("  %-42s", "method")
-    foreach(n -> @printf(" %20s", n), CASES)
+# --- Summary over the cases, one table per run: µs per voxel (voxels not best) -------------------
+for bounded in BOUNDS
+    println("\n", "="^100, "\nSummary, ", bounded ? "with the models' bounds" : "without bounds",
+            ": µs per voxel (voxels not best: a clearly worse fit than the best any method found",
+            " in this run, or failed; out of ", NVOXELS, ")")
+    @printf("  %-34s", "method")
+    foreach(n -> @printf(" %16s", n), CASES)
     println()
-    for mname in methodnames
-        @printf("  %-42s", mname)
+    for mname in methodnames[bounded]
+        @printf("  %-34s", mname)
         for n in CASES
-            s = overview[(n, mname)]
-            @printf(" %20s", @sprintf("%.2f (%d)", s.us, s.notbest))
+            s = overview[(n, bounded, mname)]
+            @printf(" %16s", @sprintf("%.2f (%d)", s.us, s.notbest))
         end
         println()
     end
