@@ -365,6 +365,30 @@ end
         @test_throws DimensionMismatch fit(T2Decay(TE = te[1:5]), data)
         @test_throws DimensionMismatch fit(m, data; mask = mask[:, :, 1])
         @test_throws DimensionMismatch fit(m, data; T2 = Free(start = T2[:, :, 1]))
+        # a map must have the data's spatial size, not just its number of voxels: a reshaped map
+        # (or mask) would put values in the wrong voxels; trailing length-1 dimensions are ignored
+        @test_throws DimensionMismatch fit(m, data; T2 = Free(start = reshape(T2, nx * ny, nz)))
+        @test_throws DimensionMismatch fit(m, data; mask = reshape(mask, ny, nx, nz))
+        d1 = data[:, :, 1:1, :]                                    # one slice: nx × ny × 1 × M
+        @test size(fit(m, d1; T2 = Free(start = T2[:, :, 1])).params.T2) == (nx, ny, 1)
+        @test size(fit(m, reshape(data, :, length(te)); mask = vec(mask)).params.T2) == (nx * ny * nz,)
+    end
+
+    @testset "refit: starts and bounds" begin
+        rng = MersenneTwister(9)
+        td = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]
+        m = T1SR(TD = td)                                          # T1's default start: 1.0
+        T1 = 0.2 .+ 0.3 .* rand(rng, 10)
+        Y = reduce(vcat, [permutedims(signal(m, (M0 = 1000.0, T1 = t)) .+ randn(rng, 6)) for t in T1])
+        res = fit(m, Y; T1 = Free(lower = 0.05))
+        start(r; kw...) = refit(r, Y; solver = LM(maxiter = 0), kw...).params.T1   # the start used
+        @test start(res) == res.params.T1                          # previous values
+        @test start(res; T1 = Free(upper = 5.0)) == res.params.T1  # a bounds-only change keeps them
+        @test start(res; T1 = Free(start = 0.7)) == fill(0.7, 10)  # an explicit start wins
+        @test start(res; T1 = Free(upper = 0.25)) == min.(res.params.T1, 0.25)   # moved onto a new bound
+        r2 = refit(res, Y; T1 = Free(upper = 5.0))
+        @test r2.settings.T1.lower == 0.05 && r2.settings.T1.upper == 5.0   # stored bound kept
+        @test r2.params.T1 ≈ res.params.T1 rtol = 1e-6
     end
 
     @testset "mono-exponential: time vs rate form, offset versions, diffusion" begin

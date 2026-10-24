@@ -52,12 +52,13 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     m = size(data, ndims(data))
     m == length(cache.y) ||
         throw(DimensionMismatch("the model has $(length(cache.y)) observations, the data have $m"))
-    _check_maps(cache.spec.fixed, nvox, "fixed")
-    _check_maps(cache.spec.start, nvox, "start")
+    _check_maps(cache.spec.fixed, spatial, "fixed")
+    _check_maps(cache.spec.start, spatial, "start")
     voxels = if mask === nothing
         1:nvox                                       # every voxel
     else
-        length(mask) == nvox || throw(DimensionMismatch("the mask has $(length(mask)) voxels, the data have $nvox"))
+        _samesize(size(mask), spatial) || throw(DimensionMismatch(
+            "the mask has size $(size(mask)), the data's spatial size is $spatial"))
         findall(!iszero, vec(mask))                  # linear indices of the voxels to fit
     end
     Y = reshape(data, nvox, m)                       # a view: row v = voxel v's observations
@@ -66,12 +67,20 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     return FitResult(params, sse, iterations, status, cache.model, settings)
 end
 
-function _check_maps(nt::NamedTuple, nvox, kind)
+# A map (and the mask) must have the data's spatial size, not just as many voxels: a transposed
+# or reshaped map has the right count but puts its values in the wrong voxels, silently (a
+# transposed B1 map gave T1 errors up to 92%). Trailing dimensions of length 1 are ignored, so a
+# 64×64 map fits 64×64×1×M data. (The cache interface, `fit!(c, y; voxel = v)`, reads maps by
+# linear index, as before.)
+function _check_maps(nt::NamedTuple, spatial, kind)
     for (name, x) in pairs(nt)
-        x isa AbstractArray && length(x) != nvox &&
-            throw(DimensionMismatch("$kind map `$name` has $(length(x)) voxels, the data have $nvox"))
+        x isa AbstractArray && !_samesize(size(x), spatial) &&
+            throw(DimensionMismatch("$kind map `$name` has size $(size(x)), the data's spatial " *
+                "size (all dimensions but the last) is $spatial: a map must match it"))
     end
 end
+_samesize(a::Tuple, b::Tuple) = _droptrailing1(a) == _droptrailing1(b)
+_droptrailing1(s::Tuple) = isempty(s) || last(s) != 1 ? s : _droptrailing1(Base.front(s))
 
 # The work, behind a "function barrier": the cache's concrete type is known inside this
 # function, so the loops below compile to fast specialized code.
@@ -123,25 +132,34 @@ end
 Fit `data` again with the model and settings of an earlier result `res`, starting every free
 parameter from its value in `res` (numbers for one voxel, maps for a dataset): to polish a fit,
 or to see the effect of one change. Keywords change settings, as for [`fit`](@ref), and win
-over the stored ones; a parameter changed by a keyword starts from what that keyword says.
+over the stored ones. A free parameter's start: a new start given by a keyword, else its value
+in `res`, else the model's default. A keyword that changes only bounds (`T2 = Free(upper =
+0.2)`) keeps the previous value as start, and the stored bounds it does not mention; a start
+outside new bounds is moved onto them.
 
 ```julia
 res = fit(m, data; mask = mask)
-res2 = refit(res, data; kmf = 15.0)        # the same fit with kmf fixed at 15, from res's maps
+res2 = refit(res, data; kmf = 15.0)                # kmf fixed at 15, from res's maps
+res3 = refit(res, data; PSR = Free(upper = 0.3))   # a new bound; still starts from res's maps
 ```
 
 Voxels without a value in `res` (NaN: outside its mask, or invalid) have no start, and are
 marked invalid; fit them with [`fit`](@ref) instead.
 """
 function refit(res::FitResult, data; changes...)
-    settings = merge(res.settings, (; changes...))           # later keywords win
+    ch = (; (n => _combine(x, get(res.settings, n, nothing)) for (n, x) in pairs(values(changes)))...)
+    settings = merge(res.settings, ch)                       # later keywords win
     starts = Pair{Symbol,Free}[]
     for n in keys(res.params)                                # the parameters fitted in `res`
-        haskey(changes, n) && continue                       # changed: as the keyword says
         current = get(settings, n, Free())                   # this fit's role for n, if given
-        current isa Free || continue
+        current isa Free || continue                         # now fixed: as the keyword says
+        haskey(changes, n) && current.start !== nothing && continue   # a new start: as given
         push!(starts, n => Free(start = res.params[n], lower = current.lower,
                                 upper = current.upper))
     end
     return fit(res.model, data; merge(settings, (; starts...))...)   # the starts win
 end
+# A `Free(...)` change over a stored `Free(...)` keeps the stored bounds it leaves out (`_keep`,
+# setup.jl: the new value unless `nothing`); any other change replaces the stored setting.
+_combine(x::Free, s::Free) = Free(start = x.start, lower = _keep(x.lower, s.lower), upper = _keep(x.upper, s.upper))
+_combine(x, s) = x
