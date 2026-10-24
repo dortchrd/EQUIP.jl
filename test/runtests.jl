@@ -632,6 +632,12 @@ end
         without = fit(m, data)                     # B1 = 1 everywhere: biased
         @test with.params.T1 ≈ T1 rtol = 1e-6
         @test maximum(abs.(without.params.T1 .- T1) ./ T1) > 0.1
+        @test with.fixed.B1 === B1                 # a dataset result keeps the map (not copied)
+        # one voxel fitted with the map: the result keeps that voxel's B1, so it is self-contained
+        r7 = fit!(init(m; B1 = B1), data[7, 1, :]; voxel = 7)
+        @test r7.fixed.B1 == B1[7]
+        @test fitted(r7) ≈ data[7, 1, :] rtol = 1e-6
+        @test resolve(r7) == (M0 = r7.params.M0, T1 = r7.params.T1, B1 = B1[7])
     end
 
     @testset "fit: one voxel (vector) or a dataset with any number of spatial dimensions" begin
@@ -675,6 +681,9 @@ end
         yq = signal(mq, merge(defaults(mq), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0)))
         rq = fit(mq, yq; kmf = 15.0)
         @test fitted(rq) ≈ yq rtol = 1e-6
+        @test rq.fixed == (kmf = 15.0, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+        rr = resolve(rq)                                   # every value, fitted and fixed, ties evaluated
+        @test keys(rr) == keys(parameters(mq)) && rr.kmf == 15.0 && rr.R1m == rr.R1f == rq.params.R1f
         @test fit(mq, yq; kmf = Fixed(15.0)).params == rq.params                # role or number
         # a dataset: maps of the same fields; status is a FitStatus map (1 byte per voxel)
         T2 = 0.05 .+ 0.05 .* rand(MersenneTwister(8), 5, 4)
@@ -691,6 +700,9 @@ end
         @test res.settings.mask === mask                                        # a reference
         @test fitted(res, 3, 2) ≈ signal(m, (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2]))
         @test fitted(res, 8) == fitted(res, 3, 2)                               # linear index
+        @test resolve(res, 3, 2) == (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2])
+        @test_throws ArgumentError resolve(res)
+        @test_throws ArgumentError resolve(r, 1)
         @test sum(abs2, residuals(res, data, 3, 2)) ≈ res.sse[3, 2] rtol = 1e-8
         @test all(isnan, fitted(res, 1, 1))                                     # outside the mask
         # refit with the same settings, or from the previous maps

@@ -330,8 +330,8 @@ The names are not exported (`Failed` is too generic): `EQUIP.MaxIterations`, or 
 
 ## FitResult
 
-One type for every fit (`src/fit/result.jl`): `params`, `sse`, `iterations`, `status`, plus
-`model` (as fitted: its acquisition in the working precision) and `settings` (the call's
+One type for every fit (`src/fit/result.jl`): `params`, `fixed`, `sse`, `iterations`, `status`,
+plus `model` (as fitted: its acquisition in the working precision) and `settings` (the call's
 keywords, by reference: the parameter keywords, `precision`, `solver`, and `mask` for a
 dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the status a single
 `FitStatus`?) tells them apart at compile time.
@@ -339,16 +339,29 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   an immutable struct. Measured, best of 3 alternating runs: `fit!` T2Decay 1841 → 1852 ns,
   QMTSIR 2951 → 2948 ns; a 20k-voxel dataset 39.9 → 40.2 ms (it now also fills an iterations
   map).
-- `fitted(res)` / `fitted(res, i...)` rebuild a curve with `signal`, from the model, the fitted
-  parameters and the fixed values in `settings` (numbers, roles, ties, or that voxel's value of
-  a map); `residuals(res, y)` / `residuals(res, data, i...)` subtract it from the data. Both are
-  StatsAPI's names. A one-voxel result fitted with fixed maps (`fit!` with `voxel`) cannot
-  rebuild its curve: the voxel index is not stored.
+- `fixed`: the fixed values the fit used, the model's defaults and the call's together: numbers
+  and ties (`R1m = :R1f`), and for a dataset maps (the user's arrays, not copied). **Decision:**
+  a one-voxel result stores that voxel's values (a map's value at the voxel), so it is
+  self-contained: before, a one-voxel result fitted with fixed maps (`fit!` with `voxel`) could
+  not rebuild its curve (the voxel index was not stored), and `fitted` rebuilt the fixed values
+  from `settings` and `defaults(m)`. Results and speed unchanged (fingerprint of every bench case
+  identical bit for bit; `fit!` T2Decay 1.6, QMTSIR 2.5, T1MFA 1.1 µs, before and after; still
+  no allocation).
+- `resolve(res)` / `resolve(res, i...)`: every parameter's value, fitted and fixed, ties
+  evaluated, in model order (a method of `resolve(m, p)`). `fitted(res)` / `fitted(res, i...)`
+  are `signal(res.model, resolve(...))`; `residuals(res, y)` / `residuals(res, data, i...)`
+  subtract them from the data. `fitted` and `residuals` are StatsAPI's names.
 - Refit: `fit(res.model, data; res.settings...)` repeats the fit with the same choices.
-  `refit(res, data; changes...)` merges the changes into the settings and starts every free
-  parameter not changed from its previous estimate (`name = Free(start = res.params.name)`,
-  with the bounds of the first fit), e.g. `refit(res, data; kmf = Free())`. A voxel
-  whose previous estimate is NaN becomes `InvalidData`, as for any non-finite start map.
+  `refit(res, data; changes...)` merges the changes into the settings. A free parameter starts
+  from a new start given by a change, else its previous estimate, else the model's default; a
+  change of bounds only (`Free(upper = 0.2)`) keeps the previous estimate and the stored bounds
+  it does not mention. **Decision** (earlier, a changed parameter restarted from the model's
+  default start, dropping the previous estimate). A voxel whose previous estimate is NaN becomes
+  `InvalidData`, as for any non-finite start map.
+- Maps (fixed values, starts) and the mask must have the data's spatial size, not just its number
+  of voxels; trailing length-1 dimensions are ignored. **Decision:** a transposed B1 map was
+  accepted (same voxel count) and gave T1 errors up to 92%, silently. The cache interface
+  (`fit!(c, y; voxel = v)`) reads maps by linear index.
 - Display: one line in `print` and inside collections; at the REPL a summary (one voxel: status,
   iterations, SSE, values, fixed parameters; a dataset: voxels fitted, % converged, counts per
   status, median and interquartile range of each parameter over converged voxels, fixed

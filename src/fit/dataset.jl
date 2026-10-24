@@ -64,7 +64,8 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     Y = reshape(data, nvox, m)                       # a view: row v = voxel v's observations
     params, sse, iterations, status = _fit_maps(cache, Y, voxels, spatial)
     settings = merge(cache.settings, (; mask))       # the keywords of this call, mask included
-    return FitResult(params, sse, iterations, status, cache.model, settings)
+    fixed = map(_untie, cache.spec.fixed)            # numbers, maps (not copied) and ties
+    return FitResult(params, fixed, sse, iterations, status, cache.model, settings)
 end
 
 # A map (and the mask) must have the data's spatial size, not just as many voxels: a transposed
@@ -161,5 +162,6 @@ function refit(res::FitResult, data; changes...)
 end
 # A `Free(...)` change over a stored `Free(...)` keeps the stored bounds it leaves out (`_keep`,
 # setup.jl: the new value unless `nothing`); any other change replaces the stored setting.
-_combine(x::Free, s::Free) = Free(start = x.start, lower = _keep(x.lower, s.lower), upper = _keep(x.upper, s.upper))
+_combine(x::Free, s::Free) =
+    Free(start = x.start, lower = _keep(x.lower, s.lower), upper = _keep(x.upper, s.upper))
 _combine(x, s) = x

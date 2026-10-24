@@ -15,6 +15,9 @@ The result of [`fit`](@ref) and [`fit!`](@ref): the same fields for one voxel (n
 a dataset (maps with the spatial size of the data).
 
 - `params`: named tuple of the free parameters, e.g. `res.params.T1`
+- `fixed`: named tuple of the fixed parameters' values used in the fit, the model's defaults
+  and the call's: numbers, ties (`R1m = :R1f`), and for a dataset maps; for one voxel fitted
+  with a map (`fit!(c, y; voxel = v)`), that voxel's value
 - `sse`: sum of squared residuals
 - `iterations`: solver iterations
 - `status`: [`FitStatus`](@ref), e.g. `ConvergedX`; `UInt8.(res.status)` gives the codes
@@ -25,11 +28,13 @@ a dataset (maps with the spatial size of the data).
   results
 
 For a dataset, voxels that were not fitted hold `NaN` parameters and SSE, 0 iterations and
-status `NotFitted` (outside the mask) or `InvalidData`. [`isconverged`](@ref)`(res)` and
-[`fitted`](@ref)`(res)` / `fitted(res, i)` work on both.
+status `NotFitted` (outside the mask) or `InvalidData`. [`isconverged`](@ref)`(res)`,
+[`fitted`](@ref)`(res)` / `fitted(res, i)` and [`resolve`](@ref)`(res)` / `resolve(res, i)`
+(every parameter's value, fitted and fixed) work on both.
 """
-struct FitResult{P,S,I,St,M,K}
+struct FitResult{P,X,S,I,St,M,K}
     params::P           # named tuple: numbers (one voxel) or maps (a dataset)
+    fixed::X            # named tuple: the fixed values used (numbers, ties; maps for a dataset)
     sse::S
     iterations::I
     status::St
@@ -52,22 +57,36 @@ isconverged(r::FitResult) = _onevoxel(r) ? isconverged(r.status) : isconverged.(
     fitted(res, i...)     dataset result: the fitted signal of one voxel, by linear index
                           (`fitted(res, 1234)`) or by position (`fitted(res, 40, 52, 10)`)
 
-Rebuilt from `res.model`, the fitted parameters and the fixed values in `res.settings` (a
-number, or that voxel's value of a map). `fitted` is StatsAPI's function name.
+Rebuilt from `res.model` and every parameter's value, [`resolve`](@ref)`(res)`: the fitted ones
+and the fixed values used (a number, or that voxel's value of a map). `fitted` is StatsAPI's
+function name.
 """
-function fitted(res::FitResult)
-    _onevoxel(res) || throw(ArgumentError("a dataset result: give the voxel, e.g. fitted(res, i)"))
-    fixed = _fixed_settings(res)
-    any(x -> x isa AbstractArray, values(fixed)) &&
-        throw(ArgumentError("fixed maps: the voxel is not known; fit the dataset with `fit` instead"))
-    return signal(res.model, merge(defaults(res.model), fixed, res.params))
+fitted(res::FitResult) = signal(res.model, resolve(res))
+fitted(res::FitResult, I...) = signal(res.model, resolve(res, I...))
+
+"""
+    resolve(res)          one-voxel result: every parameter's value, fitted and fixed
+    resolve(res, i...)    dataset result: the same for one voxel, by linear index or position
+
+The complete set of values behind a fit, in the model's order, ties evaluated: the fitted
+parameters and the fixed values used (`res.fixed`; a map's value at the voxel).
+`fitted(res)` is `signal(res.model, resolve(res))`.
+
+```julia
+r = fit(QMTSIR(; SIR_4POINT...), y)
+resolve(r)        # (PSR = ..., R1f = ..., Sf = ..., M0f = ..., kmf = 12.5, R1m = (R1f's value), ...)
+```
+"""
+function resolve(res::FitResult)
+    _onevoxel(res) || throw(ArgumentError("a dataset result: give the voxel, e.g. resolve(res, i)"))
+    return resolve(res.model, merge(res.fixed, res.params))
 end
 
-function fitted(res::FitResult, I...)
-    _onevoxel(res) && throw(ArgumentError("a one-voxel result: use fitted(res)"))
+function resolve(res::FitResult, I...)
+    _onevoxel(res) && throw(ArgumentError("a one-voxel result: use resolve(res)"))
     v = LinearIndices(res.status)[I...]                  # the voxel's linear index
-    fixed = map(x -> _pick_value(x, v), _fixed_settings(res))
-    return signal(res.model, merge(defaults(res.model), fixed, map(x -> x[v], res.params)))
+    fixed = map(x -> _pick_value(x, v), res.fixed)      # a map's value at the voxel
+    return resolve(res.model, merge(fixed, map(x -> x[v], res.params)))
 end
 
 """
@@ -84,12 +103,6 @@ function residuals(res::FitResult, data::AbstractArray, I...)
     return y .- fitted(res, I...)
 end
 
-# The parameters the call fixed (keywords that are parameters of the model and not `Free`), by
-# name: numbers, maps or ties. `fitted` adds the model's own fixed defaults (`defaults(m)`).
-_fixed_settings(res) =
-    (; (n => _value_of(x) for (n, x) in pairs(res.settings) if haskey(parameters(res.model), n) && !(x isa Free))...)
-_value_of(x::Fixed) = x.value                            # `kmf = Fixed(15.0)`
-_value_of(x) = x                                         # `kmf = 15.0`, a map, a tie
 _pick_value(x::AbstractArray, v) = x[v]
 _pick_value(x, v) = x
 
@@ -115,7 +128,6 @@ end
 function Base.show(io::IO, ::MIME"text/plain", r::FitResult)
     name = nameof(typeof(r.model))
     free = keys(r.params)
-    fixed = Tuple(n for n in keys(parameters(r.model)) if !(n in free))
     w = maximum(n -> length(string(n)), free)            # width, to line up the names
     if _onevoxel(r)
         println(io, "FitResult: ", name, ", one voxel")
@@ -124,7 +136,7 @@ function Base.show(io::IO, ::MIME"text/plain", r::FitResult)
         for (n, x) in pairs(r.params)
             print(io, "\n  ", rpad(n, w), " = ", round(x; sigdigits = 6))
         end
-        _print_fixed(io, r, fixed)
+        _print_fixed(io, r)
     else
         nvox = length(r.status)
         nfit = count(!=(NotFitted), r.status)
@@ -145,18 +157,14 @@ function Base.show(io::IO, ::MIME"text/plain", r::FitResult)
                       round(q1; sigdigits = 4), " to ", round(q3; sigdigits = 4), ")")
             end
         end
-        _print_fixed(io, r, fixed)
+        _print_fixed(io, r)
     end
 end
 
 # A last line: "fixed    kmf = 12.5, R1m = R1f (tied), Sm = 0.83, B1 = map", or "fixed    none".
-function _print_fixed(io, r, fixed)
-    given = _fixed_settings(r)
-    roles = parameters(r.model)
-    describe(n) = begin
-        x = _value_of(haskey(given, n) ? given[n] : roles[n].value)
-        x isa Number ? "$n = $x" : x isa Symbol ? "$n = $x (tied)" :
-        x isa AbstractArray ? "$n = map" : "$n = function of others"
-    end
-    print(io, "\n  fixed    ", isempty(fixed) ? "none" : join(map(describe, fixed), ", "))
+function _print_fixed(io, r)
+    describe((n, x)) = x isa Number ? "$n = $x" : x isa Symbol ? "$n = $x (tied)" :
+                       x isa AbstractArray ? "$n = map" : "$n = function of others"
+    list = isempty(r.fixed) ? "none" : join(map(describe, collect(pairs(r.fixed))), ", ")
+    print(io, "\n  fixed    ", list)
 end

@@ -41,8 +41,11 @@ function fit!(c::FitCache, y::AbstractVector; voxel::Integer = 1)
     length(y) == length(c.y) ||
         throw(DimensionMismatch("data have $(length(y)) values, the model has $(length(c.y)) observations"))
     r = _fit_voxel(c, c.spec, y, voxel)
-    return FitResult(r.params, r.sse, r.iterations, r.status, c.model, c.settings)
+    fixed = _voxel_fixed(c.spec, voxel)
+    return FitResult(r.params, fixed, r.sse, r.iterations, r.status, c.model, c.settings)
 end
+# The fixed values a voxel's fit used: numbers (a map's value at the voxel) and ties, as written.
+_voxel_fixed(spec::FitSpec{F,P,T}, v) where {F,P,T} = map(x -> _untie(_pick(x, v, T)), spec.fixed)
 # `fit!` is StatsAPI's function (imported in EQUIP.jl); this adds a method for FitCache.
 
 """

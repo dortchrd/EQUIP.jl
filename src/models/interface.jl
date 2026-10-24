@@ -346,6 +346,10 @@ _tie(x) = x
 
 _istie(x) = x isa Union{Symbol,_Tie,Function}
 
+# Back to the form a user writes, for results and display: `_Tie{:R1f}()` → `:R1f`.
+_untie(::_Tie{S}) where {S} = S
+_untie(x) = x
+
 # Check the ties among the values `vals` (a named tuple of parameter values or fixed values):
 # a tie by name must name another parameter that is not itself a tie. (Function ties cannot be
 # checked before they run.)
