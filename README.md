@@ -145,7 +145,9 @@ parameters(::QMTSIR) = (
 
 Any fit can change a role with a keyword named after the parameter, in `fit` and `init`. A
 value fixes the parameter; `Free(...)` estimates it, and whatever it leaves out (start, bounds)
-keeps the model's default:
+keeps the model's default. To remove a bound the model sets, give it as infinite:
+`Free(lower = -Inf)` or `Free(upper = Inf)`. (In `refit`, what a `Free(...)` leaves out keeps
+the earlier fit's setting, and the start is the earlier estimate unless a new one is given.)
 
 ```julia
 fit(m, data; kmf = 15.0)                         # change a fixed value
@@ -156,6 +158,7 @@ fit(m, data; kmf = Free(lower = 1, upper = 50))  # ... within bounds
 fit(m, data; R1f = Free(start = r1_map))         # another start: a number or a map
 fit(m, data; R1f = Free(start = BestOf([0.5, 1.0, 2.0])))   # try three, start from the best
 fit(m, data; Sf = Free(lower = -1.5))            # another bound; start and upper bound as before
+fit(m, data; PSR = Free(lower = -Inf))           # remove the model's lower bound (PSR ≥ 0)
 fit(m, data; kmf = 15.0, Sm = sm_map, mask)      # several at once (`mask` means `mask = mask`)
 
 mfa = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
@@ -333,6 +336,21 @@ maps = phantom(labels, [1 => truth(m, :GM; S0 = 1000.0), 2 => truth(m, :WM; S0 =
 res = fit(m, simulate(m, maps; snr = 100); mask = labels .> 0)
 compare(res, maps; labels)                    # per tissue
 ```
+
+Five functions give a model's parameters in different forms:
+
+| Function | Gives | Example (QMTSIR) |
+|---|---|---|
+| `parameters(m)` | each parameter's role: free (start, bounds) or fixed | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
+| `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
+| `nominal(m; changes...)` | every value, from the model: starts, 1 for the scale, fixed values | `(PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, …)` |
+| `truth(m, tissue; changes...)` | every value, from a tissue (preset or your own named tuple) | `truth(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
+| `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |
+
+`nominal` takes what `parameters(m)` declares; the starts are guesses for fitting, not tissue
+values. A parameter with no number to take must be given: one that starts from the data
+(`:data`, e.g. T2Decay's T2) or from `BestOf` values (the inversion-recovery models' T1), e.g.
+`nominal(T2Decay(TE = te); T2 = 0.08)`; the error names each.
 
 - `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing

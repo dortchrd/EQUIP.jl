@@ -76,7 +76,8 @@ For each parameter of `m`, the value comes from, in order:
    QMTSIR's `kmf = 12.5`, `R1m = :R1f`), included in the result, so every value is visible.
 
 A free parameter with no value is an error that names it: values that are not properties of the
-tissue (an inversion efficiency `Sf`) are your choice, so give them.
+tissue (an inversion efficiency `Sf`) are your choice, so give them. For a model no tissue
+preset covers, [`nominal`](@ref)`(m; changes...)` gives every value from the model itself.
 
 ```julia
 truth(R1IR(TI = ti), :GM; Sf = -0.95)      # (M0 = 1.0, Sf = -0.95, R1 = 0.549...)

@@ -69,7 +69,9 @@ abstract type MRIModel end
 Role of a parameter that is estimated: its starting value and its bounds, each given by name.
 
 In a model's [`parameters`](@ref), the defaults: `Free(start = 0.1, lower = 0, upper = 1)`. A
-bound left out means none. The start says where each voxel's starting value comes from:
+bound left out means none. In a fit, what is left out keeps the model's setting; give a bound as
+infinite (`lower = -Inf`, `upper = Inf`) to remove one the model sets. The start says where
+each voxel's starting value comes from:
 
 - a number, or a map (one value per voxel, in a fit): start there;
 - `:scale`, for the parameter that multiplies the whole signal (S0, M0): the least-squares
@@ -88,6 +90,7 @@ fit(m, data; kmf = Free())                 # estimate kmf, fixed by default (sta
 fit(m, data; R1f = Free(start = 0.8))      # another start: a number, or a map (one per voxel)
 fit(m, data; T1 = Free(start = BestOf([0.3, 0.8, 1.5])))   # try three values, start from the best
 fit(m, data; Sf = Free(lower = -1.5))      # another lower bound
+fit(m, data; PSR = Free(lower = -Inf))     # no lower bound (the model's is 0)
 ```
 """
 struct Free
@@ -202,6 +205,11 @@ is the order of the outputs. A fit can change any role with a keyword named afte
 ```julia
 parameters(::T1SR) = (M0 = Free(start = :scale, lower = 0), T1 = Free(start = 1.0, lower = 1e-6))
 ```
+
+Values rather than roles: [`defaults`](@ref)`(m)` (the fixed parameters' values),
+[`nominal`](@ref)`(m)` (every value, from the model), [`truth`](@ref)`(m, tissue)` (every
+value, from a tissue), [`resolve`](@ref)`(m, p)` (a complete set checked, ties turned into
+numbers). `keys(parameters(m))` lists the names.
 """
 function parameters end
 # `function name end` declares a generic function with no methods yet. Each model adds its own
