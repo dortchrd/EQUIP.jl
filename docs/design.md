@@ -430,8 +430,10 @@ src/
                        vector), dataset.jl (fit for a dataset, threaded; refit)
   sim/                 simulate (noise), TISSUES / tissue / truth (presets), phantom and
                        labelshapes, compare (fit vs truth)
-  analysis/            (later) Monte Carlo, CRLB, sensitivity
-  design/              (later) protocol objectives (Eq. 5, Eq. 6), scan time
+  analysis/            (later) crlb, montecarlo, sensitivity maps, leakage (see "Simulation,
+                       CRLB and protocol design")
+  design/              (later) protocol objective (Eq. 5 and options), scan time, constraints,
+                       tissue sets
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
 ext/                   (later) package extensions: OptimExt (optimize_protocol), and one per file
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
@@ -1154,6 +1156,296 @@ Not needed for correctness: a test checks it against the columns built from `sig
 - Settled: the name and place of the declaration (`varpro = true` on `Free`, its own setting),
   and what a projected parameter's start is for (nothing, unless it is fitted the ordinary way).
 
+## Simulation, CRLB and protocol design: proposed design
+
+Status: proposed, not implemented. Prototyped in scratch scripts (not in the repository); every
+number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
+(`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
+`generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
+
+Goal: (1) predict the bias and precision of a fit before scanning (CRLB, biased and unbiased;
+Monte Carlo); (2) choose protocols by those predictions, as Dortch 2018 did (Eq. 5); (3) do the
+same for a subject or a population, from fitted maps (data-driven design). What is optimized is
+the RMS error of the fitted parameters per unit scan time: fixing a parameter (kmf) adds bias and
+gains precision, and both count.
+
+The pieces, each using the ones before it:
+
+1. `crlb`: bias, SD and RMSE predicted for a model, a truth and the fit settings.
+2. `montecarlo`: the same by simulating and fitting; checks `crlb` and covers what it cannot.
+3. Diagnostics: sensitivity maps (Eq. 6), leakage of fixed parameters into fitted ones, cond(J).
+4. The objective: Eq. 5 by default, with weights, time and aggregation options, over tissues and
+   uncertain conditions.
+5. The optimizer: global search and a local polish over the protocol (a package extension).
+6. Data-driven input: tissues and noise from `FitResult`s.
+
+### `crlb`: one function, biased or not by the fit settings
+
+```julia
+crlb(m, truth; snr = 200, fit = (kmf = 12.5,))     # fit: the same keywords as `fit`
+```
+
+- `truth` gives every parameter (as for `simulate`); `fit` gives the fit's roles. The estimate
+  is biased exactly when a value the fit fixes differs from the truth (kmf fixed at 12.5, data
+  with kmf = 5). One function where the MATLAB code has two (`CRLB_SIR`,
+  `biasedCRLB_SIR_fixedkmf`).
+- Output per fitted parameter: the noise-free fit's value θ̂ (the "pseudo-true" value), bias,
+  SD, RMSE, absolute and relative; plus F and cond(J). The same columns as `compare` and
+  `montecarlo`, so the three line up.
+- Noise: `snr` relative to the scale parameter (as `simulate`), or `σ`, a number or one value
+  per observation: F = JᵀΣ⁻¹J. Needed for models that combine sequences with different
+  bandwidths (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127).
+
+How, with what was measured:
+
+- **Derivatives by ForwardDiff**, exact, no step size. J = ∂g/∂θ at the truth over the fitted
+  parameters; ties are differentiated through (R1m = R1f moves with R1f, as the MATLAB's
+  `R1 + eps` on both). Checked: `signalSIR.m` equals QMTSIR (signed) to 8e-15·M0f over 1000
+  random voxels; `CRLB_SIR.m` (central differences, step 1e-3 of each value) and ForwardDiff
+  agree to ≤ 1e-6 relative, the differences' own error.
+- **The bias b from the noise-free fit, by Gauss–Newton from the truth.** Two or three steps
+  reach the full fit (4-point scheme, kmf 12.5, Table 1 tissues: Eq. 5 off by 5e-5 after 2
+  steps, 3e-11 after 3). The first-order formula b ≈ −(JᵀJ)⁻¹Jᵀ(∂g/∂kmf)·δkmf, no iteration, is
+  not enough: 13× off for WM I (kmf 5 against 12.5). Optional multi-start check for assumptions
+  far from the truth, where the nearest minimum may not be the global one (Lankford & Does refit
+  each noise-free signal from several starts).
+- **∇b without fits**, by the implicit function theorem at θ̂: the fit's gradient
+  G(θ̂, θ) = J₀ᵀ[g(θ̂; assumed) − g(θ; true)] is 0, so ∂θ̂/∂θ = −H⁻¹·∂G/∂θ, with H the full
+  Hessian of ½‖r‖² (the residual is not 0 when an assumption is wrong). A parameter on a bound:
+  its row is 0. Checked against `biasedCRLB_SIR_fixedkmf.m` (9 fits per tissue, central
+  differences): bias to 3e-15, SD to 4e-7, ∇b to 1e-9. Where derivatives with respect to the
+  protocol are needed, ForwardDiff through a fixed number of Gauss–Newton steps instead (3 steps:
+  exact to 1e-10 here).
+- **Eq. 3 and the sandwich.** With J₀ the fit Jacobian at θ̂ and J_t the true one, Eq. 3's
+  covariance (I + ∇b)F⁻¹(I + ∇b)ᵀ = σ²H⁻¹J₀ᵀP_tJ₀H⁻¹, P_t = J_t(J_tᵀJ_t)⁻¹J_tᵀ; the first-order
+  covariance of the least-squares fit itself (the "sandwich" of the misspecified-CRB literature)
+  is σ²H⁻¹J₀ᵀJ₀H⁻¹. They are equal when the fit is exact (as many points as fitted parameters:
+  the 4-point scheme, to every digit), and then simply σ²(J₀ᵀJ₀)⁻¹ at θ̂: no ∇b at all. With more
+  points Eq. 3 ≤ sandwich (16-point, kmf fixed: WM I PSR SD 2.72% vs 2.88%): Eq. 3 bounds any
+  estimator with that bias gradient, the sandwich is what least squares achieves. Both offered;
+  Eq. 3 the default (the paper).
+- **A singular F gives Inf.** The MATLAB takes `abs(V)` "for cases where sigma is imaginary": a
+  nearly singular F can give negative diagonal elements of F⁻¹ by rounding, which `abs` hides. A
+  failed Cholesky factorization gives Inf instead, so an optimizer avoids protocols that cannot
+  determine the parameters.
+- The noise-free fit uses the fit's own bounds (`fit` keywords). The MATLAB's biased fits used
+  Sf ≥ −1.05, R1f ≤ 3, M0f ≤ 10: those for reproducing the paper, the user's in the package.
+- Speed: one Eq. 5 evaluation (4 tissues, 4-point scheme, Gauss–Newton then σ²(J₀ᵀJ₀)⁻¹, static
+  arrays) takes 17.6 µs; the MATLAB needs an estimated 0.4 s for the same (36 `lsqnonlin`
+  fits). That difference is why the paper's genetic-algorithm runs took hours to days.
+
+### `montecarlo`: sweeps, and simulating with another model
+
+```julia
+montecarlo(m, t; snr = 200, n = 10_000)                         # one case
+montecarlo(m, t; snr = [50, 100, 200, 400])                     # accuracy against SNR
+montecarlo(m, t; vary = (kmf = 5:2.5:20,))                      # the fit keeps kmf = 12.5
+montecarlo(m, t; fits = (fixed = (;), free = (kmf = Free(),)))  # fit settings side by side
+montecarlo(m, t; simulate_with = m2)                            # data from another model
+```
+
+- Glue: `simulate` → `fit` → `compare` for each setting; each setting's n copies are one threaded
+  dataset fit; one seeded noise stream per setting, so adding a setting does not change the
+  others' data.
+- `vary` changes the truth, not the fit: varying a fixed parameter is the assumption-bias study
+  (Dortch 2018 Fig. 2B; the Mzf_td0 study in its scripts). `crlb` takes the same `vary`. This
+  replaces the planned `sensitivity(...)` (qMRLab's SimVary, roadmap item 3).
+- `simulate_with`: data from one model, fitted with another (the 2-component, myelin and
+  non-myelin, SIR simulations in the paper's scripts). Designed in from the start.
+- Output: one table, the setting's columns then `compare`'s, plus SD/CRLB (from `crlb` at the
+  same truth); `keep = true` keeps the estimates (histograms, Fig. 1).
+- Why both tools: the CRLB bounds any estimator with the given bias gradient under Gaussian
+  noise; Monte Carlo shows the actual estimator: Rician noise (the Gaussian CRLB has no noise
+  floor), bounds, local minima, nonlinearity at low SNR. Lankford & Does found CRLB and Monte
+  Carlo within 8%, but needed very high SNR for the 7-parameter mcDESPOT fit; Dortch 2018 Fig. 1:
+  Rician Monte Carlo matches the CRLB at SNR 200.
+
+### Diagnostics: why a protocol works
+
+- **Sensitivity maps** (Dortch 2018 Eq. 6, Fig. 2A): S_eff(TI, TD) = |θ·∂S/∂θ| / √(TI + TD +
+  t_FSE) for each parameter on a grid, with 85th-percentile contours. Returned as arrays;
+  plotting through an extension later.
+- **Leakage**: the first-order bias of each fitted parameter per unit error in each fixed one
+  (kmf, Sm, Sf, Mzf_td0, B1, a tie), −[(JᵀJ)⁻¹Jᵀ·∂g/∂c]ⱼ, in relative units. The slope of Fig.
+  2B; covers roadmap item 3's "sensitivity to model assumptions".
+- **cond(J)**, an identifiability flag (Lankford & Does).
+- What they showed for SIR, behind the design rule "sample where ∂S/∂kmf is small and does not
+  overlap the fitted parameters' sensitivities": kmf enters the signal as a rate, PSR as an
+  amplitude. At TD = 2.5 s the kmf sensitivity peaks at TI ≈ 1/R1⁺ (R1⁺ ≈ kmf(1 + PSR) + R1f:
+  47 ms in the lesion to 133 ms in WM I), PSR's later (170–250 ms), once the fast exchange is
+  over: the signal then records how much exchange happened, not how fast. kmf/PSR sensitivity
+  ratio at TI = 278 ms: 0.02–0.43; at 1007 ms ≈ 0; at 50 ms 0.58–0.88. The 4-point scheme avoids
+  the 30–130 ms window that the 5-point scheme and Ke's sample to measure kmf; WM I (slowest
+  exchange) is the limit and carries the largest bias (−14%). PSR leakage, % per s⁻¹ of kmf error
+  (4-point / 5-point / 16-point / Ke's 5-point): WM I −7.9 / −11.9 / −15.4 / −11.1, WM II −0.6 /
+  −2.3 / −3.0 / −1.9; under 1 in GM and lesion for all. The paper states it: "Fortuitously, the
+  SIR signal exhibits sensitivity to the other model parameters outside of the regime of kmf
+  sensitivity".
+
+### The objective
+
+Default, Eq. 5 of Dortch 2018 (after Li et al. 2010, Eqs. 7–10, and Cercignani & Alexander, MRM
+2006;56:803): v = maxₗ Σⱼ Wⱼ·MSE(θ̂ⱼₗ)/θⱼₗ² · Σₙ(TIₙ + TDₙ + t_FSE), over tissues l, equal
+weights. Options:
+
+- **Weights per parameter.** Default equal: optimizing for PSR alone was unstable in earlier
+  work, and R1f matters too. A parameter with weight 0 still enters through F⁻¹, since
+  it is fitted.
+- **Time: × T (Eq. 5) or a fixed budget B**: Σ Wⱼ(bⱼ² + σⱼ²·T/B)/θⱼ². Bias does not shrink with
+  averaging, so multiplying it by T treats it like variance; with no bias both give the same
+  protocol. With bias, the best protocol, and even whether to fix a parameter, depends on the SNR
+  and time available. Table 2 schemes, PSR RMSE at equal scan time: fixing kmf (4-point) wins at
+  the paper's SNR in every tissue (WM I 14.9 vs 17.6%, WM II 5.6 vs 7.7, GM 7.3 vs 9.0, lesion
+  12.4 vs 14.7); fitting kmf (5-point) wins beyond 1.5× that time in WM I (bias floor −14%), 3.5×
+  in the lesion, 20× in GM, ~570× in WM II.
+- **Aggregation over tissues**: the max (minimax: the paper, Li's Vmax, Cercignani & Alexander), a
+  weighted mean (a Bayesian design; weights e.g. prevalence), a percentile; later the
+  standardized minimax (each tissue relative to its own best protocol; Dette, J R Stat Soc B
+  1997;59:97). At a minimax optimum the worst tissues tie: Table 2 4-point, lesion 0.2434 vs WM I
+  0.2428; 5-point, lesion 1.602 vs WM I 1.586. Minimax serves the worst tissue, rare or not (the
+  paper's MATLAB notes that optimizing kmf too moved it to the worst tissue's value and raised the
+  WM and GM bias); for data-driven sets the max would be set by the single worst voxel, so mean
+  or a percentile there.
+- **Tissue sets**: a list (the MATLAB `'multiple'`), or every combination of ranges plus the
+  midpoint (`'ranges'`; Li: 2⁵ + 1 = 33 sets). The worst case need not be on a corner; with fast
+  CRLBs a denser grid, or an inner maximization, is affordable.
+
+### Conditions: fixed values that are uncertain
+
+Besides the tissues, the true values of parameters the fit fixes can vary over conditions the
+user gives: B1, B0, T2m, mapped to Sf and Sm by a simulation of the inversion pulse (free pool:
+rotations per pulse segment, no relaxation; bound pool: Sm = exp(−Σ π·ω₁²·g(0)·t), g(0) =
+T2m/√(2π), as `calcSm_blockPulse.m`; the 1-ms block gives Sm = 0.831 at T2m = 15 µs, the paper's
+0.83). The worst case (or mean) then runs over tissues × conditions: a robust design.
+
+- **Decision: optimize robustly when a fixed parameter is uncertain.** A 3-point SIR scheme
+  (90x-180y-90x composite inversion; Sf = −1, Sm = 0.69, kmf = 12.5 fixed) optimized for the
+  nominal case put all its PSR information into one inversion point: nominally 10–15% lower PSR
+  error than the Table 2 4-point at equal time, but with B1 ±10%, B0 ±50 Hz and T2m 10–20 µs its
+  worst PSR error rose to about 50% (bias +25 to +49%), against 20% for the 4-point. Optimized
+  over those conditions (objective: worst PSR RMSE at equal time), its worst case was 18.3%.
+- Composite against block (2 ms against 1 ms, same amplitude): Sf at B1 0.9/1.1: −0.999 against
+  −0.951; at 0.8/1.2: −0.982 against −0.809; off resonance alike (±100 Hz: −0.931 against
+  −0.921). Sm 0.69 against 0.83 at T2m 15 µs (0.61–0.78 against 0.78–0.88 over 10–20 µs): twice
+  the inversion's RF energy (−ln Sm ∝ ∫B1²dt). PSR leakage at the 4-point's TIs: 0.7–2.8% per
+  0.01 of Sf error, about 0.6% per 0.01 of Sm. Fixing Sm already moves the Table 2 4-point's PSR
+  by about ±3% over T2m 10–20 µs (the robust 3-point with the composite: about ±6%).
+- **Result, with Sm fixed and correct** (the simple case), Eq. 5 with equal weights, robust over
+  B1 0.9–1.1 × Δf 0/50 Hz: the 4-point re-optimization returned the Table 2 scheme (TI 10, 10,
+  275, 1004 ms; TD 4242, 733, 2754, 10 ms; Eq. 5 0.2610 against Table 2's 0.2625): Table 2 is
+  already robust, since it fits Sf. The best 3-point (TI 10, 17, 262 ms; TD 607, 4960, 2734 ms;
+  9.5 s per repetition, 6% shorter) is 2% better in Eq. 5 over PSR, R1f and M0f (0.252 against
+  0.258) but worse for R1f in WM I (2.4 against 1.7% at equal time) and less robust (worst PSR
+  12% against 7–9% in WM II and GM at B1 ±10%; 19–21% at ±20%). Not adopted. An earlier estimate
+  of "2.5× shorter" came from optimizing PSR precision alone with kmf known; with R1f weighted
+  and the kmf bias counted, it disappears.
+
+### The protocol space and constraints
+
+- The acquisition fields that vary (TI, TD), their bounds (10 ms to 10 s in the prototype; the
+  paper: ≥ 10 ms, no upper bound), linear constraints (TI + TD ≥ 0.5 s, the paper's minimum TR of
+  0.8 s for SAR at 3 T with t_FSE = 0.3 s), one shared TD (the MATLAB `tdType = 'fixed'`),
+  rounding to the ms at the end, and a canonical order (sorted by TI: reordering the points gives
+  the same scheme, which a search should not count twice).
+- Scan time per model, `scantime(m)`; for SIR Σ(TI + TD + t_FSE). t_FSE is a property of the
+  sequence that QMTSIR does not hold yet: a keyword of the design call, or a field.
+- The number of points is scanned (Li: precision efficiency nearly flat in N, 2–4% lower at small
+  N; 5 points enough for qMT, 3 for T1). Optimal designs need few distinct points, repeated (Li's
+  optimized 35-point scheme falls into 7 groups); optimizing a few distinct points and their
+  repeat counts (or weights) is a smaller search than N free points (later).
+
+### The optimizer
+
+- Global search, then a local polish, from several starts on threads. Prototype: adaptive
+  differential evolution (BlackBoxOptim.jl) and Nelder–Mead (Optim.jl), 12–24 restarts, which
+  agreed; 3 and 4 points with 6–48 conditions per tissue: 14–43 s on 4 threads. The paper used a
+  genetic algorithm then `fmincon` (SQP), 50 runs; Li and Cercignani & Alexander, simulated
+  annealing from several starts.
+- Gradient-based later: the objective is differentiable in TI and TD (dual numbers pass through
+  the acquisition and through a fixed number of Gauss–Newton steps). The max over tissues has
+  corners, so either "minimize t with every Vₗ ≤ t" (SQP) or a smooth maximum.
+- In a package extension (optimizer packages are heavy); the objective stays in the core.
+
+### Data-driven design
+
+- Tissues from a `FitResult`: the maps in `res.params`, masked to converged voxels and without
+  CSF or partial volume, reduced to representative sets (clusters, quantiles, segmentation
+  labels) or used as a weighted sample. `res.settings` is the analysis model. σ from the image
+  background or a noise scan: an exact fit (the 4-point scheme) leaves zero residuals.
+- Aggregation: mean or a percentile (a Bayesian design with an empirical prior), not the max,
+  which one bad voxel would set.
+- Better input from a richer pilot: a 4-point fit has no kmf map and a biased PSR; a pilot with
+  kmf free (5- or 16-point) gives better tissues. The paper's scripts did this by hand
+  ("Investigation of variable td schemes": ROI fits with the 16-point scheme, other schemes
+  evaluated at those values).
+- Adding points: Fisher information adds over points, so "the best k points to add to what was
+  acquired" is the same calculation: pilot, then an optimized scan.
+- One subject or a study: several `FitResult`s pooled (one subject's optimum is tuned to that
+  subject).
+
+### Where it lives
+
+`src/analysis/`: `crlb`, `montecarlo`, sensitivity maps, leakage. `src/design/`: the objective,
+`scantime`, constraints, tissue sets (presets, ranges, or from `FitResult`s). `ext/`: the
+optimizer (`optimize_protocol`). Names and keywords to settle with the first implementation.
+
+### Related work
+
+No Julia package does general qMRI protocol design with a biased CRLB and a worst case over
+tissues (search, Oct 2026). Closest: MRIgeneralizedBloch.jl (Assländer et al.; qMT with the
+generalized Bloch model, CRB and gradient-based optimal control of hybrid-state sequences; its
+notebook `CRB_SIR.ipynb` computes the unbiased CRB of the 5-point SIR scheme, a cross-check) and
+Kirstine.jl (Bayesian and locally optimal designs for nonlinear regression, D and A criteria).
+CRLB protocol design in qMRI: Cercignani & Alexander 2006 (qMT), Li 2010 and Dortch 2018 (SIR),
+Zhao et al., IEEE TMI 2019 (MRF), Lee et al., MRM 2019;82:1438 (automatic differentiation of
+Bloch simulations). Bias from a wrong fixed parameter: the misspecified CRB (Fortunati et al.,
+IEEE Signal Process Mag 2017), applied to qMRI fixed parameters in an ASL study (arXiv
+2602.10336, 2026), and Lankford & Does 2013 (analysis, not design). Putting that bias into the
+design objective, as Dortch 2018 did, was not found elsewhere (a limited search). Bias from noise
+(second order): Box, J R Stat Soc B 1971;33:171; Cook, Tsai & Wei, Biometrika 1986;73:615.
+Optimal design theory: Fedorov & Leonov 2013; Chaloner & Verdinelli, Stat Sci 1995. Implicit
+differentiation through solvers: ImplicitDifferentiation.jl.
+
+### Tests and acceptance
+
+- Dortch 2018: Fopt5 = 1.6020 and Fopt4 = 0.2433 (the GA optima before rounding; the Table 2
+  schemes as rounded give 1.602062 and 0.243395, matched); the optimizer reaches them or better
+  (any order of the points). Fig. 1 (lesion: 4-point mean PSR 4.75%; Rician Monte Carlo against
+  the CRLB), Fig. 2A (Eq. 6 maps on the scripts' grids), Fig. 2B (bias and RMSE against the true
+  kmf).
+- Li 2010, Table 1 (σ = 1; t_FSE = 0.155 s, from the table's time costs): V of the typical set,
+  schemes 2 and 3 within 1% (1.389e4 vs 1.39e4; 1.50e4 vs 1.51e4), scheme 1 +5% (3.31e4 vs
+  3.14e4); T1, conventional 10-point scheme: 274.9 vs 286.1 s (−4%; t_FSE of the T1 experiment
+  uncertain). Vmax over the 33 sets is 1.53× ours for all three schemes: a convention difference
+  in the sets (open). T1 optimizer targets: 62.4 s (10 points, one TD of 1 s), 44.0 s (10 points,
+  TI and TD free), 49.8 s (3 points).
+- Exact derivatives against finite differences; the exact-fit identity (Eq. 3 = σ²(J₀ᵀJ₀)⁻¹);
+  the multi-start check finds the global noise-free fit; σ per observation; Monte Carlo SD/CRLB
+  ≈ 1 at high SNR.
+
+### Order of work
+
+1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
+   numbers and Li's Table 1.
+2. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
+3. `montecarlo` with `vary`, fit settings side by side, `simulate_with`, SD/CRLB; Figs. 1 and 2B.
+4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
+   space.
+5. The optimizer extension: reproduce Fopt5 and Fopt4, and Li's T1 targets.
+6. Data-driven: tissues and σ from `FitResult`s; adding points to a protocol.
+
+### Open decisions
+
+- Li's Vmax factor (1.53×): how his 33 sets were built (Ke's code?).
+- The pulse model for Sf and Sm (rotations and saturation, no relaxation, for now), and where it
+  lives: a QMTSIR helper, or user functions Sf(B1, B0) and Sm(B1, T2m).
+- Default ranges for conditions (B1 ±10% or ±20% at 3 T; B0 ±50 Hz).
+- Gaussian Fisher information only (Rician by Monte Carlo), or a Rician one for low-SNR
+  protocols.
+- The default time handling: × T (the paper) or a fixed budget.
+- t_FSE: a QMTSIR field or a keyword of the design call.
+- Designs as distinct points with repeat counts (later).
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
@@ -1208,24 +1500,20 @@ notes.)
      solver already accumulates.
    - Unbiased estimator (e.g. SIR with kmf free): MSE(θ̂ⱼ) = [F⁻¹]ⱼⱼ.
    - Biased estimator (e.g. SIR with kmf fixed at an assumed value) (Eq. 3):
-     MSE(θ̂ⱼ) = bⱼ² + [(I + ∇b) F⁻¹ (I + ∇b)ᵀ]ⱼⱼ, with bⱼ = E[θ̂ⱼ] − θⱼ and ∇b = ∂b/∂θ. As in
-     the paper, b and ∇b come from fits to noise-free data with the constrained parameter at
-     its assumed value, repeated with each true parameter perturbed (finite differences).
-   - Protocol design helpers: the minimax objective (Eq. 5) and sensitivity efficiency
-     (Eq. 6). The acquisition can be differentiated too, since `signal` accepts dual numbers
-     in the model's vectors.
-   - Monte Carlo with Gaussian/Rician noise (bias, SD, RMSE, SD/CRLB).
+     MSE(θ̂ⱼ) = bⱼ² + [(I + ∇b) F⁻¹ (I + ∇b)ᵀ]ⱼⱼ, with bⱼ = E[θ̂ⱼ] − θⱼ and ∇b = ∂b/∂θ. b from
+     the noise-free fit with the assumed value (Gauss–Newton from the truth), ∇b by the implicit
+     function theorem, not by finite differences of fits.
+   - Designed, with protocol optimization (Eq. 5 and its options), Monte Carlo, the diagnostics
+     (Eq. 6 maps, leakage) and data-driven design: see "Simulation, CRLB and protocol design:
+     proposed design".
    - Sensitivity to model assumptions: the bias from fitting with an assumed value that is
      wrong, the same machinery as Eq. 3's b. First case: QMTSIR's `Mzf_td0 = Mzm_td0 = 0` (both
      pools saturated at the start of TD). Simulate with nonzero values, fit with the default.
      A first check (5-point scheme, noise-free, 5% of M0 left): PSR +2%, R1f +4%, M0f −5%.
    - A sensitivity sweep in the shape of qMRLab's `SimVary` (vary one parameter's truth over a
-     range, the others at nominal values; noise; fit; mean, SD and bias of every fitted
-     parameter): `sensitivity(m, nominal; vary = (PSR = range(0.05, 0.25; length = 10),
-     kmf = 8:2:20), snr, n, fitkw)`. The noisy copies of each setting are one dataset fit (on
-     threads); `vary` takes free and fixed parameters alike, so assumption bias (simulate with
-     kmf = 20, fit with the default 12.5) is one more entry.
-   - Validation targets: Table 1 tissue classes, Table 2 schemes, Fig. 2B.
+     range): now the `vary` keyword of `montecarlo` and `crlb` (see the design section).
+   - Validation targets: in the design section (Fopt5, Fopt4, Figs. 1 and 2, Li et al. 2010,
+     Table 1).
    - Fit statistics on `FitResult`, added together as one set under StatsAPI's names, with one
      convention for the number of parameters (`dof`; packages differ on whether σ counts):
      `rss` (the SSE), `nobs`, `dof`, `dof_residual` (n − p), the residual SD
