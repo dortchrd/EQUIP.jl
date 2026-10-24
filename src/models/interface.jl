@@ -451,13 +451,14 @@ keywords replace or supply values by name: numbers, maps or ties.
 A starting point for simulation, especially when no tissue preset fits the model
 ([`truth`](@ref) gives a tissue's values). The starts are the model's guesses for fitting, not
 tissue values. A parameter with no number to take, one starting from the data (`:data`) or from
-[`BestOf`](@ref) values, must be given; the error names each.
+[`BestOf`](@ref) values, must be given; the error names each and lists what `nominal` uses for
+every parameter. Typing the model's name at the REPL shows the same table.
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)
 nominal(m)                         # (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, ...)
 nominal(m; PSR = 0.15, kmf = 10.0)                 # a couple changed
-nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data: give it
+nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data, so give it
 ```
 """
 function nominal(m::MRIModel; changes...)
@@ -470,15 +471,18 @@ function nominal(m::MRIModel; changes...)
     missing = Tuple(n for n in keys(q) if q[n] === nothing)
     if !isempty(missing)
         start(n) = roles[n] isa Free ? roles[n].start : nothing
-        why(n) = start(n) === :data ? "starts from the data" :
-                 start(n) isa BestOf ? "starts from BestOf values" : "has no start"
+        why(n) = start(n) === :data ? "it starts from the data" :
+                 start(n) isa BestOf ? "it starts from BestOf values" : "it has no start"
         list = join(("`$n` ($(why(n)))" for n in missing), ", ")
+        table = sprint(_print_parameters, roles, q)   # the table the model's REPL display shows
         throw(ArgumentError("$(nameof(typeof(m))): no nominal value for $list; give it: " *
-            "`nominal(m; $(first(missing)) = value)`"))
+            "`nominal(m; $(first(missing)) = value)`. What `nominal(m)` uses for each " *
+            "parameter:\n" * table))
     end
     _check_ties(q)                       # a tie given as a keyword must name a real parameter
     return q
 end
+
 # The value `nominal` takes from a role: a number start, 1 for the scale, a fixed value (ties kept
 # as written); `nothing` when there is no number to take.
 _nominal_value(r::Fixed) = r.value
@@ -511,4 +515,76 @@ function signal(m::MRIModel, p::NamedTuple)
     vectors = filter(x -> x isa AbstractVector, _fields(m))
     T = float(promote_type(map(typeof, values(q))..., map(eltype, vectors)...))
     return signal!(Vector{T}(undef, n), m, q)
+end
+
+# -------------------------------------------------------------------------------------------------
+# How a model prints at the REPL
+# -------------------------------------------------------------------------------------------------
+
+# Typing a model's name at the REPL (or `display(m)`) shows its acquisition and options, and a
+# table of its parameters: role, start or fixed value, bounds, and the value `nominal(m)` takes.
+# For that multi-line display Julia calls `show(io, MIME"text/plain"(), x)`; the one-line
+# `show(io, m)` (inside a vector, in string interpolation) keeps Julia's default, the
+# constructor call. One method for every model, built-in or not:
+#
+#   QMTSIR with 4 observations
+#     TI = [0.01, 0.01, 0.278, 1.007]
+#     TD = [0.684, 4.171, 2.73, 0.01]
+#     magnitude = true
+#   Parameters:
+#     name     role   start/value  bounds        nominal(m)
+#     PSR      free   0.1          [0.0, 1.0]    0.1
+#     M0f      free   :scale       [0.0, Inf]    1.0
+#     R1m      fixed  :R1f (tie)                 :R1f
+#     ...
+function Base.show(io::IO, ::MIME"text/plain", m::MRIModel)
+    n = try
+        nobs(m)
+    catch                                  # vector fields of different lengths: no count
+        nothing
+    end
+    print(io, nameof(typeof(m)), n === nothing ? "" : " with $n observation$(n == 1 ? "" : "s")")
+    for f in fieldnames(typeof(m))
+        print(io, "\n  ", f, " = ", _acqvalue(getfield(m, f)))
+    end
+    applicable(parameters, m) || return    # a new model, before its `parameters` method
+    roles = parameters(m)
+    nom = map(_nominal_value, roles)
+    print(io, "\nParameters:\n")
+    _print_parameters(io, roles, nom)
+    need = [k for (k, v) in pairs(nom) if v === nothing]
+    isempty(need) || print(io, "\n`nominal(m)` needs a value for ", join(need, ", "),
+                           ": `nominal(m; ", first(need), " = value)`")
+end
+
+# An acquisition field, short: a range as written, one value repeated as "2.5, every
+# observation", a list of up to 8 values in full, a longer one as its count and extent (like
+# BestOf). Numbers to 6 significant digits (`:compact`). Anything else as `_showvalue` does.
+function _acqvalue(x::AbstractVector{<:Real})
+    c(v) = repr(v; context = :compact => true)
+    x isa AbstractRange && return c(x)
+    length(x) > 1 && all(==(first(x)), x) && return c(first(x)) * ", every observation"
+    length(x) <= 8 && return "[" * join(map(c, x), ", ") * "]"
+    return "$(length(x)) values from $(c(minimum(x))) to $(c(maximum(x)))"
+end
+_acqvalue(x) = _showvalue(x)
+
+# The parameter table, for the model's display and for `nominal`'s error: one row per parameter
+# with its role, its start (free) or value (fixed), its bounds (a bound left out prints as
+# ±Inf, as the fit uses it), and `nom[n]`, the value `nominal` takes (`nothing`: must be given).
+function _print_parameters(io::IO, roles::NamedTuple, nom::NamedTuple)
+    cell(x) = x isa Real ? repr(x; context = :compact => true) : _showvalue(x)
+    setting(r::Free) = r.start === nothing ? "" : cell(r.start)
+    setting(r::Fixed) = _istie(r.value) ? cell(r.value) * " (tie)" : cell(r.value)
+    bounds(r::Free) = "[" * cell(something(r.lower, -Inf)) * ", " *
+                      cell(something(r.upper, Inf)) * "]"
+    bounds(r::Fixed) = ""
+    rows = [["name", "role", "start/value", "bounds", "nominal(m)"]]
+    for (n, r) in pairs(roles)
+        v = nom[n]
+        push!(rows, [string(n), r isa Free ? "free" : "fixed", setting(r), bounds(r),
+                     v === nothing ? "give it" : cell(v)])
+    end
+    widths = [maximum(row -> textwidth(row[j]), rows) for j in 1:5]   # each column's width
+    print(io, join((rstrip("  " * join(rpad.(row, widths), "  ")) for row in rows), "\n"))
 end

@@ -22,6 +22,12 @@ function EQUIP.signal!(out, m::DataStartTest, p)
 end
 EQUIP.datastart(::DataStartTest, y, p) = (T2 = p.c < 0 ? NaN : 0.05 * p.c,)
 
+# A model still being written, with no `parameters` method yet: it must still print.
+struct NoParametersYet <: MRIModel
+    TE::Vector{Float64}
+    n::Int
+end
+
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
@@ -199,9 +205,15 @@ end
         @test size(simulate(m, nominal(m); snr = 100, n = 2)) == (2, 3)
         # no number to take: must be given, and the error says why
         te = collect(0.01:0.01:0.32)
-        @test occursin("`T2` (starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
+        @test occursin("`T2` (it starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
         @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, T2 = 0.08)
-        @test occursin("`T1` (starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
+        @test occursin("`T1` (it starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
+        # ... and lists what nominal uses for every parameter, the keywords' values included
+        e = msg(() -> nominal(T2Decay(TE = te)))
+        @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
+        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +give it$", e)
+        e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
+        @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
         # mistakes
         @test occursin("unknown parameter `kfm`", msg(() -> nominal(m; kfm = 3.0)))
         @test occursin("is a role", msg(() -> nominal(m; kmf = Fixed(10.0))))
@@ -218,6 +230,36 @@ end
         @test repr(Fixed(:R1f)) == "Fixed(:R1f)"
         @test repr(Fixed(p -> p.R1f)) == "Fixed(<function>)"
         @test repr(Free(start = BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
+    end
+
+    @testset "models print at the REPL" begin
+        txt(x) = sprint(show, MIME"text/plain"(), x)     # what typing `m` at the REPL shows
+        s = txt(QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5))
+        @test startswith(s, "QMTSIR with 3 observations\n  TI = [0.01, 0.1, 1.0]\n" *
+                            "  TD = 2.5, every observation\n  magnitude = true\nParameters:\n" *
+                            "  name     role   start/value  bounds        nominal(m)\n")
+        @test occursin("\n  PSR      free   0.1          [0.0, 1.0]    0.1\n", s)
+        @test occursin("\n  M0f      free   :scale       [0.0, Inf]    1.0\n", s)
+        @test occursin("\n  R1m      fixed  :R1f (tie)                 :R1f\n", s)
+        @test endswith(s, "\n  Mzm_td0  fixed  0.0                        0.0")   # nothing to give
+        s = txt(T2Decay(TE = 0.01:0.01:0.32))
+        @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:data .+ give it\n", s)
+        @test endswith(s, "\n`nominal(m)` needs a value for T2: `nominal(m; T2 = value)`")
+        @test occursin("TE = 32 values from 0.01 to 0.32", txt(T2Decay(TE = collect(0.01:0.01:0.32))))
+        @test occursin(r"T1 +free +BestOf\(30 values from 0.02 to 5.0\)", txt(T1IR(TI = [0.1, 1.0])))
+        # a function tie, and a free parameter without a start (no built-in model has either)
+        t = sprint(EQUIP._print_parameters, (a = Free(), b = Fixed(p -> 2 * p.a)), (a = nothing, b = :x))
+        @test occursin(r"\n  a +free +\[-Inf, Inf\] +give it\n  b +fixed +<function> \(tie\) +:x$", t)
+        # a custom model prints the same way; also before it has `parameters`, or with
+        # acquisition vectors of different lengths (no count then)
+        @test startswith(txt(DataStartTest([0.01, 0.02])),
+                         "DataStartTest with 2 observations\n  t = [0.01, 0.02]\nParameters:")
+        @test txt(NoParametersYet([0.01, 0.02], 3)) ==
+              "NoParametersYet with 2 observations\n  TE = [0.01, 0.02]\n  n = 3"
+        m = QMTSIR(TI = [0.01, 0.1], TD = [1.0, 2.0, 3.0], magnitude = true)
+        @test startswith(txt(m), "QMTSIR\n  TI =")
+        # one line (in a vector, interpolated): Julia's default, the constructor call
+        @test !occursin("\n", repr(QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)))
     end
 
     @testset "ties: by name (Fixed(:R1f)) and by function" begin

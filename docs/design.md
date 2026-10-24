@@ -380,6 +380,11 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   parameter from `parameters(m)` alone (a free parameter's start, 1 for the scale, a fixed value,
   ties kept so they follow later changes; one with no number to take, `:data` or `BestOf`, must be
   given), for models no tissue preset covers; nothing for a model author to write.
+  What to give is shown, not asked for: `nominal`'s error lists every parameter with the value it
+  uses (`give it` for the missing ones), and a model typed at the REPL shows the same table with
+  its acquisition (`show(io, ::MIME"text/plain", m)`, one method for every model). A
+  `nominal(m, :help)` option was tried and dropped: a symbol argument that switches a function
+  to printing is not how Julia packages do it (`?nominal` is the docstring, `show` the object).
   `resolve(m, p)` (formerly the internal `_allparams`) checks a set and resolves its ties: what
   `signal` does before `signal!`, public for loops calling `signal!`. Why every value: the fixed
   defaults are fitting assumptions (kmf = 12.5 is the 4-point scheme's assumption, not a tissue value), and a
@@ -1796,8 +1801,9 @@ notes.)
      `const` global, or through `let`: 4.9–6.3 ms, no allocation; a plain global, or a variable
      reassigned after the closure captures it (Julia "boxes" it): 51–60 ms and 46 MB, 10× slower.
    - **Small usability fixes**: (done: roles print as written, by name,
-     `Free(start = 0.1, lower = 0.0, upper = 1.0)` and `Fixed(12.5)`); a REPL summary of a
-     model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties);
+     `Free(start = 0.1, lower = 0.0, upper = 1.0)` and `Fixed(12.5)`); (done) a REPL summary of a
+     model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties,
+     the value `nominal(m)` takes);
      a clear error when `signal(m, p)` gets a map ("one voxel: give numbers; for maps, use
      `simulate`"; today a `MethodError` on `float`), and a docstring note that values are not
      checked against bounds; a public name for `_allparams` (done: `resolve`), for loops calling

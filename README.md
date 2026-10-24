@@ -350,7 +350,27 @@ Five functions give a model's parameters in different forms:
 `nominal` takes what `parameters(m)` declares; the starts are guesses for fitting, not tissue
 values. A parameter with no number to take must be given: one that starts from the data
 (`:data`, e.g. T2Decay's T2) or from `BestOf` values (the inversion-recovery models' T1), e.g.
-`nominal(T2Decay(TE = te); T2 = 0.08)`; the error names each.
+`nominal(T2Decay(TE = te); T2 = 0.08)`; the error names each and lists what `nominal` uses for
+every parameter. Typing a model at the REPL shows the same table, with its acquisition:
+
+```
+julia> m = QMTSIR(TI = [0.01, 0.05, 0.277, 1.0], TD = 2.5)
+QMTSIR with 4 observations
+  TI = [0.01, 0.05, 0.277, 1.0]
+  TD = 2.5, every observation
+  magnitude = true
+Parameters:
+  name     role   start/value  bounds        nominal(m)
+  PSR      free   0.1          [0.0, 1.0]    0.1
+  R1f      free   1.0          [0.05, 10.0]  1.0
+  Sf       free   -0.95        [-1.2, 0.0]   -0.95
+  M0f      free   :scale       [0.0, Inf]    1.0
+  kmf      fixed  12.5                       12.5
+  R1m      fixed  :R1f (tie)                 :R1f
+  Sm       fixed  0.83                       0.83
+  Mzf_td0  fixed  0.0                        0.0
+  Mzm_td0  fixed  0.0                        0.0
+```
 
 - `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
