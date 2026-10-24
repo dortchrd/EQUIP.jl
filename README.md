@@ -323,7 +323,7 @@ protocol, or checking a model before scanning:
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)                   # the 4-point scheme of Dortch et al., MRM 2018
-t = truth(m, :SIR_lesion)                     # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
+t = nominal(m, :SIR_lesion)                     # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
                                               # Sm), and the model's defaults for the rest
 Y = simulate(m, t; snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
 res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased below 5%
@@ -331,27 +331,31 @@ compare(res, t)                               # bias, SD, RMSE, % converged
 
 m = T2Decay(TE = 0.01:0.01:0.32)
 labels = labelshapes((64, 64))                # synthetic shapes: labels 0 (background) to 3
-maps = phantom(labels, [1 => truth(m, :GM; S0 = 1000.0), 2 => truth(m, :WM; S0 = 1000.0),
-                        3 => truth(m, :blood; S0 = 1000.0)])
+maps = phantom(labels, [1 => nominal(m, :GM; S0 = 1000.0), 2 => nominal(m, :WM; S0 = 1000.0),
+                        3 => nominal(m, :blood; S0 = 1000.0)])
 res = fit(m, simulate(m, maps; snr = 100); mask = labels .> 0)
 compare(res, maps; labels)                    # per tissue
 ```
 
-Five functions give a model's parameters in different forms:
+Four functions give a model's parameters in different forms:
 
 | Function | Gives | Example (QMTSIR) |
 |---|---|---|
 | `parameters(m)` | each parameter's role: free (start, bounds) or fixed | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
 | `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
-| `nominal(m; changes...)` | every value, from the model: starts, 1 for the scale, fixed values | `(PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, …)` |
-| `truth(m, tissue; changes...)` | every value, from a tissue (preset or your own named tuple) | `truth(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
+| `nominal(m; changes...)`, `nominal(m, tissue; changes...)` | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
 | `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |
 
-`nominal` takes what `parameters(m)` declares; the starts are guesses for fitting, not tissue
-values. A parameter with no number to take must be given: one that starts from the data
-(`:data`, e.g. T2Decay's T2) or from `BestOf` values (the inversion-recovery models' T1), e.g.
-`nominal(T2Decay(TE = te); T2 = 0.08)`; the error names each and lists what `nominal` uses for
-every parameter. Typing a model at the REPL shows the same table, with its acquisition:
+Each value of `nominal` comes from a keyword, else the tissue (by name, or converted between T1
+and R1, T2 and R2), else the model: a fixed value, 1 for the scale parameter and, without a
+tissue, a free parameter's start (a guess for fitting, not a tissue value). With a tissue, a
+free parameter must come from the tissue or a keyword: `nominal(QMTSIR(...), :WM)` is an error
+(WM has T1 and T2, no PSR), not the model's starts in disguise, and `nominal(T1IR(...), :GM; Sf =
+-0.95)` needs Sf, an inversion efficiency, not a tissue property. Without a tissue, one that
+starts from the data (`:data`, e.g. T2Decay's T2) or from `BestOf` values (the
+inversion-recovery models' T1) must be given: `nominal(T2Decay(TE = te); T2 = 0.08)`. The error
+names each and lists what `nominal` takes for every parameter. Typing a model at the REPL shows
+the same table, with its acquisition:
 
 ```
 julia> m = QMTSIR(TI = [0.01, 0.05, 0.277, 1.0], TD = 2.5)
@@ -374,7 +378,7 @@ Parameters:
 
 - `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
-  is filled in silently, so the script shows everything the data were made with: `truth(m,
+  is filled in silently, so the script shows everything the data were made with: `nominal(m,
   tissue)` gives every value for a tissue, `nominal(m; changes...)` every value from the model
   (its starts, 1 for the scale, its fixed values), and `resolve(m, θ)` checks a set and turns its
   ties into numbers (for calling `signal!` yourself). `snr` is
@@ -386,9 +390,9 @@ Parameters:
   `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...); `:CSF` (T1 = 4.124 s, the mean of three
   in vivo inversion recovery studies reviewed by Bojorquez et al., MRI 2017; T2 = 1.75 s, a
   placeholder); and the SIR tissue classes of Dortch et al., MRM 2018, Table 1 (`:SIR_WM_I`,
-  `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`). Your own values: `truth(m, (T1 = 4.3, T2 = 2.0))`,
-  or one value changed: `truth(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
-- `truth(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
+  `:SIR_WM_II`, `:SIR_GM`, `:SIR_lesion`). Your own values: `nominal(m, (T1 = 4.3, T2 = 2.0))`,
+  or one value changed: `nominal(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
+- `nominal(m, tissue; values...)`: one model's parameters for a tissue, converting T1/T2 to rates
   where needed; the scale parameter is 1 unless given, and a parameter the model fixes takes
   its default (`defaults(m)`), shown in the result. Free values that are not tissue properties
   (an inversion efficiency `Sf`) must be given.

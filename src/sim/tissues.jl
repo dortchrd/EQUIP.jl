@@ -1,12 +1,13 @@
 # =================================================================================================
-# Tissue presets: published values, and `truth` to turn them into one model's parameters
+# Tissue presets (published values), and `nominal`: every parameter of a model with a value, from
+# a tissue or from the model itself
 # =================================================================================================
 
 """
     TISSUES
 
 Published tissue values, by name (times in s, rates in 1/s). [`tissue`](@ref)`(name)` gives one;
-[`truth`](@ref)`(m, name)` turns it into a model's parameters.
+[`nominal`](@ref)`(m, name)` turns it into a model's parameters.
 
 T1 and T2 at 3 T, 37 °C, measured in vitro (Stanisz et al., Magn Reson Med 2005;54:507, Table 1;
 mouse liver, muscle and heart, rat kidney and spinal cord, bovine cartilage, optic nerve, white
@@ -19,8 +20,8 @@ of Bojorquez et al., Magn Reson Imaging 2017;35:69, Table 1c (4391, 3817 and 416
 1.75 s, the middle of the 1.5–2 s usually reported at 3 T, a placeholder until a measured
 reference is chosen.
 
-Use your own values with a named tuple, `truth(m, (T1 = 4.3, T2 = 2.0))`, or change one value
-of a preset: `truth(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
+Use your own values with a named tuple, `nominal(m, (T1 = 4.3, T2 = 2.0))`, or change one value
+of a preset: `nominal(m, merge(tissue(:CSF), (T2 = 2.0,)))`.
 
 SIR tissue classes at 3 T (Dortch et al., Magn Reson Med 2018;80:1824, Table 1), with the values
 shared by all classes there (Sm = 0.83, Sf = −1.0; R1m = R1f, QMTSIR's default; M0f = 1 and
@@ -63,53 +64,82 @@ function tissue(name::Symbol)
 end
 
 """
-    truth(m, tissue; values...) -> named tuple
+    nominal(m; values...) -> named tuple
+    nominal(m, tissue; values...) -> named tuple
 
-The parameters of model `m` for a tissue: a name from [`TISSUES`](@ref), or your own named
-tuple of values. Ready for [`signal`](@ref), [`simulate`](@ref) and [`phantom`](@ref).
+Every parameter of model `m` with a value: the ground truth for [`signal`](@ref),
+[`simulate`](@ref) and [`phantom`](@ref), from the model, the literature or your own values. For
+each parameter, the value comes from, in order:
 
-For each parameter of `m`, the value comes from, in order:
-1. the keywords, e.g. `truth(m, :WM; M0 = 1000.0, Sf = -0.95)`;
-2. the tissue, by name, or converted between time and rate (R1 = 1/T1, R2 = 1/T2);
-3. for the scale parameter (`M0`, `S0`, `M0f`): 1;
-4. for a parameter the model fixes by default: that default ([`defaults`](@ref)`(m)`, e.g.
-   QMTSIR's `kmf = 12.5`, `R1m = :R1f`), included in the result, so every value is visible.
+1. the keywords: `nominal(m; PSR = 0.15)`, `nominal(m, :WM; M0 = 1000.0, Sf = -0.95)`;
+2. the tissue, if given: a name from [`TISSUES`](@ref) or your own named tuple, by name or
+   converted between time and rate (R1 = 1/T1, R2 = 1/T2);
+3. the model, [`parameters`](@ref)`(m)`: a fixed parameter's value ([`defaults`](@ref)`(m)`,
+   e.g. QMTSIR's `kmf = 12.5`), 1 for the scale parameter (`M0`, `S0`, `M0f`), and, without a
+   tissue, a free parameter's start.
 
-A free parameter with no value is an error that names it: values that are not properties of the
-tissue (an inversion efficiency `Sf`) are your choice, so give them. For a model no tissue
-preset covers, [`nominal`](@ref)`(m; changes...)` gives every value from the model itself.
+Every value is in the result, the model's included, so a script shows everything its data were
+made with. Ties are kept as written (`R1m = :R1f`), so they follow later changes;
+[`resolve`](@ref) turns them into numbers.
+
+Without a tissue, the free parameters take the model's starts: guesses for fitting rather than
+tissue values, but a complete set for any model, custom ones included. With a tissue, a free
+parameter must come from the tissue or a keyword, never from a start: that would hide a tissue
+that does not fit the model (`:WM` has T1 and T2, no PSR for QMTSIR), and values that are not
+properties of the tissue (an inversion efficiency `Sf`) are your choice. A free parameter with
+no value (without a tissue: one that starts from the data, `:data`, or from [`BestOf`](@ref)
+values) is an error that names it and lists what `nominal` takes for every parameter. Typing the
+model at the REPL shows the same table.
 
 ```julia
-truth(R1IR(TI = ti), :GM; Sf = -0.95)      # (M0 = 1.0, Sf = -0.95, R1 = 0.549...)
-truth(QMTSIR(; SIR_4POINT...), :SIR_lesion)  # PSR, R1f, Sf, M0f, kmf = 20, Sm = 0.83 (the tissue),
-                                             # R1m = :R1f, Mzf_td0 = 0, Mzm_td0 = 0 (the defaults)
+m = QMTSIR(; SIR_4POINT...)
+nominal(m)                          # (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, ...)
+nominal(m; PSR = 0.15, kmf = 10.0)  # a couple changed
+nominal(m, :SIR_lesion)             # PSR, R1f, Sf, kmf = 20, Sm = 0.83 (the tissue), M0f = 1,
+                                  # R1m = :R1f, Mzf_td0 = 0, Mzm_td0 = 0 (the model)
+nominal(R1IR(TI = ti), :GM; Sf = -0.95)            # (M0 = 1.0, Sf = -0.95, R1 = 0.549...)
+nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data, so give it
 ```
 """
-function truth(m::MRIModel, t; kwargs...)
-    props = t isa Symbol ? tissue(t) : t
+function nominal(m::MRIModel, t = nothing; changes...)
+    # `t = nothing` makes the tissue optional: Julia defines nominal(m; ...) and nominal(m, t; ...).
+    props = t === nothing ? (;) : t isa Symbol ? tissue(t) : t
     props isa NamedTuple || throw(ArgumentError("give a tissue name or a named tuple of values"))
+    starts = t === nothing                       # free parameters take their starts: no tissue
     roles = parameters(m)
-    for k in keys(kwargs)
-        haskey(roles, k) || throw(ArgumentError("`$k` is not a parameter of $(nameof(typeof(m)))"))
+    ch = values(changes)                         # the keywords as a named tuple
+    _check_names("nominal(m; ...)", keys(ch), keys(roles))
+    _reject_roles(ch)
+    function pick(n)                             # the keyword's value, the tissue's, the model's
+        haskey(ch, n) && return ch[n]
+        haskey(props, n) && return props[n]
+        x = _converted(props, n)
+        return x === nothing ? _model_value(roles[n], starts) : x
     end
-    scale = _scalename(m)
-    vals = Pair{Symbol,Any}[]
-    for (n, r) in pairs(roles)
-        x = haskey(kwargs, n) ? kwargs[n] :
-            haskey(props, n) ? props[n] :
-            _converted(props, n)
-        if x === nothing && n === scale
-            x = 1.0
-        end
-        if x === nothing && r isa Fixed
-            x = r.value                                # the model's default, shown in the result
-        end
-        if x === nothing
-            throw(ArgumentError("no value for `$n` in this tissue; give it, e.g. truth(m, ...; $n = value)"))
-        end
-        push!(vals, n => x)
-    end
-    return (; vals...)
+    q = NamedTuple{keys(roles)}(map(pick, keys(roles)))
+    missing = Tuple(n for n in keys(q) if q[n] === nothing)
+    isempty(missing) || _nominal_error(m, roles, q, t, missing)
+    _check_ties(q)                       # a tie given as a keyword must name a real parameter
+    return q
+end
+
+# A free parameter without a value: say why, how to give it, and what `nominal` takes for every
+# parameter (the table the model's REPL display shows).
+function _nominal_error(m, roles, q, t, missing)
+    call = t === nothing ? "nominal(m" :                    # the call as the user wrote it
+           t isa Symbol ? "nominal(m, $(repr(t))" : "nominal(m, tissue"
+    start(n) = roles[n] isa Free ? roles[n].start : nothing
+    why(n) = start(n) === :data ? "it starts from the data" :
+             start(n) isa BestOf ? "it starts from BestOf values" : "it has no start"
+    one = length(missing) == 1
+    list = t === nothing ? join(("`$n` ($(why(n)))" for n in missing), ", ") :
+        join(("`$n`" for n in missing), ", ") *
+        (one ? ", a free parameter" : ", free parameters") * " the tissue does not give (a " *
+        "start is a guess for fitting, not a tissue value)"
+    table = sprint(_print_parameters, roles, q, call * ")")
+    give = join(("$n = value" for n in missing), ", ")
+    throw(ArgumentError("$(nameof(typeof(m))): no value for $list; give $(one ? "it" : "them"): " *
+        "`$call; $give)`. What `$call)` takes for each parameter:\n" * table))
 end
 
 # Time ↔ rate conversions between a tissue's values and a model's parameter names.

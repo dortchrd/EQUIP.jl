@@ -30,7 +30,7 @@ const OUTDIR = joinpath(@__DIR__, "output", "sir_wm_4point")
 
 # --- The model and the truth ---------------------------------------------------------------------
 m = QMTSIR(; SIR_4POINT...)       # TI and TD of the 4-point scheme; everything else default
-θ = truth(m, TISSUE)              # PSR, R1f, Sf, M0f (= 1), kmf and Sm from the preset, and
+θ = nominal(m, TISSUE)            # PSR, R1f, Sf, M0f (= 1), kmf and Sm from the preset, and
                                   # QMTSIR's defaults for the rest: R1m = :R1f (tied), Mzf_td0
                                   # and Mzm_td0 = 0 (see `defaults(m)`)
 println("Protocol: TI = ", m.TI, " s, TD = ", m.TD, " s")

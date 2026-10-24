@@ -39,7 +39,7 @@ import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (St
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
-export MRIModel, Free, Fixed, BestOf, parameters, defaults, nominal         # model interface
+export MRIModel, Free, Fixed, BestOf, parameters, defaults                  # model interface
 export resolve, signal!, signal, nobs                                       # values and signals
 export datastart, relabel                                                   # optional hooks
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
@@ -48,7 +48,7 @@ export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # rel
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
-export simulate, TISSUES, tissue, truth, phantom, labelshapes, compare, Comparison  # simulation
+export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
@@ -68,7 +68,7 @@ include("fit/dataset.jl")              # every voxel of a dataset, on threads: f
 
 # sim: simulated data and accuracy against the truth (uses models and fit)
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian), snr or σ
-include("sim/tissues.jl")              # TISSUES (published values), tissue, truth
+include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
 include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 

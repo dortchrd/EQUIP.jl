@@ -374,25 +374,34 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 - **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
   need a value for every parameter of the model (a number, a map, or a tie such as
   `R1m = :R1f`); a missing one is an error that lists every missing name and points to
-  `merge(defaults(m), p)`. `defaults(m)` is the named tuple of the values `parameters(m)` fixes
-  (QMTSIR: `kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0`), and `truth(m,
-  tissue)` returns every parameter, the defaults included. `nominal(m; changes...)` gives every
-  parameter from `parameters(m)` alone (a free parameter's start, 1 for the scale, a fixed value,
-  ties kept so they follow later changes; one with no number to take, `:data` or `BestOf`, must be
-  given), for models no tissue preset covers; nothing for a model author to write.
-  What to give is shown, not asked for: `nominal`'s error lists every parameter with the value it
-  uses (`required` for the missing ones), and a model typed at the REPL shows the same table with
-  its acquisition (`show(io, ::MIME"text/plain", m)`, one method for every model). A
-  `nominal(m, :help)` option was tried and dropped: a symbol argument that switches a function
-  to printing is not how Julia packages do it (`?nominal` is the docstring, `show` the object).
+  `nominal(m)`. `defaults(m)` is the named tuple of the values `parameters(m)` fixes
+  (QMTSIR: `kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0`).
   `resolve(m, p)` (formerly the internal `_allparams`) checks a set and resolves its ties: what
   `signal` does before `signal!`, public for loops calling `signal!`. Why every value: the fixed
   defaults are fitting assumptions (kmf = 12.5 is the 4-point scheme's assumption, not a tissue value), and a
   simulation that used them without saying so hides part of its truth; e.g. a Monte Carlo of
   "kmf fixed wrongly" needs the true kmf written in the script. Before this, a left-out fixed
-  parameter took its default silently. `fitted(res)` merges in `defaults(m)` itself, since a
-  fit's fixed values are its own settings. Checked: the bench cases and both examples give the
-  same data and fits as before (byte-identical CSVs, equal hashes).
+  parameter took its default silently. `fitted(res)` uses the fixed values the result stores
+  (`res.fixed`), since a fit's fixed values are its own settings. Checked: the bench cases and
+  both examples give the same data and fits as before (byte-identical CSVs, equal hashes).
+- **`nominal` gives every value: one function, the tissue optional.** `nominal(m; changes...)` and
+  `nominal(m, tissue; changes...)`: each value from a keyword, else the tissue (by name, or
+  converted between time and rate), else the model (a fixed value, 1 for the scale and, without
+  a tissue, a free parameter's start); ties kept so they follow later changes; nothing for a model
+  author to write. `nominal(m)` (the model's values) was first added for models no tissue
+  preset covers, next to `truth(m, tissue)`, then the two were merged under the name `nominal`:
+  both give a simulation's ground truth, from the model, the literature or the user, and one
+  name is one thing to learn. One rule keeps the two sources apart: with a tissue, a free
+  parameter must come from the tissue or a keyword, never from a start. A fallback to the starts would turn a tissue that does not fit the model into
+  the model's guesses without a word (`nominal(QMTSIR(...), :WM)`: WM has T1 and T2, no PSR,
+  R1f or Sf), and values that are not tissue properties (an inversion efficiency Sf) are the
+  user's choice. Without a tissue, a free parameter with no number to take (`:data`, `BestOf`)
+  must be given.
+  What to give is shown, not asked for: `nominal`'s error lists every parameter with the value it
+  takes (`required` for the missing ones), and a model typed at the REPL shows the same table
+  with its acquisition (`show(io, ::MIME"text/plain", m)`, one method for every model). A
+  `nominal(m, :help)` option was tried and dropped: a symbol argument that switches a function
+  to printing is not how Julia packages do it (`?truth` is the docstring, `show` the object).
 - **SNR is relative to the scale parameter** (the one declared `Free(start = :scale)`: M0, S0, M0f),
   σ = scale/snr, voxel by voxel: Dortch et al. 2018's "SNR = 200 at thermal equilibrium". It
   does not depend on the protocol, as σ on a scanner, so protocols compare at equal noise. The
@@ -410,7 +419,7 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   4.124 s, the mean of the three in vivo inversion recovery studies in the review of Bojorquez
   et al., MRI 2017;35:69, Table 1c (4391, 3817, 4163 ms; the VFA values spread from 4.2 to
   6.9 s); T2 = 1.75 s, the middle of the usual 1.5–2 s at 3 T, a placeholder (the review has no
-  CSF T2). Users give their own values as a named tuple, or change one with `merge`. `truth(m, tissue)` converts T1/T2 to rates by name, sets
+  CSF T2). Users give their own values as a named tuple, or change one with `merge`. `nominal(m, tissue)` converts T1/T2 to rates by name, sets
   the scale parameter to 1, and refuses to guess free parameters that are not tissue properties
   (the inversion efficiency Sf of the inversion recovery models): they are given as keywords.
   A parameter the model fixes by default takes that default (B1 = 1, QMTSIR's kmf, R1m = :R1f),
@@ -1141,7 +1150,7 @@ Not needed for correctness: a test checks it against the columns built from `sig
   only those, refitted, their answers on the bound; no bounds → no constraint; the affine part
   (a fixed offset).
 - No allocation per voxel; Float32; statuses; `refit`; maps of fixed values on nonlinear
-  parameters. Simulation unchanged (`signal`, `simulate` and `truth` never see `varpro`).
+  parameters. Simulation unchanged (`signal`, `simulate` and `nominal` never see `varpro`).
 - The benchmark: an "EQUIP VarPro" row in `bench/solvers.jl` until the built-in models declare
   `varpro = true`. The biexponential cases at least as good as the prototype (not best 8 / 4 /
   16 / 11); every other case bit-identical to today (nothing else declared: the fingerprint
@@ -1494,7 +1503,7 @@ notes.)
    - Done (2a, see the Simulation section): `simulate` (Rician or Gaussian noise, `snr`
      relative to the scale parameter or `σ`, `n` copies or maps, a seeded `rng`); `TISSUES`
      (Stanisz et al. 2005, Table 1, 3 T; Dortch et al. 2018, Table 1) with `tissue` and
-     `truth`; `phantom(labels, tissues)` and `labelshapes(dims)`; `compare` (bias, SD, RMSE,
+     `truth` (now `nominal`); `phantom(labels, tissues)` and `labelshapes(dims)`; `compare` (bias, SD, RMSE,
      relative errors, % converged, overall and per label; no timing: speed belongs to
      `bench/`); `SIR_5POINT` / `SIR_4POINT` (Dortch et al. 2018, Table 2) and `SIR_16POINT`
      (log-spaced TIs from 10 ms to 2 s rounded to the ms, then 10 s; TD 2.5 s); a seeded end-to-end
@@ -1866,7 +1875,7 @@ notes.)
      process): `compare` 2.1 s (of which `median` alone 0.93 s: Julia's sorting code, not
      shipped compiled for `Vector{Float64}` by Statistics), printing its table 0.73 s,
      `simulate` 0.26 s (the preset's full parameter set has 6 names where the workload's had 4,
-     and a `MersenneTwister` is a different type from the default generator), `truth` 0.21 s,
+     and a `MersenneTwister` is a different type from the default generator), `truth` (now `nominal`) 0.21 s,
      and a fixed parameter given as a number (`kmf = 10.0`) 0.47 s. Code from Statistics and
      Base called by the workload is saved with EQUIP too.
    - **2. A test that nothing compiles**: a fresh process runs each front-end call with

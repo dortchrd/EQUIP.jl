@@ -207,9 +207,9 @@ parameters(::T1SR) = (M0 = Free(start = :scale, lower = 0), T1 = Free(start = 1.
 ```
 
 Values rather than roles: [`defaults`](@ref)`(m)` (the fixed parameters' values),
-[`nominal`](@ref)`(m)` (every value, from the model), [`truth`](@ref)`(m, tissue)` (every
-value, from a tissue), [`resolve`](@ref)`(m, p)` (a complete set checked, ties turned into
-numbers). `keys(parameters(m))` lists the names.
+[`nominal`](@ref)`(m)` or `nominal(m, tissue)` (every value, from the model or from a tissue),
+[`resolve`](@ref)`(m, p)` (a complete set checked, ties turned into numbers). Typing `m` at the
+REPL shows the roles as a table. `keys(parameters(m))` lists the names.
 """
 function parameters end
 # `function name end` declares a generic function with no methods yet. Each model adds its own
@@ -239,7 +239,7 @@ loop): a tie (`R1m = :R1f`) or a missing value fails inside the model. Complete 
 values once with [`resolve`](@ref), then reuse them:
 
 ```julia
-p = resolve(m, truth(m, :SIR_WM_II))     # every value a number, R1m = R1f
+p = resolve(m, nominal(m, :SIR_WM_II))     # every value a number, R1m = R1f
 out = zeros(nobs(m))
 signal!(out, m, p)
 ```
@@ -387,7 +387,7 @@ function _reject_roles(p::NamedTuple)
         hint = x isa Fixed && x.value isa Real ? "write `$n = $(x.value)`" : "give a number or a map"
         throw(ArgumentError("`$n` is a role, $(repr(x)), not a value: $hint. `signal` and " *
             "`simulate` take values; `parameters(m)` says how each parameter is fitted, " *
-            "`nominal(m)` gives the model's own values and `truth(m, tissue)` a tissue's"))
+            "`nominal(m)` gives the model's own values and `nominal(m, tissue)` a tissue's"))
     end
 end
 
@@ -403,7 +403,7 @@ to use `signal!` directly, e.g. in a loop with one output buffer.
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)
-resolve(m, nominal(m))     # (PSR = 0.1, R1f = 1.0, ..., R1m = 1.0, ...)
+resolve(m, nominal(m))       # (PSR = 0.1, R1f = 1.0, ..., R1m = 1.0, ...)
 ```
 """
 function resolve(m::MRIModel, p::NamedTuple)
@@ -415,7 +415,7 @@ function resolve(m::MRIModel, p::NamedTuple)
         M = nameof(typeof(m))
         throw(ArgumentError("$M needs a value for every parameter; missing: " *
             "$(join(missing, ", ")). For a complete set, start from `nominal(m)` (the model's " *
-            "starting and fixed values) or `truth(m, tissue)`, and change values by keyword: " *
+            "starting and fixed values) or `nominal(m, tissue)`, and change values by keyword: " *
             "`nominal(m; $(first(missing)) = ...)`"))
     end
     q = NamedTuple{keys(roles)}(map(n -> p[n], keys(roles)))   # every parameter, in model order
@@ -431,8 +431,8 @@ assumptions, e.g. for QMTSIR `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0,
 (`R1m = :R1f`: a tie, R1m equals R1f). Empty for a model with none.
 
 Only the fixed parameters: for a complete set to simulate with, use [`nominal`](@ref)`(m)` (these
-plus the free parameters' starts) or [`truth`](@ref)`(m, tissue)`. Or merge them into your own
-values of the free parameters (later values win):
+plus the free parameters' starts) or `nominal(m, tissue)`. Or merge them into your own values of
+the free parameters (later values win):
 
 ```julia
 simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); snr = 200)
@@ -440,53 +440,12 @@ simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); 
 """
 defaults(m::MRIModel) = (; (n => r.value for (n, r) in pairs(parameters(m)) if r isa Fixed)...)
 
-"""
-    nominal(m; changes...) -> named tuple
-
-Every parameter of `m` with a value, taken from [`parameters`](@ref)`(m)`: a free parameter's
-start, 1 for the scale parameter (`start = :scale`), a fixed parameter's value. Ties are kept
-(`R1m = :R1f`), so they follow later changes; [`resolve`](@ref) turns them into numbers. The
-keywords replace or supply values by name: numbers, maps or ties.
-
-A starting point for simulation, especially when no tissue preset fits the model
-([`truth`](@ref) gives a tissue's values). The starts are the model's guesses for fitting, not
-tissue values. A parameter with no number to take, one starting from the data (`:data`) or from
-[`BestOf`](@ref) values, must be given; the error names each and lists what `nominal` uses for
-every parameter. Typing the model's name at the REPL shows the same table.
-
-```julia
-m = QMTSIR(; SIR_4POINT...)
-nominal(m)                         # (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, ...)
-nominal(m; PSR = 0.15, kmf = 10.0)                 # a couple changed
-nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data, so give it
-```
-"""
-function nominal(m::MRIModel; changes...)
-    roles = parameters(m)
-    ch = values(changes)                 # the keywords as a named tuple
-    _check_names("nominal(m; ...)", keys(ch), keys(roles))
-    _reject_roles(ch)
-    pick(n) = haskey(ch, n) ? ch[n] : _nominal_value(roles[n])   # the keyword's value, else the role's
-    q = NamedTuple{keys(roles)}(map(pick, keys(roles)))
-    missing = Tuple(n for n in keys(q) if q[n] === nothing)
-    if !isempty(missing)
-        start(n) = roles[n] isa Free ? roles[n].start : nothing
-        why(n) = start(n) === :data ? "it starts from the data" :
-                 start(n) isa BestOf ? "it starts from BestOf values" : "it has no start"
-        list = join(("`$n` ($(why(n)))" for n in missing), ", ")
-        table = sprint(_print_parameters, roles, q)   # the table the model's REPL display shows
-        throw(ArgumentError("$(nameof(typeof(m))): no nominal value for $list; give it: " *
-            "`nominal(m; $(first(missing)) = value)`. What `nominal(m)` uses for each " *
-            "parameter:\n" * table))
-    end
-    _check_ties(q)                       # a tie given as a keyword must name a real parameter
-    return q
-end
-
-# The value `nominal` takes from a role: a number start, 1 for the scale, a fixed value (ties kept
-# as written); `nothing` when there is no number to take.
-_nominal_value(r::Fixed) = r.value
-_nominal_value(r::Free) = r.start isa Real ? r.start : r.start === :scale ? 1.0 : nothing
+# The value a role gives `nominal` (src/sim/tissues.jl) when neither a keyword nor a tissue does:
+# a fixed value (a tie kept as written), 1 for the scale parameter, and a number start if
+# `starts` (no tissue given); `nothing` when there is none.
+_model_value(r::Fixed, starts) = r.value
+_model_value(r::Free, starts) =
+    r.start === :scale ? 1.0 : starts && r.start isa Real ? r.start : nothing
 
 """
     signal(m, p) -> Vector
@@ -495,15 +454,15 @@ Simulate one voxel's signal. Allocating version of [`signal!`](@ref), for simula
 plotting. `p` gives a value for every parameter of the model: a number, or a tie to another
 parameter (`R1m = :R1f`, or a function of the others); ties are resolved (see
 [`resolve`](@ref)). Nothing is filled in silently: [`nominal`](@ref)`(m)` gives every value from
-the model (its starts and fixed values), [`truth`](@ref)`(m, tissue)` from a tissue, and
+the model (its starts and fixed values), `nominal(m, tissue)` from a tissue, and
 [`defaults`](@ref)`(m)` the fixed ones alone. Roles (`Free`, `Fixed`) are not values: passing
 `parameters(m)` itself is an error.
 
 ```julia
 m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
-signal(m, nominal(m))                             # the model's starting and fixed values
-signal(m, nominal(m; PSR = 0.15, kmf = 10.0))     # a couple changed
-signal(m, truth(m, :SIR_WM_II))                   # every value from a tissue
+signal(m, nominal(m))                               # the model's starting and fixed values
+signal(m, nominal(m; PSR = 0.15, kmf = 10.0))       # a couple changed
+signal(m, nominal(m, :SIR_WM_II))                   # every value from a tissue
 signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)))  # your free values
 ```
 """
@@ -549,12 +508,13 @@ function Base.show(io::IO, ::MIME"text/plain", m::MRIModel)
     end
     applicable(parameters, m) || return    # a new model, before its `parameters` method
     roles = parameters(m)
-    nom = map(_nominal_value, roles)
+    vals = map(r -> _model_value(r, true), roles)     # what nominal(m) takes
     print(io, "\nParameters:\n")
-    _print_parameters(io, roles, nom)
-    need = [k for (k, v) in pairs(nom) if v === nothing]
+    _print_parameters(io, roles, vals, "nominal(m)")
+    need = [k for (k, v) in pairs(vals) if v === nothing]
+    give = join(("$n = value" for n in need), ", ")
     isempty(need) || print(io, "\n`nominal(m)` needs a value for ", join(need, ", "),
-                           ": `nominal(m; ", first(need), " = value)`")
+                           ": `nominal(m; ", give, ")`")
 end
 
 # An acquisition field, short: a range as written, one value repeated as "2.5, every
@@ -571,17 +531,18 @@ _acqvalue(x) = _showvalue(x)
 
 # The parameter table, for the model's display and for `nominal`'s error: one row per parameter
 # with its role, its start (free) or value (fixed), its bounds (a bound left out prints as
-# ±Inf, as the fit uses it), and `nom[n]`, the value `nominal` takes (`nothing`: must be given).
-function _print_parameters(io::IO, roles::NamedTuple, nom::NamedTuple)
+# ±Inf, as the fit uses it), and `vals[n]`, the value `nominal` takes (`nothing`: required), in a
+# column headed `label` (`nominal(m)`, or `nominal(m, :WM)` with a tissue).
+function _print_parameters(io::IO, roles::NamedTuple, vals::NamedTuple, label)
     cell(x) = x isa Real ? repr(x; context = :compact => true) : _showvalue(x)
     setting(r::Free) = r.start === nothing ? "" : cell(r.start)
     setting(r::Fixed) = _istie(r.value) ? cell(r.value) * " (tie)" : cell(r.value)
     bounds(r::Free) = "[" * cell(something(r.lower, -Inf)) * ", " *
                       cell(something(r.upper, Inf)) * "]"
     bounds(r::Fixed) = ""
-    rows = [["name", "role", "start/value", "bounds", "nominal(m)"]]
+    rows = [["name", "role", "start/value", "bounds", label]]
     for (n, r) in pairs(roles)
-        v = nom[n]
+        v = vals[n]
         push!(rows, [string(n), r isa Free ? "free" : "fixed", setting(r), bounds(r),
                      v === nothing ? "required" : cell(v)])
     end

@@ -178,29 +178,29 @@ end
         @test occursin("is a role", msg(() -> simulate(m, parameters(m); snr = 100)))
         @test occursin("write `kmf = 10.0`", msg(() -> signal(m, merge(everything, (kmf = Fixed(10.0),)))))
         # truth gives every value, the defaults included, so it simulates as it is
-        t = truth(m, :SIR_WM_II)
+        t = nominal(m, :SIR_WM_II)
         @test keys(t) == keys(parameters(m)) && t.R1m == :R1f && t.Mzf_td0 == 0
         @test signal(m, t) == signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -1.0, M0f = 1.0,
                                                              kmf = 10.0)))
     end
 
-    @testset "nominal and resolve" begin
+    @testset "nominal(m) and resolve" begin
         m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         # every value from parameters(m): starts, 1 for the scale, fixed values; ties kept
         @test nominal(m) == (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, R1m = :R1f, Sm = 0.83,
-                             Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+                           Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         p = nominal(m; PSR = 0.15, kmf = 10.0)
         @test p.PSR == 0.15 && p.kmf == 10.0 && p.R1m === :R1f && keys(p) == keys(parameters(m))
         @test nominal(T1MFA(FA = [2, 10], TR = 0.015)) == (M0 = 1.0, T1 = 1.0, B1 = 1.0)
         # a kept tie follows later changes; resolve gives numbers, in model order
         @test resolve(m, (; nominal(m)..., R1f = 0.7)).R1m == 0.7
         @test resolve(m, nominal(m)) == (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, R1m = 1.0,
-                                         Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+                                       Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         n = nominal(m)
         @test resolve(m, NamedTuple{reverse(keys(n))}(reverse(values(n)))) == resolve(m, n)
         @test resolve(m, nominal(m; R1m = q -> 0.8 * q.R1f)).R1m ≈ 0.8
-        # signal = signal! on resolved values; simulate takes nominal values
+        # signal = signal! on resolved values; simulate takes nominal(m)
         @test signal(m, nominal(m)) == signal!(zeros(3), m, resolve(m, nominal(m)))
         @test size(simulate(m, nominal(m); snr = 100, n = 2)) == (2, 3)
         # no number to take: must be given, and the error says why
@@ -208,7 +208,7 @@ end
         @test occursin("`T2` (it starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
         @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, T2 = 0.08)
         @test occursin("`T1` (it starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
-        # ... and lists what nominal uses for every parameter, the keywords' values included
+        # ... and lists what truth takes for every parameter, the keywords' values included
         e = msg(() -> nominal(T2Decay(TE = te)))
         @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
         @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +required$", e)
@@ -219,6 +219,16 @@ end
         @test occursin("is a role", msg(() -> nominal(m; kmf = Fixed(10.0))))
         @test occursin("itself a tie", msg(() -> nominal(m; Sm = :R1m)))
         @test occursin("missing: Sf", msg(() -> resolve(m, Base.structdiff(nominal(m), NamedTuple{(:Sf,)}))))
+        # with a tissue, a free parameter never takes its start: WM (T1, T2) does not fit QMTSIR
+        e = msg(() -> nominal(m, :WM))
+        @test occursin("no value for `PSR`, `R1f`, `Sf`, free parameters the tissue does not give", e)
+        @test occursin("`nominal(m, :WM; PSR = value, R1f = value, Sf = value)`", e)
+        @test occursin(r"\n  name +role +start/value +bounds +nominal\(m, :WM\)\n", e)
+        @test occursin(r"\n  PSR +free +0.1 +\[0.0, 1.0\] +required\n", e)       # the start is not used
+        @test occursin(r"\n  M0f +free +:scale +\[0.0, Inf\] +1.0\n", e)          # the scale is 1
+        @test occursin("`nominal(m, tissue; Sf = value)`", msg(() -> nominal(T1IR(TI = [0.1]), (T1 = 1.0,))))
+        @test occursin("is a role", msg(() -> nominal(m, :SIR_WM_II; kmf = Fixed(10.0))))
+        @test nominal(m, :SIR_WM_II; PSR = 0.15).PSR == 0.15                     # keywords win
     end
 
     @testset "roles print readably" begin
@@ -248,7 +258,7 @@ end
         @test occursin("TE = 32 values from 0.01 to 0.32", txt(T2Decay(TE = collect(0.01:0.01:0.32))))
         @test occursin(r"T1 +free +BestOf\(30 values from 0.02 to 5.0\)", txt(T1IR(TI = [0.1, 1.0])))
         # a function tie, and a free parameter without a start (no built-in model has either)
-        t = sprint(EQUIP._print_parameters, (a = Free(), b = Fixed(p -> 2 * p.a)), (a = nothing, b = :x))
+        t = sprint(EQUIP._print_parameters, (a = Free(), b = Fixed(p -> 2 * p.a)), (a = nothing, b = :x), "v")
         @test occursin(r"\n  a +free +\[-Inf, Inf\] +required\n  b +fixed +<function> \(tie\) +:x$", t)
         # a custom model prints the same way; also before it has `parameters`, or with
         # acquisition vectors of different lengths (no count then)
@@ -786,13 +796,13 @@ end
         # tissue presets and truth
         @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
         @test tissue(:CSF) == (T1 = 4.124, T2 = 1.75)
-        @test truth(R2Decay(TE = te), merge(tissue(:CSF), (T2 = 2.0,))).R2 == 0.5    # own value
-        @test truth(T2Decay(TE = te), (T2 = 0.06,); S0 = 500.0) == (S0 = 500.0, T2 = 0.06)
-        @test truth(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
-        @test truth(T1IR(TI = [0.1]), :GM; Sf = -0.95, M0 = 1000.0) == (M0 = 1000.0, Sf = -0.95, T1 = 1.82)
-        @test_throws ArgumentError truth(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value
-        @test_throws ArgumentError truth(m, :brain)                          # unknown tissue
-        @test truth(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
+        @test nominal(R2Decay(TE = te), merge(tissue(:CSF), (T2 = 2.0,))).R2 == 0.5    # own value
+        @test nominal(T2Decay(TE = te), (T2 = 0.06,); S0 = 500.0) == (S0 = 500.0, T2 = 0.06)
+        @test nominal(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
+        @test nominal(T1IR(TI = [0.1]), :GM; Sf = -0.95, M0 = 1000.0) == (M0 = 1000.0, Sf = -0.95, T1 = 1.82)
+        @test_throws ArgumentError nominal(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value
+        @test_throws ArgumentError nominal(m, :brain)                          # unknown tissue
+        @test nominal(QMTSIR(; SIR_4POINT...), :SIR_lesion) ==
               (PSR = 0.05, R1f = 0.5, Sf = -1.0, M0f = 1.0, kmf = 20.0, R1m = :R1f, Sm = 0.83,
                Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         @test SIR_5POINT.TI == TI5 && SIR_5POINT.TD == TD5
@@ -800,15 +810,15 @@ end
                                  0.440, 0.643, 0.938, 1.370, 2.000, 10.0]
         @test SIR_16POINT.TD == fill(2.5, 16)
         m16 = QMTSIR(; SIR_16POINT...)                                      # kmf estimated
-        t16 = truth(m16, :SIR_WM_II)
+        t16 = nominal(m16, :SIR_WM_II)
         r16 = fit(m16, signal(m16, t16); kmf = Free())
         @test r16.params.PSR ≈ 0.12 rtol = 1e-6
         @test r16.params.kmf ≈ 10.0 rtol = 1e-6
         # a phantom, end to end: simulate, fit, compare
         labels = labelshapes((24, 20))
         @test sort(unique(labels)) == [0, 1, 2, 3]
-        tm = phantom(labels, [1 => truth(m, :GM; S0 = 1000.0), 2 => truth(m, :WM; S0 = 1000.0),
-                              3 => truth(m, :blood; S0 = 1000.0)])
+        tm = phantom(labels, [1 => nominal(m, :GM; S0 = 1000.0), 2 => nominal(m, :WM; S0 = 1000.0),
+                              3 => nominal(m, :blood; S0 = 1000.0)])
         @test isnan(tm.T2[1, 1]) && all(==(0.069), tm.T2[labels .== 2])
         data = simulate(m, tm; snr = 100, rng = MersenneTwister(4))
         @test all(isnan, data[1, 1, :])                                      # background
@@ -822,7 +832,7 @@ end
         # fixing kmf at 12.5 (4-point scheme) biases PSR below its true 5%; the 5-point does not
         for (mm, kw, lo, hi) in ((QMTSIR(; SIR_5POINT...), (kmf = Free(),), 4.95, 5.2),
                                  (QMTSIR(; SIR_4POINT...), (;), 4.65, 4.85))
-            t = truth(mm, :SIR_lesion)
+            t = nominal(mm, :SIR_lesion)
             r = compare(fit(mm, simulate(mm, t; snr = 200, n = 2000, rng = MersenneTwister(5)); kw...), t)
             psr = only(filter(x -> x.parameter == :PSR, r.rows))
             @test lo < 100 * psr.mean < hi

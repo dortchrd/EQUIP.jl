@@ -24,7 +24,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
-- src/sim/: `simulate`, `truth` and tissue presets (`TISSUES`), `phantom`, `compare`
+- src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

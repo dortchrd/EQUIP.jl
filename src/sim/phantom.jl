@@ -1,7 +1,7 @@
 # =================================================================================================
 # Digital phantoms: parameter maps with spatial structure, from a label image
 #
-#   labels (integers) ──phantom(labels, tissues)──▶ maps (a named tuple, like `truth`)
+#   labels (integers) ──phantom(labels, tissues)──▶ maps (a named tuple, as `simulate` takes)
 #
 # Later: smooth variation within a tissue, partial volume at edges, a B1 field, brain-like
 # label images from segmentations (BrainWeb, KomaMRI's brain phantom).
@@ -11,15 +11,16 @@
     phantom(labels, tissues) -> named tuple of maps
 
 Parameter maps from an integer label image: `tissues` gives each label's parameters, e.g.
-`[1 => truth(m, :GM), 2 => truth(m, :WM)]`. Every tissue gives the same parameter names: numbers,
-which become maps, or ties (`R1m = :R1f`), which must be the same in every tissue and are kept.
+`[1 => nominal(m, :GM), 2 => nominal(m, :WM)]`. Every tissue gives the same parameter names:
+numbers, which become maps, or ties (`R1m = :R1f`), which must be the same in every tissue and
+are kept.
 Voxels with any other label (e.g. 0, the background) hold NaN. The result is ready for
 [`simulate`](@ref), and is the truth for [`compare`](@ref).
 
 ```julia
 m = T2Decay(TE = 0.01:0.01:0.32)
 labels = labelshapes((64, 64))
-truthmaps = phantom(labels, [1 => truth(m, :GM), 2 => truth(m, :WM), 3 => truth(m, :blood)])
+truthmaps = phantom(labels, [1 => nominal(m, :GM), 2 => nominal(m, :WM), 3 => nominal(m, :blood)])
 data = simulate(m, truthmaps; snr = 50)
 res = fit(m, data; mask = labels .> 0)
 compare(res, truthmaps; labels)
@@ -27,7 +28,7 @@ compare(res, truthmaps; labels)
 """
 function phantom(labels::AbstractArray{<:Integer}, tissues)
     list = collect(tissues)                                   # label => named tuple pairs
-    isempty(list) && throw(ArgumentError("give at least one tissue, e.g. [1 => truth(m, :WM)]"))
+    isempty(list) && throw(ArgumentError("give at least one tissue, e.g. [1 => nominal(m, :WM)]"))
     names = keys(last(first(list)))
     all(p -> keys(last(p)) == names, list) ||
         throw(ArgumentError("every tissue must give the same parameters, in the same order"))

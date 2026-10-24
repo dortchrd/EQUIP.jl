@@ -16,8 +16,8 @@ Noisy data for model `m`, with the observations along the last dimension (the la
 takes).
 
 - `truth`: a value for every parameter of the model, as for [`signal`](@ref)`(m, truth)` (see
-  [`truth`](@ref) for a tissue's values, [`defaults`](@ref)`(m)` for the model's fitting
-  defaults, merged in explicitly). Each value is a number, a map, or a tie (`R1m = :R1f`);
+  [`nominal`](@ref) for every value from the model or a tissue, [`defaults`](@ref)`(m)` for the
+  model's fitting defaults alone). Each value is a number, a map, or a tie (`R1m = :R1f`);
   numbers and ties apply to every voxel, and all maps have the same size.
 - noise level, one of:
   - `snr`: relative to the model's scale parameter (`M0`, `S0`, `M0f`), σ = scale/snr, voxel by
