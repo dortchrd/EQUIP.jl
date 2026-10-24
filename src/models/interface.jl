@@ -225,6 +225,16 @@ once that their lengths match `out` (an error otherwise), which also makes `@inb
 
 Rules: no allocation, no state, and generic in the number type of `p`. The fitter calls it
 with dual numbers (value + derivatives), so do not force values to `Float64`.
+
+Called directly, nothing is checked or filled in (that would cost time in the fitter's inner
+loop): a tie (`R1m = :R1f`) or a missing value fails inside the model. Complete and resolve the
+values once with [`resolve`](@ref), then reuse them:
+
+```julia
+p = resolve(m, truth(m, :SIR_WM_II))     # every value a number, R1m = R1f
+out = zeros(nobs(m))
+signal!(out, m, p)
+```
 """
 function signal! end
 # The `!` is a Julia naming convention: the function modifies (one of) its arguments, here `out`.
@@ -356,28 +366,45 @@ function _check_names(kind, given, known)
     end
 end
 
-# Every parameter of `m`, in model order, from `p`, which must give them all (no silent defaults:
-# a simulation's truth should be visible in the script), ties resolved. Used by `signal`
-# (simulation), not by the fitter.
-function _allparams(m::MRIModel, p::NamedTuple)
-    roles = parameters(m)
-    _check_names("p", keys(p), keys(roles))
-    # Roles are not values: `parameters(m)` says how each parameter is fitted (start, bounds), so
-    # passing it here is an easy mistake that would otherwise fail deep inside the model.
+# Roles are not values: `parameters(m)` says how each parameter is fitted (start, bounds), so
+# passing it, or a `Free(...)`/`Fixed(...)`, where values belong is an easy mistake that would
+# otherwise fail deep inside the model.
+function _reject_roles(p::NamedTuple)
     for (n, x) in pairs(p)
         x isa Union{Free,Fixed} || continue
         hint = x isa Fixed && x.value isa Real ? "write `$n = $(x.value)`" : "give a number or a map"
         throw(ArgumentError("`$n` is a role, $(repr(x)), not a value: $hint. `signal` and " *
-            "`simulate` take values; `parameters(m)` says how each parameter is fitted, and " *
-            "`truth(m, tissue)` gives values for a tissue"))
+            "`simulate` take values; `parameters(m)` says how each parameter is fitted, " *
+            "`nominal(m)` gives the model's own values and `truth(m, tissue)` a tissue's"))
     end
+end
+
+"""
+    resolve(m, p) -> named tuple
+
+Every parameter of `m` as a plain value, in the model's order: `p` must give them all (numbers,
+or ties), and ties are resolved (`R1m = :R1f` becomes R1f's value; a function tie is called
+with the other values). Checked: every name is a parameter of `m`, none is missing (the error
+lists them all), no value is a role (`Free`, `Fixed`), and every tie names a parameter that is
+not itself a tie. [`signal`](@ref) does this before calling [`signal!`](@ref); call it yourself
+to use `signal!` directly, e.g. in a loop with one output buffer.
+
+```julia
+m = QMTSIR(; SIR_4POINT...)
+resolve(m, nominal(m))     # (PSR = 0.1, R1f = 1.0, ..., R1m = 1.0, ...)
+```
+"""
+function resolve(m::MRIModel, p::NamedTuple)
+    roles = parameters(m)
+    _check_names("p", keys(p), keys(roles))
+    _reject_roles(p)
     missing = Tuple(n for n in keys(roles) if !haskey(p, n))
     if !isempty(missing)
         M = nameof(typeof(m))
-        d = defaults(m)
-        hint = isempty(d) ? "" : " The model's fitting defaults are `defaults(m)` = $d; to simulate " *
-            "with them, merge them in: `merge(defaults(m), p)`."
-        throw(ArgumentError("$M needs a value for every parameter; missing: $(join(missing, ", ")).$hint"))
+        throw(ArgumentError("$M needs a value for every parameter; missing: " *
+            "$(join(missing, ", ")). For a complete set, start from `nominal(m)` (the model's " *
+            "starting and fixed values) or `truth(m, tissue)`, and change values by keyword: " *
+            "`nominal(m; $(first(missing)) = ...)`"))
     end
     q = NamedTuple{keys(roles)}(map(n -> p[n], keys(roles)))   # every parameter, in model order
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
@@ -391,8 +418,9 @@ The values of the parameters that [`parameters`](@ref)`(m)` fixes by default: th
 assumptions, e.g. for QMTSIR `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)`
 (`R1m = :R1f`: a tie, R1m equals R1f). Empty for a model with none.
 
-[`signal`](@ref) and [`simulate`](@ref) need every parameter's value; to use these, merge them in,
-so the choice is visible in the script (later values win):
+Only the fixed parameters: for a complete set to simulate with, use [`nominal`](@ref)`(m)` (these
+plus the free parameters' starts) or [`truth`](@ref)`(m, tissue)`. Or merge them into your own
+values of the free parameters (later values win):
 
 ```julia
 simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); snr = 200)
@@ -401,25 +429,70 @@ simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); 
 defaults(m::MRIModel) = (; (n => r.value for (n, r) in pairs(parameters(m)) if r isa Fixed)...)
 
 """
+    nominal(m; changes...) -> named tuple
+
+Every parameter of `m` with a value, taken from [`parameters`](@ref)`(m)`: a free parameter's
+start, 1 for the scale parameter (`start = :scale`), a fixed parameter's value. Ties are kept
+(`R1m = :R1f`), so they follow later changes; [`resolve`](@ref) turns them into numbers. The
+keywords replace or supply values by name: numbers, maps or ties.
+
+A starting point for simulation, especially when no tissue preset fits the model
+([`truth`](@ref) gives a tissue's values). The starts are the model's guesses for fitting, not
+tissue values. A parameter with no number to take, one starting from the data (`:data`) or from
+[`BestOf`](@ref) values, must be given; the error names each.
+
+```julia
+m = QMTSIR(; SIR_4POINT...)
+nominal(m)                         # (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, ...)
+nominal(m; PSR = 0.15, kmf = 10.0)                 # a couple changed
+nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data: give it
+```
+"""
+function nominal(m::MRIModel; changes...)
+    roles = parameters(m)
+    ch = values(changes)                 # the keywords as a named tuple
+    _check_names("nominal(m; ...)", keys(ch), keys(roles))
+    _reject_roles(ch)
+    pick(n) = haskey(ch, n) ? ch[n] : _nominal_value(roles[n])   # the keyword's value, else the role's
+    q = NamedTuple{keys(roles)}(map(pick, keys(roles)))
+    missing = Tuple(n for n in keys(q) if q[n] === nothing)
+    if !isempty(missing)
+        start(n) = roles[n] isa Free ? roles[n].start : nothing
+        why(n) = start(n) === :data ? "starts from the data" :
+                 start(n) isa BestOf ? "starts from BestOf values" : "has no start"
+        list = join(("`$n` ($(why(n)))" for n in missing), ", ")
+        throw(ArgumentError("$(nameof(typeof(m))): no nominal value for $list; give it: " *
+            "`nominal(m; $(first(missing)) = value)`"))
+    end
+    _check_ties(q)                       # a tie given as a keyword must name a real parameter
+    return q
+end
+# The value `nominal` takes from a role: a number start, 1 for the scale, a fixed value (ties kept
+# as written); `nothing` when there is no number to take.
+_nominal_value(r::Fixed) = r.value
+_nominal_value(r::Free) = r.start isa Real ? r.start : r.start === :scale ? 1.0 : nothing
+
+"""
     signal(m, p) -> Vector
 
 Simulate one voxel's signal. Allocating version of [`signal!`](@ref), for simulation and
 plotting. `p` gives a value for every parameter of the model: a number, or a tie to another
-parameter (`R1m = :R1f`, or a function of the others); ties are resolved. Nothing is filled in
-silently: the model's fitting defaults (QMTSIR's `kmf = 12.5`, ...) are [`defaults`](@ref)`(m)`,
-merged in explicitly, and [`truth`](@ref) gives every value for a tissue. Roles (`Free`,
-`Fixed`) are not values: passing `parameters(m)` itself is an error.
+parameter (`R1m = :R1f`, or a function of the others); ties are resolved (see
+[`resolve`](@ref)). Nothing is filled in silently: [`nominal`](@ref)`(m)` gives every value from
+the model (its starts and fixed values), [`truth`](@ref)`(m, tissue)` from a tissue, and
+[`defaults`](@ref)`(m)` the fixed ones alone. Roles (`Free`, `Fixed`) are not values: passing
+`parameters(m)` itself is an error.
 
 ```julia
 m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
-θ = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)
-signal(m, merge(defaults(m), θ))                  # with the model's defaults for the rest
-signal(m, merge(defaults(m), θ, (kmf = 15.0,)))   # one of them changed
+signal(m, nominal(m))                             # the model's starting and fixed values
+signal(m, nominal(m; PSR = 0.15, kmf = 10.0))     # a couple changed
 signal(m, truth(m, :SIR_WM_II))                   # every value from a tissue
+signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)))  # your free values
 ```
 """
 function signal(m::MRIModel, p::NamedTuple)
-    q = _allparams(m, p)
+    q = resolve(m, p)
     n = nobs(m)                                    # also checks the acquisition's lengths
     # Element type of the output: wide enough for every parameter and acquisition value
     # (e.g. Float64; or a dual number if someone differentiates through `signal`).

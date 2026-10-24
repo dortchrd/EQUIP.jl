@@ -73,9 +73,9 @@ using EQUIP
 
 m = QMTSIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 2.922, 0.010])
 
-# Simulate. Every parameter needs a value: here the free ones, with the model's fixed defaults
-# (`defaults(m)`: kmf = 12.5, R1m = :R1f, Sm = 0.83, ...) merged in, explicitly.
-y = signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
+# Simulate. Every parameter needs a value: `nominal(m)` takes them all from the model (its
+# starting and fixed values: kmf = 12.5, R1m = R1f, ...), and keywords change any of them.
+y = signal(m, nominal(m; PSR = 0.12, R1f = 1.0, M0f = 1000.0))
 
 # Fit one voxel: y is a vector.
 r = fit(m, y)
@@ -337,7 +337,9 @@ compare(res, maps; labels)                    # per tissue
 - `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
   is filled in silently, so the script shows everything the data were made with: `truth(m,
-  tissue)` gives every value, or merge in the model's defaults, `merge(defaults(m), θ)`. `snr` is
+  tissue)` gives every value for a tissue, `nominal(m; changes...)` every value from the model
+  (its starts, 1 for the scale, its fixed values), and `resolve(m, θ)` checks a set and turns its
+  ties into numbers (for calling `signal!` yourself). `snr` is
   relative to the model's scale parameter (M0, S0, M0f: σ = scale/snr, "SNR at thermal
   equilibrium"), so it does not depend on the protocol; `σ` sets the noise directly, in signal
   units. Rician noise by default; Gaussian for models fitted to signed data

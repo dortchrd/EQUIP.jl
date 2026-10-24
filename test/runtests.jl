@@ -162,7 +162,8 @@ end
         @test_throws ArgumentError signal(m, θfree)                          # fixed ones missing
         @test_throws ArgumentError simulate(m, θfree; snr = 100)
         @test occursin("missing: kmf, R1m, Sm, Mzf_td0, Mzm_td0", msg(() -> signal(m, θfree)))
-        @test occursin("merge(defaults(m), p)", msg(() -> signal(m, θfree)))
+        @test occursin("start from `nominal(m)`", msg(() -> signal(m, θfree)))
+        @test occursin("nominal(m; kmf = ...)", msg(() -> signal(m, θfree)))
         @test occursin("missing: R1f, Sf, M0f", msg(() -> signal(m, merge(defaults(m), (PSR = 0.1,)))))
         @test_throws ArgumentError signal(m, merge(everything, (nope = 1.0,)))   # unknown name
         @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), everything)
@@ -175,6 +176,37 @@ end
         @test keys(t) == keys(parameters(m)) && t.R1m == :R1f && t.Mzf_td0 == 0
         @test signal(m, t) == signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -1.0, M0f = 1.0,
                                                              kmf = 10.0)))
+    end
+
+    @testset "nominal and resolve" begin
+        m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        # every value from parameters(m): starts, 1 for the scale, fixed values; ties kept
+        @test nominal(m) == (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, R1m = :R1f, Sm = 0.83,
+                             Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+        p = nominal(m; PSR = 0.15, kmf = 10.0)
+        @test p.PSR == 0.15 && p.kmf == 10.0 && p.R1m === :R1f && keys(p) == keys(parameters(m))
+        @test nominal(T1MFA(FA = [2, 10], TR = 0.015)) == (M0 = 1.0, T1 = 1.0, B1 = 1.0)
+        # a kept tie follows later changes; resolve gives numbers, in model order
+        @test resolve(m, (; nominal(m)..., R1f = 0.7)).R1m == 0.7
+        @test resolve(m, nominal(m)) == (PSR = 0.1, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, R1m = 1.0,
+                                         Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+        n = nominal(m)
+        @test resolve(m, NamedTuple{reverse(keys(n))}(reverse(values(n)))) == resolve(m, n)
+        @test resolve(m, nominal(m; R1m = q -> 0.8 * q.R1f)).R1m ≈ 0.8
+        # signal = signal! on resolved values; simulate takes nominal values
+        @test signal(m, nominal(m)) == signal!(zeros(3), m, resolve(m, nominal(m)))
+        @test size(simulate(m, nominal(m); snr = 100, n = 2)) == (2, 3)
+        # no number to take: must be given, and the error says why
+        te = collect(0.01:0.01:0.32)
+        @test occursin("`T2` (starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
+        @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, T2 = 0.08)
+        @test occursin("`T1` (starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
+        # mistakes
+        @test occursin("unknown parameter `kfm`", msg(() -> nominal(m; kfm = 3.0)))
+        @test occursin("is a role", msg(() -> nominal(m; kmf = Fixed(10.0))))
+        @test occursin("itself a tie", msg(() -> nominal(m; Sm = :R1m)))
+        @test occursin("missing: Sf", msg(() -> resolve(m, Base.structdiff(nominal(m), NamedTuple{(:Sf,)}))))
     end
 
     @testset "roles print readably" begin

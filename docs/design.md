@@ -363,8 +363,13 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   `R1m = :R1f`); a missing one is an error that lists every missing name and points to
   `merge(defaults(m), p)`. `defaults(m)` is the named tuple of the values `parameters(m)` fixes
   (QMTSIR: `kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0`), and `truth(m,
-  tissue)` returns every parameter, the defaults included. Why: the fixed defaults are fitting
-  assumptions (kmf = 12.5 is the 4-point scheme's assumption, not a tissue value), and a
+  tissue)` returns every parameter, the defaults included. `nominal(m; changes...)` gives every
+  parameter from `parameters(m)` alone (a free parameter's start, 1 for the scale, a fixed value,
+  ties kept so they follow later changes; one with no number to take, `:data` or `BestOf`, must be
+  given), for models no tissue preset covers; nothing for a model author to write.
+  `resolve(m, p)` (formerly the internal `_allparams`) checks a set and resolves its ties: what
+  `signal` does before `signal!`, public for loops calling `signal!`. Why every value: the fixed
+  defaults are fitting assumptions (kmf = 12.5 is the 4-point scheme's assumption, not a tissue value), and a
   simulation that used them without saying so hides part of its truth; e.g. a Monte Carlo of
   "kmf fixed wrongly" needs the true kmf written in the script. Before this, a left-out fixed
   parameter took its default silently. `fitted(res)` merges in `defaults(m)` itself, since a
@@ -1782,8 +1787,8 @@ notes.)
      model (its acquisition, and a table of its parameters: free or fixed, start, bounds, ties);
      a clear error when `signal(m, p)` gets a map ("one voxel: give numbers; for maps, use
      `simulate`"; today a `MethodError` on `float`), and a docstring note that values are not
-     checked against bounds; a public name for `_allparams` (every parameter's value checked,
-     ties resolved), for loops calling `signal!`; in "Writing a model", that a model whose
+     checked against bounds; a public name for `_allparams` (done: `resolve`), for loops calling
+     `signal!`; in "Writing a model", that a model whose
      type parameters cannot be rebuilt from its fields needs a precision-conversion method.
 9. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
