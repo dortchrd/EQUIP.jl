@@ -211,7 +211,7 @@ end
         # ... and lists what nominal uses for every parameter, the keywords' values included
         e = msg(() -> nominal(T2Decay(TE = te)))
         @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
-        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +give it$", e)
+        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +required$", e)
         e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
         @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
         # mistakes
@@ -243,13 +243,13 @@ end
         @test occursin("\n  R1m      fixed  :R1f (tie)                 :R1f\n", s)
         @test endswith(s, "\n  Mzm_td0  fixed  0.0                        0.0")   # nothing to give
         s = txt(T2Decay(TE = 0.01:0.01:0.32))
-        @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:data .+ give it\n", s)
+        @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:data .+ required\n", s)
         @test endswith(s, "\n`nominal(m)` needs a value for T2: `nominal(m; T2 = value)`")
         @test occursin("TE = 32 values from 0.01 to 0.32", txt(T2Decay(TE = collect(0.01:0.01:0.32))))
         @test occursin(r"T1 +free +BestOf\(30 values from 0.02 to 5.0\)", txt(T1IR(TI = [0.1, 1.0])))
         # a function tie, and a free parameter without a start (no built-in model has either)
         t = sprint(EQUIP._print_parameters, (a = Free(), b = Fixed(p -> 2 * p.a)), (a = nothing, b = :x))
-        @test occursin(r"\n  a +free +\[-Inf, Inf\] +give it\n  b +fixed +<function> \(tie\) +:x$", t)
+        @test occursin(r"\n  a +free +\[-Inf, Inf\] +required\n  b +fixed +<function> \(tie\) +:x$", t)
         # a custom model prints the same way; also before it has `parameters`, or with
         # acquisition vectors of different lengths (no count then)
         @test startswith(txt(DataStartTest([0.01, 0.02])),

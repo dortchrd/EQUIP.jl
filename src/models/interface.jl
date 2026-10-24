@@ -583,7 +583,7 @@ function _print_parameters(io::IO, roles::NamedTuple, nom::NamedTuple)
     for (n, r) in pairs(roles)
         v = nom[n]
         push!(rows, [string(n), r isa Free ? "free" : "fixed", setting(r), bounds(r),
-                     v === nothing ? "give it" : cell(v)])
+                     v === nothing ? "required" : cell(v)])
     end
     widths = [maximum(row -> textwidth(row[j]), rows) for j in 1:5]   # each column's width
     print(io, join((rstrip("  " * join(rpad.(row, widths), "  ")) for row in rows), "\n"))

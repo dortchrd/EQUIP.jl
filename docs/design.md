@@ -381,7 +381,7 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   ties kept so they follow later changes; one with no number to take, `:data` or `BestOf`, must be
   given), for models no tissue preset covers; nothing for a model author to write.
   What to give is shown, not asked for: `nominal`'s error lists every parameter with the value it
-  uses (`give it` for the missing ones), and a model typed at the REPL shows the same table with
+  uses (`required` for the missing ones), and a model typed at the REPL shows the same table with
   its acquisition (`show(io, ::MIME"text/plain", m)`, one method for every model). A
   `nominal(m, :help)` option was tried and dropped: a symbol argument that switches a function
   to printing is not how Julia packages do it (`?nominal` is the docstring, `show` the object).
