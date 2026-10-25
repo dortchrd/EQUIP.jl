@@ -1359,6 +1359,40 @@ How, with what was measured:
 
 ### `montecarlo`: sweeps, and simulating with another model
 
+Status: one case implemented on `crlb-proto` (src/analysis/montecarlo.jl); sweeps, fit
+settings side by side and `simulate_with` next.
+
+```julia
+mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
+mc.bias.PSR, mc.sd.PSR, mc.se_sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR
+montecarlo(m, θ; snr = 200, fit = (kmf = Free(),), noise = :gaussian, rng = MersenneTwister(1))
+```
+
+What the first version does, and why:
+
+- `simulate` (n copies of one voxel) → one threaded dataset `fit` → statistics, with `crlb` at
+  the same truth, noise and fit settings attached (`mc.crlb`) and shown alongside. The fits start
+  as `fit` starts them (`:scale`, `:data`, `BestOf`), not at the truth: local minima and the
+  starting rules are part of what is measured.
+- The same names as `crlb`, by quantity then parameter (`mc.sd.PSR`, `mc.relbias.PSR`), so a
+  measurement and its prediction line up; plus standard errors (`se_mean` = SD/√n, `se_sd` =
+  SD/√(2(n − 1))), so "agrees with crlb" has a scale. Statistics over every fitted copy,
+  converged or not, as `compare`; `mc.converged` gives the fraction; `mc.result` (the
+  `FitResult`) keeps every estimate, so no `keep` keyword.
+- `fit = (...)` as in `crlb`, but options pass through too (`precision`, `solver`: they change
+  the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: Rician for
+  magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. `σ` a number
+  only, as `simulate` (crlb takes one per observation).
+- Measured (4 threads): 10 000 copies of the 4-point scheme in 0.23 s. Against crlb, WM I with
+  kmf fixed at 12.5, Rician noise, SNR 200, 10 000 copies: SD/crlb 1.004, 0.994, 0.996, 0.997
+  (PSR, R1f, Sf, M0f; ± 0.007), PSR bias −14.2% measured, −14.1% predicted. T2Decay, Gaussian:
+  0.995 and 0.990 (± 0.007). One caution, seen in testing: within one sample the parameters'
+  ratios move together (the same noise drives every estimate), so four ratios 3 standard errors
+  low in one 2 000-copy sample (seed 1, kmf at its true value) were one fluctuation, not four:
+  other seeds 0.98–1.03, and 20 000 copies 0.993–1.006, in Float32 and Float64 alike.
+
+The plan for the rest:
+
 ```julia
 montecarlo(m, t; snr = 200, n = 10_000)                         # one case
 montecarlo(m, t; snr = [50, 100, 200, 400])                     # accuracy against SNR
@@ -1550,8 +1584,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
-2. `montecarlo`, one case first (then `vary`, fit settings side by side, `simulate_with`,
-   SD/CRLB; Figs. 1 and 2B). Moved ahead of the diagnostics: it is the check on `crlb`, and it
+2. `montecarlo`, one case first (done, `crlb-proto`; then `vary`, fit settings side by side,
+   `simulate_with`, SD/CRLB; Figs. 1 and 2B). Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol

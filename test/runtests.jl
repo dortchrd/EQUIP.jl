@@ -962,6 +962,57 @@ end
         @test occursin("missing: Sf", msg(() -> crlb(m4, Base.structdiff(θ, NamedTuple{(:Sf,)}); snr = 200)))
     end
 
+    @testset "montecarlo: measured bias, SD and RMSE, with crlb alongside" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        mt = T2Decay(TE = collect(0.01:0.01:0.32))
+        θt = (S0 = 1000.0, T2 = 0.08)
+        mc = montecarlo(mt, θt; σ = 10.0, n = 4000, noise = :gaussian, rng = MersenneTwister(3))
+        @test mc.n == 4000 && mc.converged == 1 && mc.noise === :gaussian && mc.σ == 10
+        @test length(mc.result.params.T2) == 4000
+        # the statistics, by hand from the estimates
+        x = mc.result.params.T2
+        @test mc.mean.T2 ≈ mean(x) && mc.sd.T2 ≈ std(x) && mc.bias.T2 ≈ mean(x) - 0.08
+        @test mc.rmse.T2 ≈ sqrt(mean(abs2, x .- 0.08)) && mc.relsd.T2 ≈ std(x) / 0.08
+        @test mc.se_mean.T2 ≈ std(x) / sqrt(4000) && mc.se_sd.T2 ≈ std(x) / sqrt(2 * 3999)
+        # nothing fixed wrong: the mean at the truth, the SD at the CRLB (within 4 standard errors)
+        for p in (:S0, :T2)
+            @test abs(mc.bias[p]) < 4 * mc.se_mean[p]
+            @test abs(mc.sd[p] - mc.crlb.sd[p]) < 4 * mc.se_sd[p]
+        end
+        # the same generator and seed, the same result; the crlb attached is crlb's
+        @test montecarlo(mt, θt; σ = 10.0, n = 4000, noise = :gaussian, rng = MersenneTwister(3)).sd == mc.sd
+        @test mc.crlb.sd == crlb(mt, θt; σ = 10.0).sd
+        # a fixed value wrong (kmf 12.5; WM I has 5): the fits center on crlb's noise-free fit,
+        # not on the truth, with crlb's SD
+        m4 = QMTSIR(; SIR_4POINT...)
+        θ = nominal(m4, :SIR_WM_I)
+        mq = montecarlo(m4, θ; snr = 200, n = 4000, noise = :gaussian, rng = MersenneTwister(4))
+        @test mq.relbias.PSR < -0.13
+        for p in keys(mq.sd)
+            @test abs(mq.mean[p] - mq.crlb.fit[p]) < 4 * mq.se_mean[p]
+            @test abs(mq.sd[p] - mq.crlb.sd[p]) < 4 * mq.se_sd[p]
+        end
+        # the noise as simulate's default (Rician for magnitude data); fit settings as for `fit`,
+        # options included (precision), crlb taking the roles alone
+        @test montecarlo(m4, θ; snr = 200, n = 50).noise === :rician
+        @test montecarlo(QMTSIR(; SIR_4POINT..., magnitude = false), θ; snr = 200, n = 50).noise === :gaussian
+        m32 = montecarlo(m4, θ; snr = 200, n = 200, fit = (kmf = 5.0, precision = Float32))
+        @test eltype(m32.result.params.PSR) == Float32 && m32.crlb.bias.PSR == 0
+        # display
+        s = sprint(show, MIME"text/plain"(), mq)
+        @test occursin(r"^montecarlo for QMTSIR, 4 observations, σ = 0.005, gaussian noise: 4000 noisy copies, [0-9.]+% converged", s)
+        @test occursin("fixed in the fit: kmf = 12.5 (true 5.0)", s)
+        @test occursin(r"\n  parameter +true +mean +rel bias +crlb +SD +crlb +SD/crlb +rel RMSE +crlb\n", s)
+        @test repr(mq) == "MonteCarloResult(QMTSIR: PSR, R1f, Sf, M0f; n = 4000)"
+        # mistakes
+        @test occursin("at least 2", msg(() -> montecarlo(mt, θt; σ = 10.0, n = 1)))
+        @test occursin("one voxel", msg(() -> montecarlo(mt, (S0 = fill(1000.0, 3), T2 = 0.08); σ = 10.0)))
+        @test occursin("`σ` as a number", msg(() -> montecarlo(mt, θt; σ = fill(10.0, 32))))
+        @test occursin("`snr` or as `σ`", msg(() -> montecarlo(mt, θt)))
+        @test occursin("mask", msg(() -> montecarlo(mt, θt; σ = 10.0, fit = (mask = trues(2),))))
+        @test occursin("missing: T2", msg(() -> montecarlo(mt, (S0 = 1000.0,); σ = 10.0)))
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

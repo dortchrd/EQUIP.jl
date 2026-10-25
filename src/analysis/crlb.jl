@@ -390,11 +390,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     print(io, "crlb for ", nameof(typeof(c.model)), ", ", length(σ), " observations, ", noise,
           ", covariance: ", how)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
-    if !isempty(c.fixed)
-        item(n, x) = (t = c.truth[n]; s = "$n = $(_showvalue(x))";
-                      x isa Real && t isa Real && x != t ? s * " (true $(_showvalue(t)))" : s)
-        print(io, "\nfixed in the fit: ", join((item(n, x) for (n, x) in pairs(c.fixed)), ", "))
-    end
+    _print_fixed(io, c.fixed, c.truth)
     isconverged(c.status) ||
         print(io, "\nthe noise-free fit did not converge ($(c.status)): the bias may be inaccurate")
     isempty(c.onbound) ||
@@ -408,6 +404,15 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     for r in rows
         print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
+end
+
+# The fit's fixed values, with the truth where it differs: the source of any bias. Shared with
+# `montecarlo`'s display.
+function _print_fixed(io::IO, fixed::NamedTuple, truth::NamedTuple)
+    isempty(fixed) && return
+    item(n, x) = (t = truth[n]; s = "$n = $(_showvalue(x))";
+                  x isa Real && t isa Real && x != t ? s * " (true $(_showvalue(t)))" : s)
+    print(io, "\nfixed in the fit: ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
 end
 
 Base.show(io::IO, c::CRLBResult) =
