@@ -25,7 +25,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
 - src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
-- src/analysis/: `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3) and
+- src/analysis/: derivatives.jl, crlb's pieces one function each (`jacobian`, `hessian`,
+  `informationmatrix`, `biasgradient`, `sandwich`, `biasedcrlb`, ...); `crlb` (bias, SD and RMSE
+  predicted from derivatives; sandwich or Eq. 3), their composition; crlb_kernel.jl, the same
+  without allocation for optimizers; and
   `montecarlo` (the same measured by simulating and fitting, with `crlb` alongside); sweep.jl:
   both over noise levels and true values (`snr = [...]`, `vary = (...)`), returning a `Sweep`
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and

@@ -471,8 +471,28 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   separately acquired images with the same readout, costs nothing extra.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
-  `stderror(c)`; `informationmatrix(m, θ; snr = 200)` directly; `vcov(mc)`, `stderror(mc)` for a
-  Monte Carlo.
+  `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
+  for a Monte Carlo.
+- **The pieces, one function each,** of which `crlb` is the composition (θ the values, `fit`
+  the fit settings; the derivatives are taken at θ, with `fit` choosing the free parameters):
+
+  | Function | Gives |
+  |---|---|
+  | `noisecovariance(m, θ; snr)` | Σ, the noise covariance (N×N) |
+  | `noisefree(m, θ; fit)` | θ̂, the fit of the noise-free data (a `FitResult`) |
+  | `bias(m, θ; fit)` | b = θ̂ − θ |
+  | `jacobian(m, θ; fit)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at θ or at a fit's answer |
+  | `hessian(m, θ, y; fit)`, `hessian(r, y)` | H = JᵀJ + Σᵢ rᵢ∇²gᵢ, the cost's Hessian |
+  | `informationmatrix(m, θ; snr, fit)` | F = JᵀΣ⁻¹J |
+  | `biasgradient(m, θ; fit)` | ∇b (implicit function theorem, or `method = :unrolled`) |
+  | `sandwich(H, J, Σ)` | H⁻¹JᵀΣJH⁻¹, the least-squares fit's covariance |
+  | `biasedcrlb(∇b, F)` | (I + ∇b)F⁻¹(I + ∇b)ᵀ, Eq. 3 |
+
+  ```julia
+  r = noisefree(m, θ)                                   # kmf fixed at 12.5 by the model
+  sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, θ; snr = 200))
+  biasedcrlb(biasgradient(m, θ), informationmatrix(m, θ; snr = 200))   # = crlb's two covariances
+  ```
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
   nonlinearity at low SNR. That is what montecarlo is for.
 
@@ -507,6 +527,8 @@ src/
                           (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
                           a dataset, threaded; refit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
+  analysis/               derivatives.jl (crlb's pieces), crlb.jl, crlb_kernel.jl (the same
+                          without allocation, for optimizers), montecarlo.jl, sweep.jl
 ```
 
 `docs/design.md` records the design decisions.

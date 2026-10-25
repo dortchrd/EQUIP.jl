@@ -956,7 +956,7 @@ end
         tt = EQUIP._crlb_truth(m4, θ)
         k = EQUIP._crlb!(plan, m4, tt, 0.005^2)
         @test collect(k.fit) == collect(values(c.fit)) && collect(k.bias) == collect(values(c.bias))
-        @test sqrt.(diag(k.cov)) ≈ collect(values(c.sd)) rtol = 1e-14
+        @test sqrt.(diag(k.cov)) ≈ collect(values(c.sd)) rtol = 1e-12
         ti, td = [0.02, 0.1, 0.3, 1.0], [1.0, 2.0, 3.0, 0.01]
         mb = QMTSIR(TI = SV{4}(ti), TD = SV{4}(td), magnitude = false)
         kb = EQUIP._crlb!(plan, mb, tt, 0.005^2)
@@ -987,7 +987,7 @@ end
         @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ; snr = 200, σ = 0.01)))
         @test occursin("`σ` has 3 values", msg(() -> crlb(m4, θ; σ = [1, 2, 3])))
         @test occursin("`cov` must be", msg(() -> crlb(m4, θ; snr = 200, cov = :eq3)))
-        @test occursin("own noise-free fit", msg(() -> crlb(m4, θ; snr = 200, fit = (solver = LM(),))))
+        @test occursin("sets its own options", msg(() -> crlb(m4, θ; snr = 200, fit = (solver = LM(),))))
         @test occursin("one voxel", msg(() -> crlb(m4, (; θ..., PSR = fill(0.1, 2)); snr = 200)))
         @test occursin("missing: Sf", msg(() -> crlb(m4, Base.structdiff(θ, NamedTuple{(:Sf,)}); snr = 200)))
     end
@@ -1203,8 +1203,12 @@ end
         Ie, Io = informationmatrix(c16), informationmatrix(c16; expected = false)
         @test !isapprox(Ie, Io; rtol = 1e-3)
         @test vcov(c16) ≈ inv(Io) * Ie * inv(Io) rtol = 1e-8
-        @test informationmatrix(m16, θ16; snr = 200) == Ie
-        @test informationmatrix(m16, θ16; snr = 200, expected = false) == Io
+        # the same at the values θ̂ (every value: the fitted ones and the fit's fixed ones)
+        θ̂16 = merge(c16.fixed, c16.fit)
+        @test informationmatrix(m16, θ̂16; σ = c16.σ[1]) ≈ Ie rtol = 1e-12
+        @test informationmatrix(m16, θ̂16; σ = c16.σ[1], expected = false, y = signal(m16, θ16)) ≈ Io rtol = 1e-12
+        # at the truth, where the data are fitted exactly, the two are equal
+        @test informationmatrix(m16, θ16; snr = 200, expected = false) ≈ informationmatrix(m16, θ16; snr = 200) rtol = 1e-12
         # the kernel with a full Σ allocates nothing
         plan = EQUIP._crlb_plan(mt, :biased)
         tr = EQUIP._crlb_truth(mt, θ)
@@ -1220,6 +1224,88 @@ end
         @test occursin("give `Σ`", msg(() -> crlb(mt, θ; σ = Σ)))
         @test occursin("`snr`, `σ` or `Σ`", msg(() -> simulate(mt, θ; snr = 10, Σ)))
         @test occursin("`σ` has 3 values", msg(() -> simulate(mt, θ; σ = [1.0, 2.0, 3.0])))
+    end
+
+    @testset "crlb's pieces: jacobian, hessian, informationmatrix, biasgradient, sandwich, biasedcrlb" begin
+        FD = EQUIP.ForwardDiff
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m4 = QMTSIR(; SIR_4POINT...)
+        θ = nominal(m4, :SIR_WM_I)                 # kmf = 5; the fit fixes it at 12.5
+        F4 = (:PSR, :R1f, :Sf, :M0f)
+        g(vals, x) = signal(m4, merge(vals, NamedTuple{F4}(Tuple(x))))
+        x0 = [θ[n] for n in F4]
+        # jacobian: ForwardDiff on signal, the fit's free parameters as columns, at θ's values
+        J = jacobian(m4, θ)
+        @test J == FD.jacobian(x -> g(θ, x), x0)
+        J5 = jacobian(m4, θ; fit = (kmf = Free(),))
+        @test size(J5) == (4, 5) && J5[:, 1:4] == J
+        # a tie is followed: with R1m = :R1f, the R1f column is R1f's and R1m's together
+        Jr = jacobian(m4, merge(θ, (R1m = θ.R1f,)); fit = (R1m = Free(start = 1.0),))   # ..., M0f, R1m
+        @test J[:, 2] ≈ Jr[:, 2] + Jr[:, 5] rtol = 1e-12
+        # the noise-free fit, its bias, and the derivatives at its answer (the fit's kmf = 12.5)
+        r = noisefree(m4, θ)
+        c = crlb(m4, θ; snr = 200)
+        @test r.params == c.fit && bias(m4, θ) == c.bias == bias(r, θ)
+        θ̂ = merge(r.fixed, r.params)
+        @test θ̂.kmf == 12.5 && θ̂.R1m === :R1f
+        J₀ = jacobian(r)
+        @test J₀ == jacobian(m4, θ̂)
+        # hessian: JᵀJ when the data are fitted exactly; with a residual, + Σᵢ rᵢ∇²gᵢ, and with a
+        # noise covariance, JᵀΣ⁻¹J + Σᵢ (Σ⁻¹r)ᵢ∇²gᵢ
+        y = signal(m4, θ)
+        @test hessian(m4, θ, y) ≈ J' * J rtol = 1e-12
+        x̂ = collect(values(r.params))
+        res = g(θ̂, x̂) - y
+        ∇²g = [FD.hessian(x -> g(θ̂, x)[i], x̂) for i in 1:4]
+        @test hessian(r, y) ≈ J₀' * J₀ + sum(res .* ∇²g) rtol = 1e-10
+        Σ = [1e-4 * 0.5^abs(i - j) for i in 1:4, j in 1:4]
+        @test hessian(r, y; Σ) ≈ J₀' * (Σ \ J₀) + sum((Σ \ res) .* ∇²g) rtol = 1e-10
+        # noisecovariance: σ = M0/snr, a Diagonal; σ per observation; Σ as given
+        @test noisecovariance(m4, θ; snr = 200) == Diagonal(fill((θ.M0f / 200)^2, 4))
+        @test noisecovariance(m4, θ; σ = [1.0, 2.0, 3.0, 4.0]) == Diagonal([1.0, 4.0, 9.0, 16.0])
+        @test noisecovariance(m4, θ; Σ) === Σ
+        # crlb is their composition: the sandwich at θ̂ ...
+        Σn = noisecovariance(m4, θ; snr = 200)
+        @test vcov(c) ≈ sandwich(hessian(r, y), J₀, Σn) rtol = 1e-12
+        # ... and Eq. 3, with F the Fisher information of the true signal at the truth
+        Ft = informationmatrix(m4, θ; snr = 200)
+        @test Ft ≈ J' * J / (θ.M0f / 200)^2 rtol = 1e-12
+        ∇b = biasgradient(m4, θ)
+        @test vcov(crlb(m4, θ; snr = 200, cov = :biased)) ≈ biasedcrlb(∇b, Ft) rtol = 1e-12
+        @test biasedcrlb(zeros(4, 4), Ft) ≈ inv(Ft) rtol = 1e-10
+        @test biasgradient(r, θ) == ∇b
+        # ∇b: the implicit function theorem, ForwardDiff through Gauss–Newton steps and central
+        # differences of noise-free fits agree; zero when nothing fixed is wrong
+        @test biasgradient(m4, θ; method = :unrolled) ≈ ∇b atol = 1e-8
+        for (j, n) in enumerate(F4)
+            h = 1e-5 * abs(θ[n])
+            bp = collect(values(bias(m4, merge(θ, NamedTuple{(n,)}((θ[n] + h,))))))
+            bm = collect(values(bias(m4, merge(θ, NamedTuple{(n,)}((θ[n] - h,))))))
+            @test (bp - bm) / 2h ≈ ∇b[:, j] atol = 1e-6
+        end
+        @test maximum(abs, biasgradient(m4, θ; fit = (kmf = 5.0,))) < 1e-8
+        # a parameter held on a bound: its row of I + ∇b is 0; undetermined parameters: NaN
+        bounds4 = (PSR = Free(lower = 0, upper = 1), R1f = Free(lower = 0, upper = 3),
+                   Sf = Free(lower = -1.0, upper = 0), M0f = Free(lower = 0, upper = 10))
+        ∇h = biasgradient(m4, θ; fit = bounds4)
+        @test ∇h[3, :] == [0.0, 0.0, -1.0, 0.0] && all(isfinite, ∇h)
+        @test all(isnan, biasgradient(m4, θ; fit = (kmf = Free(),)))
+        # the FitResult forms are for one voxel; mistakes
+        Y = simulate(m4, θ; snr = 200, n = 3, rng = MersenneTwister(1))
+        @test occursin("one-voxel", msg(() -> jacobian(fit(m4, Y))))
+        @test occursin(":implicit or :unrolled", msg(() -> biasgradient(m4, θ; method = :fd)))
+        @test occursin("`y` has 3 values", msg(() -> hessian(m4, θ, [1.0, 2.0, 3.0])))
+        # the allocation-free kernel, with the noise from noisecovariance: crlb's numbers
+        mt = T2Decay(TE = collect(0.01:0.01:0.32))
+        θt = (S0 = 1000.0, T2 = 0.08)
+        Σt = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
+        for cov in (:sandwich, :biased)
+            k = EQUIP._crlb!(EQUIP._crlb_plan(mt, cov), mt, EQUIP._crlb_truth(mt, θt),
+                             EQUIP._kernelnoise(noisecovariance(mt, θt; Σ = Σt), 2))
+            @test k.cov ≈ vcov(crlb(mt, θt; Σ = Σt, cov)) rtol = 1e-10
+        end
+        @test EQUIP._kernelnoise(noisecovariance(m4, θ; snr = 200), 4) == (θ.M0f / 200)^2
+        @test EQUIP._kernelnoise(noisecovariance(m4, θ; σ = [1.0, 2.0, 3.0, 4.0]), 4) == [1.0, 4.0, 9.0, 16.0]
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

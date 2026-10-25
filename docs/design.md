@@ -1296,7 +1296,7 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   information J₀ᵀΣ⁻¹J₀ at θ̂), `informationmatrix(c; expected = false)` (the observed
   information, the Hessian of the negative log-likelihood of the noise-free data at θ̂:
   J₀ᵀΣ⁻¹J₀ + Σᵢ wᵢ∇²gᵢ, w = Σ⁻¹r; H/σ² with one σ), `vcov(c)`, `stderror(c)`, and
-  `informationmatrix(m, θ; crlb's keywords)` directly; `vcov(mc)` and `stderror(mc)` for a
+  `informationmatrix(m, θ; noise, fit)` at any values θ (below); `vcov(mc)` and `stderror(mc)` for a
   Monte Carlo (the estimates' covariance and SDs). StatsAPI defines these functions without
   methods (as for `fit` and `nobs`), so EQUIP's are its own computations under the names that
   GLM, LsqFit and CurveFit users know; StatsAPI's `expected` keyword is exactly the
@@ -1308,6 +1308,41 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   estimated from residuals, Kirstine.jl (optimal design for nonlinear regression),
   CorleoneOED and DynamicOED (dynamic systems) have no bias from wrong fixed values. The
   reusable part, the derivatives, is ForwardDiff's; F = JᵀΣ⁻¹J itself is one line.
+- **The pieces, one function each** (`analysis-proto`, src/analysis/derivatives.jl):
+  `noisecovariance` (Σ), `noisefree` (θ̂, a `FitResult`), `bias`, `jacobian`, `hessian`,
+  `informationmatrix(m, θ)`, `biasgradient`, `sandwich` and `biasedcrlb`; `crlb` is their
+  composition, so its code reads as the steps below. Why: the code should be checkable against
+  the papers line by line, and each piece is useful alone (J for a protocol's sensitivity, F at
+  a truth, ∇b of an assumption). Written as the formulas: plain matrices, ForwardDiff on the
+  allocating `signal`, LinearAlgebra's `\` and `cholesky`. The allocation-free kernel
+  (crlb_kernel.jl: JᵀJ, J₀ᵀJ_t and H accumulated from nested duals row by row, as the solver's
+  `normal_equations`; parameters on a bound masked rather than removed) stays for the protocol
+  optimizer, and is tested against `crlb`.
+  - One convention for the two inputs: θ is values (every parameter, ties allowed), `fit` the
+    fit settings. The functions that run a fit (`noisefree`, `bias`, `biasgradient`) use all of
+    `fit`, fixed values included; the derivatives are taken AT θ, with `fit` choosing only the
+    columns (which parameters are free). So `jacobian(m, θ; fit)` is the true signal's J_t, and
+    the fit's J₀ at its answer is `jacobian(noisefree(m, θ; fit))`: methods on a one-voxel
+    `FitResult` (`jacobian(r)`, `hessian(r, y)`, `bias(r, θ)`, `biasgradient(r, θ)`) use the
+    fit's own free parameters, fixed values and ties. Considered and rejected: `fit`'s fixed
+    values overriding θ's in the derivatives; Eq. 3's J_t (the truth's kmf, the fit's columns)
+    could then not be written with the same keywords.
+  - `biasgradient(m, θ; method = :implicit)`: the implicit function theorem at θ̂ (exact,
+    handles bounds), or `:unrolled`, ForwardDiff through `steps` Gauss–Newton steps from the
+    truth (no bounds; 2e-11 from the implicit one at 3 steps, 4-point scheme, WM I). The second
+    is the form for derivatives with respect to the protocol.
+  - `informationmatrix(m, θ; ...)` now evaluates at θ (it went through `crlb`, at θ̂, before):
+    at the truth it is Eq. 3's F. `jacobian` and `hessian` are also exported by Zygote and
+    DifferentiationInterface; with either loaded, write `EQUIP.jacobian`.
+  - Refactoring check (688 cases): noise-free fits and biases bit-identical, SDs to 2.5e-12,
+    the same undetermined and on-bound parameters. ∇b three ways (implicit, through
+    Gauss–Newton steps, central differences of noise-free fits) agree to 1e-8 and 1e-6; the
+    Hessian against JᵀJ + Σᵢ rᵢ∇²gᵢ written out. Speed of the public `crlb` (minimum of 200
+    calls, before → after): 4-point 74 → 340 µs (sandwich), 74 → 580 µs (Eq. 3); 16-point 295
+    → 384 µs and 95 → 632 µs; T2Decay, 32 echoes, full Σ, 57 → 250 µs and 360 µs. The time is
+    spread over `setup` calls and closures typed at run time, nothing dominant; a sweep of
+    1000 settings stays under a second, and the optimizer uses the kernel (unchanged,
+    3.5–28 µs, no allocation).
 - Covariance, `cov = :sandwich` (default) or `cov = :biased` (Dortch 2018 Eq. 3); see below.
   The sandwich is the default because it is what EQUIP's least-squares fit achieves, so an
   optimizer cannot credit a protocol with precision the fit will not deliver; Eq. 3 stays for

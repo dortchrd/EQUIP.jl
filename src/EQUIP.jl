@@ -52,6 +52,8 @@ export ADCDecay, ADCKurtosis                                               # dif
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
 export crlb, CRLBResult, montecarlo, MonteCarloResult, Sweep                # analysis
+export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
+export sandwich, biasedcrlb
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 
 # --- Source files, in layers ----------------------------------------------------------------
@@ -77,7 +79,9 @@ include("sim/phantom.jl")              # phantom: parameter maps from a label im
 include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 
 # analysis: the accuracy of a fit predicted from derivatives (uses models, fit and sim)
+include("analysis/derivatives.jl")     # crlb's pieces: jacobian, hessian, biasgradient, ...
 include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits
+include("analysis/crlb_kernel.jl")     # the same without allocation, for protocol optimization
 include("analysis/montecarlo.jl")      # montecarlo: the same measured, with crlb alongside
 include("analysis/sweep.jl")           # Sweep: either one over noise levels and true values
 
