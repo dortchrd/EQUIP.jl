@@ -1095,6 +1095,62 @@ end
         @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; snr = 200, vary = (kmf = Float64[],))))
     end
 
+    @testset "fit settings side by side, and data from another model" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m5 = QMTSIR(; SIR_5POINT...)
+        θ = nominal(m5, :SIR_WM_I)                                    # kmf = 5
+        fs = (fixed = (;), free = (kmf = Free(),))
+        # crlb: one result per fit setting, each as with `fit`; the fit settings vary fastest
+        s = crlb(m5, θ; snr = 200, fits = fs)
+        @test s.settings == [(fit = :fixed,), (fit = :free,)]
+        @test s[1].bias == crlb(m5, θ; snr = 200).bias && s[2].sd == crlb(m5, θ; snr = 200, fit = fs.free).sd
+        @test keys(s[2].fit) == (:PSR, :R1f, :Sf, :M0f, :kmf) && s.rows[end].fit === :free
+        t = crlb(m5, θ; snr = [100, 200], fits = fs)
+        @test t.settings[1:2] == [(snr = 100, fit = :fixed), (snr = 100, fit = :free)]
+        # montecarlo: the same noisy copies fitted each way (a paired comparison): each equals
+        # the run with that one fit setting and the same generator
+        v = montecarlo(m5, θ; snr = 200, n = 300, fits = fs, rng = MersenneTwister(1))
+        @test v[2].sd == montecarlo(m5, θ; snr = 200, n = 300, fit = fs.free, rng = MersenneTwister(1)).sd
+        @test v[1].sd == montecarlo(m5, θ; snr = 200, n = 300, rng = MersenneTwister(1)).sd
+        sv = sprint(show, MIME"text/plain"(), v)
+        @test occursin("fixed in fit `fixed`: kmf = 12.5", sv) && occursin("fixed in fit `free`: R1m = :R1f", sv)
+        @test occursin(r"\n  fixed +PSR ", sv) && occursin(r"\n  free +PSR ", sv)
+        @test occursin("give `fit`", msg(() -> crlb(m5, θ; snr = 200, fit = (kmf = 5.0,), fits = fs)))
+        @test occursin("give `fit`", msg(() -> montecarlo(m5, θ; snr = 200, fit = (kmf = 5.0,), fits = fs)))
+        # data from another model: a mono-exponential fit to bi-exponential data. The bias is
+        # against the reference values given (here the long T2); crlb's noise-free fit is the
+        # fit of the noise-free bi-exponential signal
+        te = collect(0.01:0.01:0.32)
+        mt, mb = T2Decay(TE = te), T2BiexpDecay(TE = te)
+        θb = (S0 = 1000.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)
+        ref = (S0 = 1000.0, T2 = 0.08)
+        c = crlb(mt, ref; snr = 100, simulate_with = mb => θb)
+        @test c.fit.T2 ≈ fit(mt, signal(mb, θb)).params.T2 rtol = 1e-8
+        @test c.bias.T2 == c.fit.T2 - 0.08 && c.fit.T2 < 0.08 && c.σ[1] == 10   # snr: the data's S0
+        @test occursin("data from T2BiexpDecay: S0 = 1000.0, fshort = 0.2", sprint(show, MIME"text/plain"(), c))
+        # Monte Carlo (Gaussian noise: the Rician floor at the late echoes would lengthen T2)
+        mc = montecarlo(mt, ref; snr = 100, n = 3000, noise = :gaussian, simulate_with = mb => θb,
+                        rng = MersenneTwister(2))
+        @test abs(mc.mean.T2 - c.fit.T2) < 4 * mc.se_mean.T2
+        @test abs(mc.sd.T2 - c.sd.T2) < 4 * mc.se_sd.T2
+        @test montecarlo(mt, ref; snr = 100, n = 50, simulate_with = mb => θb).noise === :rician
+        # vary changes the data's truth; the reference stays
+        w = crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = (fshort = [0.1, 0.3],))
+        @test w[1].fit.T2 > w[2].fit.T2 && w[1].truth == ref && w[2].data.second.fshort == 0.3
+        @test occursin("not a parameter of T2BiexpDecay",
+                       msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = (T2 = [0.07],))))
+        # mistakes
+        @test occursin("the sandwich only", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, cov = :biased)))
+        @test occursin("observations", msg(() -> crlb(mt, ref; snr = 100, simulate_with = T2BiexpDecay(TE = te[1:10]) => θb)))
+        @test occursin("simulate_with = model => truth", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb)))
+        # the kernel with another data model allocates nothing either
+        plan = EQUIP._crlb_plan(mt, :sandwich)
+        tr, tb = EQUIP._crlb_truth(mt, ref), EQUIP._crlb_truth(mb, θb)
+        allocs(p, a, b) = @allocated EQUIP._crlb!(p, mt, a, 100.0, mb, b)
+        allocs(plan, tr, tb)
+        @test allocs(plan, tr, tb) == 0
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

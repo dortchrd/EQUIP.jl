@@ -1389,7 +1389,7 @@ How, with what was measured:
 ### `montecarlo`: sweeps, and simulating with another model
 
 Status: one case and sweeps implemented, merged into `lean` (src/analysis/montecarlo.jl,
-sweep.jl); fit settings side by side and `simulate_with` next.
+sweep.jl); fit settings side by side and `simulate_with` implemented on `analysis-proto`.
 
 ```julia
 mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
@@ -1445,6 +1445,48 @@ s[1], s.settings[1], s.rows                  # a result, its setting, the table
   (−0.46% vs −0.22% at kmf 10), and SD/crlb 0.985 in every setting. With 20 000 copies and three
   seeds: Gaussian −0.28, −0.27, −0.16% (± 0.05) against −0.22% predicted; Rician −0.34, −0.34,
   −0.21%. So mostly the shared sampling error, with at most ~0.06 points from Rician noise here.
+
+Fit settings side by side and data from another model (`analysis-proto`), for `crlb` and
+`montecarlo` alike:
+
+```julia
+crlb(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))      # a Sweep, axis `fit`
+montecarlo(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))
+crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,
+     simulate_with = T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08))
+```
+
+- `fits = (name = settings, ...)` instead of `fit`: one more sweep axis, `fit`, the fastest, so
+  a table shows the fits of one case next to each other. In montecarlo the same noisy copies are
+  fitted each way (the common seed), a paired comparison; each setting equals the run with that
+  `fit` and the same generator (tested). The display gives each fit's fixed values on a line of
+  its own. The crlb table's column for the noise-free fit's value is `noisefree` (it was `fit`,
+  which collided with the setting's `fit` column: caught by a test).
+- `simulate_with = m2 => θ2`: the data come from another model (as many observations), the
+  estimates are judged against `truth`, the reference values for the fitted model's parameters
+  (e.g. the long T2 of a bi-exponential tissue fitted mono-exponentially; the user's choice:
+  there is no unique "true" T2 then). `snr` is relative to `m2`'s scale parameter; `vary`
+  changes θ2, the data's truth; montecarlo's noise defaults to `m2`'s (Rician for magnitude
+  data). crlb: the noise-free fit of `m` to `m2`'s signal (started at the reference values)
+  gives the bias, the sandwich the SD (it never needed the true model's form); Eq. 3 is refused,
+  as it needs the true model's derivatives with respect to `m`'s parameters. The kernel takes
+  the data model as two more arguments and still allocates nothing (tested).
+
+What montecarlo showed against crlb with these (10 000 copies each):
+
+- **The CRLB is first order, and SNR 200 is not always high enough.** 5-point scheme
+  (Dortch 2018 Table 2), WM I, kmf fitted: PSR SD 1.25× crlb's with Gaussian noise (± 0.009),
+  1.29× with Rician, and a PSR bias of +3.7% (+3.5%), where crlb predicts none; kmf SD 1.03×.
+  At SNR 1000 both agree (SD/crlb 0.99–1.00, bias 0.1%). So the nonlinearity of a 5-parameter
+  fit, not the noise distribution; WM I (the slowest exchange, kmf 5) is the hard case. For
+  protocol design: Eq. 5 from the CRLB is optimistic for fits like this one at the paper's SNR;
+  a Monte Carlo check of a chosen protocol (or a design objective from Monte Carlo near the
+  optimum) is worth adding. With kmf fixed (4-point, or 5-point fitted with kmf fixed), the
+  agreement was within standard errors (above).
+- **The Rician floor.** A mono-exponential fit to bi-exponential data (fshort 0.2, T2 20 and
+  80 ms, 32 echoes to 320 ms, SNR 100): mean T2 0.07295 with Rician noise, 0.07268 with
+  Gaussian, predicted 0.07267 (± 0.00001): the late echoes (about 1.5σ) are raised by the
+  magnitude floor, lengthening T2 by 0.4%, which crlb (Gaussian) cannot show.
 
 The plan for the rest:
 
@@ -1640,7 +1682,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
 2. `montecarlo`, one case first (done), sweeps over `snr` and `vary` (done, with
-   `crlb`'s); then fit settings side by side, `simulate_with`; Figs. 1 and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
+   `crlb`'s), fit settings side by side and `simulate_with` (done, `analysis-proto`); Figs. 1
+   and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol

@@ -49,9 +49,10 @@ and `cov` (the covariance matrix, free parameters in model order), `cond` (condi
 the Jacobian with each column scaled by its parameter's true value: large means the parameters
 are hard to tell apart), `onbound` (free parameters on a bound in the noise-free fit: held there,
 SD 0), `status` (the noise-free fit's [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`),
-`σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values) and `model`.
+`σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values), `model`, and
+`data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`).
 """
-struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple}
+struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D}
     fit::N
     bias::N
     sd::N
@@ -68,10 +69,12 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple}
     truth::Tr
     fixed::X
     model::M
+    data::D                    # nothing, or `model => truth` the data came from (simulate_with)
 end
 
 """
-    crlb(m, truth; snr or σ, fit = (...), cov = :sandwich, vary) -> CRLBResult or Sweep
+    crlb(m, truth; snr or σ, fit = (...), cov = :sandwich, vary, fits, simulate_with)
+        -> CRLBResult or Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
 Cramér–Rao lower bound (CRLB, also CRB), biased when the fit fixes a parameter at a value other
@@ -96,6 +99,15 @@ SD from the derivatives at that fit's answer, first order in the noise.
   true values of a parameter; the fit's settings stay as they are, so this is the bias of a
   wrong assumption against the truth, Dortch 2018 Fig. 2B). Every combination is computed, the
   first keyword varying slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
+- Fit settings side by side: `fits = (fixed = (;), free = (kmf = Free(),))`, named; one more
+  axis of the sweep (the last, so a table has the settings of one case next to each other).
+  Instead of `fit`.
+- Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
+  every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
+  against `truth`, your reference values for `m`'s parameters (e.g. the long T2 of a
+  bi-exponential tissue fitted mono-exponentially); `snr` is relative to `m2`'s scale
+  parameter; `vary` changes `θ2`. The sandwich only: Eq. 3 needs the true model's derivatives
+  with respect to `m`'s parameters.
 
 A free parameter that ends on a bound in the noise-free fit is held there (SD 0; `c.onbound`).
 Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. EQUIP's fits are
@@ -111,15 +123,24 @@ c.bias.PSR, c.sd.PSR, c.relrmse.PSR
 crlb(m, θ; snr = 200, fit = (kmf = 5.0,))          # kmf fixed at the truth: unbiased
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
 crlb(m, θ; snr = 200, vary = (kmf = 5:2.5:20,))    # the bias against the true kmf (a Sweep)
+crlb(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))   # side by side
+θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
+crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
+     simulate_with = T2BiexpDecay(TE = te) => θb)
 ```
 """
 function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::NamedTuple = (;),
-              cov::Symbol = :sandwich, vary::NamedTuple = (;))
-    # A sweep: one call per setting (sweep.jl), each with one noise level and one truth.
-    if _issweep(snr, vary)
-        settings = _sweep_settings(m, snr, vary)
-        results = [crlb(m, merge(truth, _varied(st)); snr = _snr_of(st, snr), σ, fit, cov)
-                   for st in settings]
+              cov::Symbol = :sandwich, vary::NamedTuple = (;), fits::NamedTuple = (;),
+              simulate_with = nothing)
+    _check_fits(fit, fits)
+    _check_simulate_with(simulate_with)
+    # A sweep: one call per setting (sweep.jl), each with one noise level, one truth and one set
+    # of fit settings.
+    if _issweep(snr, vary, fits)
+        settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
+        results = [crlb(m, _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr), σ,
+                        fit = _fit_of(st, fit, fits), cov,
+                        simulate_with = _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     # `fit` is a keyword here, so inside this function the name means the settings, not the
@@ -132,13 +153,23 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::
         _hasmap(x) &&
             throw(ArgumentError("`fit = (; $k)`: crlb is for one voxel; give numbers, not maps"))
     end
-    any(_hasmap, values(truth)) &&
+    simulate_with === nothing || cov === :sandwich || throw(ArgumentError("with data from " *
+        "another model (`simulate_with`), the sandwich only: Eq. 3 needs the true model's " *
+        "derivatives with respect to the fitted model's parameters"))
+    # The data: from `m` at `truth`, or from another model (`simulate_with = m2 => θ2`), with
+    # `truth` then the reference values the fit is judged against.
+    dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
+    (any(_hasmap, values(truth)) || any(_hasmap, values(dt))) &&
         throw(ArgumentError("crlb is for one voxel: give numbers, not maps"))
-    θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
+    resolve(m, truth)                        # checks the truth: every parameter, no roles
+    θd = resolve(dm, dt)                     # and the data's
+    nobs(dm) == nobs(m) || throw(DimensionMismatch("the data's model has $(nobs(dm)) " *
+        "observations, the fitted model $(nobs(m))"))
     mT = _with_precision(m, Float64)         # acquisition vectors as Float64, as `fit` does
     plan = _crlb_plan(mT, cov; fit...)
-    σv = _crlb_sigma(m, θ, snr, σ, nobs(m))
-    k = _crlb!(plan, mT, _crlb_truth(m, truth), σv .^ 2)
+    σv = _crlb_sigma(dm, θd, snr, σ, nobs(m))   # snr: relative to the data's scale parameter
+    k = _crlb!(plan, mT, _crlb_truth(m, truth), σv .^ 2, _with_precision(dm, Float64),
+               _crlb_truth(dm, dt))
 
     # Packaging: named tuples by quantity, then parameter (allocating; the kernel does not).
     F = _crlbnames(plan)
@@ -152,7 +183,7 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::
     condJ = isempty(U) ? Inf : _condition(J0, k.truth[U])
     return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
                       nt(rel(rmse)), Matrix(k.cov), condJ, [F[j] for j in 1:P if k.pinned[j]],
-                      k.status, cov, σv, truth, map(_untie, plan.fixed), m)
+                      k.status, cov, σv, truth, map(_untie, plan.fixed), m, simulate_with)
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -240,22 +271,28 @@ end
 
 """
     _crlb!(plan, m, truth, σ²) -> (; fit, truth, bias, cov, status, pinned)
+    _crlb!(plan, m, truth, σ², dm, dtruth)
 
 The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
 values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
 0 for those on a bound), the noise-free fit's status, and which parameters are on a bound
-(held there). `truth` from `_crlb_truth`, `σ²` a number or a vector.
+(held there). `truth` from `_crlb_truth`, `σ²` a number or a vector. With `dm` and `dtruth`
+(prepared the same way), the noise-free data come from another model; `truth` is then the
+reference the bias is measured against, and the start of the noise-free fit (the sandwich only).
 """
-function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2) where {F,P,T}
+_crlb!(plan::CRLBPlan, m::MRIModel, truth::NamedTuple, σ2) = _crlb!(plan, m, truth, σ2, m, truth)
+function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2, dm::MRIModel,
+                dtruth::NamedTuple) where {F,P,T}
     lo, hi = plan.lower, plan.upper
     y = plan.y
 
-    # ① The noise-free data, and their fit started at the truth (projected into the bounds):
-    #    the package's own LM (`levmar`, levmar.jl), with tight tolerances, since the bias is a
-    #    small difference of two values and needs every digit. `relabel` as `fit` does.
+    # ① The noise-free data (from `dm` at `dtruth`: the fitted model and the truth, or another
+    #    model's, `simulate_with`), and their fit started at the truth (projected into the
+    #    bounds): the package's own LM (`levmar`, levmar.jl), with tight tolerances, since the
+    #    bias is a small difference of two values and needs every digit. `relabel` as `fit` does.
     θres = _resolve_ties(truth)
     θt = SVector{P,T}(ntuple(j -> T(getfield(θres, F[j])), Val(P)))
-    signal!(y, m, θres)
+    signal!(y, dm, _resolve_ties(dtruth))
     r = levmar(VoxelProblem{F}(m, y, plan.fixed), θt, lo, hi, plan.opts, plan.buf)
     θ̂ = SVector{P,T}(Tuple(relabel(m, NamedTuple{F}(Tuple(r.θ)))))
     pinned = map(_near, θ̂, lo) .| map(_near, θ̂, hi)   # held on a bound: left out below
@@ -401,6 +438,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
                                    "biased CRLB (Dortch 2018 Eq. 3)"
     print(io, "crlb for ", nameof(typeof(c.model)), ", ", length(σ), " observations, ", noise,
           ", covariance: ", how)
+    _print_data(io, c.data)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
     _print_fixed(io, c.fixed, c.truth)
     isconverged(c.status) ||
@@ -419,13 +457,27 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
 end
 
 # The fit's fixed values, with the truth where it differs: the source of any bias. Shared with
-# `montecarlo`'s display.
-function _print_fixed(io::IO, fixed::NamedTuple, truth::NamedTuple)
+# `montecarlo`'s display and the sweeps' (one line per fit setting, `label`).
+function _print_fixed(io::IO, fixed::NamedTuple, truth::NamedTuple, label = "fixed in the fit")
     isempty(fixed) && return
     item(n, x) = (t = truth[n]; s = "$n = $(_showvalue(x))";
                   x isa Real && t isa Real && x != t ? s * " (true $(_showvalue(t)))" : s)
-    print(io, "\nfixed in the fit: ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
+    print(io, "\n", label, ": ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
 end
+
+# Where the data came from, when not from the fitted model (`simulate_with`).
+_print_data(io::IO, ::Nothing) = nothing
+_print_data(io::IO, d::Pair) =
+    print(io, "\ndata from ", nameof(typeof(d.first)), ": ",
+          join(("$n = $(_showvalue(x))" for (n, x) in pairs(d.second)), ", "))
+
+# Checks shared with `montecarlo`.
+_check_fits(fit, fits) = isempty(fit) || isempty(fits) || throw(ArgumentError("give `fit` " *
+    "(one set of fit settings) or `fits` (several, side by side, by name), not both"))
+_check_simulate_with(::Nothing) = nothing
+_check_simulate_with(s) = s isa Pair{<:MRIModel,<:NamedTuple} || throw(ArgumentError(
+    "`simulate_with = model => truth`: a model and every value of its parameters, e.g. " *
+    "`T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)`"))
 
 Base.show(io::IO, c::CRLBResult) =
     print(io, "CRLBResult(", nameof(typeof(c.model)), ": ", join(keys(c.fit), ", "), ")")
