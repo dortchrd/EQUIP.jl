@@ -1196,7 +1196,8 @@ Not needed for correctness: a test checks it against the columns built from `sig
 
 ## Simulation, CRLB and protocol design: proposed design
 
-Status: proposed; `crlb` being implemented (branch `crlb-proto`). Prototyped in scratch scripts;
+Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, from the
+`crlb-proto` branch); the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
@@ -1219,7 +1220,7 @@ The pieces, each using the ones before it:
 
 ### `crlb`: one function, biased or not by the fit settings
 
-Status: implemented on the `crlb-proto` branch (src/analysis/crlb.jl), not yet on `lean`.
+Status: implemented (src/analysis/crlb.jl); merged into `lean` from `crlb-proto`.
 Checked: Fopt4 = 0.243395 and Fopt5 = 1.602062 (Eq. 5 of the Table 2 schemes, both
 covariances), the exact-fit identity, ∇b against central differences of noise-free fits
 (1e-5), the classical CRLB when nothing fixed is wrong, and Monte Carlo (below).
@@ -1348,7 +1349,7 @@ How, with what was measured:
   the 4-point scheme, to every digit), and then simply σ²(J₀ᵀJ₀)⁻¹ at θ̂: no ∇b at all. With more
   points Eq. 3 ≤ sandwich (16-point, kmf fixed: WM I PSR SD 2.72% vs 2.88%): Eq. 3 bounds any
   estimator with that bias gradient, the sandwich is what least squares achieves. Both offered;
-  the sandwich the default (above). Monte Carlo confirms it (`crlb-proto`; 16-point, WM I, kmf
+  the sandwich the default (above). Monte Carlo confirms it (16-point, WM I, kmf
   fixed at 12.5, SNR 200, Gaussian noise, 20 000 fits, all converged): SD of PSR 0.00580 ±
   0.00003, sandwich 0.00576, Eq. 3 0.00544 (12 standard errors away); R1f 0.01441 ± 0.00007,
   0.01439, 0.01392; and the fits center on θ̂ (PSR 0.11361 vs 0.11367 ± 0.00004), not on the
@@ -1365,7 +1366,7 @@ How, with what was measured:
 
 ### `montecarlo`: sweeps, and simulating with another model
 
-Status: one case and sweeps implemented on `crlb-proto` (src/analysis/montecarlo.jl,
+Status: one case and sweeps implemented, merged into `lean` (src/analysis/montecarlo.jl,
 sweep.jl); fit settings side by side and `simulate_with` next.
 
 ```julia
@@ -1616,7 +1617,7 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
-2. `montecarlo`, one case first (done, `crlb-proto`), sweeps over `snr` and `vary` (done, with
+2. `montecarlo`, one case first (done), sweeps over `snr` and `vary` (done, with
    `crlb`'s); then fit settings side by side, `simulate_with`; Figs. 1 and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
