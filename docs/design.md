@@ -396,7 +396,13 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
   the model's guesses without a word (`nominal(QMTSIR(...), :WM)`: WM has T1 and T2, no PSR,
   R1f or Sf), and values that are not tissue properties (an inversion efficiency Sf) are the
   user's choice. Without a tissue, a free parameter with no number to take (`:data`, `BestOf`)
-  must be given.
+  must be given. Three methods, one per kind of second argument (none, a preset's `Symbol`, a
+  `NamedTuple` of values), around one shared body: first written as one method with an optional
+  argument `t = nothing` and `t === nothing` / `t isa Symbol` branches, changed to dispatch so
+  "no tissue" is not a sentinel value, a wrong type gets Julia's MethodError listing the forms,
+  and another source of values (a fitted voxel of a `FitResult`, for data-driven design) is one
+  more method. Checked: 292 calls (8 models × presets, own values, keywords, errors) give the
+  same values and the same error messages before and after.
   What to give is shown, not asked for: `nominal`'s error lists every parameter with the value it
   takes (`required` for the missing ones), and a model typed at the REPL shows the same table
   with its acquisition (`show(io, ::MIME"text/plain", m)`, one method for every model). A
