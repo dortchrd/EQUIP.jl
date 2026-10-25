@@ -1287,10 +1287,30 @@ Edge cases:
 - Far assumption errors: the noise-free fit can stop in a local minimum. A multi-start check:
   later.
 - Identifiability is tested before inverting: fewer observations than free parameters, or a
-  condition number of J (columns scaled by the true values) of 1e8 or more, gives Inf. Found in
-  the first implementation: with 4 observations and 5 free parameters (kmf freed on the 4-point
-  scheme), rounding made the singular H look positive definite, and the sandwich then gave
-  finite SDs (a pseudo-inverse in effect), not Inf.
+  Cholesky pivot of J₀ᵀJ₀ with unit diagonal below 1e-12 (the squared sine of the angle between
+  a column of J₀ and the span of the others: an angle below 1e-6 rad, cond(J₀) ≳ 1e6), gives
+  Inf. Found in the first implementation: with 4 observations and 5 free parameters (kmf freed
+  on the 4-point scheme), rounding made the singular H look positive definite, and the sandwich
+  then gave finite SDs (a pseudo-inverse in effect), not Inf. (The first version tested
+  cond(J₀) ≥ 1e8, columns scaled by the true values; the pivot test needs no SVD, so the kernel
+  can run it without allocating. Same Inf cases over the 688 cases below; the largest cond
+  among the determined ones is 2.5e3.) `c.cond` still reports the value-scaled cond(J₀).
+- **An allocation-free kernel for the optimizer** (`_crlb_plan`, `_crlb_truth`, `_crlb!`):
+  the plan, made once, holds the roles, bounds, solver settings and buffers; the kernel takes a
+  protocol (a model with as many observations; static vectors work), a prepared truth and σ²,
+  and returns θ̂, b and the covariance as static arrays. The noise-free fit is the package's own
+  `levmar` (allocation-free; a new `VoxelProblem` per call carries the protocol), J₀ and H come
+  from one evaluation of the model with nested dual numbers (gᵢ, ∇gᵢ and ∇²gᵢ together), and
+  the covariances from small Cholesky factorizations. `crlb` is plan + kernel + packaging, so
+  its tests check the kernel; the tests also check zero allocation, and one plan reused for
+  another protocol. Refactoring check, 688 cases (4 SIR schemes × 7 fit settings × 4 tissues ×
+  3 truths × both covariances, plus T2, bi-exponential T2, MFA and IR with σ a number and per
+  observation): noise-free fits and biases bit-identical, SDs to 1.6e-12, the same Inf and
+  on-bound cases. Speed (one thread): the kernel 5.1–6.9 µs (4-point) and 23–28 µs (16-point;
+  the noise-free fit needs more iterations when the residual is not 0), 0 bytes; `crlb` itself
+  82–138 µs and 43–47 KiB, down from 307–374 µs and 133–158 KiB (the rest is setup and
+  packaging). Not yet: dual numbers through the acquisition (the buffers are Float64); for
+  gradients with respect to TI and TD, the implicit-function step again (∂θ̂/∂TI = −H⁻¹∂G/∂TI).
 - Not in the first version: `crlb(res; σ)` from a `FitResult` (maps of predicted SD, for
   data-driven design), `vary = (kmf = 5:2.5:20,)` sweeps, derivatives with respect to TI and TD
   (for a gradient-based optimizer), a Rician Fisher information.

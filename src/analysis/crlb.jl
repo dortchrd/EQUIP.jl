@@ -29,6 +29,10 @@
 # ∇b without extra fits (the slow part of the MATLAB code, which refits perturbed data): the
 # fit's gradient G(θ̂, θ) = J₀ᵀ[g(θ̂) − g(θ; true)] is 0 for every truth θ, so differentiating it
 # (implicit function theorem) gives ∂θ̂/∂θ = −H⁻¹·∂G/∂θ = H⁻¹J₀ᵀJ_t, one linear solve.
+#
+# The code: `crlb` checks its inputs, makes a plan (roles, bounds, buffers) and calls the kernel
+# `_crlb!`, which allocates nothing (5–30 µs a call), for the protocol optimizer to call
+# millions of times; then it packages the kernel's static arrays into named tuples.
 # =================================================================================================
 
 """
@@ -107,7 +111,7 @@ crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # seve
 function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::NamedTuple = (;),
               cov::Symbol = :sandwich)
     # `fit` is a keyword here, so inside this function the name means the settings, not the
-    # function `fit`; the noise-free fit below calls `fit!(init(...))`, which is what `fit` does.
+    # function `fit` (the kernel runs the noise-free fit with the solver itself, `levmar`).
     cov in (:sandwich, :biased) ||
         throw(ArgumentError("`cov` must be :sandwich or :biased, got $(repr(cov))"))
     for (k, x) in pairs(fit)
@@ -118,88 +122,237 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::
     end
     any(_hasmap, values(truth)) &&
         throw(ArgumentError("crlb is for one voxel: give numbers, not maps"))
-    θ = resolve(m, truth)                    # every true value a number, in model order
-    spec = setup(m, Float64; fit...)         # the fit's free and fixed parameters, and bounds
-    F = freenames(spec)
+    θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
+    mT = _with_precision(m, Float64)         # acquisition vectors as Float64, as `fit` does
+    plan = _crlb_plan(mT, cov; fit...)
+    σv = _crlb_sigma(m, θ, snr, σ, nobs(m))
+    k = _crlb!(plan, mT, _crlb_truth(m, truth), σv .^ 2)
+
+    # Packaging: named tuples by quantity, then parameter (allocating; the kernel does not).
+    F = _crlbnames(plan)
     P = length(F)
-    N = nobs(m)
-    σv = _crlb_sigma(m, θ, snr, σ, N)
-    θt = [Float64(θ[n]) for n in F]          # the free parameters' true values
-
-    # ① The noise-free fit, started at the truth (inside the fit's bounds), with tight
-    #    tolerances: the bias is a small difference of two values, so it needs every digit.
-    g_true = signal(m, θ)
-    starts = (; (n => Free(start = θt[j], lower = spec.lower[j], upper = spec.upper[j])
-                 for (j, n) in enumerate(F))...)
-    res = fit!(init(m; precision = Float64, solver = _CRLB_SOLVER, merge(fit, starts)...), g_true)
-    θ̂ = [Float64(res.params[n]) for n in F]
-    b = θ̂ .- θt
-
-    # A parameter on a bound stays there: it is left out of the derivatives (SD 0, ∇b row 0).
-    near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
-    U = [j for j in 1:P if !(near(θ̂[j], spec.lower[j]) || near(θ̂[j], spec.upper[j]))]
-    onbound = [F[j] for j in 1:P if !(j in U)]
-
-    # ② Derivatives at θ̂, over the parameters not on a bound. `gfit` is the fit's signal: its
-    #    fixed values (ties as written, followed by `signal`) and the free ones from φ.
-    #    `expand` puts φ_U back among the held values; `convert` makes room for dual numbers.
-    gfit(φ) = signal(m, merge(res.fixed, NamedTuple{F}(Tuple(φ))))
-    expand(φU) = (φ = convert(Vector{eltype(φU)}, θ̂); φ[U] = φU; φ)
-    C = zeros(P, P)
-    condJ = Inf
-    if !isempty(U)
-        J0 = ForwardDiff.jacobian(φU -> gfit(expand(φU)), θ̂[U])
-        H = ForwardDiff.hessian(φU -> sum(abs2, gfit(expand(φU)) .- g_true) / 2, θ̂[U])
-        condJ = _condition(J0, θt[U])
-        # ③ The covariance. Parameters the data cannot determine (fewer observations than
-        #    free parameters, or columns of J that are nearly dependent) get Inf. The test
-        #    cannot be left to the factorization: rounding can make a singular H look positive
-        #    definite, and the sandwich then gives finite, meaningless values. A failed
-        #    Cholesky factorization (H or F not positive definite) also gives Inf, rather than a
-        #    negative variance hidden by abs() as in the MATLAB code.
-        Hc = cholesky(Symmetric(H); check = false)
-        if !(condJ < _COND_MAX) || !issuccess(Hc)
-            C[U, U] .= Inf
-        elseif cov === :sandwich
-            A = Hc \ J0'                                     # H⁻¹J₀ᵀ: how noise moves the fit
-            C[U, U] = A * Diagonal(σv .^ 2) * A'
-        else
-            # J_t: the true signal's Jacobian, the truth's own ties followed (R1m = R1f moves
-            # with R1f, as in the MATLAB's `R1 + eps` on both).
-            Jt = ForwardDiff.jacobian(x -> signal(m, merge(truth, NamedTuple{F}(Tuple(x)))), θt)
-            Fc = cholesky(Symmetric(Jt' * Diagonal(1 ./ σv .^ 2) * Jt); check = false)
-            if !(_condition(Jt, θt) < _COND_MAX) || !issuccess(Fc)
-                C[U, U] .= Inf
-            else
-                D = zeros(P, P)                              # I + ∇b = ∂θ̂/∂θ; rows on a bound 0
-                D[U, :] = Hc \ (J0' * Jt)
-                X = Fc.L \ D'                                # D F⁻¹ Dᵀ = XᵀX, F = LLᵀ
-                C = X' * X
-            end
-        end
-    end
-
-    # ④ Report, by name.
-    sd = sqrt.(diag(C))
-    rmse = sqrt.(b .^ 2 .+ sd .^ 2)
-    rel(x) = x ./ abs.(θt)
+    sd = sqrt.(diag(k.cov))
+    rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
+    rel(x) = x ./ abs.(k.truth)
     nt(x) = NamedTuple{F}(Tuple(x))
-    return CRLBResult(nt(θ̂), nt(b), nt(sd), nt(rmse), nt(rel(b)), nt(rel(sd)), nt(rel(rmse)),
-                      Matrix(Symmetric(C)), condJ, onbound, res.status, cov, σv, truth,
-                      res.fixed, m)
+    U = [j for j in 1:P if !k.pinned[j]]
+    J0 = [partials(value(d))[j] for d in plan.hbuf, j in U]   # J₀ at θ̂, from the kernel's buffer
+    condJ = isempty(U) ? Inf : _condition(J0, k.truth[U])
+    return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
+                      nt(rel(rmse)), Matrix(k.cov), condJ, [F[j] for j in 1:P if k.pinned[j]],
+                      k.status, cov, σv, truth, map(_untie, plan.fixed), m)
+end
+
+# -------------------------------------------------------------------------------------------------
+# The plan and the kernel: allocation-free, for the protocol optimizer
+#
+#   plan = _crlb_plan(m, cov; fit...)        once: roles, bounds, solver settings, buffers
+#   t = _crlb_truth(m, truth)                once per truth: complete, ties as _Tie
+#   k = _crlb!(plan, m, t, σ²)               per call: no allocation
+#
+# `m` in `_crlb!` may be a different protocol from the one the plan was made with (new TI and
+# TD at every step of an optimizer), with the same number of observations and Float64
+# acquisition values (static vectors work: `QMTSIR(TI = SVector(...), TD = SVector(...))`).
+# σ² is a number or one value per observation. `crlb` is plan + kernel + packaging, so its
+# tests check the kernel the optimizer uses.
+# -------------------------------------------------------------------------------------------------
+
+"""
+    CRLBPlan{F,P,T}
+
+The fit's free parameters `F` (`P` of them, in precision `T`), their bounds, the fixed values
+(ties as `_Tie`), the solver settings of the noise-free fit, the covariance method and the
+buffers the kernel `_crlb!` writes into: the noise-free data, first-order duals (the noise-free
+fit, and J_t for Eq. 3) and nested duals (J₀ and the second derivatives at θ̂). Not
+thread-safe: one plan per task.
+"""
+struct CRLBPlan{F,P,T,X,B,H}
+    lower::SVector{P,T}
+    upper::SVector{P,T}
+    fixed::X                   # the fit's fixed values: numbers and ties (`_Tie`)
+    opts::SolverOptions{T}
+    biased::Bool               # Eq. 3 (`cov = :biased`) rather than the sandwich
+    y::Vector{T}               # the noise-free data g_true
+    buf::B                     # Vector{Dual{FitTag,T,P}}: the noise-free fit; J_t
+    hbuf::H                    # Vector{Dual{CRLBTag,Dual{FitTag,T,P},P}}: J₀ and ∇²g at θ̂
+end
+_crlbnames(::CRLBPlan{F}) where {F} = F
+
+function _crlb_plan(m::MRIModel, cov::Symbol; params...)
+    spec = setup(m, Float64; params...)        # the fit's free and fixed parameters, and bounds
+    return _crlb_plan(spec, cov === :biased, nobs(m))
+end
+function _crlb_plan(spec::FitSpec{F,P,T}, biased::Bool, n::Integer) where {F,P,T}
+    D1 = Dual{FitTag,T,P}
+    D2 = Dual{CRLBTag,D1,P}
+    return CRLBPlan{F,P,T,typeof(spec.fixed),Vector{D1},Vector{D2}}(
+        spec.lower, spec.upper, spec.fixed, SolverOptions{T}(_CRLB_SOLVER), biased,
+        Vector{T}(undef, n), Vector{D1}(undef, n), Vector{D2}(undef, n))
+end
+
+# The truth, checked (every parameter, no roles; see `resolve`), in model order, with ties by
+# name as `_Tie` so the kernel reads them as plain field accesses. Done once per truth: a tie's
+# type depends on the name it holds, which is only known at run time here.
+function _crlb_truth(m::MRIModel, truth::NamedTuple)
+    resolve(m, truth)
+    names = keys(parameters(m))
+    return NamedTuple{names}(map(n -> _tie(truth[n]), names))
+end
+
+# A second tag for the outer layer of nested dual numbers (second derivatives), distinct from
+# the solver's FitTag (first derivatives).
+struct CRLBTag end
+
+# Nested dual numbers: θⱼ seeded twice, so one evaluation of the model gives each observation's
+# value gᵢ, its gradient (row i of J₀) and its second derivatives ∇²gᵢ (see `_second`).
+@inline function _seed2(θ::SVector{P,T}) where {P,T}
+    inner = _seed(θ)                           # Dual{FitTag}: value θⱼ, partials eⱼ
+    D = eltype(inner)
+    return SVector(ntuple(j -> Dual{CRLBTag}(inner[j], ntuple(k -> ifelse(k == j, one(D), zero(D)),
+                                                             Val(P))), Val(P)))
+end
+
+# ∇²gᵢ from one nested dual: the outer partial k is ∂gᵢ/∂θₖ, itself a dual whose partial l is
+# ∂²gᵢ/∂θₖ∂θₗ. `SMatrix` takes the P² entries column by column.
+@inline function _second(d::Dual{CRLBTag,Dual{FitTag,T,P},P}) where {T,P}
+    ps = partials(d).values
+    return SMatrix{P,P,T}(ntuple(n -> partials(ps[(n - 1) ÷ P + 1]).values[(n - 1) % P + 1],
+                                 Val(P * P)))
+end
+
+@inline _at(s::Real, i) = s                          # σ²: one number for every observation,
+@inline _at(s::AbstractVector, i) = @inbounds s[i]   # or one per observation
+
+# A parameter on a bound in the noise-free fit (within 1e-9, relative for large bounds).
+@inline _near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
+
+"""
+    _crlb!(plan, m, truth, σ²) -> (; fit, truth, bias, cov, status, pinned)
+
+The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
+values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
+0 for those on a bound), the noise-free fit's status, and which parameters are on a bound
+(held there). `truth` from `_crlb_truth`, `σ²` a number or a vector.
+"""
+function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2) where {F,P,T}
+    lo, hi = plan.lower, plan.upper
+    y = plan.y
+
+    # ① The noise-free data, and their fit started at the truth (projected into the bounds):
+    #    the package's own LM (`levmar`, levmar.jl), with tight tolerances, since the bias is a
+    #    small difference of two values and needs every digit. `relabel` as `fit` does.
+    θres = _resolve_ties(truth)
+    θt = SVector{P,T}(ntuple(j -> T(getfield(θres, F[j])), Val(P)))
+    signal!(y, m, θres)
+    r = levmar(VoxelProblem{F}(m, y, plan.fixed), θt, lo, hi, plan.opts, plan.buf)
+    θ̂ = SVector{P,T}(Tuple(relabel(m, NamedTuple{F}(Tuple(r.θ)))))
+    pinned = map(_near, θ̂, lo) .| map(_near, θ̂, hi)   # held on a bound: left out below
+    u = map(p -> ifelse(p, zero(T), one(T)), pinned)  # 1 for the others
+
+    # ② One evaluation with nested duals at θ̂: J₀ (rows Jᵢ) and the full Hessian of ½‖r‖²,
+    #    H = Σᵢ (JᵢJᵢᵀ + rᵢ∇²gᵢ), the second term from the residual r₀ = g(θ̂) − g_true.
+    signal!(plan.hbuf, m, _params(Val(F), _seed2(θ̂), plan.fixed))
+    H = zero(SMatrix{P,P,T})
+    G = zero(SMatrix{P,P,T})                   # J₀ᵀJ₀, for the identifiability test
+    @inbounds for i in eachindex(plan.hbuf)
+        d = plan.hbuf[i]
+        Ji = SVector{P,T}(partials(value(d)).values)
+        H += Ji * Ji' + (value(value(d)) - y[i]) * _second(d)
+        G += Ji * Ji'
+    end
+    # Parameters on a bound: rows and columns masked, 1 on the diagonal, so H⁻¹ leaves them be.
+    Hm = (u * u') .* H + Diagonal(one(T) .- u)
+    infs = _infcov(u)                          # the answer when the data cannot determine them
+
+    # ③ The covariance. Identifiability first (fewer observations than parameters to estimate,
+    #    or nearly dependent columns of J₀): a singular H can look positive definite after
+    #    rounding, and the sandwich then gives finite, meaningless values. Then a Cholesky
+    #    factorization: failing means not positive definite, also Inf (no negative variance
+    #    hidden by abs(), as in the MATLAB code).
+    LH, okH = _cholesky(Hm)
+    if !(length(y) >= count(!, pinned) && _determined(G, u) && okH)
+        return (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = infs, status = r.status, pinned)
+    end
+    Hinv = _chol_inv(LH)
+    if !plan.biased
+        # Sandwich, H⁻¹(Σᵢ σᵢ² JᵢJᵢᵀ)H⁻¹, as Σᵢ σᵢ² aᵢaᵢᵀ with aᵢ = H⁻¹Jᵢ: how noise in
+        # observation i moves the fit. A sum of squares, so the variances are never negative.
+        C = zero(SMatrix{P,P,T})
+        @inbounds for i in eachindex(plan.hbuf)
+            a = Hinv * (u .* SVector{P,T}(partials(value(plan.hbuf[i])).values))
+            C += _at(σ2, i) * (a * a')
+        end
+    else
+        # Eq. 3, (I + ∇b)F⁻¹(I + ∇b)ᵀ. J_t: the true signal's Jacobian at the truth, the truth's
+        # own ties followed (R1m = R1f moves with R1f, as the MATLAB's `R1 + eps` on both).
+        # I + ∇b = H⁻¹J₀ᵀJ_t (implicit function theorem), rows on a bound 0.
+        signal!(plan.buf, m, _resolve_ties(merge(truth, NamedTuple{F}(Tuple(_seed(θt))))))
+        K = zero(SMatrix{P,P,T})               # J₀ᵀJ_t
+        Fm = zero(SMatrix{P,P,T})              # F = J_tᵀΣ⁻¹J_t
+        @inbounds for i in eachindex(plan.buf)
+            Jt = SVector{P,T}(partials(plan.buf[i]).values)
+            J0 = u .* SVector{P,T}(partials(value(plan.hbuf[i])).values)
+            K += J0 * Jt'
+            Fm += (Jt * Jt') / _at(σ2, i)
+        end
+        LF, okF = _cholesky(Fm)
+        if !(length(y) >= P && _determined(Fm, ones(SVector{P,T})) && okF)
+            return (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = infs, status = r.status, pinned)
+        end
+        D = Hinv * K
+        X = hcat(ntuple(j -> _fwd_solve(LF, D[j, :]), Val(P))...)   # L⁻¹Dᵀ, F = LLᵀ
+        C = X' * X                             # D F⁻¹ Dᵀ, never a negative variance
+    end
+    return (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = C, status = r.status, pinned)
+end
+
+# Can the data tell the parameters apart? The Cholesky pivots of J₀ᵀJ₀ with unit diagonal (each
+# column of J₀ normalized) are the squared sines of the angles between each column and the span
+# of the ones before it. A pivot below `_PIVOT_MIN` (an angle below 1e-6 rad: the condition
+# number of J₀ is then at least ~1e6, a relative SD of ~1e6 × noise/signal) means a parameter is
+# a combination of the others, to within what rounding in J₀ᵀJ₀ can resolve. A parameter with
+# no influence at all (a zero column) is undetermined too. `u` masks parameters on a bound.
+@inline function _determined(G::SMatrix{P,P,T}, u::SVector{P,T}) where {P,T}
+    g = diag(G)
+    any((u .> 0) .& .!(g .> 0)) && return false
+    s = map((gj, uj) -> uj > 0 ? inv(sqrt(gj)) : zero(T), g, u)
+    L, ok = _cholesky((s * s') .* G + Diagonal(one(T) .- u))
+    ok || return false
+    return all(j -> u[j] == 0 || L[j, j]^2 >= _PIVOT_MIN, 1:P)
+end
+const _PIVOT_MIN = 1e-12
+
+# Inf for every pair of parameters not on a bound, 0 for those on one.
+@inline _infcov(u::SVector{P,T}) where {P,T} =
+    SMatrix{P,P,T}(ntuple(n -> u[(n - 1) % P + 1] > 0 && u[(n - 1) ÷ P + 1] > 0 ? T(Inf) : zero(T),
+                          Val(P * P)))
+
+# Inverse from a Cholesky factor, column by column (P is small), and forward substitution
+# (L z = b) alone; `_cholesky` and `_chol_solve` are the solver's (levmar.jl).
+@inline _chol_inv(L::SMatrix{P,P,T}) where {P,T} =
+    hcat(ntuple(j -> _chol_solve(L, SVector{P,T}(ntuple(k -> ifelse(k == j, one(T), zero(T)),
+                                                        Val(P)))), Val(P))...)
+@inline function _fwd_solve(L::SMatrix{P,P,T}, b::SVector{P,T}) where {P,T}
+    z = MVector{P,T}(b)
+    @inbounds for i in 1:P
+        t = z[i]
+        for k in 1:i-1
+            t -= L[i, k] * z[k]
+        end
+        z[i] = t / L[i, i]
+    end
+    return SVector(z)
 end
 
 # The noise-free fit's solver: the step tolerance alone, tight, and room to get there.
 const _CRLB_SOLVER = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
 
 # The condition number of J with each column scaled by its parameter's true value (relative
-# sensitivities, so the units drop out; 1 for a true value of 0). Inf when there are fewer
-# observations than parameters: `cond` of a wide matrix would ignore the missing directions.
+# sensitivities, so the units drop out; 1 for a true value of 0), reported as `c.cond`. Inf
+# when there are fewer observations than parameters: `cond` of a wide matrix would ignore the
+# missing directions.
 _condition(J, θ) = size(J, 1) < size(J, 2) ? Inf :
                    cond(J * Diagonal([x == 0 ? 1.0 : abs(x) for x in θ]))
-# Beyond this the covariance is below rounding error (H = JᵀJ squares the condition number, and
-# 1e16 is 1/eps): the parameters cannot be told apart, so their SD is Inf.
-const _COND_MAX = 1e8
 
 _hasmap(x::AbstractArray) = true
 _hasmap(x::Free) = x.start isa AbstractArray

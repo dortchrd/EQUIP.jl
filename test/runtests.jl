@@ -918,6 +918,29 @@ end
         # Undetermined parameters get Inf: 5 free parameters, 4 observations
         @test all(==(Inf), values(crlb(m4, θ; snr = 200, fit = (kmf = Free(),)).sd))
         @test crlb(m4, θ; snr = 200, fit = (kmf = Free(),)).cond == Inf
+        # The allocation-free kernel the protocol optimizer will call: crlb's own numbers; one
+        # plan for another protocol with as many observations (static vectors too); no
+        # allocation, for the sandwich and Eq. 3
+        SV = EQUIP.SVector
+        plan = EQUIP._crlb_plan(m4, :sandwich; bounds4...)
+        tt = EQUIP._crlb_truth(m4, θ)
+        k = EQUIP._crlb!(plan, m4, tt, 0.005^2)
+        @test collect(k.fit) == collect(values(c.fit)) && collect(k.bias) == collect(values(c.bias))
+        @test sqrt.(diag(k.cov)) ≈ collect(values(c.sd)) rtol = 1e-14
+        ti, td = [0.02, 0.1, 0.3, 1.0], [1.0, 2.0, 3.0, 0.01]
+        mb = QMTSIR(TI = SV{4}(ti), TD = SV{4}(td), magnitude = false)
+        kb = EQUIP._crlb!(plan, mb, tt, 0.005^2)
+        cb2 = crlb(QMTSIR(TI = ti, TD = td, magnitude = false), θ; snr = 200, fit = bounds4)
+        @test collect(kb.fit) ≈ collect(values(cb2.fit)) rtol = 1e-12
+        @test sqrt.(diag(kb.cov)) ≈ collect(values(cb2.sd)) rtol = 1e-12
+        allocs(p, mm, t, s2) = @allocated EQUIP._crlb!(p, mm, t, s2)
+        allocs(plan, mb, tt, 0.005^2)
+        @test allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
+        plan16 = EQUIP._crlb_plan(m16, :biased)
+        t16 = EQUIP._crlb_truth(m16, θ16)
+        allocs(plan16, m16, t16, fill(0.005^2, 16))
+        @test allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
+        @test sqrt.(diag(EQUIP._crlb!(plan16, m16, t16, 0.005^2).cov)) ≈ collect(values(b3.sd)) rtol = 1e-12
         # Several tissues by broadcasting; the display
         cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, fit = bounds4)
         @test length(cs) == 4 && cs[1].sd == c.sd
