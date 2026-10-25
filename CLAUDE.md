@@ -26,7 +26,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   result.jl the `FitResult`
 - src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
 - src/analysis/: `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3) and
-  `montecarlo` (the same measured by simulating and fitting, with `crlb` alongside)
+  `montecarlo` (the same measured by simulating and fitting, with `crlb` alongside); sweep.jl:
+  both over noise levels and true values (`snr = [...]`, `vary = (...)`), returning a `Sweep`
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

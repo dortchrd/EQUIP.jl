@@ -71,7 +71,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple}
 end
 
 """
-    crlb(m, truth; snr or σ, fit = (...), cov = :sandwich) -> CRLBResult
+    crlb(m, truth; snr or σ, fit = (...), cov = :sandwich, vary) -> CRLBResult or Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
 Cramér–Rao lower bound (CRLB, also CRB), biased when the fit fixes a parameter at a value other
@@ -92,6 +92,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
   are the classical CRLB σ²(JᵀJ)⁻¹ when nothing fixed is wrong, and equal each other when the
   fit is exact (as many observations as free parameters); otherwise `:biased` ≤ `:sandwich`.
+- Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = (kmf = 5:2.5:20,)` (several
+  true values of a parameter; the fit's settings stay as they are, so this is the bias of a
+  wrong assumption against the truth, Dortch 2018 Fig. 2B). Every combination is computed, the
+  first keyword varying slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
 
 A free parameter that ends on a bound in the noise-free fit is held there (SD 0; `c.onbound`).
 Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. EQUIP's fits are
@@ -106,10 +110,18 @@ c = crlb(m, θ; snr = 200)                          # the fit fixes kmf at 12.5:
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR
 crlb(m, θ; snr = 200, fit = (kmf = 5.0,))          # kmf fixed at the truth: unbiased
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
+crlb(m, θ; snr = 200, vary = (kmf = 5:2.5:20,))    # the bias against the true kmf (a Sweep)
 ```
 """
 function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::NamedTuple = (;),
-              cov::Symbol = :sandwich)
+              cov::Symbol = :sandwich, vary::NamedTuple = (;))
+    # A sweep: one call per setting (sweep.jl), each with one noise level and one truth.
+    if _issweep(snr, vary)
+        settings = _sweep_settings(m, snr, vary)
+        results = [crlb(m, merge(truth, _varied(st)); snr = _snr_of(st, snr), σ, fit, cov)
+                   for st in settings]
+        return Sweep(settings, results, _rows(settings, results))
+    end
     # `fit` is a keyword here, so inside this function the name means the settings, not the
     # function `fit` (the kernel runs the noise-free fit with the solver itself, `levmar`).
     cov in (:sandwich, :biased) ||

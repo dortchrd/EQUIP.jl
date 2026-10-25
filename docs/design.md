@@ -1359,8 +1359,8 @@ How, with what was measured:
 
 ### `montecarlo`: sweeps, and simulating with another model
 
-Status: one case implemented on `crlb-proto` (src/analysis/montecarlo.jl); sweeps, fit
-settings side by side and `simulate_with` next.
+Status: one case and sweeps implemented on `crlb-proto` (src/analysis/montecarlo.jl,
+sweep.jl); fit settings side by side and `simulate_with` next.
 
 ```julia
 mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
@@ -1390,6 +1390,32 @@ What the first version does, and why:
   ratios move together (the same noise drives every estimate), so four ratios 3 standard errors
   low in one 2 000-copy sample (seed 1, kmf at its true value) were one fluctuation, not four:
   other seeds 0.98–1.03, and 20 000 copies 0.993–1.006, in Float32 and Float64 alike.
+
+Sweeps (`crlb` and `montecarlo` alike):
+
+```julia
+s = crlb(m, nominal(m, :SIR_WM_II); snr = 200, vary = (kmf = 5:2.5:20,))   # Fig. 2B
+s = montecarlo(m, θ; snr = [100, 200], vary = (kmf = [5.0, 20.0], Sm = [0.8, 0.83]))
+s[1], s.settings[1], s.rows                  # a result, its setting, the table
+```
+
+- `snr = [...]` and `vary = (name = values, ...)`; every combination, the first keyword varying
+  slowest. `vary` changes the truth, never the fit (the assumption-bias study); varying a
+  fitted parameter gives the accuracy over a tissue range. σ is not a sweep axis: in `crlb` a
+  vector σ already means one value per observation.
+- The result is a `Sweep{R}`: `settings`, `results` (`CRLBResult`s or `MonteCarloResult`s;
+  indexing and iteration go to them) and `rows`, one named tuple per setting and parameter
+  (montecarlo: measured, then `crlb_...`), for `DataFrame(s.rows)`. The REPL shows the
+  setting's values on its first row only.
+- Noise: one seed drawn from `rng` per call, and every setting's noise from that seed
+  (`Xoshiro(seed)`): common random numbers. Differences between settings are then not noise,
+  adding a setting does not change the others' results (tested), and a setting equals the
+  one-case run with the same `rng` (tested; the one-case path draws its seed the same way). The
+  price: all settings share one sampling error. Seen in testing (4-point, WM II, kmf swept
+  5–20, 5 000 copies, Rician): the PSR bias was 0.25 points below crlb's in every setting
+  (−0.46% vs −0.22% at kmf 10), and SD/crlb 0.985 in every setting. With 20 000 copies and three
+  seeds: Gaussian −0.28, −0.27, −0.16% (± 0.05) against −0.22% predicted; Rician −0.34, −0.34,
+  −0.21%. So mostly the shared sampling error, with at most ~0.06 points from Rician noise here.
 
 The plan for the rest:
 
@@ -1584,8 +1610,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
-2. `montecarlo`, one case first (done, `crlb-proto`; then `vary`, fit settings side by side,
-   `simulate_with`, SD/CRLB; Figs. 1 and 2B). Moved ahead of the diagnostics: it is the check on `crlb`, and it
+2. `montecarlo`, one case first (done, `crlb-proto`), sweeps over `snr` and `vary` (done, with
+   `crlb`'s); then fit settings side by side, `simulate_with`; Figs. 1 and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol

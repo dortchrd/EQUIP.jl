@@ -1013,6 +1013,58 @@ end
         @test occursin("missing: T2", msg(() -> montecarlo(mt, (S0 = 1000.0,); σ = 10.0)))
     end
 
+    @testset "sweeps: crlb and montecarlo over noise levels and true values" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m4 = QMTSIR(; SIR_4POINT...)
+        θ = nominal(m4, :SIR_WM_II)                                   # kmf = 10
+        # crlb against the true kmf, the fit keeping 12.5 (Dortch 2018 Fig. 2B): one crlb each
+        s = crlb(m4, θ; snr = 200, vary = (kmf = 5.0:2.5:20.0,))
+        @test s isa Sweep && length(s) == 7 && eltype(s) <: CRLBResult
+        @test s.settings[1] == (kmf = 5.0,) && s.settings[end] == (kmf = 20.0,)
+        @test s[3].bias == crlb(m4, (; θ..., kmf = 10.0); snr = 200).bias
+        @test s[4].bias.PSR == 0                                      # true kmf = the assumed 12.5
+        @test [r.fixed.kmf for r in s] == fill(12.5, 7)               # the fit never changes
+        @test length(s.rows) == 7 * 4 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR
+        @test s.rows[1].truth == 0.12 && s.rows[1].relbias == s[1].relbias.PSR
+        # over the SNR: the SD scales as 1/SNR (first order in σ), the bias not at all
+        t = crlb(m4, θ; snr = [100, 200, 400])
+        @test t.settings == [(snr = 100,), (snr = 200,), (snr = 400,)]
+        @test t[1].sd.PSR ≈ 2 * t[2].sd.PSR rtol = 1e-12
+        @test t[1].bias == t[3].bias
+        # every combination, the first keyword varying slowest
+        u = crlb(m4, θ; snr = [100, 200], vary = (kmf = [5.0, 10.0], Sm = [0.8, 0.83]))
+        @test length(u) == 8 && u.settings[1] == (snr = 100, kmf = 5.0, Sm = 0.8)
+        @test u.settings[2] == (snr = 100, kmf = 5.0, Sm = 0.83) && u.settings[end] == (snr = 200, kmf = 10.0, Sm = 0.83)
+        # montecarlo sweeps: each setting is the one-case run from the same seed, and every
+        # setting sees the same noise, so adding a setting changes no other result
+        a = montecarlo(m4, θ; snr = [100, 200], n = 500, rng = MersenneTwister(1))
+        b = montecarlo(m4, θ; snr = [100, 200, 400], n = 500, rng = MersenneTwister(1))
+        @test a[1].sd == b[1].sd && a[2].sd == b[2].sd
+        @test a[2].sd == montecarlo(m4, θ; snr = 200, n = 500, rng = MersenneTwister(1)).sd
+        @test a[1].crlb.sd == crlb(m4, θ; snr = 100).sd
+        # the bias curve measured matches crlb's (Gaussian noise; within 4 standard errors)
+        v = montecarlo(m4, θ; snr = 200, n = 2000, noise = :gaussian, vary = (kmf = [5.0, 20.0],),
+                       rng = MersenneTwister(2))
+        for r in v, p in keys(r.mean)
+            @test abs(r.mean[p] - r.crlb.fit[p]) < 4 * r.se_mean[p]
+        end
+        @test v.rows[1].crlb_relbias == v[1].crlb.relbias.PSR && v.rows[1].se_sd == v[1].se_sd.PSR
+        # display
+        sc = sprint(show, MIME"text/plain"(), s)
+        @test startswith(sc, "crlb sweep for QMTSIR, 4 observations: 7 settings of kmf, σ = 0.005, covariance: sandwich")
+        @test occursin("fixed in the fit: kmf = 12.5, R1m = :R1f", sc)
+        @test occursin(r"\n  kmf +parameter +noise-free fit +rel bias +rel SD +rel RMSE\n  5.0 +PSR ", sc)
+        sm = sprint(show, MIME"text/plain"(), v)
+        @test startswith(sm, "montecarlo sweep for QMTSIR, 4 observations: 2 settings of kmf, " *
+                             "2000 noisy copies each, gaussian noise")
+        @test occursin(r"\n  kmf +parameter +rel bias +crlb +SD/crlb +rel RMSE +crlb +converged\n", sm)
+        @test repr(s) == "Sweep(7 crlb results: kmf)" && repr(a) == "Sweep(2 montecarlo results: snr)"
+        # mistakes
+        @test occursin("not a parameter", msg(() -> crlb(m4, θ; snr = 200, vary = (kfm = [1.0],))))
+        @test occursin("vector or a range", msg(() -> crlb(m4, θ; snr = 200, vary = (kmf = 5.0,))))
+        @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; snr = 200, vary = (kmf = Float64[],))))
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

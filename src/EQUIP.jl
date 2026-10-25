@@ -31,7 +31,7 @@ using StaticArrays                         # SVector / SMatrix: small fixed-size
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
 import ForwardDiff                         # crlb: ForwardDiff.jacobian, ForwardDiff.hessian
 using Statistics: mean, median, quantile, std   # default starts; result summaries; compare
-using Random: AbstractRNG, randn            # simulate: noise
+using Random: AbstractRNG, randn, Xoshiro   # simulate: noise; montecarlo: one stream per seed
 import Random                               # Random.default_rng()
 import CommonSolve                         # owner of `init` (the SciML convention)
 using CommonSolve: init
@@ -50,7 +50,7 @@ export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDeca
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
-export crlb, CRLBResult, montecarlo, MonteCarloResult                       # analysis
+export crlb, CRLBResult, montecarlo, MonteCarloResult, Sweep                # analysis
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
@@ -77,6 +77,7 @@ include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 # analysis: the accuracy of a fit predicted from derivatives (uses models, fit and sim)
 include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits
 include("analysis/montecarlo.jl")      # montecarlo: the same measured, with crlb alongside
+include("analysis/sweep.jl")           # Sweep: either one over noise levels and true values
 
 # Compile the common cases while the package is installed (see the file).
 include("precompile.jl")
