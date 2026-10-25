@@ -62,7 +62,7 @@ end
 # One TD for every TI (the same pattern as the single-TR method of T1MFA).
 QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)
 
-parameters(::QMTSIR) = (
+parameters(::Type{<:QMTSIR}) = (
     PSR = Free(start = 0.1, lower = 0, upper = 1),
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),

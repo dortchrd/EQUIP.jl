@@ -294,6 +294,28 @@ of one of those names, and a keyword that is neither a parameter nor an option.
   of roadmap item 3 (StatsAPI's `dof` is the number of parameters and `dof_residual` is n − p;
   LsqFit's `dof` means n − p), and separate weights with a known σ from an estimated σ.
 
+- **Roles on the model's type** (`parameters(::Type{<:QMTSIR})`), with the fallback
+  `parameters(m::MRIModel)` asking the type, as Base's `eltype(x) = eltype(typeof(x))`. Why: the
+  roles are the same for every acquisition, and making a model with a throwaway protocol just to
+  ask `nominal(QMTSIR(TI = ..., TD = ...), :SIR_WM_I)` was clumsy; now `nominal(QMTSIR, :SIR_WM_I)`,
+  `parameters(QMTSIR)` and `defaults(QMTSIR)`. `Type{<:M}`, not `Type{M}`: the models are
+  parametric, so a model's type (`QMTSIR{Vector{Float64}, Vector{Float64}}`) does not match
+  `Type{QMTSIR}` (types are invariant). Starts that depend on the acquisition (ADC's
+  1/mean(b), the R2 and bi-exponential models' from mean(TE), the inversion-recovery models'
+  `BestOf` grid from the TIs) became functions of the model, `Free(start = m -> 1 / mean(m.b))`,
+  computed once per fit in `setup` (after the fit's keywords, so a function start given in a fit
+  works too), and filled in when `parameters` is asked of a model. Rejected: moving them to
+  `datastart` (`:data`): it runs per voxel, on the model already converted to the working
+  precision, so Float32 starts could change by a rounding step; the function start is computed
+  from the model as given, as before. A model can still define `parameters(m::MyModel)` on the
+  instance (more specific than the fallback); its type then cannot be asked (an error says so).
+  Checked: every built-in model's starts and fits (400 noisy voxels each, Float64 and Float32,
+  `maxiter = 0` and default) and `nominal(m)`, 108 entries, and every bench case (starts and
+  fits, bounded and not, three solver settings, both precisions; the roles as printed), 137
+  entries: all bit-identical before and after. Speed: unchanged (bi-exponential bench case,
+  alternating builds, three rounds: 1 thread 127–150 ms before, 128–130 after; 4 threads
+  38.6–40.4 ms before, 37.1–39.4 after).
+
 ## Fitting pipeline
 
 1. `setup` merges the fit's keywords into `parameters(m)`, splits free from fixed, and returns

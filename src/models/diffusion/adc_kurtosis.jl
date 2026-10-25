@@ -32,9 +32,9 @@ m = ADCKurtosis(b = [0, 500, 1000, 1500, 2000, 2500])
     b::A                                # b-values (s/mm²)
 end
 
-parameters(m::ADCKurtosis) = (
+parameters(::Type{<:ADCKurtosis}) = (
     S0 = Free(start = :scale, lower = 0),
-    ADC = Free(start = 1 / mean(m.b), lower = 0),
+    ADC = Free(start = m -> 1 / mean(m.b), lower = 0),   # from the b-values, once per fit
     K = Free(start = 1.0, lower = 0, upper = 3),
 )
 

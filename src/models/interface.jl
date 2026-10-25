@@ -34,8 +34,8 @@ Example (see `src/models/` for more):
     TE::A                          # echo times (s), one per observation
 end
 
-parameters(::MyDecay) = (S0 = Free(start = :scale, lower = 0),
-                         T2 = Free(start = 0.05, lower = 1e-6))
+parameters(::Type{<:MyDecay}) = (S0 = Free(start = :scale, lower = 0),
+                                 T2 = Free(start = 0.05, lower = 1e-6))
 
 function signal!(out, m::MyDecay, p)
     (; TE) = m                     # unpack the acquisition by name ...
@@ -80,7 +80,12 @@ each voxel's starting value comes from:
   A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
   log-linear fit for T2. Only for parameters the model's `datastart` estimates;
-- [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best.
+- [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
+- a function of the model, `m -> ...`, for a start that depends on the acquisition: called
+  once per fit with the model, it gives any of the above, e.g. ADCDecay's
+  `ADC = Free(start = m -> 1 / mean(m.b))` and T1IR's
+  `T1 = Free(start = m -> BestOf(_t1grid(m.TI)))`. This keeps [`parameters`](@ref) a property
+  of the model's type, so it needs no acquisition.
 
 In a fit, to estimate a parameter or change its start or bounds; whatever is left out keeps the
 model's default:
@@ -94,7 +99,8 @@ fit(m, data; PSR = Free(lower = -Inf))     # no lower bound (the model's is 0)
 ```
 """
 struct Free
-    start::Any                         # a number, a map, :scale, :data, a BestOf, or nothing (keep the default)
+    start::Any                         # a number, a map, :scale, :data, a BestOf, a function of the
+                                       # model (m -> ...), or nothing (keep the default)
     lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
     upper::Union{Nothing,Float64}
     # The one constructor, by keyword: `Free()`, `Free(start = 0.8)`, `Free(start = :scale,
@@ -103,9 +109,9 @@ struct Free
     # start is checked, numbers become Float64, and `new` (only available inside) builds it.
     function Free(; start = nothing, lower = nothing, upper = nothing)
         start === nothing || start === :scale || start === :data || start isa Real ||
-            start isa AbstractArray || start isa BestOf ||
-            throw(ArgumentError("Free: the start must be a number, a map, :scale, :data or " *
-                                "BestOf(values), got $(repr(start))"))
+            start isa AbstractArray || start isa BestOf || start isa Function ||
+            throw(ArgumentError("Free: the start must be a number, a map, :scale, :data, " *
+                                "BestOf(values) or a function of the model, got $(repr(start))"))
         tofloat(x) = x === nothing ? nothing : Float64(x)
         return new(start isa Real ? Float64(start) : start, tofloat(lower), tofloat(upper))
     end
@@ -121,7 +127,7 @@ start, such as magnitude inversion recovery. Values outside the parameter's boun
 One parameter per fit can start from `BestOf` (several, trying every combination, are planned).
 
 ```julia
-parameters(m::T1IR) = (..., T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN))  # the default
+parameters(::Type{<:T1IR}) = (..., T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN))
 fit(m, data; T1 = Free(start = BestOf(logrange(0.05, 5, 50))))                  # other values
 ```
 
@@ -197,14 +203,29 @@ Base.show(io::IO, f::Fixed) = print(io, "Fixed(", _showvalue(f.value), ")")   # 
 
 """
     parameters(m) -> NamedTuple
+    parameters(M::Type) -> NamedTuple
 
-Every parameter of model `m` with its default role, [`Free`](@ref) or [`Fixed`](@ref). The order
+Every parameter of a model with its default role, [`Free`](@ref) or [`Fixed`](@ref). The order
 is the order of the outputs. A fit can change any role with a keyword named after the parameter:
 `fit(m, data; kmf = 15.0)` (fixed at a value), `fit(m, data; kmf = Free())` (estimated).
 
+The roles are a property of the model's type, the same for every acquisition, so a model
+declares them for its type, and asking a model (an instance) asks its type:
+
 ```julia
-parameters(::T1SR) = (M0 = Free(start = :scale, lower = 0), T1 = Free(start = 1.0, lower = 1e-6))
+parameters(::Type{<:T1SR}) = (M0 = Free(start = :scale, lower = 0),
+                              T1 = Free(start = 1.0, lower = 1e-6))
+parameters(T1SR)                     # no acquisition needed
+parameters(T1SR(TD = [0.1, 1.0]))    # the same
 ```
+
+`Type{<:T1SR}` ("T1SR or any of its subtypes") rather than `Type{T1SR}`: the models are
+parametric types, and a model's type is e.g. `T1SR{Vector{Float64}}`, which `Type{T1SR}` does
+not match. A start that depends on the acquisition is a function of the model, called once per
+fit (see `Free`): asked of a model, `parameters` gives the start computed for its acquisition
+(T1IR's `BestOf` values for its TIs); asked of the type, the function. A model whose roles
+cannot be written that way can define `parameters(m::MyModel)` instead; it then needs a model
+wherever roles are asked for.
 
 Values rather than roles: [`defaults`](@ref)`(m)` (the fixed parameters' values),
 [`nominal`](@ref)`(m)` or `nominal(m, tissue)` (every value, from the model or from a tissue),
@@ -213,9 +234,34 @@ REPL shows the roles as a table. `keys(parameters(m))` lists the names.
 """
 function parameters end
 # `function name end` declares a generic function with no methods yet. Each model adds its own
-# method, e.g. `parameters(::T1MFA) = ...`; Julia picks the method by the model's type
-# ("multiple dispatch"). `::T1MFA` without a variable name means "an argument of type T1MFA that
-# we do not need to look at".
+# method, e.g. `parameters(::Type{<:T1MFA}) = ...`; Julia picks the method by the type of the
+# argument ("multiple dispatch"). `::Type{<:T1MFA}` without a variable name means "an argument
+# that is the type T1MFA or one of its subtypes, which we do not need to look at".
+#
+# The fallback, for a model (an instance): ask its type, as Base does for `eltype`
+# (`eltype(x) = eltype(typeof(x))`), then compute the starts that depend on the acquisition for
+# this model's, so `parameters(T1IR(TI = ...))` shows the BestOf values for those TIs. A model's
+# own `parameters(m::MyModel)` method, if it has one, is more specific and wins.
+parameters(m::MRIModel) = map(r -> _at_acquisition(r, m), parameters(typeof(m)))
+
+# A model or a model type: what `nominal` and `defaults` accept.
+const _ModelOrType = Union{MRIModel,Type{<:MRIModel}}
+
+# The roles with each start computed from the acquisition (`m -> ...`) replaced by the start it
+# gives for this model: for the fit's setup (setup.jl), the model's display and `nominal(m)`
+# (again, for a model with its own `parameters(m::MyModel)` method). For a type there is no
+# acquisition: the functions stay (a start not known yet).
+_at_acquisition(r::Free, m) =
+    r.start isa Function ? Free(start = r.start(m), lower = r.lower, upper = r.upper) : r
+_at_acquisition(r, m) = r
+_roles(m::MRIModel) = map(r -> _at_acquisition(r, m), parameters(m))
+function _roles(M::Type{<:MRIModel})
+    applicable(parameters, M) && return parameters(M)
+    throw(ArgumentError("$(nameof(M)) defines its parameters for a model with its acquisition " *
+        "(`parameters(m::$(nameof(M)))`), not for its type: give a model, $(nameof(M))(...)"))
+end
+_modelname(m::MRIModel) = nameof(typeof(m))
+_modelname(M::Type{<:MRIModel}) = nameof(M)
 
 """
     signal!(out, m, p) -> out
@@ -428,7 +474,8 @@ end
 
 The values of the parameters that [`parameters`](@ref)`(m)` fixes by default: the model's fitting
 assumptions, e.g. for QMTSIR `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)`
-(`R1m = :R1f`: a tie, R1m equals R1f). Empty for a model with none.
+(`R1m = :R1f`: a tie, R1m equals R1f). Empty for a model with none. `m` may be a model or its
+type (`defaults(QMTSIR)`).
 
 Only the fixed parameters: for a complete set to simulate with, use [`nominal`](@ref)`(m)` (these
 plus the free parameters' starts) or `nominal(m, tissue)`. Or merge them into your own values of
@@ -438,7 +485,7 @@ the free parameters (later values win):
 simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); snr = 200)
 ```
 """
-defaults(m::MRIModel) = (; (n => r.value for (n, r) in pairs(parameters(m)) if r isa Fixed)...)
+defaults(m::_ModelOrType) = (; (n => r.value for (n, r) in pairs(_roles(m)) if r isa Fixed)...)
 
 # The value a role gives `nominal` (src/sim/tissues.jl) when neither a keyword nor a tissue does:
 # a fixed value (a tie kept as written), 1 for the scale parameter, and a number start if
@@ -506,8 +553,12 @@ function Base.show(io::IO, ::MIME"text/plain", m::MRIModel)
     for f in fieldnames(typeof(m))
         print(io, "\n  ", f, " = ", _acqvalue(getfield(m, f)))
     end
-    applicable(parameters, m) || return    # a new model, before its `parameters` method
-    roles = parameters(m)
+    roles = try
+        _roles(m)
+    catch e                                # a new model, before its `parameters` method
+        e isa MethodError && e.f === parameters || rethrow()
+        return
+    end
     vals = map(r -> _model_value(r, true), roles)     # what nominal(m) takes
     print(io, "\nParameters:\n")
     _print_parameters(io, roles, vals, "nominal(m)")

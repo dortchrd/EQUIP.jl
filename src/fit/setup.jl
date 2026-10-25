@@ -133,6 +133,10 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
         x isa Free && x.start === :scale && _check_scale(model, n)
         roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
     end
+    #    A start that depends on the acquisition, written as a function of the model
+    #    (`ADC = Free(start = m -> 1 / mean(m.b))`), is computed now, once, for this model:
+    #    the model's own or one given in this call.
+    roles = map(r -> _at_acquisition(r, model), roles)
 
     # 3. Split by role, keeping the model's order.
     F = Tuple(n for n in names if roles[n] isa Free)     # e.g. (:PSR, :R1f, :Sf, :M0f)

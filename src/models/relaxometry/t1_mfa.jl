@@ -37,7 +37,7 @@ end
 # (the most specific match), which repeats it once per flip angle.
 T1MFA(FA, TR::Real) = T1MFA(FA, fill(TR, length(FA)))
 
-parameters(::T1MFA) = (
+parameters(::Type{<:T1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
     T1 = Free(start = 1.0, lower = _TMIN),
     B1 = Fixed(1.0),
@@ -67,7 +67,7 @@ end
 
 R1MFA(FA, TR::Real) = R1MFA(FA, fill(TR, length(FA)))    # one TR for every flip angle
 
-parameters(::R1MFA) = (
+parameters(::Type{<:R1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
     R1 = Free(start = 1.0, lower = 0),
     B1 = Fixed(1.0),

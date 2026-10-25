@@ -108,10 +108,12 @@ end
 
 ## Free and fixed parameters
 
-Every model declares each parameter's default **role** with `parameters(m)`. For QMTSIR:
+Every model declares each parameter's default **role** with `parameters`, for its type: the
+roles are the same for every acquisition, so `parameters(QMTSIR)` needs no protocol, and
+`parameters(m)` for a model asks its type. For QMTSIR:
 
 ```julia
-parameters(::QMTSIR) = (
+parameters(::Type{<:QMTSIR}) = (
     PSR = Free(start = 0.1, lower = 0, upper = 1),
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf  = Free(start = -0.95, lower = -1.2, upper = 0),
@@ -136,8 +138,13 @@ parameters(::QMTSIR) = (
     log-linear fit, `T2 = Free(start = :data, lower = ...)`;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
-    `T1 = Free(start = BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs. One
-    parameter per fit for now. `BestOf` wraps the values because a plain vector start is a map.
+    `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.
+    One parameter per fit for now. `BestOf` wraps the values because a plain vector start is a
+    map;
+  - a function of the model, `m -> ...`, for a start that depends on the acquisition, called
+    once per fit with the model: ADCDecay's `ADC = Free(start = m -> 1 / mean(m.b))`, the
+    `BestOf` above. Asked of a model, `parameters` shows the start it gives (`parameters(T1IR(TI
+    = ti))` shows the 30 values); asked of the type, the function.
 - `Fixed(value)`: held fixed at a number, a per-voxel map (e.g. B1), or a tie to other
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie. `defaults(m)` gives the fixed
@@ -256,7 +263,7 @@ import EQUIP: parameters, signal!     # we add methods to these functions
     TE::A                                # echo times (s), one per observation
 end
 
-parameters(::StretchedDecay) = (
+parameters(::Type{<:StretchedDecay}) = (
     S0   = Free(start = :scale, lower = 0),
     T2   = Free(start = 0.05, lower = 1e-6),
     beta = Free(start = 0.9, lower = 0.1, upper = 1),  # stretching exponent (1 = mono-exponential)
@@ -300,11 +307,18 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
-- **Starting values** are declared in `parameters(m)` with each `Free` role (see Free and fixed
-  parameters): a number, `:scale`, `:data` or `BestOf(values)`. If fits can end in a wrong
-  local minimum from one start, give the parameter several values to try: T1IR's is
-  `T1 = Free(start = BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5 of the
-  shortest TI to 5× the longest.
+- **`parameters`** is declared for the model's type, `parameters(::Type{<:StretchedDecay})`:
+  `Type{<:StretchedDecay}` ("StretchedDecay or a subtype") because the models are parametric
+  types (a model's type is `StretchedDecay{Vector{Float64}}`, which `Type{StretchedDecay}` would
+  not match). Then `parameters(StretchedDecay)` and `nominal(StretchedDecay, ...)` need no
+  acquisition. (A model may define `parameters(m::StretchedDecay)` on the instance instead;
+  its type then cannot be asked.)
+- **Starting values** are declared with each `Free` role (see Free and fixed parameters): a
+  number, `:scale`, `:data`, `BestOf(values)`, or a function of the model for a start that
+  depends on the acquisition. If fits can end in a wrong local minimum from one start, give the
+  parameter several values to try: T1IR's is
+  `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5
+  of the shortest TI to 5× the longest.
 - **`datastart`** (optional): starting values computed from each voxel's data `y`, such as a
   linearized fit, for the parameters declared `:data`. `p` holds the voxel's fixed values (e.g.
   `p.B1`). T2Decay's is a log-linear fit, with mean(TE) as the fallback when the data do not
@@ -341,9 +355,9 @@ Four functions give a model's parameters in different forms:
 
 | Function | Gives | Example (QMTSIR) |
 |---|---|---|
-| `parameters(m)` | each parameter's role: free (start, bounds) or fixed | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
+| `parameters(m)`, `parameters(M)` | each parameter's role: free (start, bounds) or fixed; for a model or its type | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
 | `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
-| `nominal(m; changes...)`, `nominal(m, tissue; changes...)` | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
+| `nominal(m; changes...)`, `nominal(m, tissue; changes...)` (a model or its type) | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
 | `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |
 
 Each value of `nominal` comes from a keyword, else the tissue (by name, or converted between T1

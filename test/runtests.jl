@@ -242,6 +242,36 @@ end
         @test repr(Free(start = BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
     end
 
+    @testset "parameters on the model's type: no acquisition needed" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m = QMTSIR(; SIR_4POINT...)
+        @test parameters(QMTSIR) == parameters(m)          # no QMTSIR start depends on TI or TD
+        @test nominal(QMTSIR, :SIR_WM_I) == nominal(m, :SIR_WM_I)
+        @test nominal(QMTSIR; PSR = 0.15) == nominal(m; PSR = 0.15) && defaults(QMTSIR) == defaults(m)
+        @test occursin("nominal(QMTSIR, :WM; PSR = value", msg(() -> nominal(QMTSIR, :WM)))
+        # a start computed from the acquisition: a function for the type, its value for a model
+        b = [0.0, 500, 1000]
+        @test parameters(ADCDecay).ADC.start isa Function
+        @test parameters(ADCDecay(b = b)).ADC.start == 1 / mean(b) == nominal(ADCDecay(b = b)).ADC
+        @test occursin("`ADC` (its start is computed from the acquisition)", msg(() -> nominal(ADCDecay)))
+        @test occursin("`nominal(ADCDecay; ADC = value)`", msg(() -> nominal(ADCDecay)))
+        @test nominal(ADCDecay; ADC = 1e-3) == (S0 = 1.0, ADC = 1e-3) == nominal(ADCDecay, (ADC = 1e-3,))
+        ti = [0.1, 0.5, 1.0]
+        @test parameters(T1IR(TI = ti)).T1.start.values == EQUIP._t1grid(ti)   # BestOf from the TIs
+        # a function start given in a fit is computed for that model too
+        te = collect(0.01:0.01:0.32)
+        mt = T2Decay(TE = te)
+        y = signal(mt, (S0 = 1000.0, T2 = 0.08))
+        @test fit(mt, y; T2 = Free(start = q -> mean(q.TE)), solver = LM(maxiter = 0)).params.T2 == mean(te)
+        @test fit(mt, y; T2 = Free(start = q -> mean(q.TE))).params.T2 ≈ 0.08 rtol = 1e-6
+        # a model whose roles are defined on the instance (the other way) still works, but its
+        # type cannot be asked
+        @test parameters(DataStartTest([0.01, 0.02])).c == Fixed(1.0)
+        @test occursin("give a model", msg(() -> nominal(DataStartTest)))
+        @test occursin("give a model", msg(() -> defaults(DataStartTest)))
+        @test occursin("a function of the model", msg(() -> Free(start = "x")))
+    end
+
     @testset "models print at the REPL" begin
         txt(x) = sprint(show, MIME"text/plain"(), x)     # what typing `m` at the REPL shows
         s = txt(QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5))

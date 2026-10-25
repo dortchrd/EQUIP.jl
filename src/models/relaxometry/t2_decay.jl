@@ -54,7 +54,7 @@ m = T2Decay(TE = 0.01:0.01:0.32)
     TE::A                               # echo times (s)
 end
 
-parameters(m::T2Decay) = (
+parameters(::Type{<:T2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
     T2 = Free(start = :data, lower = _TMIN),          # a log-linear fit (datastart, below)
 )
@@ -92,9 +92,9 @@ m = R2Decay(TE = 0.01:0.01:0.32)
     TE::A                               # echo times (s)
 end
 
-parameters(m::R2Decay) = (
+parameters(::Type{<:R2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = 1 / mean(m.TE), lower = 0),
+    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),   # from the echo times, once per fit
 )
 
 function signal!(out, m::R2Decay, p)
@@ -131,9 +131,9 @@ m = T2DecayOffset(TE = 0.01:0.01:0.32)
     TE::A                               # echo times (s)
 end
 
-parameters(m::T2DecayOffset) = (
+parameters(::Type{<:T2DecayOffset}) = (
     S0 = Free(start = :scale, lower = 0),
-    T2 = Free(start = mean(m.TE), lower = _TMIN),
+    T2 = Free(start = m -> mean(m.TE), lower = _TMIN),
     C = Free(start = 0.0),              # offset, in signal units
 )
 
@@ -161,9 +161,9 @@ m = R2DecayOffset(TE = 0.01:0.01:0.32)
     TE::A                               # echo times (s)
 end
 
-parameters(m::R2DecayOffset) = (
+parameters(::Type{<:R2DecayOffset}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = 1 / mean(m.TE), lower = 0),
+    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),
     C = Free(start = 0.0),              # offset, in signal units
 )
 

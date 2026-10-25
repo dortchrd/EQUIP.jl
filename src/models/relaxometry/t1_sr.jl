@@ -21,7 +21,7 @@ Rate version: [`R1SR`](@ref).
     TD::A                               # delays after saturation (s)
 end
 
-parameters(::T1SR) = (
+parameters(::Type{<:T1SR}) = (
     M0 = Free(start = :scale, lower = 0),
     T1 = Free(start = 1.0, lower = _TMIN),
 )
@@ -42,7 +42,7 @@ signal!(out, m::T1SR, p) = signal!(out, R1SR(m.TD), (; p.M0, R1 = 1 / p.T1))
     TD::A                               # delays after saturation (s)
 end
 
-parameters(::R1SR) = (
+parameters(::Type{<:R1SR}) = (
     M0 = Free(start = :scale, lower = 0),
     R1 = Free(start = 1.0, lower = 0),
 )

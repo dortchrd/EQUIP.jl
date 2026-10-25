@@ -68,6 +68,8 @@ end
     nominal(m, name::Symbol; values...) -> named tuple
     nominal(m, tissue::NamedTuple; values...) -> named tuple
 
+`m` is a model, or a model's type when no acquisition is at hand: `nominal(QMTSIR, :SIR_WM_I)`.
+
 Every parameter of model `m` with a value: the ground truth for [`signal`](@ref),
 [`simulate`](@ref) and [`phantom`](@ref), from the model, the literature or your own values. For
 each parameter, the value comes from, in order:
@@ -91,7 +93,8 @@ that does not fit the model (`:WM` has T1 and T2, no PSR for QMTSIR), and values
 properties of the tissue (an inversion efficiency `Sf`) are your choice. A free parameter with
 no value (without a tissue: one that starts from the data, `:data`, or from [`BestOf`](@ref)
 values) is an error that names it and lists what `nominal` takes for every parameter. Typing the
-model at the REPL shows the same table.
+model at the REPL shows the same table. With a type, a start computed from the acquisition
+(e.g. ADCDecay's `1/mean(b)`) is not known, so without a tissue that parameter must be given.
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)
@@ -108,14 +111,17 @@ nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data, so
 # the shared body what it knows: the tissue's values, the call as the user wrote it (for error
 # messages), and whether the free parameters may take their starts (only without a tissue).
 # Another source of values is another method, e.g. one taking a fitted voxel of a FitResult.
-nominal(m::MRIModel; changes...) = _nominal(m, (;), "nominal(m", true; changes...)
-nominal(m::MRIModel, name::Symbol; changes...) =
-    _nominal(m, tissue(name), "nominal(m, $(repr(name))", false; changes...)
-nominal(m::MRIModel, values::NamedTuple; changes...) =
-    _nominal(m, values, "nominal(m, tissue", false; changes...)
+nominal(m::_ModelOrType; changes...) = _nominal(m, (;), _call(m), true; changes...)
+nominal(m::_ModelOrType, name::Symbol; changes...) =
+    _nominal(m, tissue(name), _call(m) * ", $(repr(name))", false; changes...)
+nominal(m::_ModelOrType, values::NamedTuple; changes...) =
+    _nominal(m, values, _call(m) * ", tissue", false; changes...)
+# The start of the call as the user wrote it, for error messages: `nominal(m` or `nominal(QMTSIR`.
+_call(m::MRIModel) = "nominal(m"
+_call(M::Type{<:MRIModel}) = "nominal($(nameof(M))"
 
-function _nominal(m::MRIModel, props::NamedTuple, call, starts::Bool; changes...)
-    roles = parameters(m)
+function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; changes...)
+    roles = _roles(m)                            # a model's starts computed for its acquisition
     ch = values(changes)                         # the keywords as a named tuple
     _check_names("nominal(m; ...)", keys(ch), keys(roles))
     _reject_roles(ch)
@@ -137,7 +143,9 @@ end
 function _nominal_error(m, roles, q, call, starts, missing)
     start(n) = roles[n] isa Free ? roles[n].start : nothing
     why(n) = start(n) === :data ? "it starts from the data" :
-             start(n) isa BestOf ? "it starts from BestOf values" : "it has no start"
+             start(n) isa BestOf ? "it starts from BestOf values" :
+             start(n) isa Function ? "its start is computed from the acquisition" :
+             "it has no start"
     one = length(missing) == 1
     list = starts ? join(("`$n` ($(why(n)))" for n in missing), ", ") :
         join(("`$n`" for n in missing), ", ") *
@@ -145,7 +153,7 @@ function _nominal_error(m, roles, q, call, starts, missing)
         "start is a guess for fitting, not a tissue value)"
     table = sprint(_print_parameters, roles, q, call * ")")
     give = join(("$n = value" for n in missing), ", ")
-    throw(ArgumentError("$(nameof(typeof(m))): no value for $list; give $(one ? "it" : "them"): " *
+    throw(ArgumentError("$(_modelname(m)): no value for $list; give $(one ? "it" : "them"): " *
         "`$call; $give)`. What `$call)` takes for each parameter:\n" * table))
 end
 
