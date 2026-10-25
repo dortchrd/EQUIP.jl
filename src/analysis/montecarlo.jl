@@ -31,10 +31,12 @@ What [`montecarlo`](@ref) returns. Fields, each a named tuple over the fit's fre
 - `se_sd`: standard error of the SD, SD/√(2(n − 1)) (the Gaussian approximation)
 
 and `converged` (the fraction of the `n` fits that converged), `n`, `noise` (`:rician` or
-`:gaussian`), `σ`, `crlb` (the [`crlb`](@ref) prediction at the same truth, noise and fit
-settings), `result` (the [`FitResult`](@ref) of the noisy copies: the estimates themselves,
+`:gaussian`), `σ` (the noise SD of each observation), `crlb` (the [`crlb`](@ref) prediction at
+the same truth, noise and fit settings), `result` (the [`FitResult`](@ref) of the noisy copies: the estimates themselves,
 e.g. `mc.result.params.PSR` for a histogram), `truth`, `fixed` (the fit's fixed values), `model`
 and `data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`).
+[`vcov`](@ref)`(mc)` is the covariance matrix of the estimates, [`stderror`](@ref)`(mc)` their
+SDs (StatsAPI's names; `informationmatrix(mc.crlb)` for the predicted information).
 """
 struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R<:FitResult,
                         C<:CRLBResult,D}
@@ -50,7 +52,7 @@ struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R
     converged::Float64
     n::Int
     noise::Symbol
-    σ::Float64
+    σ::Vector{Float64}
     crlb::C
     result::R
     truth::Tr
@@ -60,7 +62,8 @@ struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R
 end
 
 """
-    montecarlo(m, truth; snr or σ, n = 10_000, fit = (...), noise, rng, vary, fits, simulate_with)
+    montecarlo(m, truth; snr or σ or Σ, n = 10_000, fit = (...), noise, rng, vary, fits,
+               simulate_with)
         -> MonteCarloResult or Sweep
 
 Simulate `n` noisy copies of one voxel with the values `truth`, fit them, and measure each
@@ -69,7 +72,8 @@ for the same truth, noise and fit settings.
 
 - `truth`: every parameter of `m` (numbers, or ties), as for [`simulate`](@ref): e.g.
   `nominal(m, :SIR_WM_I)`.
-- `snr` (relative to the scale parameter, as for `simulate`) or `σ`, a number.
+- The noise, as for `simulate` and `crlb`: `snr` (relative to the scale parameter), `σ` (a
+  number, or one SD per observation) or `Σ` (the noise covariance matrix).
 - `n`: the number of noisy copies, fitted as one dataset on Julia's threads (start Julia with
   `-t auto`).
 - `fit`: the fit's settings, the keywords of [`fit`](@ref) in a named tuple (roles, `solver`,
@@ -102,15 +106,13 @@ montecarlo(m, nominal(m, :SIR_WM_II); snr = 200, vary = (kmf = 5:2.5:20,))   # F
 montecarlo(QMTSIR(; SIR_5POINT...), θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))
 ```
 """
-function montecarlo(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing,
+function montecarlo(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
                     n::Integer = 10_000, fit::NamedTuple = (;), noise = nothing,
                     rng::AbstractRNG = Random.default_rng(), vary::NamedTuple = (;),
                     fits::NamedTuple = (;), simulate_with = nothing)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     any(_hasmap, values(truth)) && throw(ArgumentError("montecarlo simulates copies of one " *
         "voxel: give numbers. For maps (a phantom), simulate and fit them, then `compare`"))
-    σ === nothing || σ isa Real || throw(ArgumentError("montecarlo takes `σ` as a number " *
-        "(simulate has no σ per observation yet); crlb takes one per observation"))
     any(f -> haskey(f, :mask), (fit, values(fits)...)) &&
         throw(ArgumentError("`fit = (; mask)`: montecarlo fits every copy"))
     _check_fits(fit, fits)
@@ -120,29 +122,29 @@ function montecarlo(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing,
     seed = rand(rng, UInt64)                 # the noise's seed: one draw, for every setting
     if _issweep(snr, vary, fits)             # a sweep: one run per setting (sweep.jl)
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
-        results = [_montecarlo(m, _truth_of(st, truth, simulate_with), _snr_of(st, snr), σ, n,
+        results = [_montecarlo(m, _truth_of(st, truth, simulate_with), _snr_of(st, snr), σ, Σ, n,
                                _fit_of(st, fit, fits), noise, seed,
                                _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return _montecarlo(m, truth, snr, σ, n, fit, noise, seed, simulate_with)
+    return _montecarlo(m, truth, snr, σ, Σ, n, fit, noise, seed, simulate_with)
 end
 
 # One setting: one truth, one noise level, one set of fit settings. `fit` is an argument here,
 # so inside this function the name means the settings; the fits call `_fit_copies` (below),
 # which is the function `fit`.
-function _montecarlo(m, truth, snr, σ, n, fit, noise, seed, simulate_with)
+function _montecarlo(m, truth, snr, σ, Σ, n, fit, noise, seed, simulate_with)
     θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
 
     # The prediction first: it also checks the noise level, the fit's parameter settings and
     # the data's model.
     roles = (; (k => v for (k, v) in pairs(fit) if !(k in _OPTIONS))...)   # crlb: roles only
-    c = crlb(m, truth; snr, σ, fit = roles, simulate_with)
+    c = crlb(m, truth; snr, σ, Σ, fit = roles, simulate_with)
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset.
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
-    Y = simulate(dm, dt; snr, σ, noise, n, rng = Xoshiro(seed))
+    Y = simulate(dm, dt; snr, σ, Σ, noise, n, rng = Xoshiro(seed))
     res = _fit_copies(m, Y; fit...)
 
     # Statistics over every fitted copy (as `compare`), each against the parameter's true value.
@@ -159,9 +161,18 @@ function _montecarlo(m, truth, snr, σ, n, fit, noise, seed, simulate_with)
     se_mean = map(s -> s / sqrt(k), sd)
     se_sd = map(s -> s / sqrt(2 * (k - 1)), sd)
     return MonteCarloResult(meanv, bias, sd, rmse, rel(bias), rel(sd), rel(rmse), se_mean, se_sd,
-                            count(isconverged, res.status) / n, Int(n), noise, c.σ[1], c, res,
+                            count(isconverged, res.status) / n, Int(n), noise, c.σ, c, res,
                             truth, c.fixed, m, simulate_with)
 end
+
+# StatsAPI's names: the covariance matrix of the estimates (every fitted copy, as the other
+# statistics), and their SDs, the free parameters in model order.
+function vcov(mc::MonteCarloResult)
+    r = mc.result
+    used = (r.status .!= NotFitted) .& (r.status .!= InvalidData)
+    return cov(reduce(hcat, (Float64.(r.params[p][used]) for p in keys(r.params))))
+end
+stderror(mc::MonteCarloResult) = collect(values(mc.sd))
 
 # The dataset fit, under a name the keyword `fit` of `montecarlo` does not hide.
 _fit_copies(m, Y; kwargs...) = fit(m, Y; kwargs...)
@@ -175,8 +186,8 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
     f2(x) = isfinite(x) ? string(round(x; sigdigits = 2)) : string(x)      # standard errors
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     c = mc.crlb
-    print(io, "montecarlo for ", nameof(typeof(mc.model)), ", ", length(c.σ), " observations, σ = ",
-          f(mc.σ), ", ", mc.noise, " noise: ", mc.n, " noisy copies, ",
+    print(io, "montecarlo for ", nameof(typeof(mc.model)), ", ", length(c.σ), " observations, ",
+          _noisetext(mc.σ, c.Σ), ", ", mc.noise, " noise: ", mc.n, " noisy copies, ",
           string(round(100 * mc.converged; sigdigits = 4)), "% converged")
     _print_data(io, mc.data)
     _print_fixed(io, mc.fixed, mc.truth)

@@ -131,8 +131,7 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:CRLBResult})
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     c1 = s.results[1]
     σ = c1.σ
-    noise = haskey(s.settings[1], :snr) ? "" :
-            all(==(σ[1]), σ) ? ", σ = $(f(σ[1]))" : ", σ per observation"
+    noise = haskey(s.settings[1], :snr) ? "" : ", " * _noisetext(σ, c1.Σ)
     print(io, "crlb sweep for ", nameof(typeof(c1.model)), ", ", length(σ), " observations: ",
           length(s), " settings of ", join(keys(s.settings[1]), ", "), noise, ", covariance: ",
           c1.method)
@@ -150,7 +149,7 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:MonteCarloResult})
     f2(x) = isfinite(x) ? string(round(x; sigdigits = 2)) : string(x)
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     r1 = s.results[1]
-    noise = haskey(s.settings[1], :snr) ? "" : ", σ = $(f(r1.σ))"
+    noise = haskey(s.settings[1], :snr) ? "" : ", " * _noisetext(r1.σ, r1.crlb.Σ)
     print(io, "montecarlo sweep for ", nameof(typeof(r1.model)), ", ", length(r1.crlb.σ),
           " observations: ", length(s), " settings of ", join(keys(s.settings[1]), ", "), ", ",
           r1.n, " noisy copies each, ", r1.noise, " noise", noise)

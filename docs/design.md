@@ -1272,9 +1272,42 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   relative; the covariance matrix; cond(J); which parameters ended on a bound. The REPL shows a
   table with the columns of `compare`, so `crlb`, `montecarlo` and `compare` line up. Several
   tissues: broadcast, `crlb.(Ref(m), truths; snr = 200)`.
-- Noise: `snr` relative to the scale parameter (as `simulate`), or `σ`, a number or one value
-  per observation. Needed for models that combine sequences with different bandwidths
-  (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127).
+- Noise: `snr` relative to the scale parameter (as `simulate`), `σ` (a number, or one SD per
+  observation), or `Σ`, the full covariance matrix of the noise between observations
+  (`analysis-proto`). One SD per observation is needed for models that combine sequences with
+  different bandwidths (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127) or
+  numbers of averages; a full Σ for correlated noise (after denoising, a joint
+  reconstruction, interpolation across volumes). Chosen by type, so the usual case, Σ = σ²I
+  (independent thermal noise with the same variance at every observation: separate
+  acquisitions, the same readout), is "pulled out", JᵀΣ⁻¹J = JᵀJ/σ², at no cost. A full Σ is
+  factored once (Σ = LLᵀ, checked symmetric and positive definite) and whitens the sums:
+  Fisher J_tᵀΣ⁻¹J_t = Σₖ vₖvₖᵀ with vₖ the rows of L⁻¹J_t (forward substitution), sandwich
+  H⁻¹J₀ᵀΣJ₀H⁻¹ = Σₖ aₖaₖᵀ with aₖ = H⁻¹(row k of LᵀJ₀); sums of squares, allocation-free,
+  O(N²P) (N ≤ 100). The pattern is LsqFit.jl's for weighted fits (a Cholesky factor of the
+  inverse covariance folded into the residuals). With unequal or correlated noise EQUIP's
+  unweighted fit is not efficient: the sandwich is its SD, Eq. 3 (`:biased`) the bound a
+  weighted fit would reach. Checked: σ²I, a diagonal Σ and the number or vector give the same
+  SDs (1e-12); with AR(1) noise (ρ = 0.5, σ = 10, T2Decay, 32 echoes) the bound is
+  (JᵀΣ⁻¹J)⁻¹ and the sandwich (JᵀJ)⁻¹JᵀΣJ(JᵀJ)⁻¹ exactly (S0 SD 11.34 and 12.05), and Monte
+  Carlo with that correlated noise (20 000 copies) follows the sandwich, SD/crlb 1.005 ±
+  0.005. Refactoring check: the 688 cases' fits and biases identical, SDs to 1e-15; the kernel
+  still allocates nothing (full Σ too), 3.5–4.3 µs for the 4-point scheme either way.
+- **StatsAPI's names for the results:** `informationmatrix(c; expected = true)` (the Fisher
+  information J₀ᵀΣ⁻¹J₀ at θ̂), `informationmatrix(c; expected = false)` (the observed
+  information, the Hessian of the negative log-likelihood of the noise-free data at θ̂:
+  J₀ᵀΣ⁻¹J₀ + Σᵢ wᵢ∇²gᵢ, w = Σ⁻¹r; H/σ² with one σ), `vcov(c)`, `stderror(c)`, and
+  `informationmatrix(m, θ; crlb's keywords)` directly; `vcov(mc)` and `stderror(mc)` for a
+  Monte Carlo (the estimates' covariance and SDs). StatsAPI defines these functions without
+  methods (as for `fit` and `nobs`), so EQUIP's are its own computations under the names that
+  GLM, LsqFit and CurveFit users know; StatsAPI's `expected` keyword is exactly the
+  Fisher/observed distinction, and with one σ the sandwich is `inv(I_obs) * I * inv(I_obs)`
+  (tested). Why not an existing implementation: a search of the General registry (all 14 627
+  packages, Oct 2026) found no package for Fisher information or the CRLB of a model at a
+  hypothetical truth; LsqFit's and CurveFit's `vcov`/`stderror` are for a fitted result (the
+  unbiased case, after a fit with their own solver), CovarianceMatrices.jl's sandwiches are
+  estimated from residuals, Kirstine.jl (optimal design for nonlinear regression),
+  CorleoneOED and DynamicOED (dynamic systems) have no bias from wrong fixed values. The
+  reusable part, the derivatives, is ForwardDiff's; F = JᵀΣ⁻¹J itself is one line.
 - Covariance, `cov = :sandwich` (default) or `cov = :biased` (Dortch 2018 Eq. 3); see below.
   The sandwich is the default because it is what EQUIP's least-squares fit achieves, so an
   optimizer cannot credit a protocol with precision the fit will not deliver; Eq. 3 stays for
@@ -1410,8 +1443,11 @@ What the first version does, and why:
   `FitResult`) keeps every estimate, so no `keep` keyword.
 - `fit = (...)` as in `crlb`, but options pass through too (`precision`, `solver`: they change
   the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: Rician for
-  magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. `σ` a number
-  only, as `simulate` (crlb takes one per observation).
+  magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. The noise as
+  `crlb` (`analysis-proto`): `snr`, `σ` a number or one per observation, or a full `Σ`;
+  `simulate` draws correlated noise as L·z (Σ = LLᵀ), for Rician noise in each channel; one σ
+  given as a vector gives the same data, draw for draw (tested). `mc.σ` is now one SD per
+  observation (it was a number).
 - Measured (4 threads): 10 000 copies of the 4-point scheme in 0.23 s. Against crlb, WM I with
   kmf fixed at 12.5, Rician noise, SNR 200, 10 000 copies: SD/crlb 1.004, 0.994, 0.996, 0.997
   (PSR, R1f, Sf, M0f; ± 0.007), PSR bias −14.2% measured, −14.1% predicted. T2Decay, Gaussian:

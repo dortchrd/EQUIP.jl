@@ -49,10 +49,13 @@ and `cov` (the covariance matrix, free parameters in model order), `cond` (condi
 the Jacobian with each column scaled by its parameter's true value: large means the parameters
 are hard to tell apart), `onbound` (free parameters on a bound in the noise-free fit: held there,
 SD 0), `status` (the noise-free fit's [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`),
-`σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values), `model`, and
-`data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`).
+`σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values), `model`,
+`data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`) and `Σ`
+(`nothing`, or the noise covariance matrix given). [`informationmatrix`](@ref)`(c)`,
+[`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give the information and covariance matrices
+and the SDs, under StatsAPI's names.
 """
-struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D}
+struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
     fit::N
     bias::N
     sd::N
@@ -70,10 +73,13 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D}
     fixed::X
     model::M
     data::D                    # nothing, or `model => truth` the data came from (simulate_with)
+    Σ::S                       # nothing, or the noise covariance matrix given (`Σ = ...`)
+    information::Matrix{Float64}   # Fisher information at θ̂, J₀ᵀΣ⁻¹J₀
+    observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
 end
 
 """
-    crlb(m, truth; snr or σ, fit = (...), cov = :sandwich, vary, fits, simulate_with)
+    crlb(m, truth; snr or σ or Σ, fit = (...), cov = :sandwich, vary, fits, simulate_with)
         -> CRLBResult or Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
@@ -83,8 +89,12 @@ SD from the derivatives at that fit's answer, first order in the noise.
 
 - `truth`: every parameter of `m` (numbers, or ties), as for [`simulate`](@ref): e.g.
   `nominal(m, :SIR_WM_I)` or `nominal(m; PSR = 0.15)`.
-- `snr` (relative to the model's scale parameter, as for `simulate`: σ = M0/snr) or `σ`, a
-  number or one value per observation (Gaussian noise).
+- The noise (Gaussian), one of: `snr` (relative to the model's scale parameter, as for
+  `simulate`: σ = M0/snr); `σ`, a number or one SD per observation (independent noise, e.g.
+  different bandwidths or numbers of averages); `Σ`, the full covariance matrix of the noise
+  between observations (correlated noise, e.g. after denoising or a joint reconstruction).
+  Chosen by type, so the common case, one σ for every observation ("pulled out" of
+  JᵀΣ⁻¹J = JᵀJ/σ²), costs nothing extra.
 - `fit`: the fit's settings, the keywords of [`fit`](@ref) in a named tuple; the model's own
   roles when left out. The prediction is for a fit with these settings: `fit = (kmf = Free(),)`
   fits kmf, `fit = (kmf = 15.0,)` fixes it at 15. The bias is zero unless a fixed value differs
@@ -111,9 +121,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
 
 A free parameter that ends on a bound in the noise-free fit is held there (SD 0; `c.onbound`).
 Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. EQUIP's fits are
-unweighted: with σ per observation the sandwich is the SD of the unweighted fit, and `:biased`
-the bound a weighted fit would reach. Rician noise, bounds hit by noisy fits and nonlinearity
-at low SNR are not modelled: simulate and fit for those.
+unweighted: with σ per observation or a full Σ, the sandwich is the SD of the unweighted fit,
+H⁻¹J₀ᵀΣJ₀H⁻¹, and `:biased` the bound a weighted fit would reach, (JᵀΣ⁻¹J)⁻¹. Rician noise,
+bounds hit by noisy fits and nonlinearity at low SNR are not modelled: simulate and fit for
+those.
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)
@@ -129,16 +140,16 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
      simulate_with = T2BiexpDecay(TE = te) => θb)
 ```
 """
-function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::NamedTuple = (;),
-              cov::Symbol = :sandwich, vary::NamedTuple = (;), fits::NamedTuple = (;),
-              simulate_with = nothing)
+function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
+              fit::NamedTuple = (;), cov::Symbol = :sandwich, vary::NamedTuple = (;),
+              fits::NamedTuple = (;), simulate_with = nothing)
     _check_fits(fit, fits)
     _check_simulate_with(simulate_with)
     # A sweep: one call per setting (sweep.jl), each with one noise level, one truth and one set
     # of fit settings.
     if _issweep(snr, vary, fits)
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
-        results = [crlb(m, _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr), σ,
+        results = [crlb(m, _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr), σ, Σ,
                         fit = _fit_of(st, fit, fits), cov,
                         simulate_with = _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
@@ -167,8 +178,10 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::
         "observations, the fitted model $(nobs(m))"))
     mT = _with_precision(m, Float64)         # acquisition vectors as Float64, as `fit` does
     plan = _crlb_plan(mT, cov; fit...)
-    σv = _crlb_sigma(dm, θd, snr, σ, nobs(m))   # snr: relative to the data's scale parameter
-    k = _crlb!(plan, mT, _crlb_truth(m, truth), σv .^ 2, _with_precision(dm, Float64),
+    # The noise, in the kernel's form (a variance, one per observation, or the full covariance
+    # by its Cholesky factor); `snr` is relative to the data's scale parameter.
+    noise, σv = _crlb_noise(dm, θd, snr, σ, Σ, nobs(m), length(_crlbnames(plan)))
+    k = _crlb!(plan, mT, _crlb_truth(m, truth), noise, _with_precision(dm, Float64),
                _crlb_truth(dm, dt))
 
     # Packaging: named tuples by quantity, then parameter (allocating; the kernel does not).
@@ -179,12 +192,55 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, fit::
     rel(x) = x ./ abs.(k.truth)
     nt(x) = NamedTuple{F}(Tuple(x))
     U = [j for j in 1:P if !k.pinned[j]]
-    J0 = [partials(value(d))[j] for d in plan.hbuf, j in U]   # J₀ at θ̂, from the kernel's buffer
-    condJ = isempty(U) ? Inf : _condition(J0, k.truth[U])
+    J0 = [partials(value(d))[j] for d in plan.hbuf, j in 1:P]   # J₀ at θ̂, the kernel's buffer
+    condJ = isempty(U) ? Inf : _condition(J0[:, U], k.truth[U])
+    info, observed = _information(plan, noise, J0)
     return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
                       nt(rel(rmse)), Matrix(k.cov), condJ, [F[j] for j in 1:P if k.pinned[j]],
-                      k.status, cov, σv, truth, map(_untie, plan.fixed), m, simulate_with)
+                      k.status, cov, σv, truth, map(_untie, plan.fixed), m, simulate_with,
+                      Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed)
 end
+
+# A full noise covariance by its Cholesky factor (Σ = LLᵀ, lower triangle), with a work buffer
+# for the kernel's whitening (one row of L⁻¹J per observation).
+struct _FullNoise{T,P}
+    L::Matrix{T}
+    v::Vector{SVector{P,T}}
+end
+
+
+# -------------------------------------------------------------------------------------------------
+# StatsAPI's names (as for `fit` and `nobs`): the information matrix, the covariance, the SDs
+# -------------------------------------------------------------------------------------------------
+
+"""
+    informationmatrix(c::CRLBResult; expected = true) -> Matrix
+    informationmatrix(m, truth; expected = true, crlb's keywords...) -> Matrix
+
+The information matrix of the fit's free parameters (in model order, `keys(c.fit)`), at the
+noise-free fit's values θ̂ (the truth when nothing fixed is wrong), for the noise given to
+[`crlb`](@ref). `expected = true`: the Fisher information J₀ᵀΣ⁻¹J₀ (J₀ the Jacobian at θ̂, Σ
+the noise covariance; JᵀJ/σ² for one σ). `expected = false`: the observed information, the
+Hessian of the negative log-likelihood of the noise-free data at θ̂, which adds the residual's
+curvature when an assumption is wrong (with one σ: H/σ²). When nothing fixed is wrong, the
+inverse of either is the classical CRLB. StatsAPI's function, with EQUIP's methods.
+
+The sandwich is built from them: `vcov(c) ≈ inv(I_obs) * I * inv(I_obs)` with one σ
+(`I = informationmatrix(c)`, `I_obs = informationmatrix(c; expected = false)`).
+"""
+informationmatrix(c::CRLBResult; expected::Bool = true) = expected ? c.information : c.observed
+informationmatrix(m::MRIModel, truth::NamedTuple; expected::Bool = true, kwargs...) =
+    informationmatrix(crlb(m, truth; kwargs...); expected)
+
+"""
+    vcov(c::CRLBResult) -> Matrix
+    stderror(c::CRLBResult) -> Vector
+
+The predicted covariance matrix of the fit's free parameters (`c.cov`: the sandwich, or Eq. 3
+with `cov = :biased`) and their SDs (`c.sd` as a vector), in model order. StatsAPI's functions.
+"""
+vcov(c::CRLBResult) = c.cov
+stderror(c::CRLBResult) = collect(values(c.sd))
 
 # -------------------------------------------------------------------------------------------------
 # The plan and the kernel: allocation-free, for the protocol optimizer
@@ -196,8 +252,8 @@ end
 # `m` in `_crlb!` may be a different protocol from the one the plan was made with (new TI and
 # TD at every step of an optimizer), with the same number of observations and Float64
 # acquisition values (static vectors work: `QMTSIR(TI = SVector(...), TD = SVector(...))`).
-# σ² is a number or one value per observation. `crlb` is plan + kernel + packaging, so its
-# tests check the kernel the optimizer uses.
+# σ² is a number, one value per observation, or a full covariance (`_FullNoise`). `crlb` is
+# plan + kernel + packaging, so its tests check the kernel the optimizer uses.
 # -------------------------------------------------------------------------------------------------
 
 """
@@ -266,6 +322,57 @@ end
 @inline _at(s::Real, i) = s                          # σ²: one number for every observation,
 @inline _at(s::AbstractVector, i) = @inbounds s[i]   # or one per observation
 
+# The two sums that involve the noise, by its form (Julia picks the method by the type of σ²):
+#   sandwich  H⁻¹(J₀ᵀΣJ₀)H⁻¹ = Σₖ aₖaₖᵀ, aₖ = H⁻¹wₖ: one σ or one per observation, wᵢ = σᵢJ₀ᵢ;
+#             a full Σ = LLᵀ, wₖ = row k of LᵀJ₀ = Σᵢ≥ₖ LᵢₖJ₀ᵢ (O(N²P), N ≤ 100)
+#   Fisher    J_tᵀΣ⁻¹J_t = Σₖ vₖvₖᵀ: vᵢ = J_tᵢ/σᵢ, or a full Σ, vₖ = row k of L⁻¹J_t (forward
+#             substitution, the rows kept in the noise's buffer)
+# Sums of squares, so neither gives a negative variance. Rows of parameters on a bound are
+# masked by `u` (in the sandwich; the Fisher information is over every free parameter).
+@inline function _sandwich(σ2::Union{Real,AbstractVector}, Hinv, plan::CRLBPlan{F,P,T},
+                           u) where {F,P,T}
+    C = zero(SMatrix{P,P,T})
+    @inbounds for i in eachindex(plan.hbuf)
+        a = Hinv * (u .* SVector{P,T}(partials(value(plan.hbuf[i])).values))
+        C += _at(σ2, i) * (a * a')
+    end
+    return C
+end
+function _sandwich(n::_FullNoise, Hinv, plan::CRLBPlan{F,P,T}, u) where {F,P,T}
+    L = n.L
+    C = zero(SMatrix{P,P,T})
+    @inbounds for k in eachindex(plan.hbuf)
+        w = zero(SVector{P,T})
+        for i in k:length(plan.hbuf)
+            w += L[i, k] * SVector{P,T}(partials(value(plan.hbuf[i])).values)
+        end
+        a = Hinv * (u .* w)
+        C += a * a'
+    end
+    return C
+end
+@inline function _fisher(σ2::Union{Real,AbstractVector}, plan::CRLBPlan{F,P,T}) where {F,P,T}
+    Fm = zero(SMatrix{P,P,T})
+    @inbounds for i in eachindex(plan.buf)
+        Jt = SVector{P,T}(partials(plan.buf[i]).values)
+        Fm += (Jt * Jt') / _at(σ2, i)
+    end
+    return Fm
+end
+function _fisher(n::_FullNoise, plan::CRLBPlan{F,P,T}) where {F,P,T}
+    L, v = n.L, n.v
+    Fm = zero(SMatrix{P,P,T})
+    @inbounds for k in eachindex(plan.buf)
+        t = SVector{P,T}(partials(plan.buf[k]).values)
+        for i in 1:k-1
+            t -= L[k, i] * v[i]
+        end
+        v[k] = t / L[k, k]
+        Fm += v[k] * v[k]'
+    end
+    return Fm
+end
+
 # A parameter on a bound in the noise-free fit (within 1e-9, relative for large bounds).
 @inline _near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
 
@@ -276,9 +383,11 @@ end
 The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
 values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
 0 for those on a bound), the noise-free fit's status, and which parameters are on a bound
-(held there). `truth` from `_crlb_truth`, `σ²` a number or a vector. With `dm` and `dtruth`
-(prepared the same way), the noise-free data come from another model; `truth` is then the
-reference the bias is measured against, and the start of the noise-free fit (the sandwich only).
+(held there). `truth` from `_crlb_truth`, `σ²` a number, a vector (one variance per
+observation) or a `_FullNoise` (the covariance by its Cholesky factor; `_crlb_noise`). With `dm`
+and `dtruth` (prepared the same way), the noise-free data come from another model; `truth` is
+then the reference the bias is measured against, and the start of the noise-free fit (the
+sandwich only).
 """
 _crlb!(plan::CRLBPlan, m::MRIModel, truth::NamedTuple, σ2) = _crlb!(plan, m, truth, σ2, m, truth)
 function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2, dm::MRIModel,
@@ -326,24 +435,19 @@ function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2, dm::
     if !plan.biased
         # Sandwich, H⁻¹(Σᵢ σᵢ² JᵢJᵢᵀ)H⁻¹, as Σᵢ σᵢ² aᵢaᵢᵀ with aᵢ = H⁻¹Jᵢ: how noise in
         # observation i moves the fit. A sum of squares, so the variances are never negative.
-        C = zero(SMatrix{P,P,T})
-        @inbounds for i in eachindex(plan.hbuf)
-            a = Hinv * (u .* SVector{P,T}(partials(value(plan.hbuf[i])).values))
-            C += _at(σ2, i) * (a * a')
-        end
+        C = _sandwich(σ2, Hinv, plan, u)
     else
         # Eq. 3, (I + ∇b)F⁻¹(I + ∇b)ᵀ. J_t: the true signal's Jacobian at the truth, the truth's
         # own ties followed (R1m = R1f moves with R1f, as the MATLAB's `R1 + eps` on both).
         # I + ∇b = H⁻¹J₀ᵀJ_t (implicit function theorem), rows on a bound 0.
         signal!(plan.buf, m, _resolve_ties(merge(truth, NamedTuple{F}(Tuple(_seed(θt))))))
         K = zero(SMatrix{P,P,T})               # J₀ᵀJ_t
-        Fm = zero(SMatrix{P,P,T})              # F = J_tᵀΣ⁻¹J_t
         @inbounds for i in eachindex(plan.buf)
             Jt = SVector{P,T}(partials(plan.buf[i]).values)
             J0 = u .* SVector{P,T}(partials(value(plan.hbuf[i])).values)
             K += J0 * Jt'
-            Fm += (Jt * Jt') / _at(σ2, i)
         end
+        Fm = _fisher(σ2, plan)                 # F = J_tᵀΣ⁻¹J_t
         LF, okF = _cholesky(Fm)
         if !(length(y) >= P && _determined(Fm, ones(SVector{P,T})) && okF)
             return (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = infs, status = r.status, pinned)
@@ -354,6 +458,22 @@ function _crlb!(plan::CRLBPlan{F,P,T}, m::MRIModel, truth::NamedTuple, σ2, dm::
     end
     return (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = C, status = r.status, pinned)
 end
+
+# The information matrices at θ̂, from the kernel's buffers (after `_crlb!`): the Fisher
+# (expected) information J₀ᵀΣ⁻¹J₀, and the observed information, the Hessian of the negative
+# log-likelihood of the noise-free data, J₀ᵀΣ⁻¹J₀ + Σᵢ wᵢ∇²gᵢ with w = Σ⁻¹r, r = g(θ̂) − g_true:
+# the two agree when the fit is exact (r = 0), and differ by the residual's curvature when an
+# assumption is wrong. With one σ, the observed information is H/σ², the sandwich's bread.
+function _information(plan::CRLBPlan{F,P}, noise, J0) where {F,P}
+    r = [value(value(d)) for d in plan.hbuf] .- plan.y
+    WJ, w = _apply_inverse(noise, J0), _apply_inverse(noise, r)   # Σ⁻¹J₀, Σ⁻¹r
+    info = Matrix(Symmetric(J0' * WJ))
+    observed = info + sum(w[i] * _second(plan.hbuf[i]) for i in eachindex(w))
+    return info, Matrix(Symmetric(observed))
+end
+_apply_inverse(σ2::Real, x) = x ./ σ2
+_apply_inverse(σ2::AbstractVector, x) = x ./ σ2
+_apply_inverse(n::_FullNoise, x) = n.L' \ (n.L \ x)                   # Σ = LLᵀ
 
 # Can the data tell the parameters apart? The Cholesky pivots of J₀ᵀJ₀ with unit diagonal (each
 # column of J₀ normalized) are the squared sines of the angles between each column and the span
@@ -408,22 +528,34 @@ _hasmap(x::Free) = x.start isa AbstractArray
 _hasmap(x::Fixed) = x.value isa AbstractArray
 _hasmap(x) = false
 
-# The noise SD of each observation: from `snr` (relative to the scale parameter, as `simulate`)
-# or from `σ` (a number, or one per observation).
-function _crlb_sigma(m, θ, snr, σ, N)
-    (snr === nothing) == (σ === nothing) &&
-        throw(ArgumentError("give the noise level as `snr` or as `σ` (one of them)"))
+# The noise, from `snr` (relative to the scale parameter, as `simulate`), `σ` (a number, or one
+# SD per observation) or `Σ` (the covariance matrix), in the kernel's form: a variance (σ²,
+# "pulled out"), one per observation, or a `_FullNoise`; and the SD of each observation.
+function _crlb_noise(m, θ, snr, σ, Σ, N, P)
+    count(!isnothing, (snr, σ, Σ)) == 1 ||
+        throw(ArgumentError("give the noise level as `snr`, `σ` or `Σ` (one of them)"))
     if snr !== nothing
         scale = _scalename(m)
         scale === nothing && throw(ArgumentError("$(nameof(typeof(m))) has no " *
                                    "`Free(start = :scale)` parameter to define the SNR; give `σ`"))
-        return fill(Float64(θ[scale]) / snr, N)
+        s = Float64(θ[scale]) / snr
+        return s^2, fill(s, N)
+    elseif σ isa Real
+        return Float64(σ)^2, fill(Float64(σ), N)
+    elseif σ !== nothing
+        σ isa AbstractVector || throw(ArgumentError("`σ` is a number or one SD per observation; " *
+                                                    "for a covariance matrix, give `Σ`"))
+        length(σ) == N ||
+            throw(DimensionMismatch("`σ` has $(length(σ)) values; the model has $N observations"))
+        v = Float64.(collect(σ))
+        return v .^ 2, v
     end
-    σ isa Real && return fill(Float64(σ), N)
-    length(σ) == N ||
-        throw(DimensionMismatch("`σ` has $(length(σ)) values; the model has $N observations"))
-    return Float64.(collect(σ))
+    return _fullnoise(Σ, N, P), sqrt.(diag(Σ))
 end
+
+# Σ checked and factored as `simulate` does (`_noisefactor`, sim/simulate.jl).
+_fullnoise(Σ, N, P) =
+    _FullNoise{Float64,P}(_noisefactor(Σ, N), Vector{SVector{P,Float64}}(undef, N))
 
 # -------------------------------------------------------------------------------------------------
 # Display: at the REPL a table, one row per free parameter, in the style of `compare`
@@ -433,7 +565,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     f(x) = isfinite(x) ? string(round(x; sigdigits = 4)) : string(x)
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     σ = c.σ
-    noise = all(==(σ[1]), σ) ? "σ = $(f(σ[1]))" : "σ = $(f(minimum(σ))) to $(f(maximum(σ)))"
+    noise = _noisetext(σ, c.Σ)
     how = c.method === :sandwich ? "sandwich (the least-squares fit)" :
                                    "biased CRLB (Dortch 2018 Eq. 3)"
     print(io, "crlb for ", nameof(typeof(c.model)), ", ", length(σ), " observations, ", noise,
@@ -463,6 +595,13 @@ function _print_fixed(io::IO, fixed::NamedTuple, truth::NamedTuple, label = "fix
     item(n, x) = (t = truth[n]; s = "$n = $(_showvalue(x))";
                   x isa Real && t isa Real && x != t ? s * " (true $(_showvalue(t)))" : s)
     print(io, "\n", label, ": ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
+end
+
+# The noise, in words: one σ, σ per observation (its range), or a covariance matrix.
+function _noisetext(σ, Σ)
+    f(x) = string(round(x; sigdigits = 4))
+    range = all(==(σ[1]), σ) ? "σ = $(f(σ[1]))" : "σ = $(f(minimum(σ))) to $(f(maximum(σ)))"
+    return Σ === nothing ? range : "$range, correlated (Σ given)"
 end
 
 # Where the data came from, when not from the fitted model (`simulate_with`).

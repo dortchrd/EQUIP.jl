@@ -465,6 +465,14 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   run every combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
   (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed
   drawn from `rng`), so differences between settings are not noise.
+- **Noise:** `snr` (relative to M0), `σ` (a number, or one SD per observation, e.g. different
+  bandwidths or averages) or `Σ` (the full covariance matrix between observations, for
+  correlated noise), for `crlb`, `montecarlo` and `simulate`. One σ, the usual case for
+  separately acquired images with the same readout, costs nothing extra.
+- **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
+  `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
+  `stderror(c)`; `informationmatrix(m, θ; snr = 200)` directly; `vcov(mc)`, `stderror(mc)` for a
+  Monte Carlo.
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
   nonlinearity at low SNR. That is what montecarlo is for.
 

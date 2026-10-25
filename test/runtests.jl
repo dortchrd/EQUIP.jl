@@ -4,7 +4,7 @@ using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
-using Statistics: mean, std
+using Statistics: mean, std, cov
 using Test
 
 # A model for testing `datastart`: T2 starts at 0.05·c, from the fixed parameter c (as DESPOT1
@@ -983,8 +983,8 @@ end
                        sprint(show, MIME"text/plain"(), cb))
         @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f)"
         # Mistakes
-        @test occursin("`snr` or as `σ`", msg(() -> crlb(m4, θ)))
-        @test occursin("`snr` or as `σ`", msg(() -> crlb(m4, θ; snr = 200, σ = 0.01)))
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ)))
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ; snr = 200, σ = 0.01)))
         @test occursin("`σ` has 3 values", msg(() -> crlb(m4, θ; σ = [1, 2, 3])))
         @test occursin("`cov` must be", msg(() -> crlb(m4, θ; snr = 200, cov = :eq3)))
         @test occursin("own noise-free fit", msg(() -> crlb(m4, θ; snr = 200, fit = (solver = LM(),))))
@@ -997,7 +997,7 @@ end
         mt = T2Decay(TE = collect(0.01:0.01:0.32))
         θt = (S0 = 1000.0, T2 = 0.08)
         mc = montecarlo(mt, θt; σ = 10.0, n = 4000, noise = :gaussian, rng = MersenneTwister(3))
-        @test mc.n == 4000 && mc.converged == 1 && mc.noise === :gaussian && mc.σ == 10
+        @test mc.n == 4000 && mc.converged == 1 && mc.noise === :gaussian && mc.σ == fill(10.0, 32)
         @test length(mc.result.params.T2) == 4000
         # the statistics, by hand from the estimates
         x = mc.result.params.T2
@@ -1037,8 +1037,8 @@ end
         # mistakes
         @test occursin("at least 2", msg(() -> montecarlo(mt, θt; σ = 10.0, n = 1)))
         @test occursin("one voxel", msg(() -> montecarlo(mt, (S0 = fill(1000.0, 3), T2 = 0.08); σ = 10.0)))
-        @test occursin("`σ` as a number", msg(() -> montecarlo(mt, θt; σ = fill(10.0, 32))))
-        @test occursin("`snr` or as `σ`", msg(() -> montecarlo(mt, θt)))
+        @test montecarlo(mt, θt; σ = fill(10.0, 32), n = 50).σ == fill(10.0, 32)   # σ per observation
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> montecarlo(mt, θt)))
         @test occursin("mask", msg(() -> montecarlo(mt, θt; σ = 10.0, fit = (mask = trues(2),))))
         @test occursin("missing: T2", msg(() -> montecarlo(mt, (S0 = 1000.0,); σ = 10.0)))
     end
@@ -1149,6 +1149,77 @@ end
         allocs(p, a, b) = @allocated EQUIP._crlb!(p, mt, a, 100.0, mb, b)
         allocs(plan, tr, tb)
         @test allocs(plan, tr, tb) == 0
+    end
+
+    @testset "noise: one σ, one per observation, a full Σ; informationmatrix, vcov, stderror" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        FD = EQUIP.ForwardDiff
+        te = collect(0.01:0.01:0.32)
+        mt = T2Decay(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.08)
+        J = FD.jacobian(x -> signal(mt, (S0 = x[1], T2 = x[2])), [1000.0, 0.08])
+        # the same noise in three forms: the same answer
+        σv = range(5.0, 20.0, length = 32)
+        for cov in (:sandwich, :biased)
+            @test stderror(crlb(mt, θ; Σ = 100.0 * I(32), cov)) ≈ stderror(crlb(mt, θ; σ = 10.0, cov)) rtol = 1e-12
+            @test stderror(crlb(mt, θ; Σ = Diagonal(σv .^ 2), cov)) ≈ stderror(crlb(mt, θ; σ = σv, cov)) rtol = 1e-12
+        end
+        # correlated noise: the bound (JᵀΣ⁻¹J)⁻¹, and the unweighted fit's sandwich
+        # (JᵀJ)⁻¹JᵀΣJ(JᵀJ)⁻¹, above it
+        Σ = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
+        s, b = crlb(mt, θ; Σ), crlb(mt, θ; Σ, cov = :biased)
+        @test vcov(b) ≈ inv(J' * (Σ \ J)) rtol = 1e-10
+        A = inv(J' * J)
+        @test vcov(s) ≈ A * (J' * Σ * J) * A rtol = 1e-10
+        @test all(stderror(s) .> stderror(b)) && s.Σ == Σ && crlb(mt, θ; σ = 10.0).Σ === nothing
+        @test occursin("σ = 10.0, correlated (Σ given)", sprint(show, MIME"text/plain"(), s))
+        # Monte Carlo with that correlated noise follows the sandwich
+        mc = montecarlo(mt, θ; Σ, n = 4000, noise = :gaussian, rng = MersenneTwister(1))
+        @test all(abs.(stderror(mc) .- stderror(s)) .< 4 .* collect(values(mc.se_sd)))
+        @test vcov(mc) ≈ cov(hcat(mc.result.params.S0, mc.result.params.T2)) && stderror(mc) == collect(values(mc.sd))
+        # simulate: noise with the covariance asked for, and one SD per observation
+        Y = simulate(mt, (S0 = 0.0, T2 = 0.08); Σ, n = 40_000, noise = :gaussian, rng = MersenneTwister(2))
+        @test cov(Y)[1, 1] ≈ 100 rtol = 0.03
+        @test cov(Y)[1, 2] ≈ 50 rtol = 0.06
+        @test abs(cov(Y)[1, 8]) < 2.5                                   # 0.5⁷ × 100 ≈ 0.8
+        Y = simulate(mt, (S0 = 0.0, T2 = 0.08); σ = σv, n = 40_000, noise = :gaussian, rng = MersenneTwister(3))
+        @test std(Y[:, 1]) ≈ 5 rtol = 0.03
+        @test std(Y[:, end]) ≈ 20 rtol = 0.03
+        @test simulate(mt, θ; σ = fill(10.0, 32), n = 3, rng = MersenneTwister(4)) ==
+              simulate(mt, θ; σ = 10.0, n = 3, rng = MersenneTwister(4))   # draw for draw
+        # informationmatrix: the Fisher (expected) and observed information. Nothing fixed wrong:
+        # its inverse is the CRLB; an exact fit: the two agree; more points and kmf wrong: they
+        # differ, and the sandwich is inv(I_obs) I inv(I_obs)
+        c1 = crlb(mt, θ; σ = 10.0)
+        @test informationmatrix(c1) ≈ J' * J / 100 rtol = 1e-10
+        @test inv(informationmatrix(c1)) ≈ vcov(c1) rtol = 1e-10
+        m4 = QMTSIR(; SIR_4POINT...)
+        c4 = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200)
+        @test informationmatrix(c4) ≈ informationmatrix(c4; expected = false) rtol = 1e-6
+        ti16 = [round.(exp10.(range(log10(0.01), log10(2), 15)) .* 1e3) ./ 1e3; 10]
+        m16 = QMTSIR(TI = ti16, TD = 2.5)
+        θ16 = nominal(m16, :SIR_WM_I)
+        c16 = crlb(m16, θ16; snr = 200)
+        Ie, Io = informationmatrix(c16), informationmatrix(c16; expected = false)
+        @test !isapprox(Ie, Io; rtol = 1e-3)
+        @test vcov(c16) ≈ inv(Io) * Ie * inv(Io) rtol = 1e-8
+        @test informationmatrix(m16, θ16; snr = 200) == Ie
+        @test informationmatrix(m16, θ16; snr = 200, expected = false) == Io
+        # the kernel with a full Σ allocates nothing
+        plan = EQUIP._crlb_plan(mt, :biased)
+        tr = EQUIP._crlb_truth(mt, θ)
+        full = EQUIP._fullnoise(Σ, 32, 2)
+        allocs(p, t, n) = @allocated EQUIP._crlb!(p, mt, t, n)
+        allocs(plan, tr, full)
+        @test allocs(plan, tr, full) == 0
+        # mistakes
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(mt, θ; σ = 10.0, Σ)))
+        @test occursin("`Σ` is 3×3", msg(() -> crlb(mt, θ; Σ = Matrix(1.0I, 3, 3))))
+        @test occursin("positive definite", msg(() -> crlb(mt, θ; Σ = -Matrix(1.0I, 32, 32))))
+        @test occursin("symmetric", msg(() -> crlb(mt, θ; Σ = Σ + triu(ones(32, 32), 1))))
+        @test occursin("give `Σ`", msg(() -> crlb(mt, θ; σ = Σ)))
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> simulate(mt, θ; snr = 10, Σ)))
+        @test occursin("`σ` has 3 values", msg(() -> simulate(mt, θ; σ = [1.0, 2.0, 3.0])))
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
