@@ -25,6 +25,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
 - src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
+- src/analysis/: `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3)
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

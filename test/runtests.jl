@@ -840,6 +840,105 @@ end
         end
     end
 
+    @testset "crlb: bias, SD and RMSE predicted from derivatives" begin
+        FD = EQUIP.ForwardDiff
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)       # Dortch 2018, Table 1
+        # Dortch et al. 2018, Eq. 5 with the MATLAB code's settings (signed signal, t_FSE =
+        # 0.3 s, SNR 200, the bounds of its biased fits): the optima of Table 2's schemes,
+        # 4-point (kmf fixed at 12.5: biased) and 5-point (kmf fitted: unbiased).
+        bounds4 = (PSR = Free(lower = 0, upper = 1), R1f = Free(lower = 0, upper = 3),
+                   Sf = Free(lower = -1.05, upper = 0), M0f = Free(lower = 0, upper = 10))
+        m4 = QMTSIR(; SIR_4POINT..., magnitude = false)
+        m5 = QMTSIR(; SIR_5POINT..., magnitude = false)
+        eq5(c, m) = sum(abs2, values(c.relrmse)) * sum(m.TI .+ m.TD .+ 0.3)
+        for cov in (:sandwich, :biased)
+            @test maximum(eq5(crlb(m4, nominal(m4, t); snr = 200, fit = bounds4, cov), m4)
+                          for t in tissues) ≈ 0.243395 rtol = 2e-6
+            @test maximum(eq5(crlb(m5, nominal(m5, t); snr = 200, fit = (kmf = Free(),), cov), m5)
+                          for t in tissues) ≈ 1.602062 rtol = 2e-6
+        end
+        # The 4-point fit is exact (4 observations, 4 free parameters): the sandwich and Eq. 3
+        # are equal, and both are σ²(J₀ᵀJ₀)⁻¹ at the noise-free fit θ̂
+        θ = nominal(m4, :SIR_WM_I)                                    # kmf = 5
+        c = crlb(m4, θ; snr = 200, fit = bounds4)
+        e3 = crlb(m4, θ; snr = 200, fit = bounds4, cov = :biased)
+        @test collect(values(c.sd)) ≈ collect(values(e3.sd)) rtol = 1e-10
+        F = keys(c.fit)
+        g(x) = signal(m4, merge(θ, NamedTuple{F}(Tuple(x)), (kmf = 12.5,)))
+        J0 = FD.jacobian(g, collect(values(c.fit)))
+        @test collect(values(c.sd)) ≈ sqrt.(diag(inv(J0' * J0))) .* (1 / 200) rtol = 1e-8
+        @test c.relbias.PSR ≈ -0.1409 atol = 1e-4                     # PSR 14% low in WM I
+        @test c.fit.PSR - c.bias.PSR ≈ 0.2 && c.rmse.PSR ≈ hypot(c.bias.PSR, c.sd.PSR)
+        @test isconverged(c.status) && isempty(c.onbound) && c.method === :sandwich
+        # Nothing fixed wrong: no bias, and the classical CRLB σ²(JᵀJ)⁻¹ at the truth
+        te = collect(0.01:0.01:0.32)
+        u = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = 10.0)
+        J = FD.jacobian(x -> signal(T2Decay(TE = te), (S0 = x[1], T2 = x[2])), [1000.0, 0.08])
+        @test u.bias == (S0 = 0.0, T2 = 0.0) && u.fit == (S0 = 1000.0, T2 = 0.08)
+        @test collect(values(u.sd)) ≈ 10 .* sqrt.(diag(inv(J' * J))) rtol = 1e-10
+        @test crlb(m4, θ; snr = 200, fit = (kmf = 5.0,)).bias.PSR == 0      # kmf at the truth
+        # More observations than free parameters (16-point, kmf fixed): Eq. 3 ≤ sandwich
+        ti16 = [round.(exp10.(range(log10(0.01), log10(2), 15)) .* 1e3) ./ 1e3; 10]
+        m16 = QMTSIR(TI = ti16, TD = 2.5, magnitude = false)
+        θ16 = nominal(m16, :SIR_WM_I)
+        sw, b3 = crlb(m16, θ16; snr = 200), crlb(m16, θ16; snr = 200, cov = :biased)
+        @test all(values(b3.sd) .< values(sw.sd))
+        @test 100 * sw.relsd.PSR ≈ 2.879 rtol = 1e-3
+        @test 100 * b3.relsd.PSR ≈ 2.719 rtol = 1e-3
+        # ∇b by the implicit function theorem = central differences of noise-free fits (what
+        # the MATLAB code does), through Eq. 3: (I + ∇b) F⁻¹ (I + ∇b)ᵀ
+        F16 = keys(sw.fit)
+        x0 = [θ16[n] for n in F16]
+        fitof(x) = collect(values(crlb(m16, merge(θ16, NamedTuple{F16}(Tuple(x))); snr = 200).fit))
+        h = 1e-5 .* abs.(x0)
+        D = reduce(hcat, (fitof(x0 .+ h[k] .* (1:4 .== k)) .- fitof(x0 .- h[k] .* (1:4 .== k))) ./ (2h[k])
+                   for k in 1:4)
+        Jt = FD.jacobian(x -> signal(m16, merge(θ16, NamedTuple{F16}(Tuple(x)))), x0)
+        @test sqrt.(diag(D * inv(Jt' * Jt) * D')) ./ 200 ≈ collect(values(b3.sd)) rtol = 1e-5
+        # Monte Carlo: least squares follows the sandwich (Eq. 3 is 5 standard errors lower for
+        # PSR here, 12 with 20 000 fits), and centers on θ̂, not on the truth
+        Y = simulate(m16, θ16; snr = 200, n = 4000, rng = MersenneTwister(7))
+        res = fit(m16, Y)
+        x = res.params.PSR[isconverged(res)]
+        @test length(x) == 4000
+        @test abs(std(x) - sw.sd.PSR) < 4 * std(x) / sqrt(2 * length(x))
+        @test abs(mean(x) - sw.fit.PSR) < 4 * std(x) / sqrt(length(x))
+        # σ per observation: as one σ when all equal; with unequal σ, the unweighted fit's
+        # sandwich is above the bound (JᵀΣ⁻¹J)⁻¹ that a weighted fit would reach
+        @test crlb(m4, θ; σ = fill(0.005, 4), fit = bounds4).sd == c.sd
+        σs = range(5.0, 20.0, length = 32)
+        w1 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs)
+        w2 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs, cov = :biased)
+        @test all(values(w2.sd) .< values(w1.sd))
+        @test collect(values(w2.sd)) ≈ sqrt.(diag(inv(J' * Diagonal(1 ./ σs .^ 2) * J))) rtol = 1e-10
+        # A parameter on a bound is held there: SD 0, the others without it
+        cb = crlb(m4, θ; snr = 200, fit = (; bounds4..., Sf = Free(lower = -1.0, upper = 0)))
+        @test cb.onbound == [:Sf] && cb.fit.Sf == -1.0 && cb.sd.Sf == 0 && all(isfinite, values(cb.sd))
+        # Undetermined parameters get Inf: 5 free parameters, 4 observations
+        @test all(==(Inf), values(crlb(m4, θ; snr = 200, fit = (kmf = Free(),)).sd))
+        @test crlb(m4, θ; snr = 200, fit = (kmf = Free(),)).cond == Inf
+        # Several tissues by broadcasting; the display
+        cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, fit = bounds4)
+        @test length(cs) == 4 && cs[1].sd == c.sd
+        s = sprint(show, MIME"text/plain"(), c)
+        @test startswith(s, "crlb for QMTSIR, 4 observations, σ = 0.005, covariance: sandwich")
+        @test occursin("fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83", s)
+        @test occursin(r"\n  parameter +true +noise-free fit +bias +rel bias +SD +rel SD +RMSE +rel RMSE\n", s)
+        @test occursin(r"\n  PSR +0.2 +0.1718 +-0.02818 +-14.1% ", s)
+        @test occursin("on a bound in the noise-free fit (held there, SD 0): Sf",
+                       sprint(show, MIME"text/plain"(), cb))
+        @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f)"
+        # Mistakes
+        @test occursin("`snr` or as `σ`", msg(() -> crlb(m4, θ)))
+        @test occursin("`snr` or as `σ`", msg(() -> crlb(m4, θ; snr = 200, σ = 0.01)))
+        @test occursin("`σ` has 3 values", msg(() -> crlb(m4, θ; σ = [1, 2, 3])))
+        @test occursin("`cov` must be", msg(() -> crlb(m4, θ; snr = 200, cov = :eq3)))
+        @test occursin("own noise-free fit", msg(() -> crlb(m4, θ; snr = 200, fit = (solver = LM(),))))
+        @test occursin("one voxel", msg(() -> crlb(m4, (; θ..., PSR = fill(0.1, 2)); snr = 200)))
+        @test occursin("missing: Sf", msg(() -> crlb(m4, Base.structdiff(θ, NamedTuple{(:Sf,)}); snr = 200)))
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

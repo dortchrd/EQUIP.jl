@@ -29,6 +29,7 @@ module EQUIP
 using LinearAlgebra                        # dot, Diagonal, diag
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
+import ForwardDiff                         # crlb: ForwardDiff.jacobian, ForwardDiff.hessian
 using Statistics: mean, median, quantile, std   # default starts; result summaries; compare
 using Random: AbstractRNG, randn            # simulate: noise
 import Random                               # Random.default_rng()
@@ -49,6 +50,7 @@ export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDeca
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
+export crlb, CRLBResult                                                     # analysis
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
@@ -71,6 +73,9 @@ include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussia
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
 include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
+
+# analysis: the accuracy of a fit predicted from derivatives (uses models, fit and sim)
+include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits
 
 # Compile the common cases while the package is installed (see the file).
 include("precompile.jl")

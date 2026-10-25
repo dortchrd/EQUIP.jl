@@ -1190,8 +1190,8 @@ Not needed for correctness: a test checks it against the columns built from `sig
 
 ## Simulation, CRLB and protocol design: proposed design
 
-Status: proposed, not implemented. Prototyped in scratch scripts (not in the repository); every
-number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
+Status: proposed; `crlb` being implemented (branch `crlb-proto`). Prototyped in scratch scripts;
+every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
 
@@ -1213,20 +1213,87 @@ The pieces, each using the ones before it:
 
 ### `crlb`: one function, biased or not by the fit settings
 
+Status: implemented on the `crlb-proto` branch (src/analysis/crlb.jl), not yet on `lean`.
+Checked: Fopt4 = 0.243395 and Fopt5 = 1.602062 (Eq. 5 of the Table 2 schemes, both
+covariances), the exact-fit identity, ∇b against central differences of noise-free fits
+(1e-5), the classical CRLB when nothing fixed is wrong, and Monte Carlo (below).
+
 ```julia
-crlb(m, truth; snr = 200, fit = (kmf = 12.5,))     # fit: the same keywords as `fit`
+m = QMTSIR(; SIR_4POINT...)
+θ = nominal(m, :SIR_WM_I)
+c = crlb(m, θ; snr = 200)                                 # kmf fixed at 12.5, truth 5: biased
+c = crlb(m, θ; snr = 200, fit = (kmf = Free(),))          # kmf fitted: unbiased
+c = crlb(m, θ; σ = [σ1, σ2, σ3, σ4], cov = :biased)       # σ per observation; Eq. 3
+c.bias.PSR, c.sd.PSR, c.rmse.PSR             # absolute, by name (as res.params.PSR)
+c.relbias.PSR, c.relsd.PSR, c.relrmse.PSR    # relative to the truth (Eq. 5 sums relrmse²)
+c.fit, c.cov                                 # the noise-free fit's values; the covariance matrix
 ```
 
-- `truth` gives every parameter (as for `simulate`); `fit` gives the fit's roles. The estimate
-  is biased exactly when a value the fit fixes differs from the truth (kmf fixed at 12.5, data
-  with kmf = 5). One function where the MATLAB code has two (`CRLB_SIR`,
-  `biasedCRLB_SIR_fixedkmf`).
-- Output per fitted parameter: the noise-free fit's value θ̂ (the "pseudo-true" value), bias,
-  SD, RMSE, absolute and relative; plus F and cond(J). The same columns as `compare` and
-  `montecarlo`, so the three line up.
+- `truth` gives every parameter (as for `simulate`; `nominal(m, tissue)`); `fit = (...)` gives
+  the fit's roles, the keywords of `fit` (the model's own roles when left out). The estimate is
+  biased exactly when a value the fit fixes differs from the truth (kmf fixed at 12.5, data with
+  kmf = 5). One function where the MATLAB code has two (`CRLB_SIR`, `biasedCRLB_SIR_fixedkmf`).
+  No separate "unbiased" option: the classical CRLB with kmf fixed at its true value is
+  `fit = (kmf = 5.0,)`. The fit settings are one keyword, not splatted, so they cannot clash with
+  `crlb`'s own keywords.
+- Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
+  the signal-processing spelling, so a search for either finds it.
+- Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the
+  noise-free fit's values θ̂ (the "pseudo-true" values), bias, SD and RMSE, absolute and
+  relative; the covariance matrix; cond(J); which parameters ended on a bound. The REPL shows a
+  table with the columns of `compare`, so `crlb`, `montecarlo` and `compare` line up. Several
+  tissues: broadcast, `crlb.(Ref(m), truths; snr = 200)`.
 - Noise: `snr` relative to the scale parameter (as `simulate`), or `σ`, a number or one value
-  per observation: F = JᵀΣ⁻¹J. Needed for models that combine sequences with different
-  bandwidths (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127).
+  per observation. Needed for models that combine sequences with different bandwidths
+  (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127).
+- Covariance, `cov = :sandwich` (default) or `cov = :biased` (Dortch 2018 Eq. 3); see below.
+  The sandwich is the default because it is what EQUIP's least-squares fit achieves, so an
+  optimizer cannot credit a protocol with precision the fit will not deliver; Eq. 3 stays for
+  comparison with the paper. Reproducing the paper does not depend on the choice: its
+  optimized 5-point scheme fits kmf (no bias) and its 4-point scheme fits exactly, where the
+  two are equal.
+
+The methods, and where each lives:
+
+| Method | Gives | Valid when | Where |
+|---|---|---|---|
+| Unbiased CRLB, σ²(JᵀJ)⁻¹ | SD | no fixed value is wrong | `crlb`, automatically |
+| Sandwich, σ²H⁻¹J₀ᵀJ₀H⁻¹ | b; the SD least squares achieves | any assumption error; first order in σ | `crlb` (default) |
+| Eq. 3, (I+∇b)F⁻¹(I+∇b)ᵀ | b; a bound for any estimator with that ∇b | the same | `crlb(...; cov = :biased)` |
+| Monte Carlo | everything: Rician floor, bounds, nonlinearity | always (sampling error) | `montecarlo` |
+| Linear leakage, −(JᵀJ)⁻¹Jᵀ∂g/∂c | first-order bias per unit error | small assumption errors | diagnostics, not `crlb` |
+
+The steps:
+
+```
+ truth θ ──────▶ g_true = signal(m, θ)                 the noise-free data
+ fit settings ─▶ free and fixed parameters, bounds     as fit() uses them
+ ① noise-free fit  θ̂ = fit of g_true, LM from the truth;  b = θ̂ − θ;  r₀ = g(θ̂) − g_true
+ ② derivatives     J₀ = ∂g/∂θ at θ̂ (ForwardDiff, ties followed);  H = J₀ᵀJ₀ + Σᵢ r₀ᵢ∇²gᵢ
+ ③ covariance      :sandwich  H⁻¹J₀ᵀΣJ₀H⁻¹
+                   :biased    (I+∇b)F⁻¹(I+∇b)ᵀ,  I+∇b = H⁻¹J₀ᵀJ_t,  F = J_tᵀΣ⁻¹J_t
+ ④ report          SD = √diag, RMSE = √(b² + SD²), absolute and relative to the truth
+```
+
+Edge cases:
+
+- A parameter that ends on a bound in the noise-free fit is held there: SD 0, its row of ∇b 0,
+  the others computed without it; the result says which.
+- Singular or ill-conditioned: SD Inf (a failed Cholesky factorization), and cond(J) reported,
+  rather than the MATLAB's `abs()` of a negative variance.
+- σ per observation: EQUIP's fits are unweighted, so the sandwich is the SD of the unweighted
+  fit (H⁻¹J₀ᵀΣJ₀H⁻¹) and Eq. 3 the bound (F = J_tᵀΣ⁻¹J_t), which a weighted fit would reach;
+  equal when every σ is the same. Weighted fits: later, if needed.
+- Far assumption errors: the noise-free fit can stop in a local minimum. A multi-start check:
+  later.
+- Identifiability is tested before inverting: fewer observations than free parameters, or a
+  condition number of J (columns scaled by the true values) of 1e8 or more, gives Inf. Found in
+  the first implementation: with 4 observations and 5 free parameters (kmf freed on the 4-point
+  scheme), rounding made the singular H look positive definite, and the sandwich then gave
+  finite SDs (a pseudo-inverse in effect), not Inf.
+- Not in the first version: `crlb(res; σ)` from a `FitResult` (maps of predicted SD, for
+  data-driven design), `vary = (kmf = 5:2.5:20,)` sweeps, derivatives with respect to TI and TD
+  (for a gradient-based optimizer), a Rician Fisher information.
 
 How, with what was measured:
 
@@ -1255,7 +1322,11 @@ How, with what was measured:
   the 4-point scheme, to every digit), and then simply σ²(J₀ᵀJ₀)⁻¹ at θ̂: no ∇b at all. With more
   points Eq. 3 ≤ sandwich (16-point, kmf fixed: WM I PSR SD 2.72% vs 2.88%): Eq. 3 bounds any
   estimator with that bias gradient, the sandwich is what least squares achieves. Both offered;
-  Eq. 3 the default (the paper).
+  the sandwich the default (above). Monte Carlo confirms it (`crlb-proto`; 16-point, WM I, kmf
+  fixed at 12.5, SNR 200, Gaussian noise, 20 000 fits, all converged): SD of PSR 0.00580 ±
+  0.00003, sandwich 0.00576, Eq. 3 0.00544 (12 standard errors away); R1f 0.01441 ± 0.00007,
+  0.01439, 0.01392; and the fits center on θ̂ (PSR 0.11361 vs 0.11367 ± 0.00004), not on the
+  truth (0.20).
 - **A singular F gives Inf.** The MATLAB takes `abs(V)` "for cases where sigma is imaginary": a
   nearly singular F can give negative diagonal elements of F⁻¹ by rounding, which `abs` hides. A
   failed Cholesky factorization gives Inf instead, so an optimizer avoids protocols that cannot
@@ -1459,8 +1530,10 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
-2. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
-3. `montecarlo` with `vary`, fit settings side by side, `simulate_with`, SD/CRLB; Figs. 1 and 2B.
+2. `montecarlo`, one case first (then `vary`, fit settings side by side, `simulate_with`,
+   SD/CRLB; Figs. 1 and 2B). Moved ahead of the diagnostics: it is the check on `crlb`, and it
+   settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
+3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space.
 5. The optimizer extension: reproduce Fopt5 and Fopt4, and Li's T1 targets.
