@@ -323,7 +323,7 @@ protocol, or checking a model before scanning:
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)                   # the 4-point scheme of Dortch et al., MRM 2018
-t = nominal(m, :SIR_lesion)                     # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
+t = nominal(m, :SIR_lesion)                   # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
                                               # Sm), and the model's defaults for the rest
 Y = simulate(m, t; snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
 res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased below 5%
@@ -404,6 +404,56 @@ Parameters:
   `SIR_16POINT`: the earlier 16-point scheme they were compared with (15 TIs log-spaced from
   10 ms to 2 s, rounded to the ms, then 10 s; TD = 2.5 s).
 
+## Accuracy before scanning: crlb and montecarlo
+
+Two ways to find a fit's bias, SD and RMSE for a protocol and a tissue: `crlb` predicts them
+from derivatives (no noisy fits; microseconds), `montecarlo` measures them (simulate n noisy
+copies, fit them; seconds), and shows `crlb`'s prediction alongside.
+
+```julia
+m = QMTSIR(; SIR_4POINT...)
+θ = nominal(m, :SIR_WM_I)                     # the truth: kmf = 5 in this tissue
+c = crlb(m, θ; snr = 200)                     # the fit fixes kmf at 12.5: biased
+c.bias.PSR, c.sd.PSR, c.relrmse.PSR           # by quantity, then parameter
+crlb(m, θ; snr = 200, fit = (kmf = 5.0,))     # the fit's settings, as for `fit`: unbiased
+mc = montecarlo(m, θ; snr = 200)              # 10 000 noisy copies, Rician noise
+mc.sd.PSR / mc.crlb.sd.PSR, mc.se_sd.PSR      # measured against predicted, ± standard error
+```
+```
+crlb for QMTSIR, 4 observations, σ = 0.005, covariance: sandwich (the least-squares fit)
+fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0
+  parameter  true  noise-free fit  bias       rel bias  SD        rel SD  RMSE     rel RMSE
+  PSR        0.2   0.1718          -0.02818   -14.1%    0.01156   5.78%   0.03046  15.2%
+  R1f        1.5   1.5             5.096e-6   0.00034%  0.02581   1.72%   0.02581  1.72%
+  Sf         -1.0  -1.019          -0.01897   -1.9%     0.009311  0.931%  0.02113  2.11%
+  M0f        1.0   1.0             0.0002192  0.0219%   0.009748  0.975%  0.00975  0.975%
+```
+
+- **Two inputs, kept apart:** the truth (every parameter, the fixed ones included: what the
+  tissue is) and the fit's settings (`fit = (...)`, the model's own roles when left out: what
+  the fit assumes). The bias is zero unless a value the fit fixes differs from the truth's.
+- **How crlb works:** the noise-free data are fitted once, starting at the truth; their answer
+  θ̂ gives the bias. The SD comes from derivatives at θ̂ (ForwardDiff), first order in the
+  noise. Two covariances: `cov = :sandwich` (default), the covariance of the least-squares fit
+  itself (the "misspecified CRB"), and `cov = :biased`, Eq. 3 of Dortch et al., MRM 2018, a
+  bound for any estimator with the same bias gradient. Both are the classical CRLB σ²(JᵀJ)⁻¹
+  when nothing fixed is wrong, and equal when the fit is exact (as many observations as free
+  parameters, e.g. the 4-point scheme); otherwise Eq. 3 is lower, and least squares follows
+  the sandwich (16-point scheme, WM I, kmf fixed: Monte Carlo PSR SD 0.00580 ± 0.00003,
+  sandwich 0.00576, Eq. 3 0.00544). Checked against the paper: Eq. 5 of the Table 2 schemes is
+  0.243395 (4-point) and 1.602062 (5-point).
+- **montecarlo** fits the copies as `fit` would (its starts, bounds and `precision`), so local
+  minima and Rician noise are part of what is measured; the statistics come with standard
+  errors (`se_mean`, `se_sd`). The parameters are fitted to the same noise, so their errors move
+  together: several ratios low in one sample are one fluctuation, not several.
+- **Sweeps:** `snr = [100, 200, 400]` and `vary = (kmf = 5:2.5:20,)` (true values; the fit's
+  settings stay, so this is the bias of an assumption against the truth, the paper's Fig. 2B)
+  run every combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
+  (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed
+  drawn from `rng`), so differences between settings are not noise.
+- Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
+  nonlinearity at low SNR. That is what montecarlo is for.
+
 ## How it works
 
 ```
@@ -448,11 +498,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/**: fit statistics on `FitResult` under StatsAPI's names (`stderror`, `vcov`,
-  `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing models such as mono vs
-  bi-exponential, and a flag for parameters that ended at a bound), CRLB for unbiased and biased estimators (Dortch et al. 2018,
-  Eqs. 3–6), Monte Carlo with Gaussian/Rician noise, sensitivity analysis (including model
-  assumptions, e.g. how much Mz left after the SIR readout, `Mzf_td0`, biases PSR and kmf)
+- **analysis/** (started: `crlb`, `montecarlo`, sweeps): fit settings side by side, data from
+  another model (`simulate_with`), sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
+  fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
+  (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
+  models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
 - **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
   (best TI/TD), with an Optim.jl package extension
 - `BestOf` on several parameters at once, trying every combination (with precomputed
