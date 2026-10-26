@@ -2,16 +2,18 @@
 # crlb: the bias, SD and RMSE of a fit, predicted from derivatives (no noisy fits)
 #
 #   truth θ ──────▶ g_true = signal(m, θ)                 the noise-free data
-#   fit settings ─▶ free and fixed parameters, bounds     as `fit` uses them
-#   ① noise-free fit  θ̂ = noisefree(m, θ; fit), started at the truth;  b = bias(θ̂, θ) = θ̂ − θ
-#   ② derivatives     J₀ = jacobian(θ̂);  H = hessian(θ̂, g_true) = J₀ᵀJ₀ + Σᵢ r₀ᵢ∇²gᵢ
-#   ③ covariance      :sandwich  sandwich(H, J₀, Σ) = H⁻¹ J₀ᵀΣJ₀ H⁻¹          (default)
-#                     :biased    biasedcrlb(∇b, F) = (I+∇b) F⁻¹ (I+∇b)ᵀ,  F = J_tᵀΣ⁻¹J_t
+#   fit settings ─▶ free and fixed parameters, bounds     as `fit` uses them (CRLBCache, once)
+#   ① noise-free fit  θ̂ = fit of g_true, started at the truth;  b = θ̂ − θ;  r₀ = g(θ̂) − g_true
+#   ② derivatives     J₀ = ∂g/∂θ at θ̂ (dual numbers, ties followed);  H = J₀ᵀJ₀ + Σᵢ r₀ᵢ∇²gᵢ
+#   ③ covariance      :sandwich  H⁻¹ J₀ᵀΣJ₀ H⁻¹                       (default)
+#                     :biased    (I+∇b) F⁻¹ (I+∇b)ᵀ,  I+∇b = H⁻¹J₀ᵀJ_t,  F = J_tᵀΣ⁻¹J_t
 #   ④ report          SD = √diag, RMSE = √(b² + SD²), absolute and relative to the truth
 #
-# Each step is a function of its own (derivatives.jl), and `crlb` is their composition, so the
-# code reads as the formulas; the allocation-free kernel for the protocol optimizer
-# (crlb_kernel.jl) does the same steps without forming the matrices, and is tested against it.
+# Each step is a function of its own (derivatives.jl: `noisefree!`, `hessian!`, `meat`,
+# `information`, `crossgram`, `sandwich`, `biasgradient`, `biasedcrlb`), and the kernel
+# `_crlb!` below is their composition: static P×P matrices, no allocation, 1–16 µs a call, so
+# the protocol optimizer can call it millions of times. `crlb!(cache, θ; noise)` adds the checks
+# and the result; `crlb(m, θ; ...)` makes the cache first (most of a one-off call's time).
 #
 # Why a bias at all: a fit that fixes a parameter at a wrong value (kmf = 12.5 for a tissue with
 # kmf = 5) cannot reproduce the data, even without noise. Its noise-free answer θ̂ (the
@@ -32,8 +34,7 @@
 #
 # ∇b without extra fits (the slow part of the MATLAB code, which refits perturbed data): the
 # fit's gradient G(θ̂, θ) = J₀ᵀ[g(θ̂) − g(θ; true)] is 0 for every truth θ, so differentiating it
-# (implicit function theorem) gives ∂θ̂/∂θ = −H⁻¹·∂G/∂θ = H⁻¹J₀ᵀJ_t, one linear solve
-# (`biasgradient`).
+# (implicit function theorem) gives ∂θ̂/∂θ = −H⁻¹·∂G/∂θ = H⁻¹J₀ᵀJ_t, one linear solve.
 # =================================================================================================
 
 """
@@ -127,6 +128,8 @@ H⁻¹J₀ᵀΣJ₀H⁻¹, and `:biased` the bound a weighted fit would reach, (
 bounds hit by noisy fits and nonlinearity at low SNR are not modelled: simulate and fit for
 those.
 
+For many truths or noise levels with the same fit settings, make the setup once:
+`c = CRLBCache(m; fit, cov)`, then [`crlb!`](@ref)`(c, θ; snr)` (sweeps do this themselves).
 Each step is a function of its own, for use alone or to check this one: [`noisecovariance`](@ref),
 [`noisefree`](@ref), [`bias`](@ref), [`jacobian`](@ref), [`hessian`](@ref),
 [`informationmatrix`](@ref), [`biasgradient`](@ref), [`sandwich`](@ref), [`biasedcrlb`](@ref).
@@ -150,84 +153,140 @@ function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = 
               fits::NamedTuple = (;), simulate_with = nothing)
     _check_fits(fit, fits)
     _check_simulate_with(simulate_with)
-    # A sweep: one call per setting (sweep.jl), each with one noise level, one truth and one set
-    # of fit settings.
+    # `fit` is a keyword here, so inside this function the name means the settings, not the
+    # function `fit`.
     if _issweep(snr, vary, fits)
+        # A sweep (sweep.jl): one cache per fit setting, reused for every noise level and truth.
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
-        results = [crlb(m, _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr), σ, Σ,
-                        fit = _fit_of(st, fit, fits), cov,
-                        simulate_with = _data_of(st, simulate_with)) for st in settings]
+        caches = isempty(fits) ? (CRLBCache(m; fit, cov),) : map(f -> CRLBCache(m; fit = f, cov), fits)
+        cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches[1]
+        results = [crlb!(cacheof(st), _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr),
+                         σ, Σ, simulate_with = _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    # `fit` is a keyword here, so inside this function the name means the settings, not the
-    # function `fit` (the noise-free fit is `noisefree`).
-    cov in (:sandwich, :biased) ||
-        throw(ArgumentError("`cov` must be :sandwich or :biased, got $(repr(cov))"))
-    _check_fit_settings(fit)
-    simulate_with === nothing || cov === :sandwich || throw(ArgumentError("with data from " *
+    return crlb!(CRLBCache(m; fit, cov), truth; snr, σ, Σ, simulate_with)
+end
+
+"""
+    crlb!(c::CRLBCache, truth; snr or σ or Σ, simulate_with) -> CRLBResult
+
+[`crlb`](@ref) with the fit settings and covariance already in a [`CRLBCache`](@ref): for many
+truths or noise levels with the same fit settings, the setup is made once.
+
+```julia
+c = CRLBCache(m)                                   # the model's own fit settings
+cs = [crlb!(c, nominal(m, t); snr = 200) for t in (:SIR_WM_I, :SIR_WM_II, :SIR_GM)]
+```
+"""
+function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
+               simulate_with = nothing)
+    _check_simulate_with(simulate_with)
+    simulate_with === nothing || !c.biased || throw(ArgumentError("with data from " *
         "another model (`simulate_with`), the sandwich only: Eq. 3 needs the true model's " *
         "derivatives with respect to the fitted model's parameters"))
-    # The data: from `m` at `truth`, or from another model (`simulate_with = m2 => θ2`), with
-    # `truth` then the reference values the fit is judged against.
-    dm, dt = _datasource(m, truth, simulate_with)
+    # The data: from the model at `truth`, or from another model (`simulate_with = m2 => θ2`),
+    # with `truth` then the reference values the fit is judged against; `snr` is relative to
+    # the data's scale parameter.
+    dm, dt = _datasource(c.model, truth, simulate_with)
+    Σn = noisecovariance(dm, dt; snr, σ, Σ)
+    return _crlbresult(c, truth, dm, dt, Σn, Σ, simulate_with)
+end
 
-    # ① The noise, the noise-free data and their fit θ̂ (started at the truth), and the bias.
-    #    `snr` is relative to the data's scale parameter.
-    Σn = noisecovariance(dm, dt; snr, σ, Σ)           # N×N
-    y = signal(dm, dt)                                 # g_true
-    r = noisefree(m, truth; fit, simulate_with)        # θ̂ = r.params
-    b = bias(r, truth)
-    F = keys(r.params)                                 # the free parameters, model order
-    P = length(F)
-    # A free parameter on a bound in the noise-free fit is held there (SD 0); the covariance is
-    # over the others, U.
-    onbound = _onbound(r)
-    U = findall(n -> !(n in onbound), collect(F))
+"""
+    _crlb!(c, m, t, σ²[, dm, dt]) -> (; fit, truth, bias, cov, status, pinned, exact, H, G, ∇b)
 
-    # ② The derivatives at θ̂: J₀ (N×P) and the Hessian of the fit's own cost ½‖g − y‖², the
-    #    second term from the residual r₀ = g(θ̂) − g_true: H = J₀ᵀJ₀ + Σᵢ r₀ᵢ∇²gᵢ (P×P).
-    J₀ = jacobian(r)
-    H = hessian(r, y)
-    J₀u, Hu = J₀[:, U], H[U, U]
+The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
+values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
+0 for those on a bound), the noise-free fit's status, which parameters are on a bound (held
+there), whether the fit was exact, H and J₀ᵀJ₀ at θ̂, and ∇b (Eq. 3 only; `NaN` otherwise). `m`
+may be another protocol than the cache's, with as many observations and Float64 acquisition
+values (static vectors work), as a protocol optimizer needs. `t` from `_crlb_truth`, `σ²` a
+number, a vector (one variance per observation) or a `_FullNoise` (`_kernelnoise`). With `dm`
+and `dt` the data come from another model (the sandwich only).
+"""
+_crlb!(c::CRLBCache, m::MRIModel, t::NamedTuple, σ2) = _crlb!(c, m, t, σ2, m, t)
+function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIModel,
+                dt::NamedTuple) where {F,P,T}
+    # ① The noise-free fit θ̂, from the truth's free values θt. A parameter it leaves on a bound
+    #    is held there: masked by u below (u = 0 for it, 1 for the others).
+    θ̂, θt, r = noisefree!(c, m, t, dm, dt)
+    pinned = map(_near, θ̂, c.lower) .| map(_near, θ̂, c.upper)
+    u = map(p -> ifelse(p, zero(T), one(T)), pinned)
 
-    # ③ The covariance, if the data can determine the parameters (fewer observations than
-    #    parameters to estimate, or nearly dependent columns of J₀: Inf, see `_identifiable`; a
-    #    failed Cholesky factorization of H too: no negative variance hidden by abs(), as in the
-    #    MATLAB code).
-    C = zeros(P, P)
-    if !(_identifiable(J₀u' * J₀u, length(y)) && isposdef(Hu))
-        C[U, U] .= Inf
-    elseif cov === :sandwich
-        C[U, U] = sandwich(Hu, J₀u, Σn)                # H⁻¹J₀ᵀΣJ₀H⁻¹
-    else
-        # Eq. 3: F, the Fisher information of the true signal at the truth, J_tᵀΣ⁻¹J_t (the
-        # truth's own ties followed: R1m = R1f moves with R1f, as the MATLAB's `R1 + eps` on
-        # both), and ∇b (rows of parameters on a bound: ∂θ̂/∂θ = 0).
-        Ft = informationmatrix(m, truth; Σ = Σn, fit)
-        if _identifiable(Ft, length(y)) && isposdef(Ft)
-            C = biasedcrlb(biasgradient(r, truth), Ft)
-        else
-            C[U, U] .= Inf
-        end
+    # ② The Hessian of the fit's cost at θ̂ (and J₀ᵀJ₀). When the fit is exact the residual's
+    #    curvature is 0 and first-order duals suffice. Held parameters: rows and columns masked,
+    #    1 on the diagonal, so H⁻¹ leaves them be.
+    exact = r.sse <= _EXACT^2 * sum(abs2, c.y)
+    H, G = hessian!(c, m, θ̂, exact)
+    Hm = (u * u') .* H + Diagonal(one(T) .- u)
+    nan = fill(T(NaN), SMatrix{P,P,T})
+    out(C, ∇b) = (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = C, status = r.status, pinned,
+                  exact, H, G, ∇b)
+
+    # ③ Can the data determine the parameters? Fewer observations than parameters to estimate,
+    #    nearly dependent columns of J₀ (`_determined`), or H not positive definite: Inf (no
+    #    negative variance hidden by abs(), as in the MATLAB code).
+    N = length(c.y)
+    _, okH = _cholesky(Hm)
+    (N >= count(!, pinned) && _determined(G, u) && okH) || return out(_infcov(u), nan)
+
+    # ④ The covariance. The sandwich, H⁻¹(J₀ᵀΣJ₀)H⁻¹ ...
+    if !c.biased
+        M = exact ? meat(c.jbuf, σ2, u) : meat(c.hbuf, σ2, u)
+        return out(sandwich(Hm, M), nan)
     end
+    #    ... or Eq. 3: J_t (the true signal's Jacobian at the truth, in `c.fitbuf`), the bias
+    #    gradient ∇b = H⁻¹J₀ᵀJ_t − I, and F = J_tᵀΣ⁻¹J_t.
+    attruth!(c.fitbuf, c, m, t, θt)
+    K = exact ? crossgram(c.jbuf, c.fitbuf, u) : crossgram(c.hbuf, c.fitbuf, u)
+    ∇b = biasgradient(Hm, K)
+    Fm = information(c.fitbuf, σ2)
+    _, okF = _cholesky(Fm)
+    (N >= P && _determined(Fm, ones(SVector{P,T})) && okF) || return out(_infcov(u), ∇b)
+    return out(biasedcrlb(∇b, Fm), ∇b)
+end
 
-    # ④ Packaging: named tuples by quantity, then parameter.
-    θt = resolve(m, truth)
-    truthF = [Float64(θt[n]) for n in F]
-    sd = sqrt.(diag(C))
-    rmse = sqrt.(collect(b) .^ 2 .+ sd .^ 2)
-    rel(x) = x ./ abs.(truthF)
+# The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A
+# separate function (a "function barrier") so that F and P are known types here.
+function _crlbresult(c::CRLBCache{F,P,T}, truth, dm, dt, Σn, Σ, simulate_with) where {F,P,T}
+    σ2 = _kernelnoise(Σn, P)
+    t = _crlb_truth(c.model, truth)
+    dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
+    k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
+    sd = sqrt.(diag(k.cov))
+    rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
     nt(x) = NamedTuple{F}(Tuple(x))
-    condJ = isempty(U) ? Inf : _condition(J₀u, truthF[U])
-    # The information matrices at θ̂, over every free parameter: the Fisher (expected) J₀ᵀΣ⁻¹J₀,
-    # and the observed, the Hessian of the negative log-likelihood of the noise-free data; the
-    # two agree when the fit is exact (r₀ = 0). With one σ, the observed one is H/σ².
-    info = _sym(J₀' * (Σn \ J₀))
-    observed = hessian(r, y; Σ = Σn)
-    return CRLBResult(r.params, b, nt(sd), nt(rmse), nt(rel(collect(b))), nt(rel(sd)),
-                      nt(rel(rmse)), C, condJ, onbound, r.status, cov, sqrt.(diag(Σn)), truth,
-                      r.fixed, m, simulate_with, Σ === nothing ? nothing : Matrix{Float64}(Σ),
-                      info, observed)
+    rel(x) = x ./ abs.(k.truth)
+    # The information matrices at θ̂, over every free parameter: the Fisher (expected)
+    # J₀ᵀΣ⁻¹J₀, and the observed, the Hessian of the negative log-likelihood of the noise-free
+    # data, which adds Σᵢ wᵢ∇²gᵢ, w = Σ⁻¹r₀; they agree when the fit is exact (r₀ = 0). With one
+    # σ, the observed one is H/σ².
+    rows = k.exact ? c.jbuf : c.hbuf
+    info = Matrix(information(rows, σ2))
+    if k.exact
+        observed = copy(info)
+    else
+        w = Σn \ ([_val(d) for d in c.hbuf] .- c.y)          # Σ⁻¹r₀
+        observed = Matrix(_sym(info + curvature(c.hbuf, w)))
+    end
+    onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
+    return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
+                      nt(rel(rmse)), Matrix(k.cov), _condition(k.G, k.truth, k.pinned, length(c.y)),
+                      onbound, k.status, c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
+                      map(_untie, c.fixed), c.model, simulate_with,
+                      Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed)
+end
+
+# The condition number of J₀ with each column scaled by its parameter's true value (relative
+# sensitivities, so the units drop out; 1 for a true value of 0), over the parameters not on a
+# bound, reported as `c.cond`: √(λmax/λmin) of the scaled J₀ᵀJ₀, P×P (no SVD of the N×P J₀). Inf
+# when there are fewer observations than parameters, or J₀ᵀJ₀ is singular.
+function _condition(G::SMatrix{P,P}, θ, pinned, N) where {P}
+    U = [j for j in 1:P if !pinned[j]]
+    (isempty(U) || N < length(U)) && return Inf
+    s = [θ[j] == 0 ? 1.0 : abs(θ[j]) for j in U]
+    λ = eigvals(Symmetric(s .* Matrix(G)[U, U] .* s'))
+    return λ[1] > 0 ? sqrt(λ[end] / λ[1]) : Inf
 end
 
 # -------------------------------------------------------------------------------------------------

@@ -473,8 +473,19 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
   for a Monte Carlo.
-- **The pieces, one function each,** of which `crlb` is the composition (θ the values, `fit`
-  the fit settings; the derivatives are taken at θ, with `fit` choosing the free parameters):
+- **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the fit settings, once) and calls
+  `crlb!`; reuse the cache for many truths or noise levels (sweeps do):
+
+  ```julia
+  c = CRLBCache(m; fit = (kmf = Free(),))
+  [crlb!(c, nominal(m, t); snr = 200) for t in (:SIR_WM_I, :SIR_GM)]
+  ```
+
+  A one-off `crlb` takes 40–55 µs (4- to 16-point SIR), `crlb!` 10–24 µs, and the
+  allocation-free kernel inside 1–16 µs. Each step is a function of its own, summed over the
+  observations one row of J at a time (as the solver sums JᵀJ), with one-call versions from a
+  model and values (θ the values, `fit` the fit settings; the derivatives are taken at θ, with
+  `fit` choosing the free parameters):
 
   | Function | Gives |
   |---|---|
@@ -527,8 +538,8 @@ src/
                           (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
                           a dataset, threaded; refit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
-  analysis/               derivatives.jl (crlb's pieces), crlb.jl, crlb_kernel.jl (the same
-                          without allocation, for optimizers), montecarlo.jl, sweep.jl
+  analysis/               derivatives.jl (crlb's pieces: CRLBCache, the sums, the formulas),
+                          crlb.jl (the kernel, crlb, crlb!), montecarlo.jl, sweep.jl
 ```
 
 `docs/design.md` records the design decisions.

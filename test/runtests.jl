@@ -917,10 +917,16 @@ end
         @test 100 * sw.relsd.PSR ≈ 2.879 rtol = 1e-3
         @test 100 * b3.relsd.PSR ≈ 2.719 rtol = 1e-3
         # ∇b by the implicit function theorem = central differences of noise-free fits (what
-        # the MATLAB code does), through Eq. 3: (I + ∇b) F⁻¹ (I + ∇b)ᵀ
+        # the MATLAB code does), through Eq. 3: (I + ∇b) F⁻¹ (I + ∇b)ᵀ. The differenced fits
+        # converge tightly (crlb's own stop at xtol 1e-10, θ̂ to ~1e-9: too coarse for h = 1e-5)
         F16 = keys(sw.fit)
         x0 = [θ16[n] for n in F16]
-        fitof(x) = collect(values(crlb(m16, merge(θ16, NamedTuple{F16}(Tuple(x))); snr = 200).fit))
+        tight = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
+        function fitof(x)
+            θx = merge(θ16, NamedTuple{F16}(Tuple(x)))
+            starts = NamedTuple{F16}(map(n -> Free(start = θx[n]), F16))
+            return collect(values(fit(m16, signal(m16, θx); solver = tight, starts...).params))
+        end
         h = 1e-5 .* abs.(x0)
         D = reduce(hcat, (fitof(x0 .+ h[k] .* (1:4 .== k)) .- fitof(x0 .- h[k] .* (1:4 .== k))) ./ (2h[k])
                    for k in 1:4)
@@ -952,7 +958,7 @@ end
         # plan for another protocol with as many observations (static vectors too); no
         # allocation, for the sandwich and Eq. 3
         SV = EQUIP.SVector
-        plan = EQUIP._crlb_plan(m4, :sandwich; bounds4...)
+        plan = CRLBCache(m4; fit = bounds4)
         tt = EQUIP._crlb_truth(m4, θ)
         k = EQUIP._crlb!(plan, m4, tt, 0.005^2)
         @test collect(k.fit) == collect(values(c.fit)) && collect(k.bias) == collect(values(c.bias))
@@ -966,7 +972,7 @@ end
         allocs(p, mm, t, s2) = @allocated EQUIP._crlb!(p, mm, t, s2)
         allocs(plan, mb, tt, 0.005^2)
         @test allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
-        plan16 = EQUIP._crlb_plan(m16, :biased)
+        plan16 = CRLBCache(m16; cov = :biased)
         t16 = EQUIP._crlb_truth(m16, θ16)
         allocs(plan16, m16, t16, fill(0.005^2, 16))
         @test allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
@@ -1144,7 +1150,7 @@ end
         @test occursin("observations", msg(() -> crlb(mt, ref; snr = 100, simulate_with = T2BiexpDecay(TE = te[1:10]) => θb)))
         @test occursin("simulate_with = model => truth", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb)))
         # the kernel with another data model allocates nothing either
-        plan = EQUIP._crlb_plan(mt, :sandwich)
+        plan = CRLBCache(mt)
         tr, tb = EQUIP._crlb_truth(mt, ref), EQUIP._crlb_truth(mb, θb)
         allocs(p, a, b) = @allocated EQUIP._crlb!(p, mt, a, 100.0, mb, b)
         allocs(plan, tr, tb)
@@ -1210,9 +1216,9 @@ end
         # at the truth, where the data are fitted exactly, the two are equal
         @test informationmatrix(m16, θ16; snr = 200, expected = false) ≈ informationmatrix(m16, θ16; snr = 200) rtol = 1e-12
         # the kernel with a full Σ allocates nothing
-        plan = EQUIP._crlb_plan(mt, :biased)
+        plan = CRLBCache(mt; cov = :biased)
         tr = EQUIP._crlb_truth(mt, θ)
-        full = EQUIP._fullnoise(Σ, 32, 2)
+        full = EQUIP._kernelnoise(noisecovariance(mt, θ; Σ), 2)
         allocs(p, t, n) = @allocated EQUIP._crlb!(p, mt, t, n)
         allocs(plan, tr, full)
         @test allocs(plan, tr, full) == 0
@@ -1266,21 +1272,26 @@ end
         @test noisecovariance(m4, θ; Σ) === Σ
         # crlb is their composition: the sandwich at θ̂ ...
         Σn = noisecovariance(m4, θ; snr = 200)
-        @test vcov(c) ≈ sandwich(hessian(r, y), J₀, Σn) rtol = 1e-12
+        # (crlb leaves out the curvature of the exact 4-point fit, whose residual is ~1e-13)
+        @test vcov(c) ≈ sandwich(hessian(r, y), J₀, Σn) rtol = 1e-10
         # ... and Eq. 3, with F the Fisher information of the true signal at the truth
         Ft = informationmatrix(m4, θ; snr = 200)
         @test Ft ≈ J' * J / (θ.M0f / 200)^2 rtol = 1e-12
         ∇b = biasgradient(m4, θ)
         @test vcov(crlb(m4, θ; snr = 200, cov = :biased)) ≈ biasedcrlb(∇b, Ft) rtol = 1e-12
         @test biasedcrlb(zeros(4, 4), Ft) ≈ inv(Ft) rtol = 1e-10
-        @test biasgradient(r, θ) == ∇b
         # ∇b: the implicit function theorem, ForwardDiff through Gauss–Newton steps and central
         # differences of noise-free fits agree; zero when nothing fixed is wrong
         @test biasgradient(m4, θ; method = :unrolled) ≈ ∇b atol = 1e-8
+        tight = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
+        function tightbias(θx)                     # a tightly converged noise-free fit's bias
+            r = fit(m4, signal(m4, θx); solver = tight, NamedTuple{F4}(map(n -> Free(start = θx[n]), F4))...)
+            return [r.params[n] - θx[n] for n in F4]
+        end
         for (j, n) in enumerate(F4)
             h = 1e-5 * abs(θ[n])
-            bp = collect(values(bias(m4, merge(θ, NamedTuple{(n,)}((θ[n] + h,))))))
-            bm = collect(values(bias(m4, merge(θ, NamedTuple{(n,)}((θ[n] - h,))))))
+            bp = tightbias(merge(θ, NamedTuple{(n,)}((θ[n] + h,))))
+            bm = tightbias(merge(θ, NamedTuple{(n,)}((θ[n] - h,))))
             @test (bp - bm) / 2h ≈ ∇b[:, j] atol = 1e-6
         end
         @test maximum(abs, biasgradient(m4, θ; fit = (kmf = 5.0,))) < 1e-8
@@ -1300,12 +1311,82 @@ end
         θt = (S0 = 1000.0, T2 = 0.08)
         Σt = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
         for cov in (:sandwich, :biased)
-            k = EQUIP._crlb!(EQUIP._crlb_plan(mt, cov), mt, EQUIP._crlb_truth(mt, θt),
+            k = EQUIP._crlb!(CRLBCache(mt; cov), mt, EQUIP._crlb_truth(mt, θt),
                              EQUIP._kernelnoise(noisecovariance(mt, θt; Σ = Σt), 2))
             @test k.cov ≈ vcov(crlb(mt, θt; Σ = Σt, cov)) rtol = 1e-10
         end
         @test EQUIP._kernelnoise(noisecovariance(m4, θ; snr = 200), 4) == (θ.M0f / 200)^2
         @test EQUIP._kernelnoise(noisecovariance(m4, θ; σ = [1.0, 2.0, 3.0, 4.0]), 4) == [1.0, 4.0, 9.0, 16.0]
+    end
+
+    @testset "crlb against the textbook formulas; CRLBCache and crlb!" begin
+        FD = EQUIP.ForwardDiff
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        # The reference: ForwardDiff on the allocating `signal`, plain matrices and `\`, the
+        # noise-free fit converged tightly (crlb's stops at xtol 1e-10). crlb sums the same
+        # matrices row by row from dual numbers, without storing J.
+        tight = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
+        function reference(m, θ, fitset, Σ, cov)
+            F = EQUIP.freenames(EQUIP.setup(m, Float64; fitset...))
+            θt = resolve(m, θ)
+            y = signal(m, θ)
+            start(n) = (x = get(fitset, n, nothing);
+                        x isa Free ? Free(start = θt[n], lower = x.lower, upper = x.upper) : Free(start = θt[n]))
+            r = fit(m, y; solver = tight, fitset..., NamedTuple{F}(map(start, F))...)
+            θ̂ = merge(r.fixed, r.params)               # the fit's fixed values and ties
+            g(vals, x) = signal(m, merge(vals, NamedTuple{F}(Tuple(x))))
+            x̂, xt = [r.params[n] for n in F], [θt[n] for n in F]
+            J₀ = FD.jacobian(x -> g(θ̂, x), x̂)
+            H = FD.hessian(x -> sum(abs2, g(θ̂, x) - y) / 2, x̂)      # JᵀJ + Σᵢ rᵢ∇²gᵢ
+            if cov === :sandwich
+                A = H \ J₀'
+                C = A * Σ * A'                                         # H⁻¹J₀ᵀΣJ₀H⁻¹
+            else
+                Jt = FD.jacobian(x -> g(θ, x), xt)
+                D = H \ (J₀' * Jt)                                     # I + ∇b
+                C = D * ((Jt' * (Σ \ Jt)) \ D')                        # (I + ∇b)F⁻¹(I + ∇b)ᵀ
+            end
+            return x̂ .- xt, sqrt.(diag(C))
+        end
+        te = collect(0.01:0.01:0.32)
+        cases = Any[]
+        for m in (QMTSIR(; SIR_4POINT...), QMTSIR(; SIR_5POINT...), QMTSIR(TI = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0], TD = 2.5)),
+            t in (:SIR_WM_I, :SIR_GM), f in ((;), (Sm = 0.9,), (kmf = Free(),))
+            nobs(m) == 4 && haskey(f, :kmf) && continue                  # 5 parameters, 4 points
+            θ = nominal(m, t)
+            push!(cases, (m, θ, f, noisecovariance(m, θ; snr = 200)))
+        end
+        Σt = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
+        θb = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)
+        push!(cases, (T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08), (;), Σt),
+                     (T2BiexpDecay(TE = te), θb, (;), Σt),
+                     (T2BiexpDecay(TE = te), θb, (;), Diagonal(collect(range(5.0, 20.0, length = 32)) .^ 2)),
+                     (T1IR(TI = [0.05, 0.1, 0.3, 0.6, 1.2, 2.4]), (M0 = 1000.0, Sf = -0.95, T1 = 1.0), (;), Diagonal(fill(100.0, 6))))
+        for (m, θ, f, Σ) in cases, cov in (:sandwich, :biased)
+            b, sd = reference(m, θ, f, Matrix(Σ), cov)
+            c = crlb(m, θ; Σ = Matrix(Σ), fit = f, cov)
+            @test isempty(c.onbound)
+            @test collect(values(c.bias)) ≈ b atol = 1e-8 * maximum(abs, values(c.fit))
+            @test collect(values(c.sd)) ≈ sd rtol = 1e-6
+        end
+        # the cache: made once, reused for several truths and noise levels; crlb is cache + crlb!
+        m5 = QMTSIR(; SIR_5POINT...)
+        c = CRLBCache(m5; fit = (kmf = Free(),))
+        @test sprint(show, c) == "CRLBCache(QMTSIR: PSR, R1f, Sf, M0f, kmf; sandwich)"
+        for t in (:SIR_WM_I, :SIR_GM), snr in (100, 200)
+            θ = nominal(m5, t)
+            @test crlb!(c, θ; snr).sd == crlb(m5, θ; snr, fit = (kmf = Free(),)).sd
+        end
+        # the second derivatives are left out when the noise-free fit is exact: nothing fixed
+        # wrong, or as many observations as free parameters (4-point); not otherwise
+        exact(m, θ; kw...) = EQUIP._crlb!(CRLBCache(m; kw...), EQUIP._with_precision(m, Float64), EQUIP._crlb_truth(m, θ), 1.0).exact
+        m4 = QMTSIR(; SIR_4POINT...)
+        @test exact(m4, nominal(m4, :SIR_WM_I)) && exact(m5, nominal(m5, :SIR_WM_I); fit = (kmf = Free(),))
+        @test !exact(m5, nominal(m5, :SIR_WM_I))
+        # mistakes
+        @test occursin("`cov` must be :sandwich or :biased", msg(() -> CRLBCache(m5; cov = :eq3)))
+        @test occursin("the sandwich only", msg(() -> crlb!(CRLBCache(T2Decay(TE = te); cov = :biased),
+            (S0 = 1000.0, T2 = 0.08); snr = 100, simulate_with = T2BiexpDecay(TE = te) => θb)))
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

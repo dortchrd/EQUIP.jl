@@ -1308,41 +1308,90 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   estimated from residuals, Kirstine.jl (optimal design for nonlinear regression),
   CorleoneOED and DynamicOED (dynamic systems) have no bias from wrong fixed values. The
   reusable part, the derivatives, is ForwardDiff's; F = JᵀΣ⁻¹J itself is one line.
-- **The pieces, one function each** (`analysis-proto`, src/analysis/derivatives.jl):
-  `noisecovariance` (Σ), `noisefree` (θ̂, a `FitResult`), `bias`, `jacobian`, `hessian`,
-  `informationmatrix(m, θ)`, `biasgradient`, `sandwich` and `biasedcrlb`; `crlb` is their
-  composition, so its code reads as the steps below. Why: the code should be checkable against
-  the papers line by line, and each piece is useful alone (J for a protocol's sensitivity, F at
-  a truth, ∇b of an assumption). Written as the formulas: plain matrices, ForwardDiff on the
-  allocating `signal`, LinearAlgebra's `\` and `cholesky`. The allocation-free kernel
-  (crlb_kernel.jl: JᵀJ, J₀ᵀJ_t and H accumulated from nested duals row by row, as the solver's
-  `normal_equations`; parameters on a bound masked rather than removed) stays for the protocol
-  optimizer, and is tested against `crlb`.
-  - One convention for the two inputs: θ is values (every parameter, ties allowed), `fit` the
-    fit settings. The functions that run a fit (`noisefree`, `bias`, `biasgradient`) use all of
-    `fit`, fixed values included; the derivatives are taken AT θ, with `fit` choosing only the
-    columns (which parameters are free). So `jacobian(m, θ; fit)` is the true signal's J_t, and
-    the fit's J₀ at its answer is `jacobian(noisefree(m, θ; fit))`: methods on a one-voxel
-    `FitResult` (`jacobian(r)`, `hessian(r, y)`, `bias(r, θ)`, `biasgradient(r, θ)`) use the
-    fit's own free parameters, fixed values and ties. Considered and rejected: `fit`'s fixed
-    values overriding θ's in the derivatives; Eq. 3's J_t (the truth's kmf, the fit's columns)
-    could then not be written with the same keywords.
-  - `biasgradient(m, θ; method = :implicit)`: the implicit function theorem at θ̂ (exact,
-    handles bounds), or `:unrolled`, ForwardDiff through `steps` Gauss–Newton steps from the
-    truth (no bounds; 2e-11 from the implicit one at 3 steps, 4-point scheme, WM I). The second
-    is the form for derivatives with respect to the protocol.
-  - `informationmatrix(m, θ; ...)` now evaluates at θ (it went through `crlb`, at θ̂, before):
-    at the truth it is Eq. 3's F. `jacobian` and `hessian` are also exported by Zygote and
-    DifferentiationInterface; with either loaded, write `EQUIP.jacobian`.
-  - Refactoring check (688 cases): noise-free fits and biases bit-identical, SDs to 2.5e-12,
-    the same undetermined and on-bound parameters. ∇b three ways (implicit, through
-    Gauss–Newton steps, central differences of noise-free fits) agree to 1e-8 and 1e-6; the
-    Hessian against JᵀJ + Σᵢ rᵢ∇²gᵢ written out. Speed of the public `crlb` (minimum of 200
-    calls, before → after): 4-point 74 → 340 µs (sandwich), 74 → 580 µs (Eq. 3); 16-point 295
-    → 384 µs and 95 → 632 µs; T2Decay, 32 echoes, full Σ, 57 → 250 µs and 360 µs. The time is
-    spread over `setup` calls and closures typed at run time, nothing dominant; a sweep of
-    1000 settings stays under a second, and the optimizer uses the kernel (unchanged,
-    3.5–28 µs, no allocation).
+- **One implementation, fast: a cache and allocation-free pieces** (`analysis-proto`,
+  src/analysis/derivatives.jl; the kernel `_crlb!` in crlb.jl). Each step of `crlb` is a function
+  of its own, one formula each, and the kernel is their composition:
+
+  | Piece | Formula |
+  |---|---|
+  | `CRLBCache(m; fit, cov)` | once per fit setting: free names in the type, bounds, fixed values as written, buffers (what `init` is for fitting) |
+  | `noisefree!(c, m, t)` | θ̂: `levmar` from the truth's free values, the fit's fixed values and bounds |
+  | `hessian!(c, m, θ̂, exact)` | H = Σᵢ JᵢJᵢᵀ + rᵢ∇²gᵢ, and G = Σᵢ JᵢJᵢᵀ |
+  | `meat(rows, σ², u)` | J₀ᵀΣJ₀ |
+  | `information(rows, σ²)` | JᵀΣ⁻¹J (Eq. 4) |
+  | `crossgram(rows₀, rowsₜ, u)` | J₀ᵀJ_t |
+  | `curvature(rows, w)` | Σᵢ wᵢ∇²gᵢ |
+  | `sandwich(H, M)`, `biasgradient(H, K)`, `biasedcrlb(∇b, F)` | H⁻¹MH⁻¹; H⁻¹K − I; (I + ∇b)F⁻¹(I + ∇b)ᵀ (Eq. 3) |
+
+  The sums are accumulated one row of J at a time from dual numbers into static P×P matrices,
+  as the solver's `normal_equations` sums JᵀJ: one evaluation of the model gives every gᵢ with
+  its gradient (with nested duals, ∇²gᵢ too), J is never stored, nothing is allocated. The
+  formulas also have methods for ordinary matrices (`sandwich(H, J, Σ)`, `biasedcrlb(∇b, F)`),
+  and one-call functions from a model and values (`noisecovariance`, `noisefree`, `bias`,
+  `jacobian`, `hessian`, `informationmatrix(m, θ)`, `biasgradient`) make a cache and use the
+  same pieces. `crlb!(c, θ; noise)` is the kernel plus checks and the result; `crlb(m, θ; ...)`
+  makes the cache first; sweeps make one cache per fit setting. The textbook versions
+  (ForwardDiff.jacobian and ForwardDiff.hessian on `signal`, plain matrices, `\`, a tightly
+  converged fit) live in the tests, as the reference `crlb` must match (bias to 1e-8 of θ̂, SD
+  to 1e-6, both covariances, SIR schemes, T2, bi-exponential T2 and IR, σ per observation and
+  correlated noise).
+  - **How we got here** (crlb, one-off call, 4-point / 16-point scheme):
+
+    | Version | Time | What it showed |
+    |---|---|---|
+    | First `crlb` (f79e0f2): ForwardDiff on `signal`, plain matrices | 307–374 µs | correct; allocation and run-time types |
+    | Allocation-free kernel (c0a28e1) | kernel 5–7 / 23–28 µs, `crlb` 82–138 µs | the maths is fast; the rest was setup and packaging |
+    | General Σ, information matrices (fbab4f9) | 57–74 / 95–295 µs | the same split |
+    | Readable pieces, plain matrices (c35d796) | 324 / 348 µs | readable, but every piece re-ran `setup` (24–43 µs) and closures typed at run time |
+    | This: cache + allocation-free pieces | 37–55 µs one-off; `crlb!` 10–24 µs; kernel 1.0–15.6 µs | readable by naming the steps, fast by summing static matrices once the types are known |
+
+    Readability came from naming the steps, not from forming the matrices; speed from three
+    things: setup once with the types known, static P×P sums over the observations, nothing
+    allocated per call.
+  - **Where the time went** (one call, 4-point / 16-point, before this change): `setup` 24–43 µs
+    (once per fit setting now); the noise-free fit 2.2 µs (6 iterations) / 6–14 µs (7–16);
+    J₀ and ∇²g with nested duals 2.0 / 6.0 µs, J alone 0.5 / 1.1 µs; cond(J) by SVD 4–5 µs;
+    `resolve` (which checks every value) 4.4 µs, run four times per call (now once).
+  - **The noise-free fit: `levmar`, xtol 1e-10** (was 1e-13). Over the 12 cases of the 4-, 5-
+    and 16-point schemes × 4 tissues (kmf fixed at 12.5): xtol 1e-10 takes 5–19 iterations
+    (1.8–8.1 µs) instead of 6–21 (2.1–14.3 µs), and moves θ̂ by at most 3.1e-9 (relative, over
+    all 688 cases); the minimum is flat enough that the damping alone moves θ̂ by 1.6e-9 at
+    xtol 1e-13, so the extra digits were not real. The fit's own defaults (xtol 1e-8) are faster
+    still (4–7 iterations) but leave θ̂ to 1.2e-7, a visible fraction of a tiny bias (R1f in WM
+    I: 5e-6). Plain Gauss–Newton from the truth was no faster per iteration (the same
+    evaluation) and needs a case-dependent number of steps: 3 for the 4-point scheme (4e-12),
+    about 10 for 5-point WM I (2.4e-4 after 3 steps); it has no bounds. Lower starting damping
+    (1e-8): no consistent gain. The fit uses the model's roles (`parameters(m)` merged with
+    `fit`, the same `FitSpec` as `fit`): the fixed values as written, the bounds; only the start
+    is the truth's, written into nothing (the free values go to `levmar` directly). The model's
+    own starts reach the same θ̂ in all 12 cases (to 1.5e-9), but the truth is the right
+    definition (the minimum nearest the truth is where noisy fits around it end up) and skips
+    the start search.
+  - **Second derivatives only when needed.** When the noise-free fit is exact (‖r‖ ≤ 1e-12‖y‖:
+    nothing fixed wrong, or as many observations as free parameters, e.g. 4-point) the
+    curvature term vanishes, H = JᵀJ, and first-order duals suffice: 304 of 695 test cases; SDs
+    change by ≤ 1.1e-11.
+  - **cond(J)** from the scaled P×P Gram, √(λmax/λmin), instead of an SVD of J (no J to
+    decompose); agrees to 2.7e-10 (2.1e-12 at the old tolerance).
+  - **Checks (695 cases: the 688 below, 4 with a full Σ, 3 with data from another model),
+    against the previous `crlb`:** the prototype with the old settings reproduced it (fits and
+    biases identical, SDs to 2.1e-12); with the new settings, θ̂ and b to 3.1e-9, SDs to
+    1.3e-9, information matrices to 1.6e-9, the same undetermined and on-bound parameters. The
+    built code equals the prototype (SDs to 1.1e-14). Kernel: 0 bytes in every case.
+  - **Speed** (one thread, minimum; kernel / `crlb!` with a cache / one-off `crlb`): 4-point WM I
+    2.5–2.9 / 10–11 / 37–39 µs; 5-point WM I kmf fixed 10.0–10.5 / 18–19 / 49–55 µs, kmf free
+    1.7–2.8 / 10–20 / 39–42 µs; 16-point WM I 15.6 / 24 / 51–54 µs, GM 11.9–12.8 / 21 / 49–50 µs;
+    T2Decay, 32 echoes, full Σ 1.1–2.1 / 34–50 / 53–54 µs (Σ checked and factored per call). A
+    sweep of 21 settings (16-point, 3 SNR × 7 true kmf): 1.0 ms, 11 ms before. The previous
+    kernel: 4.4–4.7, 10.9–11.6, 4.3–5.1, 21.6–22.6, 12.9–14.5, 1.4–1.8 µs.
+  - Conventions kept from the readable version: θ is values, `fit` the fit settings; what runs a
+    fit uses all of `fit`; the derivatives are taken at θ with `fit` choosing the columns
+    (`jacobian(m, θ; fit)` is J_t; the fit's J₀ is `jacobian(noisefree(m, θ; fit))`, from the
+    `FitResult` methods `jacobian(r)`, `hessian(r, y)`, `bias(r, θ)`). `informationmatrix(m, θ)`
+    is at θ (Eq. 3's F at the truth). `biasgradient(m, θ; method = :unrolled)` (ForwardDiff
+    through Gauss–Newton steps; 2e-11 from the implicit one, 4-point) stays as a cross-check and
+    the pattern for derivatives with respect to the protocol. `jacobian` and `hessian` are also
+    exported by Zygote and DifferentiationInterface: with either loaded, `EQUIP.jacobian`.
 - Covariance, `cov = :sandwich` (default) or `cov = :biased` (Dortch 2018 Eq. 3); see below.
   The sandwich is the default because it is what EQUIP's least-squares fit achieves, so an
   optimizer cannot credit a protocol with precision the fit will not deliver; Eq. 3 stays for
@@ -1392,7 +1441,9 @@ Edge cases:
   cond(J₀) ≥ 1e8, columns scaled by the true values; the pivot test needs no SVD, so the kernel
   can run it without allocating. Same Inf cases over the 688 cases below; the largest cond
   among the determined ones is 2.5e3.) `c.cond` still reports the value-scaled cond(J₀).
-- **An allocation-free kernel for the optimizer** (`_crlb_plan`, `_crlb_truth`, `_crlb!`):
+- **An allocation-free kernel for the optimizer** (`_crlb_plan`, `_crlb_truth`, `_crlb!`; the
+  plan is now `CRLBCache` and the kernel a composition of named pieces, see "One
+  implementation, fast" above):
   the plan, made once, holds the roles, bounds, solver settings and buffers; the kernel takes a
   protocol (a model with as many observations; static vectors work), a prepared truth and σ²,
   and returns θ̂, b and the covariance as static arrays. The noise-free fit is the package's own
