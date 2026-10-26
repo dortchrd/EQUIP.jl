@@ -1219,7 +1219,9 @@ Not needed for correctness: a test checks it against the columns built from `sig
 ## Simulation, CRLB and protocol design: proposed design
 
 Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, from the
-`crlb-proto` branch); the rest proposed. Prototyped in scratch scripts;
+`crlb-proto` branch); fit settings side by side, data from another model, general noise and
+the fast pieces (`CRLBCache`, derivatives.jl) on `lean` since 007e196, from `analysis-proto`;
+the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
@@ -1242,7 +1244,8 @@ The pieces, each using the ones before it:
 
 ### `crlb`: one function, biased or not by the fit settings
 
-Status: implemented (src/analysis/crlb.jl); merged into `lean` from `crlb-proto`.
+Status: implemented (src/analysis/crlb.jl); merged into `lean` from `crlb-proto`, and its
+pieces (src/analysis/derivatives.jl), general noise and `CRLBCache` from `analysis-proto`.
 Checked: Fopt4 = 0.243395 and Fopt5 = 1.602062 (Eq. 5 of the Table 2 schemes, both
 covariances), the exact-fit identity, ∇b against central differences of noise-free fits
 (1e-5), the classical CRLB when nothing fixed is wrong, and Monte Carlo (below).
@@ -1274,7 +1277,7 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   tissues: broadcast, `crlb.(Ref(m), truths; snr = 200)`.
 - Noise: `snr` relative to the scale parameter (as `simulate`), `σ` (a number, or one SD per
   observation), or `Σ`, the full covariance matrix of the noise between observations
-  (`analysis-proto`). One SD per observation is needed for models that combine sequences with
+  One SD per observation is needed for models that combine sequences with
   different bandwidths (mcDESPOT: σ_SSFP = √3·σ_SPGR, Lankford & Does, MRM 2013;69:127) or
   numbers of averages; a full Σ for correlated noise (after denoising, a joint
   reconstruction, interpolation across volumes). Chosen by type, so the usual case, Σ = σ²I
@@ -1308,8 +1311,8 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   estimated from residuals, Kirstine.jl (optimal design for nonlinear regression),
   CorleoneOED and DynamicOED (dynamic systems) have no bias from wrong fixed values. The
   reusable part, the derivatives, is ForwardDiff's; F = JᵀΣ⁻¹J itself is one line.
-- **One implementation, fast: a cache and allocation-free pieces** (`analysis-proto`,
-  src/analysis/derivatives.jl; the kernel `_crlb!` in crlb.jl). Each step of `crlb` is a function
+- **One implementation, fast: a cache and allocation-free pieces** (src/analysis/derivatives.jl;
+  the kernel `_crlb!` in crlb.jl). Each step of `crlb` is a function
   of its own, one formula each, and the kernel is their composition:
 
   | Piece | Formula |
@@ -1508,7 +1511,7 @@ How, with what was measured:
 ### `montecarlo`: sweeps, and simulating with another model
 
 Status: one case and sweeps implemented, merged into `lean` (src/analysis/montecarlo.jl,
-sweep.jl); fit settings side by side and `simulate_with` implemented on `analysis-proto`.
+sweep.jl); fit settings side by side and `simulate_with` too (from `analysis-proto`).
 
 ```julia
 mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
@@ -1530,7 +1533,7 @@ What the first version does, and why:
 - `fit = (...)` as in `crlb`, but options pass through too (`precision`, `solver`: they change
   the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: Rician for
   magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. The noise as
-  `crlb` (`analysis-proto`): `snr`, `σ` a number or one per observation, or a full `Σ`;
+  `crlb`: `snr`, `σ` a number or one per observation, or a full `Σ`;
   `simulate` draws correlated noise as L·z (Σ = LLᵀ), for Rician noise in each channel; one σ
   given as a vector gives the same data, draw for draw (tested). `mc.σ` is now one SD per
   observation (it was a number).
@@ -1568,7 +1571,7 @@ s[1], s.settings[1], s.rows                  # a result, its setting, the table
   seeds: Gaussian −0.28, −0.27, −0.16% (± 0.05) against −0.22% predicted; Rician −0.34, −0.34,
   −0.21%. So mostly the shared sampling error, with at most ~0.06 points from Rician noise here.
 
-Fit settings side by side and data from another model (`analysis-proto`), for `crlb` and
+Fit settings side by side and data from another model (implemented), for `crlb` and
 `montecarlo` alike:
 
 ```julia
@@ -1804,7 +1807,7 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 1. `crlb`: unbiased and biased, Eq. 3 and the sandwich, σ per observation; tests: the paper's
    numbers and Li's Table 1.
 2. `montecarlo`, one case first (done), sweeps over `snr` and `vary` (done, with
-   `crlb`'s), fit settings side by side and `simulate_with` (done, `analysis-proto`); Figs. 1
+   `crlb`'s), fit settings side by side and `simulate_with` (done); Figs. 1
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).

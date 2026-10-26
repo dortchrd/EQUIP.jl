@@ -553,8 +553,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/** (started: `crlb`, `montecarlo`, sweeps): fit settings side by side, data from
-  another model (`simulate_with`), sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
+- **analysis/** (started: `crlb`, `montecarlo`, sweeps, fit settings side by side, data from
+  another model, `CRLBCache`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
   fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
