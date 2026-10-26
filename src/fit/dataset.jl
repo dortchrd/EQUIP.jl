@@ -68,6 +68,17 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     return FitResult(params, fixed, sse, iterations, status, cache.model, settings)
 end
 
+"""
+    fit(model, data, roles; options...) -> FitResult
+
+The same fit with the parameters' roles given as one named tuple, a complete set made once by
+[`parameters`](@ref)`(m; changes...)`: `fit(m, y, parameters(m; kmf = 15.0))` is
+`fit(m, y; kmf = 15.0)`. One voxel (`data` a vector) or a dataset. Keywords (`mask`,
+`precision`, `solver`, or a parameter, which then wins over its entry in `roles`) as without.
+"""
+fit(model::MRIModel, data::AbstractArray, roles::NamedTuple; kwargs...) =
+    fit(model, data; roles..., kwargs...)
+
 # A map (and the mask) must have the data's spatial size, not just as many voxels: a transposed
 # or reshaped map has the right count but puts its values in the wrong voxels, silently (a
 # transposed B1 map gave T1 errors up to 92%). Trailing dimensions of length 1 are ignored, so a

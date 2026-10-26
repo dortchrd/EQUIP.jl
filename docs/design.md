@@ -1282,6 +1282,22 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   :PSR => [0.1, 0.2]]` (a named tuple still works). `fits` (several settings side by side)
   stays a named tuple of named tuples, written `free = (; kmf = Free())`. Results unchanged
   (the 688 cases identical).
+- **Roles made by a call, passed whole** (`kwargs-proto`): `parameters(m; changes...)` returns
+  every parameter's role with the changes applied, by `setup`'s own rules (`_apply_roles`, shared
+  with `setup`), as `nominal(m; changes...)` returns every value. Every function that fits or
+  predicts a fit takes it as the argument after the data or the truth, with no splat:
+  `fit(m, y, roles)`, `init(m, roles)`, `crlb(m, θ, roles; snr)`, `montecarlo(m, θ, roles;
+  snr)`, `CRLBCache(m, roles)`, and the one-call pieces (`jacobian(m, θ, roles)`, ...); keywords
+  still change it further (a keyword wins over the roles' entry). Why: one set of assumptions
+  made once and kept, for the prediction (`crlb`), the check (`montecarlo`) and the real fit,
+  without writing named tuples. A model with its own `parameters(m::MyModel)` method still gets
+  the changes (a call with keywords goes to the general method, which asks the model's own for
+  the roles). Positional rather than a keyword (`fit = roles`): shorter, and the order reads
+  as what it is (model, data or truth, what the fit assumes). Arguments swapped (roles where the
+  truth goes) get the "is a role, not a value" message, the truth being checked first. Checked:
+  every built-in model's starts and fits (both precisions) bit-identical after moving `setup`'s
+  step 2 into `_apply_roles` (108 fingerprints); each function gives the keyword form's result
+  exactly.
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the

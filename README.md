@@ -168,6 +168,9 @@ fit(m, data; Sf = Free(lower = -1.5))            # another bound; start and uppe
 fit(m, data; PSR = Free(lower = -Inf))           # remove the model's lower bound (PSR ≥ 0)
 fit(m, data; kmf = 15.0, Sm = sm_map, mask)      # several at once (`mask` means `mask = mask`)
 
+roles = parameters(m; kmf = 15.0, Sm = 0.9)      # every role, two changed: a set to keep
+fit(m, data, roles)                              # the same as fit(m, data; kmf = 15.0, Sm = 0.9)
+
 mfa = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
 fit(mfa, data; B1 = b1map)                       # B1-corrected T1 mapping
 
@@ -355,7 +358,7 @@ Four functions give a model's parameters in different forms:
 
 | Function | Gives | Example (QMTSIR) |
 |---|---|---|
-| `parameters(m)`, `parameters(M)` | each parameter's role: free (start, bounds) or fixed; for a model or its type | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
+| `parameters(m)`, `parameters(M)`, `parameters(m; changes...)` | each parameter's role: free (start, bounds) or fixed; for a model or its type; with keywords, changed as a fit's keywords change them (pass the result whole: `fit(m, data, roles)`, `crlb(m, θ, roles; snr)`) | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
 | `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
 | `nominal(m; changes...)`, `nominal(m, tissue; changes...)` (a model or its type) | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
 | `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |
@@ -430,6 +433,8 @@ m = QMTSIR(; SIR_4POINT...)
 c = crlb(m, θ; snr = 200)                     # the fit fixes kmf at 12.5: biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR           # by quantity, then parameter
 crlb(m, θ; snr = 200, kmf = 5.0)             # the fit's settings, as for `fit`: unbiased
+roles = parameters(m; kmf = 10.0)             # or a complete set of roles, made once,
+crlb(m, θ, roles; snr = 200)                  # passed after the truth
 mc = montecarlo(m, θ; snr = 200)              # 10 000 noisy copies, Rician noise
 mc.sd.PSR / mc.crlb.sd.PSR, mc.se_sd.PSR      # measured against predicted, ± standard error
 ```
@@ -446,7 +451,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 - **Two inputs, kept apart:** the truth θ (every parameter, the fixed ones included: what the
   tissue is; change it with `nominal(m, :SIR_WM_I; kmf = 10.0)`) and the fit's settings,
   keywords named after the parameters as for `fit` (`kmf = 12.5`, `kmf = Free()`; the model's
-  own roles for the rest: what the fit assumes). The bias is zero unless a value the fit fixes
+  own roles for the rest: what the fit assumes), or a complete set of roles from
+  `parameters(m; changes...)`, passed after the truth (`crlb(m, θ, roles; snr = 200)`; the same
+  set fits real data: `fit(m, data, roles)`). The bias is zero unless a value the fit fixes
   differs from the truth's.
 - **How crlb works:** the noise-free data are fitted once, starting at the truth; their answer
   θ̂ gives the bias. The SD comes from derivatives at θ̂ (ForwardDiff), first order in the

@@ -61,8 +61,8 @@ struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R
 end
 
 """
-    montecarlo(m, truth; snr or σ or Σ, n = 10_000, noise, rng, vary, fits, simulate_with,
-               settings...)
+    montecarlo(m, truth[, roles]; snr or σ or Σ, n = 10_000, noise, rng, vary, fits,
+               simulate_with, settings...)
         -> MonteCarloResult or Sweep
 
 Simulate `n` noisy copies of one voxel with the values `truth`, fit them, and measure each
@@ -78,7 +78,8 @@ for the same truth, noise and fit settings.
 - The fit's settings: the keywords of [`fit`](@ref), as for `fit(m, y; ...)`: parameters'
   roles (`kmf = 5.0`, `kmf = Free()`), `solver`, `precision`; the model's own for the rest. The
   fits start as `fit` would start them, not at the truth, so local minima and the starting
-  rules are part of what is measured.
+  rules are part of what is measured. Roles made once, `roles = `[`parameters`](@ref)`(m;
+  kmf = 5.0)`, go after the truth: `montecarlo(m, θ, roles; snr = 200)`.
 - `noise`: `:rician` (the default for magnitude data) or `:gaussian` (the default when the
   data's model is for signed data, `magnitude = false`); crlb assumes Gaussian noise.
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
@@ -106,13 +107,16 @@ montecarlo(m, nominal(m, :SIR_WM_II); snr = 200, vary = :kmf => 5:2.5:20)    # F
 montecarlo(QMTSIR(; SIR_5POINT...), θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))
 ```
 """
-function montecarlo(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                    n::Integer = 10_000, noise = nothing, rng::AbstractRNG = Random.default_rng(),
-                    vary = (;), fits::NamedTuple = (;), simulate_with = nothing, settings...)
-    # The fit's settings: every keyword that is not one of montecarlo's own, as for `fit`
-    # (parameters' roles, and `fit`'s options `solver` and `precision`).
-    fit = _fitsettings("montecarlo", m, settings,
-                       (:snr, :σ, :Σ, :n, :noise, :rng, :vary, :fits, :simulate_with))
+function montecarlo(m::MRIModel, truth::NamedTuple, roles::NamedTuple = (;); snr = nothing,
+                    σ = nothing, Σ = nothing, n::Integer = 10_000, noise = nothing,
+                    rng::AbstractRNG = Random.default_rng(), vary = (;), fits::NamedTuple = (;),
+                    simulate_with = nothing, settings...)
+    # The fit's settings: the roles given, then every keyword that is not one of montecarlo's
+    # own, as for `fit` (parameters' roles, and `fit`'s options `solver` and `precision`). The
+    # truth first: roles in its place get the clearer message.
+    _reject_roles(truth)
+    fit = merge(roles, _fitsettings("montecarlo", m, settings,
+                                    (:snr, :σ, :Σ, :n, :noise, :rng, :vary, :fits, :simulate_with)))
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     any(_hasmap, values(truth)) && throw(ArgumentError("montecarlo simulates copies of one " *

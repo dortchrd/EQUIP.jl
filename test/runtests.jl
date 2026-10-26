@@ -1398,6 +1398,43 @@ end
             (S0 = 1000.0, T2 = 0.08); snr = 100, simulate_with = T2BiexpDecay(TE = te) => θb)))
     end
 
+    @testset "parameters(m; changes...): roles made by a call, passed whole" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m = QMTSIR(; SIR_4POINT...)
+        θ = nominal(m, :SIR_WM_I)
+        roles = parameters(m; kmf = 10.0, Sm = 0.9)
+        # every parameter's role, the two changed by the same rules as fit's keywords
+        @test keys(roles) == keys(parameters(m))
+        @test roles.kmf isa Fixed && roles.kmf.value == 10.0 && roles.Sm.value == 0.9
+        @test roles.PSR == parameters(m).PSR && roles.R1m == parameters(m).R1m
+        @test parameters(m; kmf = Free()).kmf.start == 12.5             # freed: starts at its value
+        @test parameters(m; R1f = Free(lower = 0.5)).R1f == Free(start = 1.0, lower = 0.5, upper = 10.0)
+        @test parameters(T1IR(TI = [0.1, 0.5, 1.0, 2.0]); T1 = Free(start = 1.0)).T1.start == 1.0
+        # a model with its own `parameters(m)` method: its roles, changed
+        dm = DataStartTest([0.01, 0.02])
+        @test parameters(dm; c = 2.0).c.value == 2.0 && parameters(dm; c = 2.0).T2 == parameters(dm).T2
+        # passed whole, after the data or the truth: the same as the keywords
+        y = simulate(m, θ; snr = 200, rng = MersenneTwister(1))
+        Y = simulate(m, θ; snr = 200, n = 20, rng = MersenneTwister(2))
+        kw = (kmf = 10.0, Sm = 0.9)
+        @test fit(m, y, roles).params == fit(m, y; kw...).params
+        @test isequal(fit(m, Y, roles).params, fit(m, Y; kw...).params)
+        @test fit!(init(m, roles), y).params == fit(m, y; kw...).params
+        c = crlb(m, θ, roles; snr = 200)
+        @test c.sd == crlb(m, θ; snr = 200, kw...).sd && c.bias == crlb(m, θ; snr = 200, kw...).bias
+        @test crlb!(CRLBCache(m, roles), θ; snr = 200).sd == c.sd
+        @test montecarlo(m, θ, roles; snr = 200, n = 200, rng = MersenneTwister(3)).sd ==
+              montecarlo(m, θ; snr = 200, n = 200, rng = MersenneTwister(3), kw...).sd
+        @test jacobian(m, θ, roles) == jacobian(m, θ; kw...) && bias(m, θ, roles) == c.bias
+        @test biasgradient(m, θ, roles) == biasgradient(m, θ; kw...)
+        @test informationmatrix(m, θ, roles; snr = 200) == informationmatrix(m, θ; snr = 200, kw...)
+        # a keyword wins over the roles' entry for the same parameter
+        @test crlb(m, θ, roles; snr = 200, kmf = 5.0).bias == crlb(m, θ; snr = 200, kmf = 5.0, Sm = 0.9).bias
+        # mistakes
+        @test occursin("`kfm` is not a parameter of QMTSIR", msg(() -> parameters(m; kfm = 1.0)))
+        @test occursin("role", msg(() -> crlb(m, roles, θ; snr = 200)))   # roles where the truth goes
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

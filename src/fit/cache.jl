@@ -59,6 +59,8 @@ function CommonSolve.init(model::MRIModel; precision::Type{<:AbstractFloat} = Fl
     settings = (; precision, solver, params...)    # kept for the results; `(; solver)` = `(solver = solver,)`
     return _cache(_with_precision(model, T), spec, opts, n, settings)
 end
+# The roles as one named tuple, made by `parameters(m; changes...)`: `init(m, roles)`.
+CommonSolve.init(model::MRIModel, roles::NamedTuple; kwargs...) = init(model; roles..., kwargs...)
 
 # A separate function so that P (the number of free parameters) is available as a type
 # parameter, to allocate the dual-number buffer with the right type.

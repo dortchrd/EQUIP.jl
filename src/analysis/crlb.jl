@@ -81,7 +81,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
 end
 
 """
-    crlb(m, truth; snr or σ or Σ, cov = :sandwich, vary, fits, simulate_with, settings...)
+    crlb(m, truth[, roles]; snr or σ or Σ, cov = :sandwich, vary, fits, simulate_with, settings...)
         -> CRLBResult or Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
@@ -102,7 +102,9 @@ SD from the derivatives at that fit's answer, first order in the noise.
   settings: `kmf = Free()` fits kmf, `kmf = 15.0` fixes it at 15. The bias is zero unless a
   fixed value differs from the truth; the classical CRLB with kmf fixed at its true value is
   `kmf = 5.0`. Bounds are the fit's. The truth stays `truth`: to change it, change `truth`
-  (`nominal(m, :SIR_WM_I; kmf = 10.0)`).
+  (`nominal(m, :SIR_WM_I; kmf = 10.0)`). A complete set of roles made once,
+  `roles = `[`parameters`](@ref)`(m; kmf = 10.0)`, goes after the truth, `crlb(m, θ, roles;
+  snr = 200)`; keywords then change it further.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
@@ -144,6 +146,8 @@ c = crlb(m, θ; snr = 200)                          # the fit fixes kmf at 12.5:
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR
 crlb(m, θ; snr = 200, kmf = 5.0)                  # kmf fixed at the truth: unbiased
 crlb(m, θ; snr = 200, kmf = Free())                # kmf fitted: unbiased, larger SD
+roles = parameters(m; kmf = 10.0)                  # a complete set of roles, made once
+crlb(m, θ, roles; snr = 200)                       # the fit those roles describe
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
 crlb(m, θ; snr = 200, vary = :kmf => 5:2.5:20)     # the bias against the true kmf (a Sweep)
 crlb(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))  # side by side
@@ -152,11 +156,15 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
      simulate_with = T2BiexpDecay(TE = te) => θb)
 ```
 """
-function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-              cov::Symbol = :sandwich, vary = (;), fits::NamedTuple = (;),
+function crlb(m::MRIModel, truth::NamedTuple, roles::NamedTuple = (;); snr = nothing, σ = nothing,
+              Σ = nothing, cov::Symbol = :sandwich, vary = (;), fits::NamedTuple = (;),
               simulate_with = nothing, settings...)
-    # The fit's settings: every keyword that is not one of crlb's own, as for `fit`.
-    fit = _fitsettings("crlb", m, settings, (:snr, :σ, :Σ, :cov, :vary, :fits, :simulate_with))
+    # The fit's settings: the roles given, then every keyword that is not one of crlb's own, as
+    # for `fit` (a keyword wins over the roles' entry for the same parameter). The truth first:
+    # roles in its place (the arguments swapped) get the clearer message.
+    _reject_roles(truth)
+    fit = merge(roles, _fitsettings("crlb", m, settings,
+                                    (:snr, :σ, :Σ, :cov, :vary, :fits, :simulate_with)))
     vary = _varyaxes(vary)
     _check_fits(fit, fits)
     _check_simulate_with(simulate_with)

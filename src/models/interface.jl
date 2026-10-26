@@ -204,10 +204,24 @@ Base.show(io::IO, f::Fixed) = print(io, "Fixed(", _showvalue(f.value), ")")   # 
 """
     parameters(m) -> NamedTuple
     parameters(M::Type) -> NamedTuple
+    parameters(m; changes...) -> NamedTuple
 
 Every parameter of a model with its default role, [`Free`](@ref) or [`Fixed`](@ref). The order
 is the order of the outputs. A fit can change any role with a keyword named after the parameter:
 `fit(m, data; kmf = 15.0)` (fixed at a value), `fit(m, data; kmf = Free())` (estimated).
+
+With keywords, the model's roles with those changes, by the same rules as `fit`'s keywords (a
+value fixes, `Free(...)` estimates and keeps the defaults it leaves out): a complete set of
+roles made by a call, to keep and pass on, as `nominal(m; kmf = 10.0)` makes a complete set of
+values. Every function that fits or predicts a fit takes it as its argument after the data or
+the truth:
+
+```julia
+roles = parameters(m; kmf = 10.0, Sm = 0.9)     # every parameter's role, two of them changed
+fit(m, y, roles)                                 # the same as fit(m, y; kmf = 10.0, Sm = 0.9)
+crlb(m, θ, roles; snr = 200)
+montecarlo(m, θ, roles; snr = 200)
+```
 
 The roles are a property of the model's type, the same for every acquisition, so a model
 declares them for its type, and asking a model (an instance) asks its type:
@@ -242,7 +256,17 @@ function parameters end
 # (`eltype(x) = eltype(typeof(x))`), then compute the starts that depend on the acquisition for
 # this model's, so `parameters(T1IR(TI = ...))` shows the BestOf values for those TIs. A model's
 # own `parameters(m::MyModel)` method, if it has one, is more specific and wins.
-parameters(m::MRIModel) = map(r -> _at_acquisition(r, m), parameters(typeof(m)))
+#
+# With keywords, the changes are applied as `setup` applies a fit's keywords (`_apply_roles`,
+# fit/setup.jl). A model's own `parameters(m::MyModel)` takes no keywords, so a call with
+# keywords comes here (Julia dispatches keyword calls to the methods that take keywords), and
+# `parameters(m)` below then asks the model's own method.
+function parameters(m::MRIModel; changes...)
+    isempty(changes) && return map(r -> _at_acquisition(r, m), parameters(typeof(m)))
+    roles = parameters(m)
+    return _apply_roles(m, roles, changes, n -> ArgumentError("`$n` is not a parameter of " *
+        "$(nameof(typeof(m))); the parameters are $(join(keys(roles), ", "))"))
+end
 
 # A model or a model type: what `nominal` and `defaults` accept.
 const _ModelOrType = Union{MRIModel,Type{<:MRIModel}}

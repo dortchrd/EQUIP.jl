@@ -26,7 +26,7 @@
 # From a model and values, one call each (a cache made inside; allocating results, for the REPL):
 #
 #   noisecovariance(m, θ; snr | σ | Σ)     Σ (N×N)
-#   noisefree(m, θ; settings...)           θ̂, a FitResult;  bias(m, θ; settings...): θ̂ − θ
+#   noisefree(m, θ[, roles]; settings...)  θ̂, a FitResult;  bias(m, θ; settings...): θ̂ − θ
 #   jacobian(m, θ; settings...), jacobian(r)              J (N×P)
 #   hessian(m, θ, y; Σ, settings...), hessian(r, y)
 #   informationmatrix(m, θ; noise, settings...)           JᵀΣ⁻¹J, or the observed information
@@ -40,7 +40,8 @@
 # derivatives (`jacobian`, `hessian`, `informationmatrix`) are taken AT θ: the settings say which
 # parameters are free (the columns of J), and every value is θ's. So with a fit that fixes kmf at
 # 12.5 for a tissue with kmf = 5, `jacobian(m, θ)` is the true signal's J_t (kmf = 5) and
-# `jacobian(noisefree(m, θ))` the fit's J₀ at its answer (kmf = 12.5).
+# `jacobian(noisefree(m, θ))` the fit's J₀ at its answer (kmf = 12.5). A complete set of roles
+# made once, `roles = parameters(m; kmf = 10.0)`, can be passed after θ instead (no keywords).
 # =================================================================================================
 
 # The noise-free fit's solver: the step tolerance alone, and room to get there. 1e-10 gives θ̂ to
@@ -58,7 +59,7 @@ const _EXACT = 1e-12
 # -------------------------------------------------------------------------------------------------
 
 """
-    CRLBCache(m; cov = :sandwich, settings...)
+    CRLBCache(m[, roles]; cov = :sandwich, settings...)
 
 What [`crlb`](@ref) needs that depends on the fit settings but not on the truth or the noise,
 made once: the fit's free parameters (in the type, so the compiler knows how many), their
@@ -67,7 +68,7 @@ noise-free fit and the buffers. What [`init`](@ref) is for fitting. Reuse it wit
 [`crlb!`](@ref) for many truths or noise levels (several tissues, a sweep): the setup is most
 of a one-off call's time. Not thread-safe: one cache per task. The fit's settings are keywords
 named after the parameters, as for [`fit`](@ref) (`kmf = Free()`, `kmf = 15.0`); the model's
-own roles for the rest.
+own roles for the rest; or a complete set made once, `CRLBCache(m, parameters(m; kmf = 15.0))`.
 
 ```julia
 c = CRLBCache(m; kmf = Free())
@@ -88,8 +89,8 @@ struct CRLBCache{F,P,T,M,MT,X,B1,B2}
     hbuf::B2                   # Vector{Dual{CRLBTag,Dual{FitTag,T,P},P}}: J₀ and ∇²g at θ̂
 end
 
-CRLBCache(m::MRIModel; cov::Symbol = :sandwich, settings...) =
-    _CRLBCache(m, _fitsettings("CRLBCache", m, settings, (:cov,)), cov)
+CRLBCache(m::MRIModel, roles::NamedTuple = (;); cov::Symbol = :sandwich, settings...) =
+    _CRLBCache(m, merge(roles, _fitsettings("CRLBCache", m, settings, (:cov,))), cov)
 # The same with the settings as a named tuple: what the functions below call.
 function _CRLBCache(m::MRIModel, fit::NamedTuple, cov::Symbol)
     cov in (:sandwich, :biased) ||
@@ -488,7 +489,7 @@ _kernelnoise(Σ::UniformScaling, P) = Float64(Σ.λ)
 # -------------------------------------------------------------------------------------------------
 
 """
-    noisefree(m, θ; simulate_with, settings...) -> FitResult
+    noisefree(m, θ[, roles]; simulate_with, settings...) -> FitResult
 
 The fit of the noise-free data `signal(m, θ)`, with the fit's settings as keywords named after
 the parameters (as for [`fit`](@ref): `kmf = 12.5`, `kmf = Free()`; the model's own roles for
@@ -498,8 +499,10 @@ fits center (the "pseudo-true" values): θ itself unless a fixed value of the fi
 (`simulate_with = m2 => θ2`, as for [`crlb`](@ref)). A [`FitResult`](@ref): [`bias`](@ref),
 [`jacobian`](@ref) and [`hessian`](@ref) take it.
 """
-function noisefree(m::MRIModel, θ::NamedTuple; simulate_with = nothing, settings...)
-    fit = _fitsettings("noisefree", m, settings, (:simulate_with,))
+function noisefree(m::MRIModel, θ::NamedTuple, roles::NamedTuple = (;); simulate_with = nothing,
+                   settings...)
+    _reject_roles(θ)
+    fit = merge(roles, _fitsettings("noisefree", m, settings, (:simulate_with,)))
     dm, dθ = _datasource(m, θ, simulate_with)
     c = _CRLBCache(m, fit, :sandwich)
     dmT = simulate_with === nothing ? c.mT : _with_precision(dm, Float64)
@@ -513,7 +516,7 @@ function _noisefree(c::CRLBCache{F}, t, dm, dt, fit) where {F}
 end
 
 """
-    bias(m, θ; simulate_with, settings...) -> named tuple
+    bias(m, θ[, roles]; simulate_with, settings...) -> named tuple
     bias(r::FitResult, θ) -> named tuple
 
 The bias b = θ̂ − θ of each free parameter of the fit: the noise-free fit's values
@@ -521,8 +524,8 @@ The bias b = θ̂ − θ of each free parameter of the fit: the noise-free fit's
 or the data come from another model (`simulate_with`). The second form takes the noise-free fit
 itself.
 """
-bias(m::MRIModel, θ::NamedTuple; simulate_with = nothing, settings...) =
-    bias(noisefree(m, θ; simulate_with, settings...), θ)
+bias(m::MRIModel, θ::NamedTuple, roles::NamedTuple = (;); simulate_with = nothing, settings...) =
+    bias(noisefree(m, θ, roles; simulate_with, settings...), θ)
 function bias(r::FitResult, θ::NamedTuple)
     θt = resolve(r.model, θ)
     F = keys(r.params)
@@ -545,7 +548,7 @@ function _matrix(buf)
 end
 
 """
-    jacobian(m, θ; settings...) -> Matrix (N×P)
+    jacobian(m, θ[, roles]; settings...) -> Matrix (N×P)
     jacobian(r::FitResult) -> Matrix
 
 The Jacobian J = ∂g/∂θ of the signal g = `signal(m, θ)`: row i observation i, column j the
@@ -567,8 +570,11 @@ J5 = jacobian(m, θ; kmf = Free())           # 4×5: kmf too
 Also exported by Zygote and DifferentiationInterface: with either loaded, write
 `EQUIP.jacobian`.
 """
-jacobian(m::MRIModel, θ::NamedTuple; settings...) =
-    _jacobian(_CRLBCache(m, _fitsettings("jacobian", m, settings, ()), :sandwich), _crlb_truth(m, θ))
+function jacobian(m::MRIModel, θ::NamedTuple, roles::NamedTuple = (;); settings...)
+    _reject_roles(θ)
+    fit = merge(roles, _fitsettings("jacobian", m, settings, ()))
+    return _jacobian(_CRLBCache(m, fit, :sandwich), _crlb_truth(m, θ))
+end
 jacobian(r::FitResult) = _jacobian(_cacheof(r), r)
 function _jacobian(c::CRLBCache, t::NamedTuple)
     attruth!(c.fitbuf, c, c.mT, t, _freevalues(c, t))
@@ -580,7 +586,7 @@ function _jacobian(c::CRLBCache, r::FitResult)
 end
 
 """
-    hessian(m, θ, y; Σ = I, settings...) -> Matrix (P×P)
+    hessian(m, θ, y[, roles]; Σ = I, settings...) -> Matrix (P×P)
     hessian(r::FitResult, y; Σ = I) -> Matrix
 
 The Hessian of the cost ½ rᵀΣ⁻¹r, r = g(θ) − y the residual of the data `y`, with respect to the
@@ -597,8 +603,12 @@ numbers, exact to rounding.
 The second form: at a one-voxel fit's answer, e.g. `hessian(noisefree(m, θ), signal(m, θ))`,
 the H of [`crlb`](@ref).
 """
-hessian(m::MRIModel, θ::NamedTuple, y::AbstractVector; Σ = I, settings...) =
-    _hessian(_CRLBCache(m, _fitsettings("hessian", m, settings, (:Σ,)), :sandwich), _crlb_truth(m, θ), y, Σ)
+function hessian(m::MRIModel, θ::NamedTuple, y::AbstractVector, roles::NamedTuple = (;);
+                 Σ = I, settings...)
+    _reject_roles(θ)
+    fit = merge(roles, _fitsettings("hessian", m, settings, (:Σ,)))
+    return _hessian(_CRLBCache(m, fit, :sandwich), _crlb_truth(m, θ), y, Σ)
+end
 hessian(r::FitResult, y::AbstractVector; Σ = I) = _hessian(_cacheof(r), r, y, Σ)
 function _hessian(c::CRLBCache{F,P}, at, y, Σ) where {F,P}
     length(y) == length(c.y) ||
@@ -611,7 +621,7 @@ function _hessian(c::CRLBCache{F,P}, at, y, Σ) where {F,P}
 end
 
 """
-    informationmatrix(m, θ; snr or σ or Σ, expected = true, y, settings...) -> Matrix (P×P)
+    informationmatrix(m, θ[, roles]; snr or σ or Σ, expected = true, y, settings...) -> Matrix (P×P)
 
 The information matrix of the free parameters (as for [`jacobian`](@ref)) at the values θ, for
 Gaussian noise (the noise as for [`noisecovariance`](@ref)). `expected = true`: the Fisher
@@ -626,9 +636,10 @@ F = informationmatrix(m, θ; snr = 200)       # at the truth
 sqrt.(diag(inv(F)))                          # the classical CRLB of each SD
 ```
 """
-function informationmatrix(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                           expected::Bool = true, y = nothing, settings...)
-    fit = _fitsettings("informationmatrix", m, settings, (:snr, :σ, :Σ, :expected, :y))
+function informationmatrix(m::MRIModel, θ::NamedTuple, roles::NamedTuple = (;); snr = nothing,
+                           σ = nothing, Σ = nothing, expected::Bool = true, y = nothing, settings...)
+    _reject_roles(θ)
+    fit = merge(roles, _fitsettings("informationmatrix", m, settings, (:snr, :σ, :Σ, :expected, :y)))
     Σn = noisecovariance(m, θ; snr, σ, Σ)
     expected || return hessian(m, θ, something(y, signal(m, θ)); Σ = Σn, fit...)
     return _information(_CRLBCache(m, fit, :sandwich), _crlb_truth(m, θ), Σn)
@@ -639,7 +650,7 @@ function _information(c::CRLBCache{F,P}, t, Σn) where {F,P}
 end
 
 """
-    biasgradient(m, θ; method = :implicit, steps = 3, settings...) -> Matrix (P×P)
+    biasgradient(m, θ[, roles]; method = :implicit, steps = 3, settings...) -> Matrix (P×P)
 
 The bias gradient ∇b = ∂b/∂θ: how the bias of each free parameter of the fit (row) changes with
 the true value of each (column), in Eq. 3 of Dortch et al., MRM 2018 (see [`biasedcrlb`](@ref)).
@@ -656,9 +667,10 @@ Zero when nothing fixed is wrong. Two ways, which agree (tested):
 
 `NaN` when the data cannot determine the parameters (`:implicit`).
 """
-function biasgradient(m::MRIModel, θ::NamedTuple; method::Symbol = :implicit, steps::Integer = 3,
-                      settings...)
-    fit = _fitsettings("biasgradient", m, settings, (:method, :steps))
+function biasgradient(m::MRIModel, θ::NamedTuple, roles::NamedTuple = (;); method::Symbol = :implicit,
+                      steps::Integer = 3, settings...)
+    _reject_roles(θ)
+    fit = merge(roles, _fitsettings("biasgradient", m, settings, (:method, :steps)))
     method in (:implicit, :unrolled) ||
         throw(ArgumentError("`method` must be :implicit or :unrolled, got $(repr(method))"))
     method === :unrolled && return _biasgradient_unrolled(m, θ, fit, steps)

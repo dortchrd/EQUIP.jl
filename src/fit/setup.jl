@@ -101,6 +101,21 @@ _value(x::Real, ::Type{T}) where {T} = T(x)
 _value(x::Symbol, ::Type{T}) where {T} = _Tie(x)
 _value(x, ::Type{T}) where {T} = x
 
+# The roles with the keywords applied, one parameter each: what `setup` does first, and what
+# `parameters(m; changes...)` returns. `merge(a, b)` replaces a's entry by b's with the same name
+# and keeps a's order: (…, kmf = Fixed(12.5), …) becomes (…, kmf = Fixed(15.0), …). A start that
+# depends on the acquisition, written as a function of the model (`ADC = Free(start = m -> 1 /
+# mean(m.b))`), is then computed, once, for this model: the model's own or one given here.
+# `unknown(name)` makes the error for a keyword that is not a parameter.
+function _apply_roles(model::MRIModel, roles::NamedTuple, changes, unknown)
+    for (n, x) in pairs(changes)
+        haskey(roles, n) || throw(unknown(n))
+        x isa Free && x.start === :scale && _check_scale(model, n)
+        roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
+    end
+    return map(r -> _at_acquisition(r, model), roles)
+end
+
 """
     setup(model, T = Float64; params...) -> FitSpec
 
@@ -122,21 +137,12 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
             "which is also an option of fit ($(join(_OPTIONS, ", "))); rename the parameter"))
     end
 
-    # 2. Apply the keywords, one parameter each. `merge(a, b)` replaces a's entry by b's with the
-    #    same name and keeps a's order: (…, kmf = Fixed(12.5), …) becomes (…, kmf = Fixed(15.0), …).
-    for (n, x) in pairs(params)
-        haskey(roles, n) || throw(ArgumentError(
-            n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
-            n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
-            "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
-            "nor an option ($(join(_OPTIONS, ", ")))"))
-        x isa Free && x.start === :scale && _check_scale(model, n)
-        roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
-    end
-    #    A start that depends on the acquisition, written as a function of the model
-    #    (`ADC = Free(start = m -> 1 / mean(m.b))`), is computed now, once, for this model:
-    #    the model's own or one given in this call.
-    roles = map(r -> _at_acquisition(r, model), roles)
+    # 2. Apply the keywords, one parameter each (`_apply_roles`, below).
+    roles = _apply_roles(model, roles, params, n -> ArgumentError(
+        n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
+        n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
+        "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
+        "nor an option ($(join(_OPTIONS, ", ")))"))
 
     # 3. Split by role, keeping the model's order.
     F = Tuple(n for n in names if roles[n] isa Free)     # e.g. (:PSR, :R1f, :Sf, :M0f)
