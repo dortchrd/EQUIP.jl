@@ -1,8 +1,9 @@
 # =================================================================================================
 # Sweeps: crlb or montecarlo over several noise levels and true values
 #
-#   crlb(m, θ; snr = [100, 200], vary = (kmf = 5:2.5:20,))       14 settings, one crlb each
-#   montecarlo(m, θ; snr = 200, vary = (kmf = 5:2.5:20,))         7 settings, one run each
+#   crlb(m, θ; snr = [100, 200], vary = :kmf => 5:2.5:20)        14 settings, one crlb each
+#   montecarlo(m, θ; snr = 200, vary = :kmf => 5:2.5:20)          7 settings, one run each
+#   crlb(m, θ; snr = 200, vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]])   8 settings
 #
 # The settings are every combination of the values given, the first keyword varying slowest
 # (like nested loops written in that order), and the fit settings (`fits`) fastest, so a table
@@ -16,7 +17,7 @@
     Sweep
 
 What [`crlb`](@ref) and [`montecarlo`](@ref) return for several settings (`snr = [...]`,
-`vary = (...)`):
+`vary = :kmf => 5:2.5:20`):
 
 - `settings`: one named tuple per setting, e.g. `(snr = 100, kmf = 5.0)`
 - `results`: the [`CRLBResult`](@ref) or [`MonteCarloResult`](@ref) of each, in the same order;
@@ -38,18 +39,31 @@ Base.eltype(::Type{Sweep{R}}) where {R} = R
 
 _issweep(snr, vary, fits = (;)) = snr isa AbstractVector || !isempty(vary) || !isempty(fits)
 
+# `vary` as a named tuple of axes, from one pair (`:kmf => 5:2.5:20`), several (a vector or tuple
+# of pairs: `[:kmf => 5:5:20, :PSR => [0.1, 0.2]]`), or a named tuple (`(kmf = 5:5:20, PSR =
+# [0.1, 0.2])`). `(; pairs...)` makes a named tuple from pairs of a name and a value.
+_varyaxes(v::NamedTuple) = v
+_varyaxes(v::Pair{Symbol}) = NamedTuple{(v.first,)}((v.second,))
+function _varyaxes(v::Union{AbstractVector,Tuple})
+    all(p -> p isa Pair{Symbol}, v) || throw(ArgumentError(_VARY_FORMS))
+    return (; v...)
+end
+_varyaxes(v) = throw(ArgumentError(_VARY_FORMS))
+const _VARY_FORMS = "`vary`: a parameter's name and its true values, `vary = :kmf => 5:2.5:20`, " *
+    "or several, `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`"
+
 # Every combination of the noise levels and the varied values, the first keyword slowest.
 # `Iterators.product` varies its FIRST argument fastest, so the axes go in reversed and each
 # combination is reversed back.
 function _sweep_settings(m::MRIModel, snr, vary::NamedTuple, fits::NamedTuple = (;))
     roles = parameters(m)
     for (k, v) in pairs(vary)
-        k === :fit && throw(ArgumentError("`vary = (; fit)`: `fit` names the fit settings in a " *
-            "sweep; for several fit settings use `fits`"))
-        haskey(roles, k) || throw(ArgumentError("`vary = (; $k)`: not a parameter of " *
+        k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fit settings " *
+            "in a sweep; for several fit settings use `fits`"))
+        haskey(roles, k) || throw(ArgumentError("`vary = :$k => ...`: not a parameter of " *
             "$(nameof(typeof(m))); the parameters are $(keys(roles))"))
-        v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = ($k = ...)`: give " *
-            "the values as a vector or a range, e.g. `$k = [5.0, 10.0]` or `$k = 5:2.5:20`"))
+        v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = :$k => ...`: give " *
+            "the values as a vector or a range, e.g. `:$k => [5.0, 10.0]` or `:$k => 5:2.5:20`"))
     end
     ax = map(collect, vary)                    # the axes: the values of each keyword
     snr isa AbstractVector && (ax = merge((snr = collect(snr),), ax))   # the noise level first

@@ -429,7 +429,7 @@ m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)                     # the truth: kmf = 5 in this tissue
 c = crlb(m, θ; snr = 200)                     # the fit fixes kmf at 12.5: biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR           # by quantity, then parameter
-crlb(m, θ; snr = 200, fit = (kmf = 5.0,))     # the fit's settings, as for `fit`: unbiased
+crlb(m, θ; snr = 200, kmf = 5.0)             # the fit's settings, as for `fit`: unbiased
 mc = montecarlo(m, θ; snr = 200)              # 10 000 noisy copies, Rician noise
 mc.sd.PSR / mc.crlb.sd.PSR, mc.se_sd.PSR      # measured against predicted, ± standard error
 ```
@@ -443,9 +443,11 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   M0f        1.0   1.0             0.0002192  0.0219%   0.009748  0.975%  0.00975  0.975%
 ```
 
-- **Two inputs, kept apart:** the truth (every parameter, the fixed ones included: what the
-  tissue is) and the fit's settings (`fit = (...)`, the model's own roles when left out: what
-  the fit assumes). The bias is zero unless a value the fit fixes differs from the truth's.
+- **Two inputs, kept apart:** the truth θ (every parameter, the fixed ones included: what the
+  tissue is; change it with `nominal(m, :SIR_WM_I; kmf = 10.0)`) and the fit's settings,
+  keywords named after the parameters as for `fit` (`kmf = 12.5`, `kmf = Free()`; the model's
+  own roles for the rest: what the fit assumes). The bias is zero unless a value the fit fixes
+  differs from the truth's.
 - **How crlb works:** the noise-free data are fitted once, starting at the truth; their answer
   θ̂ gives the bias. The SD comes from derivatives at θ̂ (ForwardDiff), first order in the
   noise. Two covariances: `cov = :sandwich` (default), the covariance of the least-squares fit
@@ -460,9 +462,10 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   minima and Rician noise are part of what is measured; the statistics come with standard
   errors (`se_mean`, `se_sd`). The parameters are fitted to the same noise, so their errors move
   together: several ratios low in one sample are one fluctuation, not several.
-- **Sweeps:** `snr = [100, 200, 400]` and `vary = (kmf = 5:2.5:20,)` (true values; the fit's
-  settings stay, so this is the bias of an assumption against the truth, the paper's Fig. 2B)
-  run every combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
+- **Sweeps:** `snr = [100, 200, 400]` and `vary = :kmf => 5:2.5:20` (true values; several as
+  `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`; the fit's settings stay, so this is the bias
+  of an assumption against the truth, the paper's Fig. 2B), and fit settings side by side,
+  `fits = (fixed = (;), free = (; kmf = Free()))`, run every combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
   (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed
   drawn from `rng`), so differences between settings are not noise.
 - **Noise:** `snr` (relative to M0), `σ` (a number, or one SD per observation, e.g. different
@@ -477,25 +480,25 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `crlb!`; reuse the cache for many truths or noise levels (sweeps do):
 
   ```julia
-  c = CRLBCache(m; fit = (kmf = Free(),))
+  c = CRLBCache(m; kmf = Free())
   [crlb!(c, nominal(m, t); snr = 200) for t in (:SIR_WM_I, :SIR_GM)]
   ```
 
   A one-off `crlb` takes 40–55 µs (4- to 16-point SIR), `crlb!` 10–24 µs, and the
   allocation-free kernel inside 1–16 µs. Each step is a function of its own, summed over the
   observations one row of J at a time (as the solver sums JᵀJ), with one-call versions from a
-  model and values (θ the values, `fit` the fit settings; the derivatives are taken at θ, with
-  `fit` choosing the free parameters):
+  model and values (θ the values, the fit's settings as keywords; the derivatives are taken at
+  θ, with the settings choosing the free parameters):
 
   | Function | Gives |
   |---|---|
   | `noisecovariance(m, θ; snr)` | Σ, the noise covariance (N×N) |
-  | `noisefree(m, θ; fit)` | θ̂, the fit of the noise-free data (a `FitResult`) |
-  | `bias(m, θ; fit)` | b = θ̂ − θ |
-  | `jacobian(m, θ; fit)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at θ or at a fit's answer |
-  | `hessian(m, θ, y; fit)`, `hessian(r, y)` | H = JᵀJ + Σᵢ rᵢ∇²gᵢ, the cost's Hessian |
-  | `informationmatrix(m, θ; snr, fit)` | F = JᵀΣ⁻¹J |
-  | `biasgradient(m, θ; fit)` | ∇b (implicit function theorem, or `method = :unrolled`) |
+  | `noisefree(m, θ; settings...)` | θ̂, the fit of the noise-free data (a `FitResult`) |
+  | `bias(m, θ; settings...)` | b = θ̂ − θ |
+  | `jacobian(m, θ; settings...)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at θ or at a fit's answer |
+  | `hessian(m, θ, y; settings...)`, `hessian(r, y)` | H = JᵀJ + Σᵢ rᵢ∇²gᵢ, the cost's Hessian |
+  | `informationmatrix(m, θ; snr, settings...)` | F = JᵀΣ⁻¹J |
+  | `biasgradient(m, θ; settings...)` | ∇b (implicit function theorem, or `method = :unrolled`) |
   | `sandwich(H, J, Σ)` | H⁻¹JᵀΣJH⁻¹, the least-squares fit's covariance |
   | `biasedcrlb(∇b, F)` | (I + ∇b)F⁻¹(I + ∇b)ᵀ, Eq. 3 |
 

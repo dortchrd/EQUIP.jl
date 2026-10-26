@@ -81,7 +81,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
 end
 
 """
-    crlb(m, truth; snr or σ or Σ, fit = (...), cov = :sandwich, vary, fits, simulate_with)
+    crlb(m, truth; snr or σ or Σ, cov = :sandwich, vary, fits, simulate_with, settings...)
         -> CRLBResult or Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
@@ -97,23 +97,25 @@ SD from the derivatives at that fit's answer, first order in the noise.
   between observations (correlated noise, e.g. after denoising or a joint reconstruction).
   Chosen by type, so the common case, one σ for every observation ("pulled out" of
   JᵀΣ⁻¹J = JᵀJ/σ²), costs nothing extra.
-- `fit`: the fit's settings, the keywords of [`fit`](@ref) in a named tuple; the model's own
-  roles when left out. The prediction is for a fit with these settings: `fit = (kmf = Free(),)`
-  fits kmf, `fit = (kmf = 15.0,)` fixes it at 15. The bias is zero unless a fixed value differs
-  from the truth; the classical CRLB with kmf fixed at its true value is `fit = (kmf = 5.0,)`.
-  Bounds are the fit's.
+- The fit's settings: keywords named after the parameters, as for [`fit`](@ref)`(m, y; ...)`;
+  the model's own roles (`parameters(m)`) for the rest. The prediction is for a fit with these
+  settings: `kmf = Free()` fits kmf, `kmf = 15.0` fixes it at 15. The bias is zero unless a
+  fixed value differs from the truth; the classical CRLB with kmf fixed at its true value is
+  `kmf = 5.0`. Bounds are the fit's. The truth stays `truth`: to change it, change `truth`
+  (`nominal(m, :SIR_WM_I; kmf = 10.0)`).
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
   are the classical CRLB σ²(JᵀJ)⁻¹ when nothing fixed is wrong, and equal each other when the
   fit is exact (as many observations as free parameters); otherwise `:biased` ≤ `:sandwich`.
-- Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = (kmf = 5:2.5:20,)` (several
-  true values of a parameter; the fit's settings stay as they are, so this is the bias of a
+- Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = :kmf => 5:2.5:20` (several
+  true values of a parameter; several parameters as a vector of pairs, every combination; the
+  fit's settings stay as they are, so this is the bias of a
   wrong assumption against the truth, Dortch 2018 Fig. 2B). Every combination is computed, the
   first keyword varying slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
-- Fit settings side by side: `fits = (fixed = (;), free = (kmf = Free(),))`, named; one more
+- Fit settings side by side: `fits = (fixed = (;), free = (; kmf = Free()))`, named; one more
   axis of the sweep (the last, so a table has the settings of one case next to each other).
-  Instead of `fit`.
+  Instead of settings given as keywords.
 - Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
   every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
   against `truth`, your reference values for `m`'s parameters (e.g. the long T2 of a
@@ -129,7 +131,8 @@ bounds hit by noisy fits and nonlinearity at low SNR are not modelled: simulate 
 those.
 
 For many truths or noise levels with the same fit settings, make the setup once:
-`c = CRLBCache(m; fit, cov)`, then [`crlb!`](@ref)`(c, θ; snr)` (sweeps do this themselves).
+`c = CRLBCache(m; cov, settings...)`, then [`crlb!`](@ref)`(c, θ; snr)` (sweeps do this
+themselves).
 Each step is a function of its own, for use alone or to check this one: [`noisecovariance`](@ref),
 [`noisefree`](@ref), [`bias`](@ref), [`jacobian`](@ref), [`hessian`](@ref),
 [`informationmatrix`](@ref), [`biasgradient`](@ref), [`sandwich`](@ref), [`biasedcrlb`](@ref).
@@ -139,32 +142,34 @@ m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)                          # kmf = 5 in this tissue
 c = crlb(m, θ; snr = 200)                          # the fit fixes kmf at 12.5: biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR
-crlb(m, θ; snr = 200, fit = (kmf = 5.0,))          # kmf fixed at the truth: unbiased
+crlb(m, θ; snr = 200, kmf = 5.0)                  # kmf fixed at the truth: unbiased
+crlb(m, θ; snr = 200, kmf = Free())                # kmf fitted: unbiased, larger SD
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
-crlb(m, θ; snr = 200, vary = (kmf = 5:2.5:20,))    # the bias against the true kmf (a Sweep)
-crlb(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))   # side by side
+crlb(m, θ; snr = 200, vary = :kmf => 5:2.5:20)     # the bias against the true kmf (a Sweep)
+crlb(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))  # side by side
 θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
      simulate_with = T2BiexpDecay(TE = te) => θb)
 ```
 """
 function crlb(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-              fit::NamedTuple = (;), cov::Symbol = :sandwich, vary::NamedTuple = (;),
-              fits::NamedTuple = (;), simulate_with = nothing)
+              cov::Symbol = :sandwich, vary = (;), fits::NamedTuple = (;),
+              simulate_with = nothing, settings...)
+    # The fit's settings: every keyword that is not one of crlb's own, as for `fit`.
+    fit = _fitsettings("crlb", m, settings, (:snr, :σ, :Σ, :cov, :vary, :fits, :simulate_with))
+    vary = _varyaxes(vary)
     _check_fits(fit, fits)
     _check_simulate_with(simulate_with)
-    # `fit` is a keyword here, so inside this function the name means the settings, not the
-    # function `fit`.
     if _issweep(snr, vary, fits)
         # A sweep (sweep.jl): one cache per fit setting, reused for every noise level and truth.
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
-        caches = isempty(fits) ? (CRLBCache(m; fit, cov),) : map(f -> CRLBCache(m; fit = f, cov), fits)
+        caches = isempty(fits) ? (_CRLBCache(m, fit, cov),) : map(f -> _CRLBCache(m, f, cov), fits)
         cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches[1]
         results = [crlb!(cacheof(st), _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr),
                          σ, Σ, simulate_with = _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return crlb!(CRLBCache(m; fit, cov), truth; snr, σ, Σ, simulate_with)
+    return crlb!(_CRLBCache(m, fit, cov), truth; snr, σ, Σ, simulate_with)
 end
 
 """
@@ -373,8 +378,9 @@ _print_data(io::IO, d::Pair) =
           join(("$n = $(_showvalue(x))" for (n, x) in pairs(d.second)), ", "))
 
 # Checks shared with `montecarlo`.
-_check_fits(fit, fits) = isempty(fit) || isempty(fits) || throw(ArgumentError("give `fit` " *
-    "(one set of fit settings) or `fits` (several, side by side, by name), not both"))
+_check_fits(fit, fits) = isempty(fit) || isempty(fits) || throw(ArgumentError("give the fit's " *
+    "settings as keywords (one set: `kmf = 5.0`) or `fits` (several, side by side, by name), " *
+    "not both"))
 
 Base.show(io::IO, c::CRLBResult) =
     print(io, "CRLBResult(", nameof(typeof(c.model)), ": ", join(keys(c.fit), ", "), ")")

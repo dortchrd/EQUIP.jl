@@ -1254,20 +1254,34 @@ covariances), the exact-fit identity, ∇b against central differences of noise-
 m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)
 c = crlb(m, θ; snr = 200)                                 # kmf fixed at 12.5, truth 5: biased
-c = crlb(m, θ; snr = 200, fit = (kmf = Free(),))          # kmf fitted: unbiased
+c = crlb(m, θ; snr = 200, kmf = Free())                   # kmf fitted: unbiased
 c = crlb(m, θ; σ = [σ1, σ2, σ3, σ4], cov = :biased)       # σ per observation; Eq. 3
 c.bias.PSR, c.sd.PSR, c.rmse.PSR             # absolute, by name (as res.params.PSR)
 c.relbias.PSR, c.relsd.PSR, c.relrmse.PSR    # relative to the truth (Eq. 5 sums relrmse²)
 c.fit, c.cov                                 # the noise-free fit's values; the covariance matrix
 ```
 
-- `truth` gives every parameter (as for `simulate`; `nominal(m, tissue)`); `fit = (...)` gives
-  the fit's roles, the keywords of `fit` (the model's own roles when left out). The estimate is
-  biased exactly when a value the fit fixes differs from the truth (kmf fixed at 12.5, data with
-  kmf = 5). One function where the MATLAB code has two (`CRLB_SIR`, `biasedCRLB_SIR_fixedkmf`).
-  No separate "unbiased" option: the classical CRLB with kmf fixed at its true value is
-  `fit = (kmf = 5.0,)`. The fit settings are one keyword, not splatted, so they cannot clash with
-  `crlb`'s own keywords.
+- `truth` gives every parameter (as for `simulate`; `nominal(m, tissue)`); keywords named after
+  the parameters give the fit's roles, as for `fit(m, y; kmf = 12.5)` (the model's own roles for
+  the rest). The estimate is biased exactly when a value the fit fixes differs from the truth
+  (kmf fixed at 12.5, data with kmf = 5). One function where the MATLAB code has two
+  (`CRLB_SIR`, `biasedCRLB_SIR_fixedkmf`). No separate "unbiased" option: the classical CRLB
+  with kmf fixed at its true value is `kmf = 5.0`.
+- **The fit's settings as plain keywords** (`kwargs-proto`; changed from one keyword holding a
+  named tuple, `fit = (kmf = 5.0,)`): `crlb(m, θ; snr = 200, kmf = 5.0)`, the same for
+  `montecarlo` (where `fit`'s options `solver` and `precision` pass through too), `CRLBCache`
+  and the one-call pieces (`noisefree`, `bias`, `jacobian`, `hessian`, `informationmatrix`,
+  `biasgradient`). Why: one rule everywhere, the same as fitting (θ positional is the truth,
+  parameter keywords are the fit), and no one-entry named tuple with its trailing comma. The
+  wrapper was there to avoid clashes with `crlb`'s own keywords; handled instead as `setup`
+  handles `fit`'s options: a model parameter named like an option of the function (`snr`, `σ`,
+  `Σ`, `cov`, `vary`, `fits`, `simulate_with`; `montecarlo` adds `n`, `noise`, `rng`) is an
+  error, as is a keyword that is neither (the message lists both), and the old `fit = (...)`
+  form gets a message showing the new one. None of the built-in models has such a parameter.
+  `vary` takes pairs: `vary = :kmf => 5:2.5:20`, or several, `vary = [:kmf => 5:5:20,
+  :PSR => [0.1, 0.2]]` (a named tuple still works). `fits` (several settings side by side)
+  stays a named tuple of named tuples, written `free = (; kmf = Free())`. Results unchanged
+  (the 688 cases identical).
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the
@@ -1317,7 +1331,7 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
 
   | Piece | Formula |
   |---|---|
-  | `CRLBCache(m; fit, cov)` | once per fit setting: free names in the type, bounds, fixed values as written, buffers (what `init` is for fitting) |
+  | `CRLBCache(m; cov, settings...)` | once per fit setting: free names in the type, bounds, fixed values as written, buffers (what `init` is for fitting) |
   | `noisefree!(c, m, t)` | θ̂: `levmar` from the truth's free values, the fit's fixed values and bounds |
   | `hessian!(c, m, θ̂, exact)` | H = Σᵢ JᵢJᵢᵀ + rᵢ∇²gᵢ, and G = Σᵢ JᵢJᵢᵀ |
   | `meat(rows, σ², u)` | J₀ᵀΣJ₀ |
@@ -1388,8 +1402,9 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
     sweep of 21 settings (16-point, 3 SNR × 7 true kmf): 1.0 ms, 11 ms before. The previous
     kernel: 4.4–4.7, 10.9–11.6, 4.3–5.1, 21.6–22.6, 12.9–14.5, 1.4–1.8 µs.
   - Conventions kept from the readable version: θ is values, `fit` the fit settings; what runs a
-    fit uses all of `fit`; the derivatives are taken at θ with `fit` choosing the columns
-    (`jacobian(m, θ; fit)` is J_t; the fit's J₀ is `jacobian(noisefree(m, θ; fit))`, from the
+    fit uses all of the fit's settings; the derivatives are taken at θ with the settings
+    choosing the columns (`jacobian(m, θ)` is J_t; the fit's J₀ is `jacobian(noisefree(m, θ))`,
+    from the
     `FitResult` methods `jacobian(r)`, `hessian(r, y)`, `bias(r, θ)`). `informationmatrix(m, θ)`
     is at θ (Eq. 3's F at the truth). `biasgradient(m, θ; method = :unrolled)` (ForwardDiff
     through Gauss–Newton steps; 2e-11 from the implicit one, 4-point) stays as a cross-check and
@@ -1463,7 +1478,7 @@ Edge cases:
   packaging). Not yet: dual numbers through the acquisition (the buffers are Float64); for
   gradients with respect to TI and TD, the implicit-function step again (∂θ̂/∂TI = −H⁻¹∂G/∂TI).
 - Not in the first version: `crlb(res; σ)` from a `FitResult` (maps of predicted SD, for
-  data-driven design), `vary = (kmf = 5:2.5:20,)` sweeps, derivatives with respect to TI and TD
+  data-driven design), `vary = :kmf => 5:2.5:20` sweeps, derivatives with respect to TI and TD
   (for a gradient-based optimizer), a Rician Fisher information.
 
 How, with what was measured:
@@ -1516,7 +1531,7 @@ sweep.jl); fit settings side by side and `simulate_with` too (from `analysis-pro
 ```julia
 mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
 mc.bias.PSR, mc.sd.PSR, mc.se_sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR
-montecarlo(m, θ; snr = 200, fit = (kmf = Free(),), noise = :gaussian, rng = MersenneTwister(1))
+montecarlo(m, θ; snr = 200, kmf = Free(), noise = :gaussian, rng = MersenneTwister(1))
 ```
 
 What the first version does, and why:
@@ -1530,7 +1545,7 @@ What the first version does, and why:
   SD/√(2(n − 1))), so "agrees with crlb" has a scale. Statistics over every fitted copy,
   converged or not, as `compare`; `mc.converged` gives the fraction; `mc.result` (the
   `FitResult`) keeps every estimate, so no `keep` keyword.
-- `fit = (...)` as in `crlb`, but options pass through too (`precision`, `solver`: they change
+- The fit's settings as keywords, as in `crlb`, but options pass through too (`precision`, `solver`: they change
   the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: Rician for
   magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. The noise as
   `crlb`: `snr`, `σ` a number or one per observation, or a full `Σ`;
@@ -1548,12 +1563,12 @@ What the first version does, and why:
 Sweeps (`crlb` and `montecarlo` alike):
 
 ```julia
-s = crlb(m, nominal(m, :SIR_WM_II); snr = 200, vary = (kmf = 5:2.5:20,))   # Fig. 2B
-s = montecarlo(m, θ; snr = [100, 200], vary = (kmf = [5.0, 20.0], Sm = [0.8, 0.83]))
+s = crlb(m, nominal(m, :SIR_WM_II); snr = 200, vary = :kmf => 5:2.5:20)    # Fig. 2B
+s = montecarlo(m, θ; snr = [100, 200], vary = [:kmf => [5.0, 20.0], :Sm => [0.8, 0.83]])
 s[1], s.settings[1], s.rows                  # a result, its setting, the table
 ```
 
-- `snr = [...]` and `vary = (name = values, ...)`; every combination, the first keyword varying
+- `snr = [...]` and `vary = :name => values` (or several pairs); every combination, the first keyword varying
   slowest. `vary` changes the truth, never the fit (the assumption-bias study); varying a
   fitted parameter gives the accuracy over a tissue range. σ is not a sweep axis: in `crlb` a
   vector σ already means one value per observation.
@@ -1575,13 +1590,13 @@ Fit settings side by side and data from another model (implemented), for `crlb` 
 `montecarlo` alike:
 
 ```julia
-crlb(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))      # a Sweep, axis `fit`
-montecarlo(m, θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))
+crlb(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))     # a Sweep, axis `fit`
+montecarlo(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,
      simulate_with = T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08))
 ```
 
-- `fits = (name = settings, ...)` instead of `fit`: one more sweep axis, `fit`, the fastest, so
+- `fits = (name = settings, ...)` instead of settings given as keywords: one more sweep axis, `fit`, the fastest, so
   a table shows the fits of one case next to each other. In montecarlo the same noisy copies are
   fitted each way (the common seed), a paired comparison; each setting equals the run with that
   `fit` and the same generator (tested). The display gives each fit's fixed values on a line of
@@ -1618,8 +1633,8 @@ The plan for the rest:
 ```julia
 montecarlo(m, t; snr = 200, n = 10_000)                         # one case
 montecarlo(m, t; snr = [50, 100, 200, 400])                     # accuracy against SNR
-montecarlo(m, t; vary = (kmf = 5:2.5:20,))                      # the fit keeps kmf = 12.5
-montecarlo(m, t; fits = (fixed = (;), free = (kmf = Free(),)))  # fit settings side by side
+montecarlo(m, t; vary = :kmf => 5:2.5:20)                       # the fit keeps kmf = 12.5
+montecarlo(m, t; fits = (fixed = (;), free = (; kmf = Free())))  # fit settings side by side
 montecarlo(m, t; simulate_with = m2)                            # data from another model
 ```
 

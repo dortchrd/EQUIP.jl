@@ -14,9 +14,8 @@
 # 2018;80:1824, Fig. 1 (Rician Monte Carlo against the CRLB at SNR 200); Lankford & Does, MRM
 # 2013;69:127 (within 8%, at very high SNR for the 7-parameter mcDESPOT fit).
 #
-# One case for now: one truth, one noise level, one set of fit settings. Sweeps (`snr = [...]`,
-# `vary = (kmf = 5:2.5:20,)`), fit settings side by side and data from another model
-# (`simulate_with`) come next (docs/design.md, "montecarlo").
+# One case, or a sweep (`snr = [...]`, `vary = :kmf => 5:2.5:20`, sweep.jl), fit settings side
+# by side (`fits`) and data from another model (`simulate_with`); docs/design.md, "montecarlo".
 # =================================================================================================
 
 """
@@ -62,8 +61,8 @@ struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R
 end
 
 """
-    montecarlo(m, truth; snr or σ or Σ, n = 10_000, fit = (...), noise, rng, vary, fits,
-               simulate_with)
+    montecarlo(m, truth; snr or σ or Σ, n = 10_000, noise, rng, vary, fits, simulate_with,
+               settings...)
         -> MonteCarloResult or Sweep
 
 Simulate `n` noisy copies of one voxel with the values `truth`, fit them, and measure each
@@ -76,19 +75,20 @@ for the same truth, noise and fit settings.
   number, or one SD per observation) or `Σ` (the noise covariance matrix).
 - `n`: the number of noisy copies, fitted as one dataset on Julia's threads (start Julia with
   `-t auto`).
-- `fit`: the fit's settings, the keywords of [`fit`](@ref) in a named tuple (roles, `solver`,
-  `precision`); the model's own when left out. The fits start as `fit` would start them, not
-  at the truth, so local minima and the starting rules are part of what is measured.
+- The fit's settings: the keywords of [`fit`](@ref), as for `fit(m, y; ...)`: parameters'
+  roles (`kmf = 5.0`, `kmf = Free()`), `solver`, `precision`; the model's own for the rest. The
+  fits start as `fit` would start them, not at the truth, so local minima and the starting
+  rules are part of what is measured.
 - `noise`: `:rician` (the default for magnitude data) or `:gaussian` (the default when the
   data's model is for signed data, `magnitude = false`); crlb assumes Gaussian noise.
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
   One number is drawn from it, the seed of the noise.
-- Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = (kmf = 5:2.5:20,)` (true values; the
+- Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = :kmf => 5:2.5:20` (true values; the
   fit's settings stay), every combination; the result is a [`Sweep`](@ref) of
   `MonteCarloResult`s, with a table in `s.rows`. Every setting's noise comes from the same seed
   ("common random numbers"): the settings see the same noise, so differences between them are
   not noise, and adding a setting does not change the others' results.
-- Fit settings side by side, as for `crlb`: `fits = (fixed = (;), free = (kmf = Free(),))`. The
+- Fit settings side by side, as for `crlb`: `fits = (fixed = (;), free = (; kmf = Free()))`. The
   same noisy copies are fitted each way: a paired comparison.
 - Data from another model, as for `crlb`: `simulate_with = m2 => θ2`; the estimates are judged
   against `truth`, your reference values for `m`'s parameters; `snr` is relative to `m2`'s
@@ -101,20 +101,24 @@ says how many converged, and `mc.result` holds every estimate and status.
 m = QMTSIR(; SIR_4POINT...)
 mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)        # the fit fixes kmf at 12.5
 mc.bias.PSR, mc.sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR          # measured, and against the CRLB
-montecarlo(m, nominal(m, :SIR_WM_I); snr = 200, fit = (kmf = 5.0,), rng = MersenneTwister(1))
-montecarlo(m, nominal(m, :SIR_WM_II); snr = 200, vary = (kmf = 5:2.5:20,))   # Fig. 2B
-montecarlo(QMTSIR(; SIR_5POINT...), θ; snr = 200, fits = (fixed = (;), free = (kmf = Free(),)))
+montecarlo(m, nominal(m, :SIR_WM_I); snr = 200, kmf = 5.0, rng = MersenneTwister(1))
+montecarlo(m, nominal(m, :SIR_WM_II); snr = 200, vary = :kmf => 5:2.5:20)    # Fig. 2B
+montecarlo(QMTSIR(; SIR_5POINT...), θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))
 ```
 """
 function montecarlo(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                    n::Integer = 10_000, fit::NamedTuple = (;), noise = nothing,
-                    rng::AbstractRNG = Random.default_rng(), vary::NamedTuple = (;),
-                    fits::NamedTuple = (;), simulate_with = nothing)
+                    n::Integer = 10_000, noise = nothing, rng::AbstractRNG = Random.default_rng(),
+                    vary = (;), fits::NamedTuple = (;), simulate_with = nothing, settings...)
+    # The fit's settings: every keyword that is not one of montecarlo's own, as for `fit`
+    # (parameters' roles, and `fit`'s options `solver` and `precision`).
+    fit = _fitsettings("montecarlo", m, settings,
+                       (:snr, :σ, :Σ, :n, :noise, :rng, :vary, :fits, :simulate_with))
+    vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     any(_hasmap, values(truth)) && throw(ArgumentError("montecarlo simulates copies of one " *
         "voxel: give numbers. For maps (a phantom), simulate and fit them, then `compare`"))
     any(f -> haskey(f, :mask), (fit, values(fits)...)) &&
-        throw(ArgumentError("`fit = (; mask)`: montecarlo fits every copy"))
+        throw(ArgumentError("`mask`: montecarlo fits every copy"))
     _check_fits(fit, fits)
     _check_simulate_with(simulate_with)
     # The noise: as `simulate` would add it to the data's model (Rician for magnitude data).
@@ -139,7 +143,7 @@ function _montecarlo(m, truth, snr, σ, Σ, n, fit, noise, seed, simulate_with)
     # The prediction first: it also checks the noise level, the fit's parameter settings and
     # the data's model.
     roles = (; (k => v for (k, v) in pairs(fit) if !(k in _OPTIONS))...)   # crlb: roles only
-    c = crlb(m, truth; snr, σ, Σ, fit = roles, simulate_with)
+    c = crlb(m, truth; snr, σ, Σ, simulate_with, roles...)
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset.
