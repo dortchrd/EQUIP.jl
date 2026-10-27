@@ -213,15 +213,16 @@ is the order of the outputs. A fit can change any role with a keyword named afte
 With keywords, the model's roles with those changes, by the same rules as `fit`'s keywords (a
 value fixes, `Free(...)` estimates and keeps the defaults it leaves out): a complete set of
 roles made by a call, to keep and pass on, as `nominal(m; kmf = 10.0)` makes a complete set of
-values. Every function that fits or predicts a fit takes it as its argument after the data or
-the truth:
+values. `fit` and `init` take it after the data:
 
 ```julia
 roles = parameters(m; kmf = 10.0, Sm = 0.9)     # every parameter's role, two of them changed
 fit(m, y, roles)                                 # the same as fit(m, y; kmf = 10.0, Sm = 0.9)
-crlb(m, θ, roles; snr = 200)
-montecarlo(m, θ, roles; snr = 200)
 ```
+
+For `crlb` and `montecarlo`, a fit is judged against a truth: a [`Scenario`](@ref) builds its
+roles from the truth (`Scenario(m, θ; kmf = 10.0)`: the fixed parameters at their true values,
+then the changes), and `s.roles` fits data the same way: `fit(m, y, s.roles)`.
 
 The roles are a property of the model's type, the same for every acquisition, so a model
 declares them for its type, and asking a model (an instance) asks its type:
@@ -477,20 +478,27 @@ resolve(m, nominal(m))       # (PSR = 0.1, R1f = 1.0, ..., R1m = 1.0, ...)
 ```
 """
 function resolve(m::MRIModel, p::NamedTuple)
-    roles = parameters(m)
-    _check_names("p", keys(p), keys(roles))
+    q = _complete(nameof(typeof(m)), parameters(m), p)   # checked; model order, ties kept
+    return _resolve_ties(map(_tie, q))
+end
+
+# The checks of `resolve`, for model `M` (its name) with the roles `roles`: `p` in the model's
+# order, as given (ties kept). Also used by `Scenario` (analysis/scenario.jl), which knows the
+# model's type but not its acquisition. The names K come from the roles' type (`where {K}`), so
+# the compiler knows them and the reordering is a plain copy.
+function _complete(M::Symbol, roles::NamedTuple{K}, p::NamedTuple) where {K}
+    _check_names("p", keys(p), K)
     _reject_roles(p)
-    missing = Tuple(n for n in keys(roles) if !haskey(p, n))
-    if !isempty(missing)
-        M = nameof(typeof(m))
+    if !all(n -> haskey(p, n), K)
+        missing = [n for n in K if !haskey(p, n)]
         throw(ArgumentError("$M needs a value for every parameter; missing: " *
             "$(join(missing, ", ")). For a complete set, start from `nominal(m)` (the model's " *
             "starting and fixed values) or `nominal(m, tissue)`, and change values by keyword: " *
             "`nominal(m; $(first(missing)) = ...)`"))
     end
-    q = NamedTuple{keys(roles)}(map(n -> p[n], keys(roles)))   # every parameter, in model order
+    q = NamedTuple{K}(map(n -> p[n], K))    # every parameter, in model order
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
-    return _resolve_ties(map(_tie, q))
+    return q
 end
 
 """

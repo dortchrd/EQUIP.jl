@@ -2,7 +2,7 @@
 # crlb: the bias, SD and RMSE of a fit, predicted from derivatives (no noisy fits)
 #
 #   truth θ ──────▶ g_true = signal(m, θ)                 the noise-free data
-#   fit settings ─▶ free and fixed parameters, bounds     as `fit` uses them (CRLBCache, once)
+#   the fit ──────▶ free and fixed parameters, bounds     a Scenario's (CRLBCache, once)
 #   ① noise-free fit  θ̂ = fit of g_true, started at the truth;  b = θ̂ − θ;  r₀ = g(θ̂) − g_true
 #   ② derivatives     J₀ = ∂g/∂θ at θ̂ (dual numbers, ties followed);  H = J₀ᵀJ₀ + Σᵢ r₀ᵢ∇²gᵢ
 #   ③ covariance      :sandwich  H⁻¹ J₀ᵀΣJ₀ H⁻¹                       (default)
@@ -13,7 +13,9 @@
 # `information`, `crossgram`, `sandwich`, `biasgradient`, `biasedcrlb`), and the kernel
 # `_crlb!` below is their composition: static P×P matrices, no allocation, 1–16 µs a call, so
 # the protocol optimizer can call it millions of times. `crlb!(cache, θ; noise)` adds the checks
-# and the result; `crlb(m, θ; ...)` makes the cache first (most of a one-off call's time).
+# and the result; `crlb(m, s; ...)` makes the cache first (most of a one-off call's time), and
+# `crlb(m, θ; changes...)` the scenario before that (scenario.jl: the fit built from the truth,
+# fixed parameters at their true values, so it is unbiased unless a change makes it wrong).
 #
 # Why a bias at all: a fit that fixes a parameter at a wrong value (kmf = 12.5 for a tissue with
 # kmf = 5) cannot reproduce the data, even without noise. Its noise-free answer θ̂ (the
@@ -81,47 +83,46 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
 end
 
 """
-    crlb(m, truth[, roles]; snr or σ or Σ, cov = :sandwich, vary, fits, simulate_with, settings...)
-        -> CRLBResult or Sweep
+    crlb(m, s::Scenario; snr or σ or Σ, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
+    crlb(m, θ; snr or σ or Σ, cov, vary, simulate_with, changes...)
+    crlb(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
 Cramér–Rao lower bound (CRLB, also CRB), biased when the fit fixes a parameter at a value other
 than the truth's. No noisy fits: the bias comes from one fit of the noise-free data, and the
 SD from the derivatives at that fit's answer, first order in the noise.
 
-- `truth`: every parameter of `m` (numbers, or ties), as for [`simulate`](@ref): e.g.
-  `nominal(m, :SIR_WM_I)` or `nominal(m; PSR = 0.15)`.
+- `m`: the protocol, a model with its acquisition, e.g. `QMTSIR(; SIR_4POINT...)`.
+- `s`: a [`Scenario`](@ref), the truth and the fit judged against it, e.g.
+  `Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I); kmf = 12.5)`. Or the truth θ (every parameter,
+  numbers or ties, as for [`simulate`](@ref)) with the changes as keywords, as for
+  [`fit`](@ref), which make `Scenario(m, θ; changes...)` inside: the fit holds the fixed
+  parameters at their TRUE values (unbiased); `kmf = 12.5` fixes kmf at 12.5 (wrong for a tissue
+  with kmf = 5: biased); `kmf = Free()` estimates it. Bounds are the fit's. The noise-free fit
+  starts at the truth, whatever the scenario's `starts`.
 - The noise (Gaussian), one of: `snr` (relative to the model's scale parameter, as for
   `simulate`: σ = M0/snr); `σ`, a number or one SD per observation (independent noise, e.g.
   different bandwidths or numbers of averages); `Σ`, the full covariance matrix of the noise
   between observations (correlated noise, e.g. after denoising or a joint reconstruction).
   Chosen by type, so the common case, one σ for every observation ("pulled out" of
   JᵀΣ⁻¹J = JᵀJ/σ²), costs nothing extra.
-- The fit's settings: keywords named after the parameters, as for [`fit`](@ref)`(m, y; ...)`;
-  the model's own roles (`parameters(m)`) for the rest. The prediction is for a fit with these
-  settings: `kmf = Free()` fits kmf, `kmf = 15.0` fixes it at 15. The bias is zero unless a
-  fixed value differs from the truth; the classical CRLB with kmf fixed at its true value is
-  `kmf = 5.0`. Bounds are the fit's. The truth stays `truth`: to change it, change `truth`
-  (`nominal(m, :SIR_WM_I; kmf = 10.0)`). A complete set of roles made once,
-  `roles = `[`parameters`](@ref)`(m; kmf = 10.0)`, goes after the truth, `crlb(m, θ, roles;
-  snr = 200)`; keywords then change it further.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
   are the classical CRLB σ²(JᵀJ)⁻¹ when nothing fixed is wrong, and equal each other when the
   fit is exact (as many observations as free parameters); otherwise `:biased` ≤ `:sandwich`.
 - Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = :kmf => 5:2.5:20` (several
-  true values of a parameter; several parameters as a vector of pairs, every combination; the
-  fit's settings stay as they are, so this is the bias of a
-  wrong assumption against the truth, Dortch 2018 Fig. 2B). Every combination is computed, the
-  first keyword varying slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
-- Fit settings side by side: `fits = (fixed = (;), free = (; kmf = Free()))`, named; one more
-  axis of the sweep (the last, so a table has the settings of one case next to each other).
-  Instead of settings given as keywords.
+  true values of a parameter; several parameters as a vector of pairs, every combination). The
+  fit stays the scenario's, so with `kmf = 12.5` this is the bias of that assumption against the
+  true kmf (Dortch 2018 Fig. 2B). Every combination is computed, the first keyword varying
+  slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
+- Fits side by side: scenarios by name, `crlb(m, (fixed = Scenario(m, θ), free = Scenario(m, θ;
+  kmf = Free())); snr = 200)`: one more axis of the sweep (the last, so a table has the fits of
+  one case next to each other).
 - Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
   every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
-  against `truth`, your reference values for `m`'s parameters (e.g. the long T2 of a
-  bi-exponential tissue fitted mono-exponentially); `snr` is relative to `m2`'s scale
+  against the scenario's truth, your reference values for `m`'s parameters (e.g. the long T2 of
+  a bi-exponential tissue fitted mono-exponentially); `snr` is relative to `m2`'s scale
   parameter; `vary` changes `θ2`. The sandwich only: Eq. 3 needs the true model's derivatives
   with respect to `m`'s parameters.
 
@@ -130,11 +131,10 @@ Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. EQUIP's
 unweighted: with σ per observation or a full Σ, the sandwich is the SD of the unweighted fit,
 H⁻¹J₀ᵀΣJ₀H⁻¹, and `:biased` the bound a weighted fit would reach, (JᵀΣ⁻¹J)⁻¹. Rician noise,
 bounds hit by noisy fits and nonlinearity at low SNR are not modelled: simulate and fit for
-those.
+those ([`montecarlo`](@ref)).
 
-For many truths or noise levels with the same fit settings, make the setup once:
-`c = CRLBCache(m; cov, settings...)`, then [`crlb!`](@ref)`(c, θ; snr)` (sweeps do this
-themselves).
+For many noise levels or truths with the same fit, make the setup once:
+`c = CRLBCache(m, s; cov)`, then [`crlb!`](@ref)`(c, θ; snr)` (sweeps do this themselves).
 Each step is a function of its own, for use alone or to check this one: [`noisecovariance`](@ref),
 [`noisefree`](@ref), [`bias`](@ref), [`jacobian`](@ref), [`hessian`](@ref),
 [`informationmatrix`](@ref), [`biasgradient`](@ref), [`sandwich`](@ref), [`biasedcrlb`](@ref).
@@ -142,53 +142,56 @@ Each step is a function of its own, for use alone or to check this one: [`noisec
 ```julia
 m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)                          # kmf = 5 in this tissue
-c = crlb(m, θ; snr = 200)                          # the fit fixes kmf at 12.5: biased
+crlb(m, θ; snr = 200)                              # kmf held at its true value: unbiased
+c = crlb(m, θ; snr = 200, kmf = 12.5)             # the fit assumes kmf = 12.5: biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR
-crlb(m, θ; snr = 200, kmf = 5.0)                  # kmf fixed at the truth: unbiased
-crlb(m, θ; snr = 200, kmf = Free())                # kmf fitted: unbiased, larger SD
-roles = parameters(m; kmf = 10.0)                  # a complete set of roles, made once
-crlb(m, θ, roles; snr = 200)                       # the fit those roles describe
+s = Scenario(QMTSIR, θ; kmf = 12.5)                # the same, made once,
+crlb(m, s; snr = 200)                              # and judged under any protocol
+crlb(QMTSIR(; SIR_5POINT...), θ; snr = 200, kmf = Free())   # kmf fitted: unbiased, larger SD
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
-crlb(m, θ; snr = 200, vary = :kmf => 5:2.5:20)     # the bias against the true kmf (a Sweep)
-crlb(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))  # side by side
+crlb(m, θ; snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # the bias against the true kmf
+crlb(m, (assumed = s, exact = Scenario(m, θ)); snr = 200)   # side by side
 θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
      simulate_with = T2BiexpDecay(TE = te) => θb)
 ```
 """
-function crlb(m::MRIModel, truth::NamedTuple, roles::NamedTuple = (;); snr = nothing, σ = nothing,
-              Σ = nothing, cov::Symbol = :sandwich, vary = (;), fits::NamedTuple = (;),
-              simulate_with = nothing, settings...)
-    # The fit's settings: the roles given, then every keyword that is not one of crlb's own, as
-    # for `fit` (a keyword wins over the roles' entry for the same parameter). The truth first:
-    # roles in its place (the arguments swapped) get the clearer message.
-    _reject_roles(truth)
-    fit = merge(roles, _fitsettings("crlb", m, settings,
-                                    (:snr, :σ, :Σ, :cov, :vary, :fits, :simulate_with)))
+function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
+              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing, changes...)
+    # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
+    # as for `fit`.
+    ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :cov, :vary, :simulate_with))
+    return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, cov, vary, simulate_with)
+end
+function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
+              Σ = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing)
+    foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
-    _check_fits(fit, fits)
     _check_simulate_with(simulate_with)
+    fits = s isa Scenario ? (;) : s                # side by side: one more axis, by name
     if _issweep(snr, vary, fits)
-        # A sweep (sweep.jl): one cache per fit setting, reused for every noise level and truth.
+        # A sweep (sweep.jl): one cache per scenario, reused for every noise level and truth.
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
-        caches = isempty(fits) ? (_CRLBCache(m, fit, cov),) : map(f -> _CRLBCache(m, f, cov), fits)
-        cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches[1]
-        results = [crlb!(cacheof(st), _truth_of(st, truth, simulate_with); snr = _snr_of(st, snr),
-                         σ, Σ, simulate_with = _data_of(st, simulate_with)) for st in settings]
+        caches = map(x -> _CRLBCache(m, x, cov), s isa Scenario ? (one = s,) : s)
+        cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches.one
+        results = [crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, simulate_with);
+                         snr = _snr_of(st, snr), σ, Σ, simulate_with = _data_of(st, simulate_with))
+                   for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return crlb!(_CRLBCache(m, fit, cov), truth; snr, σ, Σ, simulate_with)
+    return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, simulate_with)
 end
 
 """
     crlb!(c::CRLBCache, truth; snr or σ or Σ, simulate_with) -> CRLBResult
 
-[`crlb`](@ref) with the fit settings and covariance already in a [`CRLBCache`](@ref): for many
-truths or noise levels with the same fit settings, the setup is made once.
+[`crlb`](@ref) with the fit and the covariance already in a [`CRLBCache`](@ref): for many noise
+levels or truths with the same fit, the setup is made once. The fit stays the cache's: with a
+truth other than its scenario's, that same fit is judged against it.
 
 ```julia
-c = CRLBCache(m)                                   # the model's own fit settings
-cs = [crlb!(c, nominal(m, t); snr = 200) for t in (:SIR_WM_I, :SIR_WM_II, :SIR_GM)]
+c = CRLBCache(m, nominal(m, :SIR_WM_I); kmf = 12.5)
+cs = [crlb!(c, nominal(m, :SIR_WM_I); snr) for snr in (50, 100, 200)]
 ```
 """
 function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
@@ -347,7 +350,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
           ", covariance: ", how)
     _print_data(io, c.data)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
-    _print_fixed(io, c.fixed, c.truth)
+    _print_fixed(io, c.fixed, resolve(c.model, c.truth))
     isconverged(c.status) ||
         print(io, "\nthe noise-free fit did not converge ($(c.status)): the bias may be inaccurate")
     isempty(c.onbound) ||
@@ -363,12 +366,19 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     end
 end
 
-# The fit's fixed values, with the truth where it differs: the source of any bias. Shared with
-# `montecarlo`'s display and the sweeps' (one line per fit setting, `label`).
-function _print_fixed(io::IO, fixed::NamedTuple, truth::NamedTuple, label = "fixed in the fit")
+# The fit's fixed values, with the truth where it differs (`_wrong`, scenario.jl: a tie
+# followed at the truth too, e.g. R1m = :R1f against a true R1m of 1.0): the source of any bias.
+# `θt` is the truth with its ties followed, or `nothing` when the truth varies (a sweep). Shared
+# with `montecarlo`'s display and the sweeps' (one line per fit, `label`).
+function _print_fixed(io::IO, fixed::NamedTuple, θt, label = "fixed in the fit")
     isempty(fixed) && return
-    item(n, x) = (t = truth[n]; s = "$n = $(_showvalue(x))";
-                  x isa Real && t isa Real && x != t ? s * " (true $(_showvalue(t)))" : s)
+    w = θt === nothing ? (;) : _wrong(θt, merge(θt, fixed))
+    function item(n, x)
+        s = "$n = $(_showvalue(x))"
+        haskey(w, n) || return s
+        tied = x isa Real ? "" : " = $(round(w[n].fit; sigdigits = 4))"
+        return s * tied * " (true $(_showvalue(w[n].truth)))"
+    end
     print(io, "\n", label, ": ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
 end
 
@@ -384,11 +394,6 @@ _print_data(io::IO, ::Nothing) = nothing
 _print_data(io::IO, d::Pair) =
     print(io, "\ndata from ", nameof(typeof(d.first)), ": ",
           join(("$n = $(_showvalue(x))" for (n, x) in pairs(d.second)), ", "))
-
-# Checks shared with `montecarlo`.
-_check_fits(fit, fits) = isempty(fit) || isempty(fits) || throw(ArgumentError("give the fit's " *
-    "settings as keywords (one set: `kmf = 5.0`) or `fits` (several, side by side, by name), " *
-    "not both"))
 
 Base.show(io::IO, c::CRLBResult) =
     print(io, "CRLBResult(", nameof(typeof(c.model)), ": ", join(keys(c.fit), ", "), ")")

@@ -25,7 +25,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
 - src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
-- src/analysis/: derivatives.jl, crlb's pieces one function each (`CRLBCache`, `noisefree!`,
+- src/analysis/: scenario.jl, the `Scenario` (a truth and the fit judged against it, built
+  from the truth with fit's keywords: what crlb and montecarlo take; `crlb(m, θ; kmf = 12.5)`
+  makes one); derivatives.jl, crlb's pieces one function each (`CRLBCache`, `noisefree!`,
   `hessian!`, `meat`, `information`, `sandwich`, `biasgradient`, `biasedcrlb`; allocation-free,
   summed row by row from dual numbers), with one-call versions (`jacobian`, `hessian`,
   `informationmatrix`, ...); crlb.jl, the kernel `_crlb!` (their composition), `crlb!` and

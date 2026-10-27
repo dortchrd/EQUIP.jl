@@ -876,14 +876,15 @@ end
         tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)       # Dortch 2018, Table 1
         # Dortch et al. 2018, Eq. 5 with the MATLAB code's settings (signed signal, t_FSE =
         # 0.3 s, SNR 200, the bounds of its biased fits): the optima of Table 2's schemes,
-        # 4-point (kmf fixed at 12.5: biased) and 5-point (kmf fitted: unbiased).
+        # 4-point (kmf fixed at 12.5: biased) and 5-point (kmf fitted: unbiased). The fit holds
+        # the other fixed parameters at the truth's values, which are the model's here.
         bounds4 = (PSR = Free(lower = 0, upper = 1), R1f = Free(lower = 0, upper = 3),
                    Sf = Free(lower = -1.05, upper = 0), M0f = Free(lower = 0, upper = 10))
         m4 = QMTSIR(; SIR_4POINT..., magnitude = false)
         m5 = QMTSIR(; SIR_5POINT..., magnitude = false)
         eq5(c, m) = sum(abs2, values(c.relrmse)) * sum(m.TI .+ m.TD .+ 0.3)
         for cov in (:sandwich, :biased)
-            @test maximum(eq5(crlb(m4, nominal(m4, t); snr = 200, bounds4..., cov), m4)
+            @test maximum(eq5(crlb(m4, nominal(m4, t); snr = 200, kmf = 12.5, bounds4..., cov), m4)
                           for t in tissues) ≈ 0.243395 rtol = 2e-6
             @test maximum(eq5(crlb(m5, nominal(m5, t); snr = 200, kmf = Free(), cov), m5)
                           for t in tissues) ≈ 1.602062 rtol = 2e-6
@@ -891,8 +892,8 @@ end
         # The 4-point fit is exact (4 observations, 4 free parameters): the sandwich and Eq. 3
         # are equal, and both are σ²(J₀ᵀJ₀)⁻¹ at the noise-free fit θ̂
         θ = nominal(m4, :SIR_WM_I)                                    # kmf = 5
-        c = crlb(m4, θ; snr = 200, bounds4...)
-        e3 = crlb(m4, θ; snr = 200, bounds4..., cov = :biased)
+        c = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4...)
+        e3 = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4..., cov = :biased)
         @test collect(values(c.sd)) ≈ collect(values(e3.sd)) rtol = 1e-10
         F = keys(c.fit)
         g(x) = signal(m4, merge(θ, NamedTuple{F}(Tuple(x)), (kmf = 12.5,)))
@@ -908,11 +909,12 @@ end
         @test u.bias == (S0 = 0.0, T2 = 0.0) && u.fit == (S0 = 1000.0, T2 = 0.08)
         @test collect(values(u.sd)) ≈ 10 .* sqrt.(diag(inv(J' * J))) rtol = 1e-10
         @test crlb(m4, θ; snr = 200, kmf = 5.0).bias.PSR == 0      # kmf at the truth
+        @test crlb(m4, θ; snr = 200).sd == crlb(m4, θ; snr = 200, kmf = 5.0).sd   # the default
         # More observations than free parameters (16-point, kmf fixed): Eq. 3 ≤ sandwich
         ti16 = [round.(exp10.(range(log10(0.01), log10(2), 15)) .* 1e3) ./ 1e3; 10]
         m16 = QMTSIR(TI = ti16, TD = 2.5, magnitude = false)
         θ16 = nominal(m16, :SIR_WM_I)
-        sw, b3 = crlb(m16, θ16; snr = 200), crlb(m16, θ16; snr = 200, cov = :biased)
+        sw, b3 = crlb(m16, θ16; snr = 200, kmf = 12.5), crlb(m16, θ16; snr = 200, kmf = 12.5, cov = :biased)
         @test all(values(b3.sd) .< values(sw.sd))
         @test 100 * sw.relsd.PSR ≈ 2.879 rtol = 1e-3
         @test 100 * b3.relsd.PSR ≈ 2.719 rtol = 1e-3
@@ -942,14 +944,14 @@ end
         @test abs(mean(x) - sw.fit.PSR) < 4 * std(x) / sqrt(length(x))
         # σ per observation: as one σ when all equal; with unequal σ, the unweighted fit's
         # sandwich is above the bound (JᵀΣ⁻¹J)⁻¹ that a weighted fit would reach
-        @test crlb(m4, θ; σ = fill(0.005, 4), bounds4...).sd == c.sd
+        @test crlb(m4, θ; σ = fill(0.005, 4), kmf = 12.5, bounds4...).sd == c.sd
         σs = range(5.0, 20.0, length = 32)
         w1 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs)
         w2 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs, cov = :biased)
         @test all(values(w2.sd) .< values(w1.sd))
         @test collect(values(w2.sd)) ≈ sqrt.(diag(inv(J' * Diagonal(1 ./ σs .^ 2) * J))) rtol = 1e-10
         # A parameter on a bound is held there: SD 0, the others without it
-        cb = crlb(m4, θ; snr = 200, bounds4..., Sf = Free(lower = -1.0, upper = 0))
+        cb = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4..., Sf = Free(lower = -1.0, upper = 0))
         @test cb.onbound == [:Sf] && cb.fit.Sf == -1.0 && cb.sd.Sf == 0 && all(isfinite, values(cb.sd))
         # Undetermined parameters get Inf: 5 free parameters, 4 observations
         @test all(==(Inf), values(crlb(m4, θ; snr = 200, kmf = Free()).sd))
@@ -958,7 +960,7 @@ end
         # plan for another protocol with as many observations (static vectors too); no
         # allocation, for the sandwich and Eq. 3
         SV = EQUIP.SVector
-        plan = CRLBCache(m4; bounds4...)
+        plan = CRLBCache(m4, θ; kmf = 12.5, bounds4...)
         tt = EQUIP._crlb_truth(m4, θ)
         k = EQUIP._crlb!(plan, m4, tt, 0.005^2)
         @test collect(k.fit) == collect(values(c.fit)) && collect(k.bias) == collect(values(c.bias))
@@ -966,19 +968,19 @@ end
         ti, td = [0.02, 0.1, 0.3, 1.0], [1.0, 2.0, 3.0, 0.01]
         mb = QMTSIR(TI = SV{4}(ti), TD = SV{4}(td), magnitude = false)
         kb = EQUIP._crlb!(plan, mb, tt, 0.005^2)
-        cb2 = crlb(QMTSIR(TI = ti, TD = td, magnitude = false), θ; snr = 200, bounds4...)
+        cb2 = crlb(QMTSIR(TI = ti, TD = td, magnitude = false), θ; snr = 200, kmf = 12.5, bounds4...)
         @test collect(kb.fit) ≈ collect(values(cb2.fit)) rtol = 1e-12
         @test sqrt.(diag(kb.cov)) ≈ collect(values(cb2.sd)) rtol = 1e-12
         allocs(p, mm, t, s2) = @allocated EQUIP._crlb!(p, mm, t, s2)
         allocs(plan, mb, tt, 0.005^2)
         @test allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
-        plan16 = CRLBCache(m16; cov = :biased)
+        plan16 = CRLBCache(m16, θ16; cov = :biased, kmf = 12.5)
         t16 = EQUIP._crlb_truth(m16, θ16)
         allocs(plan16, m16, t16, fill(0.005^2, 16))
         @test allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
         @test sqrt.(diag(EQUIP._crlb!(plan16, m16, t16, 0.005^2).cov)) ≈ collect(values(b3.sd)) rtol = 1e-12
         # Several tissues by broadcasting; the display
-        cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, bounds4...)
+        cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, kmf = 12.5, bounds4...)
         @test length(cs) == 4 && cs[1].sd == c.sd
         s = sprint(show, MIME"text/plain"(), c)
         @test startswith(s, "crlb for QMTSIR, 4 observations, σ = 0.005, covariance: sandwich")
@@ -1022,14 +1024,14 @@ end
         # not on the truth, with crlb's SD
         m4 = QMTSIR(; SIR_4POINT...)
         θ = nominal(m4, :SIR_WM_I)
-        mq = montecarlo(m4, θ; snr = 200, n = 4000, noise = :gaussian, rng = MersenneTwister(4))
+        mq = montecarlo(m4, θ; snr = 200, n = 4000, noise = :gaussian, kmf = 12.5, rng = MersenneTwister(4))
         @test mq.relbias.PSR < -0.13
         for p in keys(mq.sd)
             @test abs(mq.mean[p] - mq.crlb.fit[p]) < 4 * mq.se_mean[p]
             @test abs(mq.sd[p] - mq.crlb.sd[p]) < 4 * mq.se_sd[p]
         end
-        # the noise as simulate's default (Rician for magnitude data); fit settings as for `fit`,
-        # options included (precision), crlb taking the roles alone
+        # the noise as simulate's default (Rician for magnitude data); the fit's changes and
+        # options (precision) as for `fit`
         @test montecarlo(m4, θ; snr = 200, n = 50).noise === :rician
         @test montecarlo(QMTSIR(; SIR_4POINT..., magnitude = false), θ; snr = 200, n = 50).noise === :gaussian
         m32 = montecarlo(m4, θ; snr = 200, n = 200, kmf = 5.0, precision = Float32)
@@ -1054,19 +1056,19 @@ end
         m4 = QMTSIR(; SIR_4POINT...)
         θ = nominal(m4, :SIR_WM_II)                                   # kmf = 10
         # crlb against the true kmf, the fit keeping 12.5 (Dortch 2018 Fig. 2B): one crlb each
-        s = crlb(m4, θ; snr = 200, vary = :kmf => 5.0:2.5:20.0)
+        s = crlb(m4, θ; snr = 200, kmf = 12.5, vary = :kmf => 5.0:2.5:20.0)
         @test s isa Sweep && length(s) == 7 && eltype(s) <: CRLBResult
         @test s.settings[1] == (kmf = 5.0,) && s.settings[end] == (kmf = 20.0,)
-        @test s[3].bias == crlb(m4, (; θ..., kmf = 10.0); snr = 200).bias
+        @test s[3].bias == crlb(m4, (; θ..., kmf = 10.0); snr = 200, kmf = 12.5).bias
         @test s[4].bias.PSR == 0                                      # true kmf = the assumed 12.5
         @test [r.fixed.kmf for r in s] == fill(12.5, 7)               # the fit never changes
         @test length(s.rows) == 7 * 4 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR
         @test s.rows[1].truth == 0.12 && s.rows[1].relbias == s[1].relbias.PSR
         # over the SNR: the SD scales as 1/SNR (first order in σ), the bias not at all
-        t = crlb(m4, θ; snr = [100, 200, 400])
+        t = crlb(m4, θ; snr = [100, 200, 400], kmf = 12.5)
         @test t.settings == [(snr = 100,), (snr = 200,), (snr = 400,)]
         @test t[1].sd.PSR ≈ 2 * t[2].sd.PSR rtol = 1e-12
-        @test t[1].bias == t[3].bias
+        @test t[1].bias == t[3].bias && t[1].bias.PSR < 0
         # every combination, the first keyword varying slowest
         u = crlb(m4, θ; snr = [100, 200], vary = (kmf = [5.0, 10.0], Sm = [0.8, 0.83]))
         @test length(u) == 8 && u.settings[1] == (snr = 100, kmf = 5.0, Sm = 0.8)
@@ -1077,6 +1079,7 @@ end
         @test occursin("vary = :kmf => 5:2.5:20", msg(() -> crlb(m4, θ; snr = 200, vary = 5:10)))
         # the fit's settings are keywords, as for `fit`; the old form and unknown names explained
         @test occursin("as keywords, as for `fit`", msg(() -> crlb(m4, θ; snr = 200, fit = (kmf = 5.0,))))
+        @test occursin("side by side as scenarios", msg(() -> crlb(m4, θ; snr = 200, fits = (a = (;),))))
         @test occursin("neither a parameter of QMTSIR", msg(() -> crlb(m4, θ; snr = 200, kfm = 5.0)))
         @test occursin("nor an option of montecarlo", msg(() -> montecarlo(m4, θ; snr = 200, kfm = 5.0)))
         @test occursin("nor an option of jacobian", msg(() -> jacobian(m4, θ; snr = 200)))
@@ -1088,8 +1091,8 @@ end
         @test a[2].sd == montecarlo(m4, θ; snr = 200, n = 500, rng = MersenneTwister(1)).sd
         @test a[1].crlb.sd == crlb(m4, θ; snr = 100).sd
         # the bias curve measured matches crlb's (Gaussian noise; within 4 standard errors)
-        v = montecarlo(m4, θ; snr = 200, n = 2000, noise = :gaussian, vary = :kmf => [5.0, 20.0],
-                       rng = MersenneTwister(2))
+        v = montecarlo(m4, θ; snr = 200, n = 2000, noise = :gaussian, kmf = 12.5,
+                       vary = :kmf => [5.0, 20.0], rng = MersenneTwister(2))
         for r in v, p in keys(r.mean)
             @test abs(r.mean[p] - r.crlb.fit[p]) < 4 * r.se_mean[p]
         end
@@ -1110,28 +1113,27 @@ end
         @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; snr = 200, vary = :kmf => Float64[])))
     end
 
-    @testset "fit settings side by side, and data from another model" begin
+    @testset "scenarios side by side, and data from another model" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         m5 = QMTSIR(; SIR_5POINT...)
         θ = nominal(m5, :SIR_WM_I)                                    # kmf = 5
-        fs = (fixed = (;), free = (; kmf = Free()))
-        # crlb: one result per fit setting, each as with `fit`; the fit settings vary fastest
-        s = crlb(m5, θ; snr = 200, fits = fs)
+        fs = (fixed = Scenario(m5, θ; kmf = 12.5), free = Scenario(m5, θ; kmf = Free()))
+        # crlb: one result per scenario, each as alone; the scenarios vary fastest
+        s = crlb(m5, fs; snr = 200)
         @test s.settings == [(fit = :fixed,), (fit = :free,)]
-        @test s[1].bias == crlb(m5, θ; snr = 200).bias && s[2].sd == crlb(m5, θ; snr = 200, fs.free...).sd
+        @test s[1].bias == crlb(m5, θ; snr = 200, kmf = 12.5).bias && s[2].sd == crlb(m5, fs.free; snr = 200).sd
         @test keys(s[2].fit) == (:PSR, :R1f, :Sf, :M0f, :kmf) && s.rows[end].fit === :free
-        t = crlb(m5, θ; snr = [100, 200], fits = fs)
+        t = crlb(m5, fs; snr = [100, 200])
         @test t.settings[1:2] == [(snr = 100, fit = :fixed), (snr = 100, fit = :free)]
         # montecarlo: the same noisy copies fitted each way (a paired comparison): each equals
-        # the run with that one fit setting and the same generator
-        v = montecarlo(m5, θ; snr = 200, n = 300, fits = fs, rng = MersenneTwister(1))
-        @test v[2].sd == montecarlo(m5, θ; snr = 200, n = 300, fs.free..., rng = MersenneTwister(1)).sd
-        @test v[1].sd == montecarlo(m5, θ; snr = 200, n = 300, rng = MersenneTwister(1)).sd
+        # the run with that one scenario and the same generator
+        v = montecarlo(m5, fs; snr = 200, n = 300, rng = MersenneTwister(1))
+        @test v[2].sd == montecarlo(m5, θ; snr = 200, n = 300, kmf = Free(), rng = MersenneTwister(1)).sd
+        @test v[1].sd == montecarlo(m5, θ; snr = 200, n = 300, kmf = 12.5, rng = MersenneTwister(1)).sd
         sv = sprint(show, MIME"text/plain"(), v)
-        @test occursin("fixed in fit `fixed`: kmf = 12.5", sv) && occursin("fixed in fit `free`: R1m = :R1f", sv)
+        @test occursin("fixed in fit `fixed`: kmf = 12.5 (true 5.0)", sv) && occursin("fixed in fit `free`: R1m = :R1f", sv)
         @test occursin(r"\n  fixed +PSR ", sv) && occursin(r"\n  free +PSR ", sv)
-        @test occursin("not both", msg(() -> crlb(m5, θ; snr = 200, kmf = 5.0, fits = fs)))
-        @test occursin("not both", msg(() -> montecarlo(m5, θ; snr = 200, kmf = 5.0, fits = fs)))
+        @test occursin("the scenario is for QMTSIR", msg(() -> crlb(T2Decay(TE = TD5), fs; σ = 1.0)))
         # data from another model: a mono-exponential fit to bi-exponential data. The bias is
         # against the reference values given (here the long T2); crlb's noise-free fit is the
         # fit of the noise-free bi-exponential signal
@@ -1159,7 +1161,7 @@ end
         @test occursin("observations", msg(() -> crlb(mt, ref; snr = 100, simulate_with = T2BiexpDecay(TE = te[1:10]) => θb)))
         @test occursin("simulate_with = model => truth", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb)))
         # the kernel with another data model allocates nothing either
-        plan = CRLBCache(mt)
+        plan = CRLBCache(mt, ref)
         tr, tb = EQUIP._crlb_truth(mt, ref), EQUIP._crlb_truth(mb, θb)
         allocs(p, a, b) = @allocated EQUIP._crlb!(p, mt, a, 100.0, mb, b)
         allocs(plan, tr, tb)
@@ -1209,12 +1211,12 @@ end
         @test informationmatrix(c1) ≈ J' * J / 100 rtol = 1e-10
         @test inv(informationmatrix(c1)) ≈ vcov(c1) rtol = 1e-10
         m4 = QMTSIR(; SIR_4POINT...)
-        c4 = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200)
+        c4 = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200, kmf = 12.5)
         @test informationmatrix(c4) ≈ informationmatrix(c4; expected = false) rtol = 1e-6
         ti16 = [round.(exp10.(range(log10(0.01), log10(2), 15)) .* 1e3) ./ 1e3; 10]
         m16 = QMTSIR(TI = ti16, TD = 2.5)
         θ16 = nominal(m16, :SIR_WM_I)
-        c16 = crlb(m16, θ16; snr = 200)
+        c16 = crlb(m16, θ16; snr = 200, kmf = 12.5)
         Ie, Io = informationmatrix(c16), informationmatrix(c16; expected = false)
         @test !isapprox(Ie, Io; rtol = 1e-3)
         @test vcov(c16) ≈ inv(Io) * Ie * inv(Io) rtol = 1e-8
@@ -1225,7 +1227,7 @@ end
         # at the truth, where the data are fitted exactly, the two are equal
         @test informationmatrix(m16, θ16; snr = 200, expected = false) ≈ informationmatrix(m16, θ16; snr = 200) rtol = 1e-12
         # the kernel with a full Σ allocates nothing
-        plan = CRLBCache(mt; cov = :biased)
+        plan = CRLBCache(mt, θ; cov = :biased)
         tr = EQUIP._crlb_truth(mt, θ)
         full = EQUIP._kernelnoise(noisecovariance(mt, θ; Σ), 2)
         allocs(p, t, n) = @allocated EQUIP._crlb!(p, mt, t, n)
@@ -1245,7 +1247,7 @@ end
         FD = EQUIP.ForwardDiff
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         m4 = QMTSIR(; SIR_4POINT...)
-        θ = nominal(m4, :SIR_WM_I)                 # kmf = 5; the fit fixes it at 12.5
+        θ = nominal(m4, :SIR_WM_I)                 # kmf = 5; the fit fixes it at 12.5 (wrong)
         F4 = (:PSR, :R1f, :Sf, :M0f)
         g(vals, x) = signal(m4, merge(vals, NamedTuple{F4}(Tuple(x))))
         x0 = [θ[n] for n in F4]
@@ -1258,9 +1260,10 @@ end
         Jr = jacobian(m4, merge(θ, (R1m = θ.R1f,)); R1m = Free(start = 1.0))   # ..., M0f, R1m
         @test J[:, 2] ≈ Jr[:, 2] + Jr[:, 5] rtol = 1e-12
         # the noise-free fit, its bias, and the derivatives at its answer (the fit's kmf = 12.5)
-        r = noisefree(m4, θ)
-        c = crlb(m4, θ; snr = 200)
-        @test r.params == c.fit && bias(m4, θ) == c.bias == bias(r, θ)
+        r = noisefree(m4, θ; kmf = 12.5)
+        c = crlb(m4, θ; snr = 200, kmf = 12.5)
+        @test r.params == c.fit && bias(m4, θ; kmf = 12.5) == c.bias == bias(r, θ)
+        @test noisefree(m4, θ).params == NamedTuple{F4}(map(n -> θ[n], F4))     # nothing wrong
         θ̂ = merge(r.fixed, r.params)
         @test θ̂.kmf == 12.5 && θ̂.R1m === :R1f
         J₀ = jacobian(r)
@@ -1286,12 +1289,12 @@ end
         # ... and Eq. 3, with F the Fisher information of the true signal at the truth
         Ft = informationmatrix(m4, θ; snr = 200)
         @test Ft ≈ J' * J / (θ.M0f / 200)^2 rtol = 1e-12
-        ∇b = biasgradient(m4, θ)
-        @test vcov(crlb(m4, θ; snr = 200, cov = :biased)) ≈ biasedcrlb(∇b, Ft) rtol = 1e-12
+        ∇b = biasgradient(m4, θ; kmf = 12.5)
+        @test vcov(crlb(m4, θ; snr = 200, kmf = 12.5, cov = :biased)) ≈ biasedcrlb(∇b, Ft) rtol = 1e-12
         @test biasedcrlb(zeros(4, 4), Ft) ≈ inv(Ft) rtol = 1e-10
         # ∇b: the implicit function theorem, ForwardDiff through Gauss–Newton steps and central
         # differences of noise-free fits agree; zero when nothing fixed is wrong
-        @test biasgradient(m4, θ; method = :unrolled) ≈ ∇b atol = 1e-8
+        @test biasgradient(m4, θ; kmf = 12.5, method = :unrolled) ≈ ∇b atol = 1e-8
         tight = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
         function tightbias(θx)                     # a tightly converged noise-free fit's bias
             r = fit(m4, signal(m4, θx); solver = tight, NamedTuple{F4}(map(n -> Free(start = θx[n]), F4))...)
@@ -1303,11 +1306,11 @@ end
             bm = tightbias(merge(θ, NamedTuple{(n,)}((θ[n] - h,))))
             @test (bp - bm) / 2h ≈ ∇b[:, j] atol = 1e-6
         end
-        @test maximum(abs, biasgradient(m4, θ; kmf = 5.0)) < 1e-8
+        @test maximum(abs, biasgradient(m4, θ; kmf = 5.0)) < 1e-8 && maximum(abs, biasgradient(m4, θ)) < 1e-8
         # a parameter held on a bound: its row of I + ∇b is 0; undetermined parameters: NaN
         bounds4 = (PSR = Free(lower = 0, upper = 1), R1f = Free(lower = 0, upper = 3),
                    Sf = Free(lower = -1.0, upper = 0), M0f = Free(lower = 0, upper = 10))
-        ∇h = biasgradient(m4, θ; bounds4...)
+        ∇h = biasgradient(m4, θ; kmf = 12.5, bounds4...)
         @test ∇h[3, :] == [0.0, 0.0, -1.0, 0.0] && all(isfinite, ∇h)
         @test all(isnan, biasgradient(m4, θ; kmf = Free()))
         # the FitResult forms are for one voxel; mistakes
@@ -1320,7 +1323,7 @@ end
         θt = (S0 = 1000.0, T2 = 0.08)
         Σt = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
         for cov in (:sandwich, :biased)
-            k = EQUIP._crlb!(CRLBCache(mt; cov), mt, EQUIP._crlb_truth(mt, θt),
+            k = EQUIP._crlb!(CRLBCache(mt, θt; cov), mt, EQUIP._crlb_truth(mt, θt),
                              EQUIP._kernelnoise(noisecovariance(mt, θt; Σ = Σt), 2))
             @test k.cov ≈ vcov(crlb(mt, θt; Σ = Σt, cov)) rtol = 1e-10
         end
@@ -1371,7 +1374,8 @@ end
                      (T2BiexpDecay(TE = te), θb, (;), Σt),
                      (T2BiexpDecay(TE = te), θb, (;), Diagonal(collect(range(5.0, 20.0, length = 32)) .^ 2)),
                      (T1IR(TI = [0.05, 0.1, 0.3, 0.6, 1.2, 2.4]), (M0 = 1000.0, Sf = -0.95, T1 = 1.0), (;), Diagonal(fill(100.0, 6))))
-        for (m, θ, f, Σ) in cases, cov in (:sandwich, :biased)
+        for (m, θ, f0, Σ) in cases, cov in (:sandwich, :biased)
+            f = merge(defaults(m), f0)            # the model's fixed values: kmf = 12.5 (wrong)
             b, sd = reference(m, θ, f, Matrix(Σ), cov)
             c = crlb(m, θ; Σ = Matrix(Σ), f..., cov)
             @test isempty(c.onbound)
@@ -1379,8 +1383,9 @@ end
             @test collect(values(c.sd)) ≈ sd rtol = 1e-6
         end
         # the cache: made once, reused for several truths and noise levels; crlb is cache + crlb!
+        # (the tissues differ only in kmf, which this fit estimates)
         m5 = QMTSIR(; SIR_5POINT...)
-        c = CRLBCache(m5; kmf = Free())
+        c = CRLBCache(m5, nominal(m5, :SIR_WM_I); kmf = Free())
         @test sprint(show, c) == "CRLBCache(QMTSIR: PSR, R1f, Sf, M0f, kmf; sandwich)"
         for t in (:SIR_WM_I, :SIR_GM), snr in (100, 200)
             θ = nominal(m5, t)
@@ -1388,17 +1393,117 @@ end
         end
         # the second derivatives are left out when the noise-free fit is exact: nothing fixed
         # wrong, or as many observations as free parameters (4-point); not otherwise
-        exact(m, θ; kw...) = EQUIP._crlb!(CRLBCache(m; kw...), EQUIP._with_precision(m, Float64), EQUIP._crlb_truth(m, θ), 1.0).exact
+        exact(m, θ; kw...) = EQUIP._crlb!(CRLBCache(m, θ; kw...), EQUIP._with_precision(m, Float64), EQUIP._crlb_truth(m, θ), 1.0).exact
         m4 = QMTSIR(; SIR_4POINT...)
         @test exact(m4, nominal(m4, :SIR_WM_I)) && exact(m5, nominal(m5, :SIR_WM_I); kmf = Free())
-        @test !exact(m5, nominal(m5, :SIR_WM_I))
+        @test exact(m5, nominal(m5, :SIR_WM_I)) && !exact(m5, nominal(m5, :SIR_WM_I); kmf = 12.5)
         # mistakes
-        @test occursin("`cov` must be :sandwich or :biased", msg(() -> CRLBCache(m5; cov = :eq3)))
-        @test occursin("the sandwich only", msg(() -> crlb!(CRLBCache(T2Decay(TE = te); cov = :biased),
+        @test occursin("`cov` must be :sandwich or :biased", msg(() -> CRLBCache(m5, nominal(m5, :SIR_WM_I); cov = :eq3)))
+        @test occursin("the sandwich only", msg(() -> crlb!(CRLBCache(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); cov = :biased),
             (S0 = 1000.0, T2 = 0.08); snr = 100, simulate_with = T2BiexpDecay(TE = te) => θb)))
     end
 
-    @testset "parameters(m; changes...): roles made by a call, passed whole" begin
+    @testset "Scenario: a truth and the fit judged against it" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m4, m5 = QMTSIR(; SIR_4POINT...), QMTSIR(; SIR_5POINT...)
+        θ = nominal(QMTSIR, :SIR_WM_I)                                # kmf = 5
+        own = parameters(QMTSIR)
+        # from the truth: estimated as the model estimates them (its bounds), starting at the
+        # true values; fixed at the true values, so nothing is wrong
+        u = Scenario(QMTSIR, θ)
+        @test u.model === QMTSIR && u.truth == θ && u.starts === :truth && isempty(u.wrong)
+        @test u.roles.PSR == Free(start = 0.2, lower = own.PSR.lower, upper = own.PSR.upper)
+        @test u.roles.M0f == Free(start = 1.0, lower = own.M0f.lower)          # not :scale
+        @test u.roles.kmf == Fixed(5.0) && u.roles.R1m == Fixed(:R1f) && u.roles.Sm == Fixed(0.83)
+        @test u.attruth == (:PSR, :R1f, :Sf, :M0f)
+        @test Scenario(m4, θ).roles == u.roles && Scenario(m4, θ).model === QMTSIR   # a model: its type
+        # the changes, by fit's rules: a value fixes, and is wrong when it differs from the truth
+        s = Scenario(QMTSIR, θ; kmf = 12.5)
+        @test s.roles.kmf == Fixed(12.5) && s.wrong == (kmf = (fit = 12.5, truth = 5.0),)
+        @test isempty(Scenario(QMTSIR, θ; kmf = 5.0).wrong)
+        # a tie is judged at the truth: R1m = :R1f is 1.5 here, wrong for a tissue with R1m = 1.0
+        θ1 = merge(θ, (R1m = 1.0,))
+        @test Scenario(QMTSIR, θ1).roles.R1m == Fixed(1.0) && isempty(Scenario(QMTSIR, θ1).wrong)
+        @test Scenario(QMTSIR, θ1; R1m = :R1f).wrong == (R1m = (fit = 1.5, truth = 1.0),)
+        @test isempty(Scenario(QMTSIR, merge(θ, (R1m = 1.5,)); R1m = :R1f).wrong)
+        # freed: from its true value, or (starts = :model) where `fit` would start it
+        @test Scenario(QMTSIR, θ; kmf = Free()).roles.kmf == Free(start = 5.0)
+        @test Scenario(QMTSIR, θ; kmf = Free(), starts = :model).roles.kmf == Free(start = 12.5)
+        @test Scenario(QMTSIR, θ; R1m = Free()).roles.R1m == Free(start = 1.5)
+        @test occursin("give it a start", msg(() -> Scenario(QMTSIR, θ; R1m = Free(), starts = :model)))
+        # starts = :model: the model's rules; a start or a bound given wins, the rest is kept
+        sm = Scenario(QMTSIR, θ; starts = :model, R1f = Free(start = 0.8), PSR = Free(lower = 0.05))
+        @test sm.roles.M0f == own.M0f && sm.roles.Sf == own.Sf && sm.attruth == ()
+        @test sm.roles.R1f == Free(start = 0.8, lower = own.R1f.lower, upper = own.R1f.upper)
+        @test sm.roles.PSR == Free(start = own.PSR.start, lower = 0.05, upper = own.PSR.upper)
+        st = Scenario(QMTSIR, θ; R1f = Free(start = 0.8))
+        @test st.roles.R1f.start == 0.8 && st.attruth == (:PSR, :Sf, :M0f)
+        # crlb(m, s) is the keyword form; its noise-free fit starts at the truth either way; the
+        # default is unbiased; one scenario, judged under several protocols
+        c = crlb(m4, s; snr = 200)
+        k = crlb(m4, θ; snr = 200, kmf = 12.5)
+        @test c.sd == k.sd && c.bias == k.bias && c.fit == k.fit
+        @test crlb(m4, Scenario(QMTSIR, θ; kmf = 12.5, starts = :model); snr = 200).fit == c.fit
+        @test crlb!(CRLBCache(m4, s), θ; snr = 200).sd == c.sd
+        @test crlb(m5, s; snr = 200).relbias.PSR < -0.01 && crlb(m5, u; snr = 200).bias.PSR == 0
+        # the pieces take a scenario too
+        @test noisefree(m4, s).params == c.fit && bias(m4, s) == c.bias
+        @test jacobian(m4, s) == jacobian(m4, θ) && biasgradient(m4, s) == biasgradient(m4, θ; kmf = 12.5)
+        @test informationmatrix(m4, s; snr = 200) == informationmatrix(m4, θ; snr = 200)
+        @test hessian(m4, s, signal(m4, θ)) == hessian(m4, θ, signal(m4, θ))
+        # montecarlo: the fits start where the scenario says; the keyword form is the same
+        mc = montecarlo(m4, s; snr = 200, n = 200, rng = MersenneTwister(1))
+        @test mc.sd == montecarlo(m4, θ; snr = 200, n = 200, kmf = 12.5, rng = MersenneTwister(1)).sd
+        @test mc.result.settings.PSR == s.roles.PSR && mc.crlb.sd == c.sd
+        mm = montecarlo(m4, θ; snr = 200, n = 200, kmf = 12.5, starts = :model, rng = MersenneTwister(1))
+        @test mm.result.settings.M0f.start === :scale && mm.result.settings.PSR.start == own.PSR.start
+        # in a sweep over true values the starts from the truth follow it; the fixed values stay
+        v = montecarlo(m4, s; snr = 200, n = 50, vary = :PSR => [0.1, 0.15], rng = MersenneTwister(2))
+        @test [r.result.settings.PSR.start for r in v] == [0.1, 0.15]
+        @test [r.result.settings.kmf for r in v] == [Fixed(12.5), Fixed(12.5)]
+        # a start that depends on the protocol: kept as a function, computed for each protocol
+        ti = [0.05, 0.1, 0.3, 0.6, 1.2, 2.4]
+        sir = Scenario(T1IR, (M0 = 1000.0, Sf = -0.95, T1 = 1.0); starts = :model)
+        @test sir.roles.T1.start isa Function
+        r1 = montecarlo(T1IR(TI = ti), sir; σ = 10.0, n = 50, rng = MersenneTwister(3))
+        @test r1.result.settings.T1.start.values == parameters(T1IR(TI = ti)).T1.start.values
+        # a model with its own `parameters(m)` method: from a model, not its type
+        ds = Scenario(DataStartTest([0.01, 0.02, 0.04]), (S0 = 1.0, T2 = 0.05, c = 1.0))
+        @test ds.model === DataStartTest && ds.roles.c == Fixed(1.0) && ds.roles.T2.start == 0.05
+        @test crlb(DataStartTest([0.01, 0.02, 0.04]), ds; σ = 0.01).bias == (S0 = 0.0, T2 = 0.0)
+        @test occursin("give a model", msg(() -> Scenario(DataStartTest, (S0 = 1.0, T2 = 0.05, c = 1.0))))
+        # display: the truth, the fit, and what is wrong
+        str = sprint(show, MIME"text/plain"(), s)
+        @test startswith(str, "Scenario for QMTSIR: a truth and the fit judged against it\nstarts: the truth\n")
+        @test occursin(r"\n  name +true +role +start/value +bounds\n", str)
+        @test occursin(r"\n  PSR +0.2 +free +0.2 +\[0.0, 1.0\]\n", str)
+        @test occursin(r"\n  kmf +5.0 +fixed +12.5 +← wrong\n", str)
+        @test occursin(r"\n  R1m +:R1f +fixed +:R1f \(tie\)\n", str)
+        @test endswith(str, "\nwrong: kmf = 12.5 (true 5.0): the fit is biased")
+        @test endswith(sprint(show, MIME"text/plain"(), u), "\nnothing fixed is wrong: the fit is unbiased")
+        @test occursin("the model's rules", sprint(show, MIME"text/plain"(), sm))
+        @test occursin(r"\n  T1 +1.0 +free +from the protocol ", sprint(show, MIME"text/plain"(), sir))
+        @test repr(s) == "Scenario(QMTSIR; wrong: kmf)" && repr(u) == "Scenario(QMTSIR; unbiased)"
+        # the results mark a wrong tie too
+        ct = crlb(m4, θ1; snr = 200, R1m = :R1f)
+        @test occursin("fixed in the fit: kmf = 5.0, R1m = :R1f = 1.5 (true 1.0), Sm = 0.83", sprint(show, MIME"text/plain"(), ct))
+        # mistakes
+        @test occursin("`starts` must be :truth", msg(() -> Scenario(QMTSIR, θ; starts = :data)))
+        @test occursin("`kfm` is not a parameter of QMTSIR", msg(() -> Scenario(QMTSIR, θ; kfm = 1.0)))
+        @test occursin("option of the fit", msg(() -> Scenario(QMTSIR, θ; solver = LM())))
+        @test occursin("missing: Sf", msg(() -> Scenario(QMTSIR, Base.structdiff(θ, NamedTuple{(:Sf,)}))))
+        @test occursin("is a role", msg(() -> Scenario(QMTSIR, parameters(QMTSIR))))
+        @test occursin("one voxel", msg(() -> Scenario(QMTSIR, θ; Sm = fill(0.8, 2))))
+        @test occursin("no free parameters", msg(() -> Scenario(T2Decay, (S0 = 1.0, T2 = 0.1); S0 = 1.0, T2 = 0.1)))
+        @test occursin(":scale is for", msg(() -> Scenario(QMTSIR, θ; PSR = Free(start = :scale))))
+        @test occursin("lower bound 2.0 exceeds", msg(() -> Scenario(QMTSIR, θ; PSR = Free(lower = 2.0))))
+        @test occursin("which is itself a tie", msg(() -> Scenario(QMTSIR, θ; R1f = :R1m)))
+        @test occursin("the scenario is for QMTSIR", msg(() -> crlb(T2Decay(TE = TD5), s; σ = 1.0)))
+        @test occursin("starts at the truth", msg(() -> crlb(m4, θ; snr = 200, starts = :model)))
+        @test occursin("sets its own options", msg(() -> jacobian(m4, θ; precision = Float32)))
+    end
+
+    @testset "parameters(m; changes...): roles made by a call, kept and passed" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         m = QMTSIR(; SIR_4POINT...)
         θ = nominal(m, :SIR_WM_I)
@@ -1420,19 +1525,13 @@ end
         @test fit(m, y, roles).params == fit(m, y; kw...).params
         @test isequal(fit(m, Y, roles).params, fit(m, Y; kw...).params)
         @test fit!(init(m, roles), y).params == fit(m, y; kw...).params
-        c = crlb(m, θ, roles; snr = 200)
-        @test c.sd == crlb(m, θ; snr = 200, kw...).sd && c.bias == crlb(m, θ; snr = 200, kw...).bias
-        @test crlb!(CRLBCache(m, roles), θ; snr = 200).sd == c.sd
-        @test montecarlo(m, θ, roles; snr = 200, n = 200, rng = MersenneTwister(3)).sd ==
-              montecarlo(m, θ; snr = 200, n = 200, rng = MersenneTwister(3), kw...).sd
-        @test jacobian(m, θ, roles) == jacobian(m, θ; kw...) && bias(m, θ, roles) == c.bias
-        @test biasgradient(m, θ, roles) == biasgradient(m, θ; kw...)
-        @test informationmatrix(m, θ, roles; snr = 200) == informationmatrix(m, θ; snr = 200, kw...)
-        # a keyword wins over the roles' entry for the same parameter
-        @test crlb(m, θ, roles; snr = 200, kmf = 5.0).bias == crlb(m, θ; snr = 200, kmf = 5.0, Sm = 0.9).bias
+        # a scenario's fit, fitted to data
+        s = Scenario(m, θ; kw...)
+        @test fit(m, y, s.roles).params == fit(m, y; kw..., NamedTuple{(:PSR, :R1f, :Sf, :M0f)}(
+            map(n -> Free(start = θ[n]), (:PSR, :R1f, :Sf, :M0f)))...).params
         # mistakes
         @test occursin("`kfm` is not a parameter of QMTSIR", msg(() -> parameters(m; kfm = 1.0)))
-        @test occursin("role", msg(() -> crlb(m, roles, θ; snr = 200)))   # roles where the truth goes
+        @test occursin("role", msg(() -> crlb(m, roles; snr = 200)))   # roles where the truth goes
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

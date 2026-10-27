@@ -51,7 +51,7 @@ export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDeca
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
-export crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # analysis
+export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # analysis
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
@@ -79,6 +79,7 @@ include("sim/phantom.jl")              # phantom: parameter maps from a label im
 include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
 
 # analysis: the accuracy of a fit predicted from derivatives (uses models, fit and sim)
+include("analysis/scenario.jl")        # Scenario: a truth and the fit judged against it
 include("analysis/derivatives.jl")     # crlb's pieces: CRLBCache, the sums, the formulas
 include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits; the kernel
 include("analysis/montecarlo.jl")      # montecarlo: the same measured, with crlb alongside

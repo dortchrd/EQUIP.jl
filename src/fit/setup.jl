@@ -77,20 +77,21 @@ function _override(d::Fixed, x::Free, name)
     return Free(start = d.value, lower = x.lower, upper = x.upper)
 end
 
-# The name of the parameter the model declares `Free(start = :scale)` (M0, S0, M0f), or nothing.
-# Also used by `simulate` (its `snr` is relative to this parameter).
-function _scalename(m::MRIModel)
-    roles = parameters(m)
+# The name of the parameter the model declares `Free(start = :scale)` (M0, S0, M0f), or nothing:
+# from a model, or from its own roles. Also used by `simulate` (its `snr` is relative to this
+# parameter).
+_scalename(m::MRIModel) = _scalename(parameters(m))
+function _scalename(roles::NamedTuple)
     i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
     return i === nothing ? nothing : keys(roles)[i]
 end
 
 # `:scale` assumes the signal is proportional to the parameter (true for M0, not for T1), so only
 # the model can declare it. A fit can turn it off (M0 = Free(start = 1000.0)) but not move it.
-function _check_scale(model, n)
-    s = _scalename(model)
+# `M` is the model's name, `own` its own roles.
+function _check_scale(M::Symbol, own::NamedTuple, n)
+    s = _scalename(own)
     s === n && return nothing
-    M = nameof(typeof(model))
     throw(ArgumentError(s === nothing ? "`$n = Free(start = :scale)`: $M has no scale parameter" :
         "`$n = Free(start = :scale)`: :scale is for the parameter the signal is proportional to ($s in $M)"))
 end
@@ -110,7 +111,7 @@ _value(x, ::Type{T}) where {T} = x
 function _apply_roles(model::MRIModel, roles::NamedTuple, changes, unknown)
     for (n, x) in pairs(changes)
         haskey(roles, n) || throw(unknown(n))
-        x isa Free && x.start === :scale && _check_scale(model, n)
+        x isa Free && x.start === :scale && _check_scale(nameof(typeof(model)), parameters(model), n)
         roles = merge(roles, NamedTuple{(n,)}((_role(roles[n], x, n),)))
     end
     return map(r -> _at_acquisition(r, model), roles)
@@ -137,13 +138,20 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
             "which is also an option of fit ($(join(_OPTIONS, ", "))); rename the parameter"))
     end
 
-    # 2. Apply the keywords, one parameter each (`_apply_roles`, below).
+    # 2. Apply the keywords, one parameter each (`_apply_roles`, above).
     roles = _apply_roles(model, roles, params, n -> ArgumentError(
         n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
         n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
         "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
         "nor an option ($(join(_OPTIONS, ", ")))"))
+    return _spec(model, roles, T)
+end
 
+# Steps 3–5 of `setup`, from a complete set of roles (every parameter, in the model's order, each
+# start computed for the acquisition): what `setup` makes from the keywords, and what crlb makes
+# from a scenario's roles (analysis/scenario.jl) without merging them in one by one.
+function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}) where {T}
+    names = keys(roles)
     # 3. Split by role, keeping the model's order.
     F = Tuple(n for n in names if roles[n] isa Free)     # e.g. (:PSR, :R1f, :Sf, :M0f)
     X = Tuple(n for n in names if roles[n] isa Fixed)    # e.g. (:kmf, :R1m, :Sm)

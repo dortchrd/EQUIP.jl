@@ -1,16 +1,18 @@
 # =================================================================================================
 # Sweeps: crlb or montecarlo over several noise levels and true values
 #
-#   crlb(m, θ; snr = [100, 200], vary = :kmf => 5:2.5:20)        14 settings, one crlb each
-#   montecarlo(m, θ; snr = 200, vary = :kmf => 5:2.5:20)          7 settings, one run each
-#   crlb(m, θ; snr = 200, vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]])   8 settings
+#   crlb(m, s; snr = [100, 200], vary = :kmf => 5:2.5:20)        14 settings, one crlb each
+#   montecarlo(m, s; snr = 200, vary = :kmf => 5:2.5:20)          7 settings, one run each
+#   crlb(m, s; snr = 200, vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]])   8 settings
+#   crlb(m, (fixed = s1, free = s2); snr = [100, 200])            4 settings: fits side by side
 #
 # The settings are every combination of the values given, the first keyword varying slowest
-# (like nested loops written in that order), and the fit settings (`fits`) fastest, so a table
-# shows the fits of one case next to each other. `vary` changes the TRUTH, never the fit: with the
-# fit fixing kmf at 12.5 and the true kmf swept from 5 to 20, the result is the bias of that
-# assumption against the true value (Dortch et al., MRM 2018;80:1824, Fig. 2B). Varying a
-# fitted parameter instead (PSR = 0.05:0.05:0.2) gives the accuracy over a tissue range.
+# (like nested loops written in that order), and the scenarios side by side fastest, so a table
+# shows the fits of one case next to each other. `vary` changes the TRUTH, never the fit (the
+# scenario's): with the fit fixing kmf at 12.5 and the true kmf swept from 5 to 20, the result
+# is the bias of that assumption against the true value (Dortch et al., MRM 2018;80:1824,
+# Fig. 2B). Varying a fitted parameter instead (PSR = 0.05:0.05:0.2) gives the accuracy over a
+# tissue range; starts taken from the truth follow it (montecarlo).
 # =================================================================================================
 
 """
@@ -25,7 +27,8 @@ What [`crlb`](@ref) and [`montecarlo`](@ref) return for several settings (`snr =
 - `rows`: the table, one named tuple per setting and free parameter: the setting's values, then
   `parameter`, `truth` and the numbers (crlb: `noisefree`, the noise-free fit's value, `bias`,
   ...; montecarlo: measured, then `crlb_...` predicted), e.g. `DataFrame(s.rows)` with
-  DataFrames.jl. With `fits`, the setting's `fit` column holds the fit setting's name.
+  DataFrames.jl. With scenarios side by side, the setting's `fit` column holds the scenario's
+  name.
 """
 struct Sweep{R}
     settings::Vector{NamedTuple}
@@ -58,8 +61,8 @@ const _VARY_FORMS = "`vary`: a parameter's name and its true values, `vary = :km
 function _sweep_settings(m::MRIModel, snr, vary::NamedTuple, fits::NamedTuple = (;))
     roles = parameters(m)
     for (k, v) in pairs(vary)
-        k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fit settings " *
-            "in a sweep; for several fit settings use `fits`"))
+        k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fits in a " *
+            "sweep; for several fits, give scenarios side by side: `crlb(m, (a = s1, b = s2); ...)`"))
         haskey(roles, k) || throw(ArgumentError("`vary = :$k => ...`: not a parameter of " *
             "$(nameof(typeof(m))); the parameters are $(keys(roles))"))
         v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = :$k => ...`: give " *
@@ -67,18 +70,18 @@ function _sweep_settings(m::MRIModel, snr, vary::NamedTuple, fits::NamedTuple = 
     end
     ax = map(collect, vary)                    # the axes: the values of each keyword
     snr isa AbstractVector && (ax = merge((snr = collect(snr),), ax))   # the noise level first
-    isempty(fits) || (ax = merge(ax, (fit = collect(keys(fits)),)))     # the fit settings last
+    isempty(fits) || (ax = merge(ax, (fit = collect(keys(fits)),)))     # the scenarios last
     names = keys(ax)
     return NamedTuple[NamedTuple{names}(reverse(c))
                       for c in vec(collect(Iterators.product(reverse(values(ax))...)))]
 end
 
-# A setting split into its parts: the noise level (or the one given for every setting), the fit
-# settings (by name, from `fits`; or the one `fit` for every setting), and the true values it
+# A setting split into its parts: the noise level (or the one given for every setting), the
+# scenario (by name, side by side; or the one for every setting), and the true values it
 # changes: the fitted model's truth, or with data from another model (`simulate_with = m2 =>
 # θ2`) the data's truth θ2, while `truth` stays the reference the fit is judged against.
 _snr_of(setting, snr) = haskey(setting, :snr) ? setting.snr : snr
-_fit_of(setting, fit, fits) = haskey(setting, :fit) ? fits[setting.fit] : fit
+_scenario_of(setting, s) = haskey(setting, :fit) ? s[setting.fit] : s
 _varied(setting) = Base.structdiff(setting, NamedTuple{(:snr, :fit)})
 _datamodel(m, ::Nothing) = m
 _datamodel(m, s::Pair) = s.first
@@ -87,16 +90,18 @@ _truth_of(setting, truth, ::Pair) = truth
 _data_of(setting, ::Nothing) = nothing
 _data_of(setting, s::Pair) = s.first => merge(s.second, _varied(setting))
 
-# The fit settings of a sweep, one line per named setting (`fits`), or one for all.
+# The fixed values of a sweep's fits, one line per scenario side by side, or one for all; with
+# the truth where it differs, unless the truth varies.
 function _print_sweep_fixed(io::IO, s::Sweep)
+    θt(r) = isempty(_varied(s.settings[1])) ? resolve(r.model, r.truth) : nothing
     if haskey(s.settings[1], :fit)
         for name in unique(st.fit for st in s.settings)
             r = s.results[findfirst(st -> st.fit === name, s.settings)]
             isempty(r.fixed) ? print(io, "\nfixed in fit `", name, "`: nothing") :
-                               _print_fixed(io, r.fixed, r.fixed, "fixed in fit `$name`")
+                               _print_fixed(io, r.fixed, θt(r), "fixed in fit `$name`")
         end
     else
-        _print_fixed(io, s.results[1].fixed, s.results[1].fixed)   # the truth varies: no "true"
+        _print_fixed(io, s.results[1].fixed, θt(s.results[1]))
     end
     d = s.results[1].data                   # with simulate_with: the data's model
     d === nothing ||

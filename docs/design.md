@@ -1221,7 +1221,8 @@ Not needed for correctness: a test checks it against the columns built from `sig
 Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, from the
 `crlb-proto` branch); fit settings side by side, data from another model, general noise and
 the fast pieces (`CRLBCache`, derivatives.jl) on `lean` since 007e196, from `analysis-proto`;
-the rest proposed. Prototyped in scratch scripts;
+fit settings as keywords (`kwargs-proto`) and the `Scenario` (`scenario-proto`) on prototype
+branches; the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
@@ -1234,7 +1235,7 @@ gains precision, and both count.
 
 The pieces, each using the ones before it:
 
-1. `crlb`: bias, SD and RMSE predicted for a model, a truth and the fit settings.
+1. `crlb`: bias, SD and RMSE predicted for a protocol and a scenario (a truth and the fit).
 2. `montecarlo`: the same by simulating and fitting; checks `crlb` and covers what it cannot.
 3. Diagnostics: sensitivity maps (Eq. 6), leakage of fixed parameters into fitted ones, cond(J).
 4. The objective: Eq. 5 by default, with weights, time and aggregation options, over tissues and
@@ -1253,7 +1254,9 @@ covariances), the exact-fit identity, ∇b against central differences of noise-
 ```julia
 m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)
-c = crlb(m, θ; snr = 200)                                 # kmf fixed at 12.5, truth 5: biased
+c = crlb(m, θ; snr = 200)                                 # kmf held at the truth's 5: unbiased
+c = crlb(m, θ; snr = 200, kmf = 12.5)                     # kmf fixed at 12.5, truth 5: biased
+c = crlb(m, Scenario(QMTSIR, θ; kmf = 12.5); snr = 200)   # the same, the scenario made once
 c = crlb(m, θ; snr = 200, kmf = Free())                   # kmf fitted: unbiased
 c = crlb(m, θ; σ = [σ1, σ2, σ3, σ4], cov = :biased)       # σ per observation; Eq. 3
 c.bias.PSR, c.sd.PSR, c.rmse.PSR             # absolute, by name (as res.params.PSR)
@@ -1262,11 +1265,12 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
 ```
 
 - `truth` gives every parameter (as for `simulate`; `nominal(m, tissue)`); keywords named after
-  the parameters give the fit's roles, as for `fit(m, y; kmf = 12.5)` (the model's own roles for
-  the rest). The estimate is biased exactly when a value the fit fixes differs from the truth
+  the parameters change the fit, as for `fit(m, y; kmf = 12.5)`; the fit holds the other fixed
+  parameters at the truth's values (a `Scenario`, below; until `scenario-proto`, at the model's
+  own). The estimate is biased exactly when a value the fit fixes differs from the truth
   (kmf fixed at 12.5, data with kmf = 5). One function where the MATLAB code has two
-  (`CRLB_SIR`, `biasedCRLB_SIR_fixedkmf`). No separate "unbiased" option: the classical CRLB
-  with kmf fixed at its true value is `kmf = 5.0`.
+  (`CRLB_SIR`, `biasedCRLB_SIR_fixedkmf`). No separate "unbiased" option: with nothing changed
+  the fit is unbiased, the classical CRLB.
 - **The fit's settings as plain keywords** (`kwargs-proto`; changed from one keyword holding a
   named tuple, `fit = (kmf = 5.0,)`): `crlb(m, θ; snr = 200, kmf = 5.0)`, the same for
   `montecarlo` (where `fit`'s options `solver` and `precision` pass through too), `CRLBCache`
@@ -1297,7 +1301,65 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   truth goes) get the "is a role, not a value" message, the truth being checked first. Checked:
   every built-in model's starts and fits (both precisions) bit-identical after moving `setup`'s
   step 2 into `_apply_roles` (108 fingerprints); each function gives the keyword form's result
-  exactly.
+  exactly. For crlb, montecarlo, `CRLBCache` and the pieces, replaced by the scenario (next).
+- **The scenario: a truth and the fit judged against it** (`scenario-proto`; replaces the
+  roles argument of crlb and montecarlo). `Scenario(M, θ; starts = :truth, changes...)`, from a
+  model's type (or a model: its type) and the truth θ, holds `truth`, `roles` (every
+  parameter's role in the fit), `starts` and `wrong` (the fixed values that differ from the
+  truth's, each `(fit = ..., truth = ...)`), and no acquisition: `crlb(m, s; snr)` and
+  `montecarlo(m, s; snr)` judge it under protocol `m`, so one scenario serves every candidate
+  protocol. The fit is built from the truth: the model's free parameters estimated (the model's
+  bounds), the others held at their TRUE values; then the changes by `fit`'s rules (a value
+  fixes, `Free(...)` estimates, a start or bound given wins). The keyword forms,
+  `crlb(m, θ; kmf = 12.5)`, `montecarlo(m, θ; starts, changes...)`, `CRLBCache(m, θ; ...)` and
+  the one-call pieces, make one inside. Why: passing a full set of roles to crlb meant passing
+  starts and bounds that the noise-free fit does not use, and the fixed values came from the
+  model, not the tissue; the scenario says what the comparison is (this truth, this fit, these
+  assumptions wrong), shows it at the REPL as a table (true value, role, start or value,
+  bounds, `← wrong`), and is the same object for the prediction and the check.
+  - **The default became unbiased.** `crlb(m, θ)` holds the fixed parameters at θ's values
+    (kmf 5 for WM I), not the model's defaults (12.5): a wrong assumption is now asked for
+    (`kmf = 12.5`) and named in `s.wrong`. The old default is `crlb(m, θ; defaults(m)...)`.
+  - **Starts:** `starts = :truth` (default; every estimated parameter starts at its true value)
+    or `:model` (the model's rules, `:scale`, `BestOf`, `:data`, as `fit` starts a real fit);
+    a start given as a keyword wins. A parameter fixed in the base and freed by a change starts
+    at its true value (`:truth`) or where `fit` would start it (`:model`: the model's value;
+    a tie gets fit's "give it a start" error). crlb's noise-free fit always starts at the truth
+    (the pseudo-true value nearest it), whatever `starts` says; montecarlo's fits start where
+    the scenario says. A start that depends on the protocol (T1IR's BestOf grid from its TIs)
+    stays a function, computed for each protocol the scenario meets (shown as "from the
+    protocol"). For 4-point SIR the starts make no difference (crlb and montecarlo identical
+    from the truth and from the model's rules, SNR 200 Gaussian and SNR 50 Rician).
+  - **wrong** is judged at the truth: a tie is followed (R1m = :R1f is 1.5 in WM I, wrong for a
+    tissue with R1m = 1.0), and a number equal to the truth's is not wrong. The result displays
+    use the same rule (`R1m = :R1f = 1.5 (true 1.0)`; the old display compared numbers only).
+  - **Sweeps:** `vary` changes the truth, never the fit: the fixed values stay the scenario's
+    (with `kmf = 12.5` and the true kmf swept, Fig. 2B), and in montecarlo the starts taken from
+    the truth follow each setting's truth (`s.attruth`, the parameters that start there; a
+    start given does not move). `CRLBCache(m, s)` holds the scenario's fit, so `crlb!` with
+    another truth judges that same fit against it.
+  - **Side by side:** `crlb(m, (fixed = s1, free = s2); snr)` (and montecarlo, a paired
+    comparison on the same noise), replacing the `fits` keyword: one more sweep axis, `fit`, as
+    before. Kept, rather than only broadcasting over scenarios, for the Sweep's table and
+    montecarlo's common noise. The old keywords `fits` and `starts` (in crlb) get messages.
+  - `fit(m, data, roles)` and `init(m, roles)` stay (a fit of real data has no truth), and
+    `fit(m, data, s.roles)` fits data with a scenario's fit. `parameters(m; changes...)` stays.
+  - Considered and dropped: a model wrapper `assume(m; kmf = 12.5)` that is itself an
+    `MRIModel` (it mixed the protocol with the assumptions, and crlb still needed the truth
+    apart); a scenario holding only free names and fixed values (montecarlo then needed starts
+    and bounds from elsewhere); a scenario with the acquisition (the same assumptions under many
+    protocols is the protocol search).
+  - Checked: the 688 cases with the old default written out (`merge(defaults(m), settings)`)
+    identical, bit for bit; every built-in model's starts and fits (both precisions, 108
+    fingerprints) bit-identical after splitting `setup` (steps 3–5 into `_spec`, which takes a
+    scenario's roles whole) and `resolve` (its checks into `_complete`). Speed (one thread,
+    fastest of 200, two alternated runs, 4- to 16-point SIR and T2 with a full Σ): the kernel
+    unchanged (1.0–15.6 µs); `crlb(m, s)` 26–42 µs, 11 µs less than the old `crlb(m, θ)`
+    (37–53 µs), as the roles go to the spec whole instead of merged one keyword at a time;
+    `crlb(m, θ; kmf = 12.5)` 41–57 µs (2–5 µs more than before; T2 5 µs less). The scenario
+    itself takes 12–13 µs (QMTSIR, 9 parameters; 2 µs for T2): 25 µs at first, halved by a
+    function barrier after the changes (the roles' type is unknown there; the checks and
+    `wrong` then compile to straight-line `map`s over the named tuples).
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the
@@ -1602,18 +1664,20 @@ s[1], s.settings[1], s.rows                  # a result, its setting, the table
   seeds: Gaussian −0.28, −0.27, −0.16% (± 0.05) against −0.22% predicted; Rician −0.34, −0.34,
   −0.21%. So mostly the shared sampling error, with at most ~0.06 points from Rician noise here.
 
-Fit settings side by side and data from another model (implemented), for `crlb` and
+Scenarios side by side and data from another model (implemented), for `crlb` and
 `montecarlo` alike:
 
 ```julia
-crlb(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))     # a Sweep, axis `fit`
-montecarlo(m, θ; snr = 200, fits = (fixed = (;), free = (; kmf = Free())))
+fs = (fixed = Scenario(m, θ; kmf = 12.5), free = Scenario(m, θ; kmf = Free()))
+crlb(m, fs; snr = 200)                                     # a Sweep, axis `fit`
+montecarlo(m, fs; snr = 200)
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,
      simulate_with = T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08))
 ```
 
-- `fits = (name = settings, ...)` instead of settings given as keywords: one more sweep axis, `fit`, the fastest, so
-  a table shows the fits of one case next to each other. In montecarlo the same noisy copies are
+- Scenarios by name, `(name = scenario, ...)` (until `scenario-proto`, `fits = (name =
+  settings, ...)`): one more sweep axis, `fit`, the fastest, so a table shows the fits of one
+  case next to each other. In montecarlo the same noisy copies are
   fitted each way (the common seed), a paired comparison; each setting equals the run with that
   `fit` and the same generator (tested). The display gives each fit's fixed values on a line of
   its own. The crlb table's column for the noise-free fit's value is `noisefree` (it was `fit`,
@@ -1649,8 +1713,8 @@ The plan for the rest:
 ```julia
 montecarlo(m, t; snr = 200, n = 10_000)                         # one case
 montecarlo(m, t; snr = [50, 100, 200, 400])                     # accuracy against SNR
-montecarlo(m, t; vary = :kmf => 5:2.5:20)                       # the fit keeps kmf = 12.5
-montecarlo(m, t; fits = (fixed = (;), free = (; kmf = Free())))  # fit settings side by side
+montecarlo(m, t; kmf = 12.5, vary = :kmf => 5:2.5:20)          # the fit keeps kmf = 12.5
+montecarlo(m, (fixed = s1, free = s2))                          # scenarios side by side
 montecarlo(m, t; simulate_with = m2)                            # data from another model
 ```
 

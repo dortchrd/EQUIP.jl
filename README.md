@@ -358,7 +358,7 @@ Four functions give a model's parameters in different forms:
 
 | Function | Gives | Example (QMTSIR) |
 |---|---|---|
-| `parameters(m)`, `parameters(M)`, `parameters(m; changes...)` | each parameter's role: free (start, bounds) or fixed; for a model or its type; with keywords, changed as a fit's keywords change them (pass the result whole: `fit(m, data, roles)`, `crlb(m, θ, roles; snr)`) | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
+| `parameters(m)`, `parameters(M)`, `parameters(m; changes...)` | each parameter's role: free (start, bounds) or fixed; for a model or its type; with keywords, changed as a fit's keywords change them (pass the result whole: `fit(m, data, roles)`) | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
 | `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
 | `nominal(m; changes...)`, `nominal(m, tissue; changes...)` (a model or its type) | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
 | `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |
@@ -425,20 +425,37 @@ Parameters:
 
 Two ways to find a fit's bias, SD and RMSE for a protocol and a tissue: `crlb` predicts them
 from derivatives (no noisy fits; microseconds), `montecarlo` measures them (simulate n noisy
-copies, fit them; seconds), and shows `crlb`'s prediction alongside.
+copies, fit them; seconds), and shows `crlb`'s prediction alongside. Both judge a fit against
+a truth, a `Scenario`, under a protocol.
 
 ```julia
-m = QMTSIR(; SIR_4POINT...)
-θ = nominal(m, :SIR_WM_I)                     # the truth: kmf = 5 in this tissue
-c = crlb(m, θ; snr = 200)                     # the fit fixes kmf at 12.5: biased
+θ = nominal(QMTSIR, :SIR_WM_I)                # the truth: kmf = 5 in this tissue
+s = Scenario(QMTSIR, θ; kmf = 12.5)           # the fit assumes kmf = 12.5: wrong
+m = QMTSIR(; SIR_4POINT...)                   # the protocol
+c = crlb(m, s; snr = 200)                     # biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR           # by quantity, then parameter
-crlb(m, θ; snr = 200, kmf = 5.0)             # the fit's settings, as for `fit`: unbiased
-roles = parameters(m; kmf = 10.0)             # or a complete set of roles, made once,
-crlb(m, θ, roles; snr = 200)                  # passed after the truth
-mc = montecarlo(m, θ; snr = 200)              # 10 000 noisy copies, Rician noise
+crlb(m, θ; snr = 200, kmf = 12.5)            # the same, the scenario made inside
+crlb(m, θ; snr = 200)                         # kmf held at its true value: unbiased
+mc = montecarlo(m, s; snr = 200)              # 10 000 noisy copies, Rician noise
 mc.sd.PSR / mc.crlb.sd.PSR, mc.se_sd.PSR      # measured against predicted, ± standard error
 ```
 ```
+julia> s
+Scenario for QMTSIR: a truth and the fit judged against it
+starts: the truth
+  name     true  role   start/value  bounds
+  PSR      0.2   free   0.2          [0.0, 1.0]
+  R1f      1.5   free   1.5          [0.05, 10.0]
+  Sf       -1.0  free   -1.0         [-1.2, 0.0]
+  M0f      1.0   free   1.0          [0.0, Inf]
+  kmf      5.0   fixed  12.5                       ← wrong
+  R1m      :R1f  fixed  :R1f (tie)
+  Sm       0.83  fixed  0.83
+  Mzf_td0  0.0   fixed  0.0
+  Mzm_td0  0.0   fixed  0.0
+wrong: kmf = 12.5 (true 5.0): the fit is biased
+
+julia> crlb(m, s; snr = 200)
 crlb for QMTSIR, 4 observations, σ = 0.005, covariance: sandwich (the least-squares fit)
 fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0
   parameter  true  noise-free fit  bias       rel bias  SD        rel SD  RMSE     rel RMSE
@@ -448,13 +465,20 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   M0f        1.0   1.0             0.0002192  0.0219%   0.009748  0.975%  0.00975  0.975%
 ```
 
-- **Two inputs, kept apart:** the truth θ (every parameter, the fixed ones included: what the
-  tissue is; change it with `nominal(m, :SIR_WM_I; kmf = 10.0)`) and the fit's settings,
-  keywords named after the parameters as for `fit` (`kmf = 12.5`, `kmf = Free()`; the model's
-  own roles for the rest: what the fit assumes), or a complete set of roles from
-  `parameters(m; changes...)`, passed after the truth (`crlb(m, θ, roles; snr = 200)`; the same
-  set fits real data: `fit(m, data, roles)`). The bias is zero unless a value the fit fixes
-  differs from the truth's.
+- **The scenario: a truth and the fit judged against it.** Made from the model's type (no
+  protocol) and the truth θ (every parameter, the fixed ones included: what the tissue is). The
+  fit is built from the truth: it estimates the model's free parameters (with the model's
+  bounds) and holds the others at their TRUE values, so it is unbiased; changes, keywords as for
+  `fit`, make it otherwise: `kmf = 12.5` (held at a wrong value, listed in `s.wrong`),
+  `kmf = Free()` (estimated), `R1f = Free(start = 0.8)`, `PSR = Free(lower = 0.05)`. Fields:
+  `truth`, `roles` (every parameter's role in the fit), `starts`, `wrong`. The same scenario is
+  judged under any protocol (`crlb(QMTSIR(; SIR_5POINT...), s; snr = 200)`), and `s.roles` fits
+  real data the same way: `fit(m, data, s.roles)`. `crlb(m, θ; changes...)` and
+  `montecarlo(m, θ; changes...)` make one inside.
+- **Starts:** `starts = :truth` (the default): every estimated parameter starts at its true
+  value; `starts = :model`: the model's own rules (`:scale`, `BestOf`, `:data`), as `fit` starts
+  a real fit, so montecarlo measures the starting rules too; a start given wins. crlb's
+  noise-free fit always starts at the truth.
 - **How crlb works:** the noise-free data are fitted once, starting at the truth; their answer
   θ̂ gives the bias. The SD comes from derivatives at θ̂ (ForwardDiff), first order in the
   noise. Two covariances: `cov = :sandwich` (default), the covariance of the least-squares fit
@@ -462,19 +486,23 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   bound for any estimator with the same bias gradient. Both are the classical CRLB σ²(JᵀJ)⁻¹
   when nothing fixed is wrong, and equal when the fit is exact (as many observations as free
   parameters, e.g. the 4-point scheme); otherwise Eq. 3 is lower, and least squares follows
-  the sandwich (16-point scheme, WM I, kmf fixed: Monte Carlo PSR SD 0.00580 ± 0.00003,
-  sandwich 0.00576, Eq. 3 0.00544). Checked against the paper: Eq. 5 of the Table 2 schemes is
-  0.243395 (4-point) and 1.602062 (5-point).
-- **montecarlo** fits the copies as `fit` would (its starts, bounds and `precision`), so local
-  minima and Rician noise are part of what is measured; the statistics come with standard
-  errors (`se_mean`, `se_sd`). The parameters are fitted to the same noise, so their errors move
-  together: several ratios low in one sample are one fluctuation, not several.
+  the sandwich (16-point scheme, WM I, kmf fixed at 12.5: Monte Carlo PSR SD 0.00580 ±
+  0.00003, sandwich 0.00576, Eq. 3 0.00544). Checked against the paper: Eq. 5 of the Table 2
+  schemes is 0.243395 (4-point, kmf = 12.5) and 1.602062 (5-point, kmf fitted).
+- **montecarlo** fits the copies with the scenario's fit (its starts and bounds; `solver` and
+  `precision` as for `fit`), so local minima and Rician noise are part of what is measured; the
+  statistics come with standard errors (`se_mean`, `se_sd`). The parameters are fitted to the
+  same noise, so their errors move together: several ratios low in one sample are one
+  fluctuation, not several.
 - **Sweeps:** `snr = [100, 200, 400]` and `vary = :kmf => 5:2.5:20` (true values; several as
-  `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`; the fit's settings stay, so this is the bias
-  of an assumption against the truth, the paper's Fig. 2B), and fit settings side by side,
-  `fits = (fixed = (;), free = (; kmf = Free()))`, run every combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
+  `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`; the fit stays the scenario's, so with
+  `kmf = 12.5` this is the bias of that assumption against the truth, the paper's Fig. 2B; starts
+  taken from the truth follow it), and scenarios side by side, by name,
+  `crlb(m, (assumed = s, fitted = Scenario(QMTSIR, θ; kmf = Free())); snr = 200)`, run every
+  combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
   (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed
-  drawn from `rng`), so differences between settings are not noise.
+  drawn from `rng`), so differences between settings are not noise: scenarios side by side are
+  a paired comparison.
 - **Noise:** `snr` (relative to M0), `σ` (a number, or one SD per observation, e.g. different
   bandwidths or averages) or `Σ` (the full covariance matrix between observations, for
   correlated noise), for `crlb`, `montecarlo` and `simulate`. One σ, the usual case for
@@ -483,36 +511,38 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
   for a Monte Carlo.
-- **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the fit settings, once) and calls
-  `crlb!`; reuse the cache for many truths or noise levels (sweeps do):
+- **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
+  `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
+  cache's):
 
   ```julia
-  c = CRLBCache(m; kmf = Free())
-  [crlb!(c, nominal(m, t); snr = 200) for t in (:SIR_WM_I, :SIR_GM)]
+  c = CRLBCache(m, s)
+  [crlb!(c, θ; snr) for snr in (50, 100, 200)]
   ```
 
-  A one-off `crlb` takes 40–55 µs (4- to 16-point SIR), `crlb!` 10–24 µs, and the
-  allocation-free kernel inside 1–16 µs. Each step is a function of its own, summed over the
-  observations one row of J at a time (as the solver sums JᵀJ), with one-call versions from a
-  model and values (θ the values, the fit's settings as keywords; the derivatives are taken at
-  θ, with the settings choosing the free parameters):
+  `crlb(m, s)` takes 26–42 µs (4- to 16-point SIR), `crlb(m, θ; kmf = 12.5)` 41–57 µs (the
+  scenario is 13 µs of it), `crlb!` 10–24 µs, and the allocation-free kernel inside 1–16 µs.
+  Each step is a function of its own, summed over the observations one row of J at a time (as
+  the solver sums JᵀJ), with one-call versions from a model and a scenario (or the truth θ and
+  the changes as keywords; the derivatives are taken at the truth, with the fit choosing the
+  free parameters):
 
   | Function | Gives |
   |---|---|
   | `noisecovariance(m, θ; snr)` | Σ, the noise covariance (N×N) |
-  | `noisefree(m, θ; settings...)` | θ̂, the fit of the noise-free data (a `FitResult`) |
-  | `bias(m, θ; settings...)` | b = θ̂ − θ |
-  | `jacobian(m, θ; settings...)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at θ or at a fit's answer |
-  | `hessian(m, θ, y; settings...)`, `hessian(r, y)` | H = JᵀJ + Σᵢ rᵢ∇²gᵢ, the cost's Hessian |
-  | `informationmatrix(m, θ; snr, settings...)` | F = JᵀΣ⁻¹J |
-  | `biasgradient(m, θ; settings...)` | ∇b (implicit function theorem, or `method = :unrolled`) |
+  | `noisefree(m, s)` | θ̂, the fit of the noise-free data (a `FitResult`) |
+  | `bias(m, s)` | b = θ̂ − θ |
+  | `jacobian(m, s)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at the truth or at a fit's answer |
+  | `hessian(m, s, y)`, `hessian(r, y)` | H = JᵀJ + Σᵢ rᵢ∇²gᵢ, the cost's Hessian |
+  | `informationmatrix(m, s; snr)` | F = JᵀΣ⁻¹J |
+  | `biasgradient(m, s)` | ∇b (implicit function theorem, or `method = :unrolled`) |
   | `sandwich(H, J, Σ)` | H⁻¹JᵀΣJH⁻¹, the least-squares fit's covariance |
   | `biasedcrlb(∇b, F)` | (I + ∇b)F⁻¹(I + ∇b)ᵀ, Eq. 3 |
 
   ```julia
-  r = noisefree(m, θ)                                   # kmf fixed at 12.5 by the model
+  r = noisefree(m, s)                                   # kmf held at 12.5: wrong
   sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, θ; snr = 200))
-  biasedcrlb(biasgradient(m, θ), informationmatrix(m, θ; snr = 200))   # = crlb's two covariances
+  biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
   nonlinearity at low SNR. That is what montecarlo is for.
@@ -548,7 +578,8 @@ src/
                           (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
                           a dataset, threaded; refit)
   sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
-  analysis/               derivatives.jl (crlb's pieces: CRLBCache, the sums, the formulas),
+  analysis/               scenario.jl (Scenario: a truth and the fit judged against it),
+                          derivatives.jl (crlb's pieces: CRLBCache, the sums, the formulas),
                           crlb.jl (the kernel, crlb, crlb!), montecarlo.jl, sweep.jl
 ```
 
@@ -563,8 +594,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/** (started: `crlb`, `montecarlo`, sweeps, fit settings side by side, data from
-  another model, `CRLBCache`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
+- **analysis/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
+  data from another model, `CRLBCache`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
   fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
