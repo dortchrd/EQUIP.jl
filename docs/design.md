@@ -1864,6 +1864,111 @@ T2m/√(2π), as `calcSm_blockPulse.m`; the 1-ms block gives Sm = 0.831 at T2m =
   the acquisition and through a fixed number of Gauss–Newton steps). The max over tissues has
   corners, so either "minimize t with every Vₗ ≤ t" (SQP) or a smooth maximum.
 - In a package extension (optimizer packages are heavy); the objective stays in the core.
+  (Revised in the plan below: a small search of our own, an extension later.)
+
+### The plan: `ProtocolDesign`, an objective made once, and the search
+
+Status: proposed (`design-proto`), for review. What the sections above leave open, made concrete
+with the pieces that now exist: the `Scenario` (a truth and the fit judged against it), one
+`CRLBCache` per fit, and the allocation-free kernel, which takes any protocol with as many
+observations. First goal: reproduce Dortch 2018 Table 2 by optimization (Fopt4 0.2433, Fopt5
+1.6020), then robust designs over conditions.
+
+```julia
+tissues = [nominal(QMTSIR, t) for t in (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)]
+ss = [Scenario(QMTSIR, θ; kmf = 12.5) for θ in tissues]       # what the 4-point fit assumes
+d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
+                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),   # bounds, s
+                   constraints = m -> m.TI .+ m.TD .- 0.5,          # TR ≥ 0.8 s with t_FSE 0.3 s
+                   scantime = m -> sum(m.TI .+ m.TD .+ 0.3))        # Σ(TI + TD + t_FSE)
+d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 at a protocol: 0.243395
+evaluate(d, m)                    # a table: each scenario's relative bias, SD and RMSE, the time
+r = optimize_protocol(d; starts = 24, rng = MersenneTwister(1))     # search, then polish
+r.protocol, r.value               # the best protocol (sorted by TI) and its Eq. 5
+r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
+```
+
+- **An objective made once, called many times** (`ProtocolDesign`, as `CRLBCache` and `init`):
+  it holds one `CRLBCache` per distinct fit among the scenarios (scenarios that differ only in
+  the truth share one: the four tissues above, all with kmf = 12.5, use a single cache), each
+  scenario's truth in the kernel's form and its σ² (σ = M0/snr from the scenario's truth), the
+  weights and a buffer for the per-scenario values. `d(x)`, x the varied acquisition values as
+  one vector, builds the protocol with static vectors and calls the kernel once per scenario.
+  Measured (scratch prototype): Eq. 5 at the Table 2 4-point scheme 0.243395 (crlb's), 11.5 µs
+  for the four tissues, 0 bytes allocated, the protocol's construction included. Not
+  thread-safe (the caches' buffers): one copy per task, as `fit` copies its cache per chunk.
+  `d(m)` at a model, for checking a published scheme.
+- **Scenarios carry the tissues and the wrong assumptions.** A vector of `Scenario`s: each says
+  what is true and what the fit assumes, so a wrong assumption is counted as the bias it causes
+  (Dortch's biased CRLB inside Eq. 5) without a separate mechanism. Conditions (B1, B0, T2m,
+  mapped to Sf and Sm) are more scenarios, the truth varied and the fit kept:
+  `Scenario(QMTSIR, merge(θ, (Sm = 0.78,)); kmf = 12.5, Sm = 0.83)`. A helper builds the grid,
+  tissues × conditions, each named (`scenarios(QMTSIR, tissues; conditions = (Sm = [0.78, 0.83,
+  0.88],), kmf = 12.5, Sm = 0.83)`; the name is open). A design optimizes one fit's protocol in
+  the usual case; comparing fits (kmf fixed or fitted) is comparing their designs' optima, as
+  Table 2 does.
+- **Eq. 5 by default, every choice a keyword**:
+  - `weights`: per parameter, by name (default 1 for each free parameter, as Eq. 5). A
+    parameter with weight 0 still costs precision through the fit (it is estimated).
+  - Time: `× T` (default, Eq. 5: precision per unit time, Σⱼ Wⱼ(bⱼ² + σⱼ²)/θⱼ² · T), or
+    `budget = B` (Σⱼ Wⱼ(bⱼ² + σⱼ²·T/B)/θⱼ²: averaging shrinks the variance, never the bias).
+    With bias the two can choose different protocols, and whether to fix kmf at all depends on
+    the time available (above, "The objective").
+  - `aggregate`: over scenarios, `maximum` (default: minimax, Eq. 5), a weighted mean (scenario
+    weights, e.g. prevalence), or any function of the vector of per-scenario values (a
+    quantile).
+  - Relative to the truth: a free parameter with true value 0 cannot be; an error at
+    construction, unless its weight is 0. Parameters the data cannot determine (SD `Inf`) make
+    the value `Inf`, which the search avoids.
+- **The protocol space**: `vary` names acquisition fields with their bounds; the other fields
+  stay as in the model given (its number of points, `magnitude`, TR of an MFA). One value shared
+  by every point (the MATLAB's `tdType = 'fixed'`) is an option (syntax open). Constraints are
+  functions of the protocol whose values must be ≥ 0 (a number or a vector): a penalty in the
+  search (its size the violation, so the search is led back), exact in the result. The scan
+  time is a function of the protocol (`scantime`): t_FSE is a property of the readout, which
+  QMTSIR does not hold. The order of the points does not change the CRLB (sums over
+  observations), so no canonical order in the search; the result is sorted by TI. Rounded to
+  the ms at the end and evaluated again (both reported).
+- **The search**: differential evolution (Storn & Price, J Glob Optim 1997;11:341) within the
+  bounds, then Nelder–Mead from its best point, from `starts` random populations on threads
+  (one `ProtocolDesign` copy each), the model given as one of the starts; `rng` for repeatable
+  runs. The earlier prototype (BlackBoxOptim's adaptive DE, Optim's Nelder–Mead) found the two
+  enough and in agreement. Proposed: both written here, short and readable (about 60 and 40
+  lines), rather than an extension on BlackBoxOptim and Optim: no dependencies, the inner loop
+  stays allocation-free, the same `rng` convention as `simulate`. `d(x)` is a plain function,
+  so any other optimizer works on it today, and an extension (Optimization.jl) can come later.
+  Budget: DE with a population of 10 × dim (80 for 4 points) over 500 generations, 40 000
+  evaluations: about 0.5 s a start for the four tissues (11.5 µs each), 24 starts in about 3 s
+  on 4 threads; 48 scenarios (4 tissues × 12 conditions) about 12× that.
+- **The result** (`DesignResult`): the protocol (a model), its value, the rounded protocol and
+  its value, `evaluate`'s table at it, and every start's best (value and protocol), so the
+  spread across starts shows whether the search is reliable.
+- **Where**: `src/design/`: design.jl (`ProtocolDesign`, `evaluate`, the scenario grid),
+  search.jl (DE, Nelder–Mead, `optimize_protocol`, `DesignResult`). Diagnostics (sensitivity
+  maps, leakage; "Diagnostics" above) are independent of this and can follow.
+- **Accepted when**:
+  - `d` at the Table 2 schemes gives 0.243395 (4-point, kmf 12.5) and 1.602062 (5-point, kmf
+    fitted), both covariances, as crlb; `d(x)` allocates nothing.
+  - `optimize_protocol` reaches Fopt4 ≤ 0.2433 and Fopt5 ≤ 1.6020 (the paper's GA optima
+    before rounding), with most of 24 starts within 1%, and the rounded schemes near Table 2's
+    (any order of the points).
+  - Li 2010's T1 targets (62.4 s: 10 points, one TD of 1 s; 44.0 s: TI and TD free; 49.8 s:
+    3 points), with his conventions (σ = 1; the T1 experiment's t_FSE is uncertain, "Tests
+    and acceptance" below).
+  - Robust over B1 0.9–1.1 × Δf 0/50 Hz with Sm fixed and correct: the 4-point re-optimization
+    returns the Table 2 scheme (the prototype's: Eq. 5 0.2610 against Table 2's 0.2625).
+- **Order**: (1) `ProtocolDesign`, `d(x)`, `evaluate`, tested at the Table 2 schemes; (2) the
+  search, Fopt4 and Fopt5; (3) the scenario grid and conditions (Sf and Sm from a pulse model:
+  open, below), robust designs; (4) Li's targets; then diagnostics and data-driven design.
+- **Open, for review**:
+  - The search written here, or an extension on existing packages (proposed: here).
+  - `scantime` as a function keyword (proposed), or a readout time in the model (QMTSIR has
+    none).
+  - The default time handling: × T (proposed, to reproduce the paper) or a budget.
+  - Names: `ProtocolDesign`, `evaluate`, `optimize_protocol`, `DesignResult`, the scenario
+    grid's helper; the syntax for a value shared by every point.
+  - Distinct points with repeat counts (Li's optimized 35-point scheme falls into 7 groups):
+    later.
 
 ### Data-driven design
 
@@ -1930,10 +2035,11 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    `crlb`'s), fit settings side by side and `simulate_with` (done); Figs. 1
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
-3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J).
+3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J) (independent of 4 and 5; after
+   them, by the plan above).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
-   space.
-5. The optimizer extension: reproduce Fopt5 and Fopt4, and Li's T1 targets.
+   space: `ProtocolDesign` (the plan above; next).
+5. The optimizer: reproduce Fopt5 and Fopt4, and Li's T1 targets (the plan above).
 6. Data-driven: tissues and σ from `FitResult`s; adding points to a protocol.
 
 ### Open decisions
