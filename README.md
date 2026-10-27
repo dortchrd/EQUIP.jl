@@ -548,7 +548,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
   nonlinearity at low SNR. That is what montecarlo is for.
 
-## Protocol design (prototype, `design-proto`)
+## Protocol design
 
 The protocol that minimizes the predicted error over tissues, Eq. 5 of Dortch et al., MRM
 2018 by default: the worst scenario's sum of relative mean squared errors (bias² + SD², from
@@ -632,8 +632,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
-- **design/**: protocol objectives (Eq. 5 minimax, Eq. 6 efficiency) and protocol optimization
-  (best TI/TD), with an Optim.jl package extension
+- **design/** (started: `ProtocolDesign`, Eq. 5 with its options, `optimize_protocol`): tissues
+  × uncertain conditions as scenarios (B1, B0, T2m → Sf, Sm), Li 2010's T1 targets, Eq. 6
+  efficiency, data-driven designs from `FitResult`s, other optimizers through an extension
 - `BestOf` on several parameters at once, trying every combination (with precomputed
   candidate signals when they are the same in every voxel), and `BestOf(values; fits = k)`:
   full fits from the k best local minima of the values, keeping the lowest SSE

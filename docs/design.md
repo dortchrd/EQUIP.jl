@@ -1222,7 +1222,8 @@ Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, fr
 `crlb-proto` branch); fit settings side by side, data from another model, general noise and
 the fast pieces (`CRLBCache`, derivatives.jl) on `lean` since 007e196, from `analysis-proto`;
 fit settings as keywords (`kwargs-proto`), the `Scenario` and the faster sweeps
-(`scenario-proto`) on `lean` since 6c7cc50; the rest proposed. Prototyped in scratch scripts;
+(`scenario-proto`) on `lean` since 6c7cc50; `ProtocolDesign` and `optimize_protocol`
+(`design-proto`) on `lean` since e269647; the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
@@ -1868,9 +1869,9 @@ T2m/√(2π), as `calcSm_blockPulse.m`; the 1-ms block gives Sm = 0.831 at T2m =
 
 ### The plan: `ProtocolDesign`, an objective made once, and the search
 
-Status: the first version implemented on `design-proto` (src/design/: `ProtocolDesign`,
-`optimize_protocol`), results at the end of this section; the scenario grid, conditions and
-Li's targets still to do. What the sections above leave open, made concrete
+Status: the first version implemented (src/design/: `ProtocolDesign`, `optimize_protocol`;
+on `lean` since e269647, from `design-proto`), results at the end of this section; the
+scenario grid, conditions and Li's targets still to do. What the sections above leave open, made concrete
 with the pieces that now exist: the `Scenario` (a truth and the fit judged against it), one
 `CRLBCache` per fit, and the allocation-free kernel, which takes any protocol with as many
 observations. First goal: reproduce Dortch 2018 Table 2 by optimization (Fopt4 0.2433, Fopt5
@@ -2091,8 +2092,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J) (independent of 4 and 5; after
    them, by the plan above).
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
-   space: `ProtocolDesign` (the plan above; next).
-5. The optimizer: reproduce Fopt5 and Fopt4, and Li's T1 targets (the plan above).
+   space: `ProtocolDesign` (done; the tissue × condition grid next).
+5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.
 6. Data-driven: tissues and σ from `FitResult`s; adding points to a protocol.
 
 ### Open decisions
