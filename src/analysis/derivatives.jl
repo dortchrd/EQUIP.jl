@@ -231,6 +231,14 @@ model is evaluated with first-order duals (into `c.jbuf`) instead of nested ones
     return H, G
 end
 
+# H = G = J₀ᵀJ₀ from the rows the noise-free fit left in `c.fitbuf` (its evaluation at its start,
+# when it stopped there), copied to `c.jbuf`, where `meat`, `crossgram` and the result read J₀.
+@inline function _startrows!(c::CRLBCache{F,P,T}) where {F,P,T}
+    copyto!(c.jbuf, c.fitbuf)
+    G = information(c.jbuf, one(T))
+    return G, G
+end
+
 # -------------------------------------------------------------------------------------------------
 # The sums that involve the noise, by its form (Julia picks the method by the type of σ²): one
 # variance for every observation (a number: "pulled out"), one per observation (a vector), or a

@@ -2007,6 +2007,22 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
     no start of DE was ever more than 0.14% from the optimum, where a GA start could stop in a
     local minimum 20% worse (0.292 against 0.243) a third of the time. SA was the weakest on
     both. Taking the best of the starts, DE and the GA both found the optimum of each problem.
+- **The unbiased case without the extra work** (`design-proto`): when nothing fixed is wrong,
+  the CRLB is σ²(JᵀJ)⁻¹ at the truth, one evaluation of the model and an inverse; the kernel took
+  about twice that (4-point 0.60 µs against 0.28 µs for the bare formula; 16-point 1.52 against
+  0.63), since `hessian!` evaluated the model again at the point the noise-free fit had just
+  evaluated (the fit itself stops at its start: residual exactly 0, 0 iterations). Now, when the
+  fit stopped at its start with a residual of exactly 0, its rows are copied (`_startrows!`):
+  0.51, 0.57 and 1.11 µs (4-, 5-, 16-point), 1.6–1.8× the bare formula; the rest is what makes it
+  general (the fit's check at the start, the test that the data determine the parameters, the
+  sandwich), kept rather than a second, unbiased path to keep consistent. A separate `cov =
+  :unbiased` was considered and not added: "unbiased" means either the fit with the fixed
+  values at the truth (`Scenario(M, θ)`, the default) or the naive CRLB that takes the
+  assumption as the truth (`merge(θ, (kmf = 12.5,))`), both already a scenario, and side by side
+  in one call: `crlb(m, (assumed = s, unbiased = Scenario(M, θ)); snr)`. Results identical (the
+  688 cases with either default, the 8 sweeps, the design objectives); a protocol search with
+  unbiased scenarios (5-point, kmf fitted) 21% faster an evaluation (3.24 → 2.56 µs); biased
+  ones unchanged.
 ### Data-driven design
 
 - Tissues from a `FitResult`: the maps in `res.params`, masked to converged voxels and without
