@@ -1221,8 +1221,8 @@ Not needed for correctness: a test checks it against the columns built from `sig
 Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, from the
 `crlb-proto` branch); fit settings side by side, data from another model, general noise and
 the fast pieces (`CRLBCache`, derivatives.jl) on `lean` since 007e196, from `analysis-proto`;
-fit settings as keywords (`kwargs-proto`) and the `Scenario` (`scenario-proto`) on prototype
-branches; the rest proposed. Prototyped in scratch scripts;
+fit settings as keywords (`kwargs-proto`), the `Scenario` and the faster sweeps
+(`scenario-proto`) on `lean` since 6c7cc50; the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
 `generateManuscriptResults.m`) and against the published values of Li et al., MRM 2010;64:491.
@@ -1246,7 +1246,8 @@ The pieces, each using the ones before it:
 ### `crlb`: one function, biased or not by the fit settings
 
 Status: implemented (src/analysis/crlb.jl); merged into `lean` from `crlb-proto`, and its
-pieces (src/analysis/derivatives.jl), general noise and `CRLBCache` from `analysis-proto`.
+pieces (src/analysis/derivatives.jl), general noise and `CRLBCache` from `analysis-proto`; the
+`Scenario` (src/analysis/scenario.jl) and plain keywords from `scenario-proto` (6c7cc50).
 Checked: Fopt4 = 0.243395 and Fopt5 = 1.602062 (Eq. 5 of the Table 2 schemes, both
 covariances), the exact-fit identity, ∇b against central differences of noise-free fits
 (1e-5), the classical CRLB when nothing fixed is wrong, and Monte Carlo (below).
@@ -1626,10 +1627,11 @@ How, with what was measured:
 ### `montecarlo`: sweeps, and simulating with another model
 
 Status: one case and sweeps implemented, merged into `lean` (src/analysis/montecarlo.jl,
-sweep.jl); fit settings side by side and `simulate_with` too (from `analysis-proto`).
+sweep.jl); fit settings side by side and `simulate_with` too (from `analysis-proto`); a
+`Scenario`, its starts, and scenarios side by side (from `scenario-proto`).
 
 ```julia
-mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200)         # n = 10 000 noisy copies
+mc = montecarlo(m, nominal(m, :SIR_WM_I); snr = 200, kmf = 12.5)   # n = 10 000 noisy copies
 mc.bias.PSR, mc.sd.PSR, mc.se_sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR
 montecarlo(m, θ; snr = 200, kmf = Free(), noise = :gaussian, rng = MersenneTwister(1))
 ```
@@ -1639,7 +1641,8 @@ What the first version does, and why:
 - `simulate` (n copies of one voxel) → one threaded dataset `fit` → statistics, with `crlb` at
   the same truth, noise and fit settings attached (`mc.crlb`) and shown alongside. The fits start
   as `fit` starts them (`:scale`, `:data`, `BestOf`), not at the truth: local minima and the
-  starting rules are part of what is measured.
+  starting rules are part of what is measured. (Since `scenario-proto` the scenario's starts:
+  the truth by default, `starts = :model` for these.)
 - The same names as `crlb`, by quantity then parameter (`mc.sd.PSR`, `mc.relbias.PSR`), so a
   measurement and its prediction line up; plus standard errors (`se_mean` = SD/√n, `se_sd` =
   SD/√(2(n − 1))), so "agrees with crlb" has a scale. Statistics over every fitted copy,
