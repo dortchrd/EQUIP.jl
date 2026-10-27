@@ -34,6 +34,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3); and
   `montecarlo` (the same measured by simulating and fitting, with `crlb` alongside); sweep.jl:
   both over noise levels and true values (`snr = [...]`, `vary = (...)`), returning a `Sweep`
+- src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
+  default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
+  search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;
+  the result rounded to the ms by a search of its own)
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

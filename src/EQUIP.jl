@@ -54,10 +54,11 @@ export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Compar
 export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # analysis
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
+export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 
 # --- Source files, in layers ----------------------------------------------------------------
-# Each layer only uses the layers above it: models ← fit (← analysis ← design, later).
+# Each layer only uses the layers above it: models ← fit ← sim ← analysis ← design.
 
 # models: the interface every model implements, and the built-in models
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
@@ -84,6 +85,10 @@ include("analysis/derivatives.jl")     # crlb's pieces: CRLBCache, the sums, the
 include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits; the kernel
 include("analysis/montecarlo.jl")      # montecarlo: the same measured, with crlb alongside
 include("analysis/sweep.jl")           # Sweep: either one over noise levels and true values
+
+# design: protocols chosen by the predicted accuracy (uses analysis)
+include("design/design.jl")            # ProtocolDesign: the objective (Eq. 5), made once
+include("design/search.jl")            # optimize_protocol: differential evolution, Nelder–Mead
 
 # Compile the common cases while the package is installed (see the file).
 include("precompile.jl")

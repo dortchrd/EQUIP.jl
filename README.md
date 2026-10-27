@@ -548,6 +548,37 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
   nonlinearity at low SNR. That is what montecarlo is for.
 
+## Protocol design (prototype, `design-proto`)
+
+The protocol that minimizes the predicted error over tissues, Eq. 5 of Dortch et al., MRM
+2018 by default: the worst scenario's sum of relative mean squared errors (bias² + SD², from
+crlb's kernel) times the scan time. Each scenario is a tissue and what the fit assumes, so a
+wrong assumption counts as the bias it causes.
+
+```julia
+tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)
+ss = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = 12.5) for t in tissues]
+d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
+                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),     # bounds (s)
+                   constraints = m -> m.TI .+ m.TD .- 0.5,            # TR ≥ 0.8 s
+                   scantime = m -> sum(m.TI .+ m.TD .+ 0.3))          # Σ(TI + TD + t_FSE)
+d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 of a protocol: 0.243395 (Table 2)
+r = optimize_protocol(d; starts = 8, rng = MersenneTwister(1))
+r.protocol, r.value             # 0.243255 (the paper's optimum before rounding: 0.2433)
+r.rounded, r.rounded_value      # to the ms: 0.243312
+```
+
+- `d(x)`, x the varied values (the TIs, then the TDs), takes 11 µs here and allocates nothing:
+  one cache per fit (the four tissues share one), the kernel once per scenario.
+- Options: `weights` per parameter, `budget` (a fixed scan time instead of × T),
+  `aggregate` (`maximum` by default; a mean, a quantile), `shared = (:TD,)` (one TD for every
+  point), `cov`.
+- The search: differential evolution, then Nelder–Mead, from several starts on threads
+  (repeatable with `rng`); the result rounded to the ms by a search of its own (rounding each
+  value to the nearest ms can raise one of the tissues that tie at the optimum). It finds both
+  Table 2 optima (4-point 0.2433, 5-point 1.6020) in seconds; docs/design.md has the
+  comparison with simulated annealing and a genetic algorithm.
+
 ## How it works
 
 ```
@@ -582,6 +613,7 @@ src/
   analysis/               scenario.jl (Scenario: a truth and the fit judged against it),
                           derivatives.jl (crlb's pieces: CRLBCache, the sums, the formulas),
                           crlb.jl (the kernel, crlb, crlb!), montecarlo.jl, sweep.jl
+  design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
 ```
 
 `docs/design.md` records the design decisions.

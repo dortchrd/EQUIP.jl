@@ -1868,7 +1868,9 @@ T2m/√(2π), as `calcSm_blockPulse.m`; the 1-ms block gives Sm = 0.831 at T2m =
 
 ### The plan: `ProtocolDesign`, an objective made once, and the search
 
-Status: proposed (`design-proto`), for review. What the sections above leave open, made concrete
+Status: the first version implemented on `design-proto` (src/design/: `ProtocolDesign`,
+`optimize_protocol`), results at the end of this section; the scenario grid, conditions and
+Li's targets still to do. What the sections above leave open, made concrete
 with the pieces that now exist: the `Scenario` (a truth and the fit judged against it), one
 `CRLBCache` per fit, and the allocation-free kernel, which takes any protocol with as many
 observations. First goal: reproduce Dortch 2018 Table 2 by optimization (Fopt4 0.2433, Fopt5
@@ -1970,6 +1972,41 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   - Distinct points with repeat counts (Li's optimized 35-point scheme falls into 7 groups):
     later.
 
+- **First results** (`design-proto`; 4 threads; the MATLAB code's settings: signed signal,
+  t_FSE 0.3 s, SNR 200, its fits' bounds for the 4-point scheme, TI and TD in 10 ms–10 s,
+  TI + TD ≥ 0.5 s):
+  - The objective at the Table 2 schemes: 0.243395 (4-point) and 1.602062 (5-point), crlb's,
+    both covariances; 11.4 µs and 4.9 µs an evaluation over the four tissues, no allocation.
+  - The search, 8 starts: 4-point 0.243255 (every start; the paper's GA optimum before
+    rounding, Fopt4 0.2433), rounded to the ms 0.243312, below Table 2's rounded scheme
+    (0.243395), in 4 s; 5-point 1.602025 (7 of 8 starts; one at 1.6045), Fopt5 1.6020, rounded
+    1.60206, Table 2's own value, in 1.6 s. The 5-point optimum rounded to the nearest ms is
+    Table 2's scheme exactly (TI 10, 50, 56, 277, 843 ms; TD 3270, 4489, 1652, 2922, 10 ms).
+  - **Rounding to the ms is a search of its own.** At the 4-point optimum WM I and the lesion tie
+    (0.023991 each, × T); rounding each value to the nearest ms raised WM I to 0.024073 and the
+    maximum by 0.3%, to 0.244072, worse than Table 2's rounded scheme. So the result is the best
+    of the ways to round each value down or up (2^D of them up to 12 variables: 256 for 4
+    points, 3 ms), then single ms steps while one improves: 0.243312.
+  - **DE, simulated annealing or a GA** (the question for the global stage): each written for
+    the comparison (SA on log Eq. 5, one coordinate at a time, steps adapted to 44% acceptance,
+    geometric cooling; a real-coded GA with binary tournaments, simulated binary crossover and
+    polynomial mutation, Deb & Agrawal, Complex Syst 1995;9:115, two best kept), 24 starts each,
+    the same budget per start, each then polished by the same Nelder–Mead. Starts within 0.01%
+    of the best known after the polish:
+
+    | budget (evaluations a start) | | Fopt4 (4-point) | Fopt5 (5-point) |
+    |---|---|---|---|
+    | 5 000 × D | DE | 24/24 | 20/24 (all within 0.14%) |
+    | | SA | 23/24 (1 at 0.292) | 11/24 (worst 1.726) |
+    | | GA | 16/24 (8 at 0.292) | 24/24 |
+    | 10 000 × D, another seed | DE | 24/24 (converged at 67 000) | 22/24 (worst 0.015% off) |
+    | | GA | 22/24 (2 at 0.292) | 24/24 |
+
+    Before the polish, the GA was the closest on Fopt5 (all 24 within 0.01%) and DE on Fopt4.
+    Decision: DE (with Nelder–Mead), the default `generations = 1000` being the second budget:
+    no start of DE was ever more than 0.14% from the optimum, where a GA start could stop in a
+    local minimum 20% worse (0.292 against 0.243) a third of the time. SA was the weakest on
+    both. Taking the best of the starts, DE and the GA both found the optimum of each problem.
 ### Data-driven design
 
 - Tissues from a `FitResult`: the maps in `res.params`, masked to converged voxels and without
