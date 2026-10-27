@@ -431,17 +431,23 @@ _untie(x) = x
 
 # Check the ties among the values `vals` (a named tuple of parameter values or fixed values):
 # a tie by name must name another parameter that is not itself a tie. (Function ties cannot be
-# checked before they run.)
-function _check_ties(vals::NamedTuple)
-    for (n, v) in pairs(vals)
-        v isa Symbol || continue
-        v === n && throw(ArgumentError("`$n` cannot be tied to itself"))
-        haskey(vals, v) ||
-            throw(ArgumentError("`$n` is tied to `$v`, which is not a parameter; the parameters are $(keys(vals))"))
-        _istie(vals[v]) &&
-            throw(ArgumentError("`$n` is tied to `$v`, which is itself a tie; tie `$n` to what `$v` is tied to"))
-    end
+# checked before they run.) One `_check_tie` call per value, by `map` over the names and the
+# values: the values have different types (numbers, a Symbol), and `map` over a named tuple is
+# compiled for each, where a `for` loop would look each one's type up at run time (0.8 µs for
+# QMTSIR; checked on every truth a crlb sweep meets).
+function _check_ties(vals::NamedTuple{K}) where {K}
+    map((n, v) -> _check_tie(n, v, vals), NamedTuple{K}(K), vals)
+    return nothing
 end
+function _check_tie(n, v::Symbol, vals)
+    v === n && throw(ArgumentError("`$n` cannot be tied to itself"))
+    haskey(vals, v) ||
+        throw(ArgumentError("`$n` is tied to `$v`, which is not a parameter; the parameters are $(keys(vals))"))
+    _istie(vals[v]) &&
+        throw(ArgumentError("`$n` is tied to `$v`, which is itself a tie; tie `$n` to what `$v` is tied to"))
+    return nothing
+end
+_check_tie(n, v, vals) = nothing          # not a tie by name
 
 function _check_names(kind, given, known)
     for n in given
@@ -453,6 +459,7 @@ end
 # passing it, or a `Free(...)`/`Fixed(...)`, where values belong is an easy mistake that would
 # otherwise fail deep inside the model.
 function _reject_roles(p::NamedTuple)
+    any(values(map(x -> x isa Union{Free,Fixed}, p))) || return nothing   # the usual case, quickly
     for (n, x) in pairs(p)
         x isa Union{Free,Fixed} || continue
         hint = x isa Fixed && x.value isa Real ? "write `$n = $(x.value)`" : "give a number or a map"

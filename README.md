@@ -520,8 +520,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   [crlb!(c, θ; snr) for snr in (50, 100, 200)]
   ```
 
-  `crlb(m, s)` takes 26–42 µs (4- to 16-point SIR), `crlb(m, θ; kmf = 12.5)` 41–57 µs (the
-  scenario is 13 µs of it), `crlb!` 10–24 µs, and the allocation-free kernel inside 1–16 µs.
+  `crlb(m, s)` takes 21–36 µs (4- to 16-point SIR), `crlb(m, θ; kmf = 12.5)` 32–49 µs (the
+  scenario is 10 µs of it), `crlb!` 7–20 µs, a sweep 9–21 µs a setting, and the
+  allocation-free kernel inside 1–16 µs.
   Each step is a function of its own, summed over the observations one row of J at a time (as
   the solver sums JᵀJ), with one-call versions from a model and a scenario (or the truth θ and
   the changes as keywords; the derivatives are taken at the truth, with the fit choosing the

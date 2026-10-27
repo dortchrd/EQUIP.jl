@@ -108,26 +108,42 @@ function _print_sweep_fixed(io::IO, s::Sweep)
         print(io, "\ndata from ", nameof(typeof(d.first)), " (its truth as in each setting)")
 end
 
-# The true value of free parameter p in a result, exactly (the result keeps its truth as given).
-_truthof(r, p) = Float64(resolve(r.model, r.truth)[p])
+# The table: one row per setting and free parameter. Each setting's rows come from a function of
+# their own (`_settingrows`, a "function barrier": the setting's and the result's types are known
+# there, so each row is built directly rather than looked up name by name), with the free
+# parameters' true values found once per setting (`_freetruth`). Before: the whole truth
+# resolved for every row, 61% of a crlb sweep's time.
+function _rows(settings, results)
+    rows = NamedTuple[]
+    sizehint!(rows, sum(r -> length(r.sd), results))     # one row per setting and parameter
+    for (st, r) in zip(settings, results)
+        append!(rows, _settingrows(st, r, _freetruth(r)))
+    end
+    return rows
+end
 
-# The table: one row per setting and free parameter.
-function _rows(settings, results::Vector{<:CRLBResult})
-    return NamedTuple[(; st..., parameter = p, truth = _truthof(c, p), noisefree = c.fit[p],
-                       bias = c.bias[p], relbias = c.relbias[p], sd = c.sd[p], relsd = c.relsd[p],
-                       rmse = c.rmse[p], relrmse = c.relrmse[p])
-                      for (st, c) in zip(settings, results) for p in keys(c.fit)]
+# The true value of each free parameter of a result, exactly (the result keeps its truth as
+# given): read directly when a number, through `resolve` when the truth ties it to another
+# parameter (rare: a tie is usually on a fixed parameter, R1m = :R1f).
+function _freetruth(r)
+    F = keys(r.sd)
+    given = map(p -> r.truth[p], NamedTuple{F}(F))
+    all(x -> x isa Real, values(given)) && return map(Float64, given)
+    θt = resolve(r.model, r.truth)
+    return NamedTuple{F}(map(p -> Float64(θt[p]), F))
 end
-function _rows(settings, results::Vector{<:MonteCarloResult})
-    return NamedTuple[(; st..., parameter = p, truth = _truthof(r, p), mean = r.mean[p],
-                       bias = r.bias[p], relbias = r.relbias[p], sd = r.sd[p], relsd = r.relsd[p],
-                       rmse = r.rmse[p], relrmse = r.relrmse[p], se_mean = r.se_mean[p],
-                       se_sd = r.se_sd[p], converged = r.converged, crlb_fit = r.crlb.fit[p],
-                       crlb_bias = r.crlb.bias[p], crlb_relbias = r.crlb.relbias[p],
-                       crlb_sd = r.crlb.sd[p], crlb_relsd = r.crlb.relsd[p],
-                       crlb_relrmse = r.crlb.relrmse[p])
-                      for (st, r) in zip(settings, results) for p in keys(r.sd)]
-end
+_settingrows(st::NamedTuple, c::CRLBResult, θt) =
+    map(p -> (; st..., parameter = p, truth = Float64(θt[p]), noisefree = c.fit[p],
+              bias = c.bias[p], relbias = c.relbias[p], sd = c.sd[p], relsd = c.relsd[p],
+              rmse = c.rmse[p], relrmse = c.relrmse[p]), keys(c.fit))
+_settingrows(st::NamedTuple, r::MonteCarloResult, θt) =
+    map(p -> (; st..., parameter = p, truth = Float64(θt[p]), mean = r.mean[p],
+              bias = r.bias[p], relbias = r.relbias[p], sd = r.sd[p], relsd = r.relsd[p],
+              rmse = r.rmse[p], relrmse = r.relrmse[p], se_mean = r.se_mean[p],
+              se_sd = r.se_sd[p], converged = r.converged, crlb_fit = r.crlb.fit[p],
+              crlb_bias = r.crlb.bias[p], crlb_relbias = r.crlb.relbias[p],
+              crlb_sd = r.crlb.sd[p], crlb_relsd = r.crlb.relsd[p],
+              crlb_relrmse = r.crlb.relrmse[p]), keys(r.sd))
 
 # -------------------------------------------------------------------------------------------------
 # Display: the settings' columns, then the numbers; a setting's values on its first row only

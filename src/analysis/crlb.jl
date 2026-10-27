@@ -298,7 +298,7 @@ end
 # bound, reported as `c.cond`: √(λmax/λmin) of the scaled J₀ᵀJ₀, P×P (no SVD of the N×P J₀). Inf
 # when there are fewer observations than parameters, or J₀ᵀJ₀ is singular.
 function _condition(G::SMatrix{P,P}, θ, pinned, N) where {P}
-    U = [j for j in 1:P if !pinned[j]]
+    U = any(pinned) ? [j for j in 1:P if !pinned[j]] : (1:P)    # usually none on a bound
     (isempty(U) || N < length(U)) && return Inf
     s = [θ[j] == 0 ? 1.0 : abs(θ[j]) for j in U]
     λ = eigvals(Symmetric(s .* Matrix(G)[U, U] .* s'))

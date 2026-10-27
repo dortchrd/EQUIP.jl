@@ -126,14 +126,11 @@ Base.show(io::IO, c::CRLBCache{F}) where {F} =
     print(io, "CRLBCache(", nameof(typeof(c.model)), ": ", join(F, ", "), "; ",
           c.biased ? "Eq. 3" : "sandwich", ")")
 
-# The truth, checked (every parameter, no roles; see `resolve`), in model order, with ties by
-# name as `_Tie` so the functions below read them as plain field accesses. Done once per truth: a
-# tie's type depends on the name it holds, which is only known at run time here.
-function _crlb_truth(m::MRIModel, truth::NamedTuple)
-    resolve(m, truth)
-    names = keys(parameters(m))
-    return NamedTuple{names}(map(n -> _tie(truth[n]), names))
-end
+# The truth, checked (every parameter, no roles; `resolve`'s checks, `_complete`), in model order,
+# with ties by name as `_Tie` so the functions below read them as plain field accesses. Done once
+# per truth: a tie's type depends on the name it holds, which is only known at run time here.
+_crlb_truth(m::MRIModel, truth::NamedTuple) =
+    map(_tie, _complete(nameof(typeof(m)), parameters(m), truth))
 
 # The free values of a truth from `_crlb_truth`, as a static vector in the order F.
 @inline function _freevalues(c::CRLBCache{F,P,T}, t::NamedTuple) where {F,P,T}

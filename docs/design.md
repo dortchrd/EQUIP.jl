@@ -1360,6 +1360,28 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
     itself takes 12–13 µs (QMTSIR, 9 parameters; 2 µs for T2): 25 µs at first, halved by a
     function barrier after the changes (the roles' type is unknown there; the checks and
     `wrong` then compile to straight-line `map`s over the named tuples).
+- **Sweeps, profiled** (`scenario-proto`): a crlb sweep cost 37–40 µs a setting (4-point
+  SIR; 50 µs 16-point) where `crlb!` alone took 11 µs. The profile: 61% building the table
+  (`_rows` resolved the whole truth again for every row, setting × parameter: 42% on its own),
+  34% in `crlb!`, of which a third was checking the truth (`_crlb_truth` resolved it only to
+  check it, then reordered it again) and a third `_condition` (`c.cond`: LAPACK's symmetric
+  eigenvalues). Changed: each setting's rows built in a function of their own (a function
+  barrier, the setting's type known there) from the free parameters' true values read once
+  (`_freetruth`: directly when numbers, through `resolve` only when the truth ties a free
+  parameter); `_crlb_truth` one pass of `resolve`'s checks (`_complete`) instead of `resolve`
+  plus a reorder; `_reject_roles` (a quick `map` first) and `_check_ties` (a `map` over names
+  and values, one `_check_tie` method per kind of value) without the `for` loop over a named
+  tuple of mixed types, which looked each value's type up at run time (0.7 and 0.8 µs for
+  QMTSIR, now 0.03 and 0.1). Now 9.2–9.7 µs a setting (4-point) and 19–21 µs (16-point): 4×
+  and 2.5× faster; the rest is `crlb!` (6.6 µs for 4-point: the kernel 2.7, `_condition` 2.0,
+  the result). The same checks made every call faster: `crlb!` 6.6 / 19–20 µs (was 10.7 /
+  23.7), `crlb(m, s)` 21–36 µs, `crlb(m, θ; kmf = 12.5)` 32–49 µs (below the 37–53 before the
+  scenario), `Scenario` 9.8 µs; the kernel unchanged. Results unchanged: 8 sweeps (378 rows,
+  every result field and the displays; crlb and montecarlo, scenarios side by side,
+  `simulate_with`) identical, the 688 cases and the 108 fingerprints bit-identical. Left:
+  `_condition` (2 µs a call, a third of a 4-point `crlb!`); a pure-Julia eigenvalue solver for
+  the small static matrix would remove most of it, at the price of `cond` changing at rounding
+  level, so not done.
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the
