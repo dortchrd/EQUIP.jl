@@ -27,7 +27,7 @@
 # From a model and a scenario, one call each (a cache made inside; allocating results, for the
 # REPL):
 #
-#   noisecovariance(m, θ; snr | σ | Σ)     Σ (N×N)
+#   noisecovariance(m, s; snr | σ | Σ)     Σ (N×N)
 #   noisefree(m, s)                        θ̂, a FitResult;  bias(m, s): θ̂ − θ
 #   jacobian(m, s), jacobian(r)            J (N×P)
 #   hessian(m, s, y; Σ), hessian(r, y)
@@ -457,10 +457,12 @@ end
 
 """
     noisecovariance(m, θ; snr or σ or Σ) -> Diagonal or Matrix
+    noisecovariance(m, s::Scenario; snr or σ or Σ) -> Diagonal or Matrix
 
 The covariance Σ of Gaussian noise between the observations of `m` (N×N), from one of:
 
-- `snr`: relative to the model's scale parameter at the values θ, as for [`simulate`](@ref):
+- `snr`: relative to the model's scale parameter at the values θ (a scenario's truth), as for
+  [`simulate`](@ref):
   σ = M0/snr, the same for every observation, independent: Σ = σ²I (a `Diagonal`)
 - `σ`: a number (Σ = σ²I), or one SD per observation (Σ = Diagonal(σ²): independent noise, e.g.
   different numbers of averages)
@@ -469,8 +471,13 @@ The covariance Σ of Gaussian noise between the observations of `m` (N×N), from
 
 ```julia
 noisecovariance(m, nominal(m, :SIR_WM_I); snr = 200)       # 4×4 Diagonal, (M0f/200)²
+noisecovariance(m, s; snr = 200)                           # the same at a scenario's truth
 ```
 """
+function noisecovariance(m::MRIModel, s::Scenario; snr = nothing, σ = nothing, Σ = nothing)
+    _check_protocol(m, s)
+    return noisecovariance(m, s.truth; snr, σ, Σ)
+end
 function noisecovariance(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing)
     N = nobs(m)
     count(!isnothing, (snr, σ, Σ)) == 1 ||

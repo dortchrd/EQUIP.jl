@@ -530,7 +530,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 
   | Function | Gives |
   |---|---|
-  | `noisecovariance(m, θ; snr)` | Σ, the noise covariance (N×N) |
+  | `noisecovariance(m, s; snr)` | Σ, the noise covariance (N×N) |
   | `noisefree(m, s)` | θ̂, the fit of the noise-free data (a `FitResult`) |
   | `bias(m, s)` | b = θ̂ − θ |
   | `jacobian(m, s)`, `jacobian(r)` | J = ∂g/∂θ (N×P), at the truth or at a fit's answer |
@@ -542,7 +542,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 
   ```julia
   r = noisefree(m, s)                                   # kmf held at 12.5: wrong
-  sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, θ; snr = 200))
+  sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, s; snr = 200))
   biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
 - Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,

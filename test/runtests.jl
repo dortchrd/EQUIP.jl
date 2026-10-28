@@ -1282,6 +1282,8 @@ end
         @test noisecovariance(m4, θ; snr = 200) == Diagonal(fill((θ.M0f / 200)^2, 4))
         @test noisecovariance(m4, θ; σ = [1.0, 2.0, 3.0, 4.0]) == Diagonal([1.0, 4.0, 9.0, 16.0])
         @test noisecovariance(m4, θ; Σ) === Σ
+        @test noisecovariance(m4, Scenario(QMTSIR, θ; kmf = 12.5); snr = 200) == noisecovariance(m4, θ; snr = 200)
+        @test occursin("the scenario is for QMTSIR", msg(() -> noisecovariance(T2Decay(TE = TD5), Scenario(QMTSIR, θ); σ = 1.0)))
         # crlb is their composition: the sandwich at θ̂ ...
         Σn = noisecovariance(m4, θ; snr = 200)
         # (crlb leaves out the curvature of the exact 4-point fit, whose residual is ~1e-13)
