@@ -1400,9 +1400,15 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   (independent thermal noise with the same variance at every observation: separate
   acquisitions, the same readout), is "pulled out", JᵀΣ⁻¹J = JᵀJ/σ², at no cost. A full Σ is
   factored once (Σ = LLᵀ, checked symmetric and positive definite) and whitens the sums:
-  Fisher J_tᵀΣ⁻¹J_t = Σₖ vₖvₖᵀ with vₖ the rows of L⁻¹J_t (forward substitution), sandwich
-  H⁻¹J₀ᵀΣJ₀H⁻¹ = Σₖ aₖaₖᵀ with aₖ = H⁻¹(row k of LᵀJ₀); sums of squares, allocation-free,
-  O(N²P) (N ≤ 100). The pattern is LsqFit.jl's for weighted fits (a Cholesky factor of the
+  Fisher J_tᵀΣ⁻¹J_t = Σₖ vₖvₖᵀ with vₖ the rows of L⁻¹J_t, sandwich H⁻¹J₀ᵀΣJ₀H⁻¹ = Σₖ aₖaₖᵀ
+  with aₖ = H⁻¹(row k of LᵀJ₀); sums of squares, allocation-free, O(N²P) (N ≤ 100). Each row is
+  made where it is used, from L (the sandwich) or from L⁻¹, inverted once with the factor
+  (Fisher: vₖ = Σᵢ≤ₖ (L⁻¹)ₖᵢJᵢ; first by forward substitution, which kept the rows in a work
+  buffer inside the noise, so one noise could not be shared between tasks; changed on
+  `noise-proto`: read only now, shared by 8 tasks on 4 threads with the same covariances as
+  one task; L⁻¹ stored transposed so the loop reads down columns; Fisher and observed
+  information within 5e-16 of before, Eq. 3 SDs within 6e-15, the sandwich identical; the Eq. 3
+  kernel 0.1–0.3 µs slower at 32 echoes, the noise's setup a few µs, a one-off crlb unchanged). The pattern is LsqFit.jl's for weighted fits (a Cholesky factor of the
   inverse covariance folded into the residuals). With unequal or correlated noise EQUIP's
   unweighted fit is not efficient: the sandwich is its SD, Eq. 3 (`:biased`) the bound a
   weighted fit would reach. Checked: σ²I, a diagonal Σ and the number or vector give the same

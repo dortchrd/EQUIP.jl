@@ -243,7 +243,9 @@ end
 # The sums that involve the noise, by its form (Julia picks the method by the type of σ²): one
 # variance for every observation (a number: "pulled out"), one per observation (a vector), or a
 # full covariance Σ = LLᵀ (`_FullNoise`, whitening the rows). Sums of squares, so neither gives
-# a negative variance. `u` masks the rows of parameters held on a bound (1 for the others).
+# a negative variance. `u` masks the rows of parameters held on a bound (1 for the others). None
+# of them writes anything: each whitened row is made where it is used, so one noise can be shared
+# by every task.
 # -------------------------------------------------------------------------------------------------
 
 # The scale parameter's value (M0, S0): read directly when given as a number; otherwise (a tie,
@@ -251,11 +253,13 @@ end
 _scalevalue(m, θ, scale) =
     haskey(θ, scale) && θ[scale] isa Real ? Float64(θ[scale]) : Float64(resolve(m, θ)[scale])
 
-# A full noise covariance by its Cholesky factor (Σ = LLᵀ, lower triangle), with a work buffer
-# for the whitening (one row of L⁻¹J per observation).
-struct _FullNoise{T,P}
+# A full noise covariance by its Cholesky factor (Σ = LLᵀ, lower triangle) and the factor's
+# inverse, stored transposed, (L⁻¹)ᵀ (upper triangle), both made once: `meat` whitens with L,
+# `information` with L⁻¹. Transposed so that `information`'s inner loop reads down a column (Julia
+# stores matrices column by column). Read only, so it can be shared between tasks.
+struct _FullNoise{T}
     L::Matrix{T}
-    v::Vector{SVector{P,T}}
+    Linvt::Matrix{T}           # (L⁻¹)ᵀ: Linvt[i, k] = (L⁻¹)ₖᵢ
 end
 
 @inline _at(s::Real, i) = s                          # σ²: one number for every observation,
@@ -293,8 +297,8 @@ end
     information(rows, σ²) -> SMatrix{P,P}
 
 The Fisher information JᵀΣ⁻¹J (Dortch et al., MRM 2018, Eq. 4): Σᵢ JᵢJᵢᵀ/σᵢ², or with a full
-Σ = LLᵀ, Σₖ vₖvₖᵀ with vₖ = row k of L⁻¹J (forward substitution, the rows kept in the noise's
-buffer). With σ² = 1, the Gauss–Newton matrix JᵀJ.
+Σ = LLᵀ, Σₖ vₖvₖᵀ with vₖ = row k of L⁻¹J = Σᵢ≤ₖ (L⁻¹)ₖᵢJᵢ, made where it is used (O(N²P), as
+`meat` makes its rows of LᵀJ). With σ² = 1, the Gauss–Newton matrix JᵀJ.
 """
 @inline function information(buf, σ2::Union{Real,AbstractVector})
     Fm = _zeroPP(buf)
@@ -305,15 +309,14 @@ buffer). With σ² = 1, the Gauss–Newton matrix JᵀJ.
     return Fm
 end
 function information(buf, n::_FullNoise)
-    L, v = n.L, n.v
+    Wt = n.Linvt
     Fm = _zeroPP(buf)
     @inbounds for k in eachindex(buf)
-        t = _row(buf[k])
-        for i in 1:k-1
-            t -= L[k, i] * v[i]
+        v = Wt[1, k] * _row(buf[1])               # vₖ = Σᵢ≤ₖ (L⁻¹)ₖᵢ Jᵢ: column k of (L⁻¹)ᵀ
+        for i in 2:k
+            v += Wt[i, k] * _row(buf[i])
         end
-        v[k] = t / L[k, k]
-        Fm += v[k] * v[k]'
+        Fm += v * v'
     end
     return Fm
 end
@@ -491,14 +494,19 @@ function noisecovariance(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothin
     return Σ
 end
 
-# Σ checked and factored as `simulate` does (`_noisefactor`, sim/simulate.jl).
-_fullnoise(Σ, N, P) =
-    _FullNoise{Float64,P}(_noisefactor(Σ, N), Vector{SVector{P,Float64}}(undef, N))
+# Σ checked and factored as `simulate` does (`_noisefactor`, sim/simulate.jl), and the factor
+# inverted once: (Lᵀ)⁻¹ = (L⁻¹)ᵀ, a triangular inverse in place on a copy of Lᵀ (O(N³/3); N ≤ 100).
+function _fullnoise(Σ, N)
+    L = _noisefactor(Σ, N)
+    Linvt = permutedims(L)
+    LinearAlgebra.inv!(UpperTriangular(Linvt))
+    return _FullNoise{Float64}(L, Linvt)
+end
 
 # The noise in the form the sums take, from `noisecovariance`: one variance for every
 # observation (σ² "pulled out", the common case), one per observation, or the full covariance.
 _kernelnoise(Σ::Diagonal, P) = allequal(Σ.diag) ? Float64(Σ.diag[1]) : Vector{Float64}(Σ.diag)
-_kernelnoise(Σ::AbstractMatrix, P) = _fullnoise(Σ, size(Σ, 1), P)
+_kernelnoise(Σ::AbstractMatrix, P) = _fullnoise(Σ, size(Σ, 1))
 _kernelnoise(Σ::UniformScaling, P) = Float64(Σ.λ)
 
 # -------------------------------------------------------------------------------------------------
