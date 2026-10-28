@@ -1772,8 +1772,58 @@ montecarlo(m, t; simulate_with = m2)                            # data from anot
   t_FSE) for each parameter on a grid, with 85th-percentile contours. Returned as arrays;
   plotting through an extension later.
 - **Leakage**: the first-order bias of each fitted parameter per unit error in each fixed one
-  (kmf, Sm, Sf, Mzf_td0, B1, a tie), −[(JᵀJ)⁻¹Jᵀ·∂g/∂c]ⱼ, in relative units. The slope of Fig.
-  2B; covers roadmap item 3's "sensitivity to model assumptions".
+  (kmf, Sm, Sf, Mzf_td0, B1, a tie). The slope of Fig. 2B; covers roadmap item 3's
+  "sensitivity to model assumptions". The plan (next diagnostic):
+
+  ```julia
+  s = Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I))      # or with kmf = 12.5: at a biased point
+  l = leakage(QMTSIR(; SIR_5POINT...), s)
+  l.kmf.PSR              # ∂PSR̂/∂kmf, in PSR's units per s⁻¹ of error in the assumed kmf
+  l.relative.kmf.PSR     # the same relative to the true PSR: −0.119 (−11.9% per s⁻¹)
+  l.elasticity.kmf.PSR   # % of PSR per % of kmf: comparable across fixed parameters
+  ```
+
+  - **What:** for each fixed parameter c of the scenario's fit (fixed numbers in the first
+    version), dθ̂/dc, how the noise-free fit's answer moves when the value it assumes for c
+    changes, at that fit (the truth when nothing fixed is wrong). Times an error Δc, it is the
+    first-order bias: b ≈ (dθ̂/dc)·Δc (crlb's noise-free fit gives the exact one), for every
+    fixed parameter at once and without a fit per assumed value.
+  - **How:** the implicit function theorem, as for ∇b. The fit's gradient G(θ̂; c) = J₀ᵀr is 0
+    for every assumed c, so dθ̂/dc = −H_θθ⁻¹H_θc, both blocks of the cost's Hessian over (θ, c)
+    at (θ̂, c): H_θc = J₀ᵀ∂g/∂c + Σᵢ rᵢ∂²gᵢ/∂θ∂c. At the truth (r = 0) the second term is 0 and
+    this is −(JᵀJ)⁻¹Jᵀ∂g/∂c. One evaluation with nested dual numbers over the P free and K fixed
+    parameters (the fixed ones seeded too, as `hessian!` seeds the free ones), in the kernel's
+    style: a cache made once per fit, allocation-free, for use in the protocol search.
+  - **Why the full form** (measured, scratch; PSR, % of the true PSR per s⁻¹ of kmf error):
+
+    | | 4-point | 5-point | 16-point |
+    |---|---|---|---|
+    | at the truth, WM I: −(JᵀJ)⁻¹Jᵀ∂g/∂c | −7.85 | −11.90 | −15.42 |
+    | at the truth, WM II | −0.62 | −2.30 | −2.98 |
+    | WM I, kmf assumed 12.5: the Gauss–Newton form alone | | −2.58 | −1.55 |
+    | the same with the curvature term (full form) | | −3.25 | −2.09 |
+    | central differences of noise-free fits (both cases) | equal to the line above | | |
+
+    At the truth the simple form is exact (and equals the numbers above, from the earlier
+    prototype). Away from it the curvature term is 21–26% of the answer: needed.
+  - **Output:** by fixed parameter, then free parameter (`l.kmf.PSR`), as crlb's results; the
+    absolute value, relative to the true value (per unit of c, the numbers above) and as an
+    elasticity, (c/θⱼ)·dθ̂ⱼ/dc (% per %), to compare fixed parameters with different units
+    (kmf in s⁻¹, Sm and B1 without). At the REPL a table: one row per fixed parameter, one
+    column per free one.
+  - **Uses:** which fixed parameters matter for a protocol and tissue, and by how much; the
+    first-order bias of an error without a scenario per value; a robust design term later
+    (leakage × the plausible error of each fixed parameter, a cheap alternative to a grid of
+    tissues × conditions in `ProtocolDesign`).
+  - **Accepted when:** the numbers above (at the truth, the three schemes, WM I and WM II, and
+    the biased points); central differences of noise-free fits within 1e-6 relative, at the
+    truth and at a biased point; the simple form at the truth; the first-order bias against
+    crlb's for a small error (kmf 5 → 5.25: within the second-order term); the kernel form
+    allocates nothing.
+  - **Where:** src/analysis/leakage.jl, after derivatives.jl (its cache, `hessian!` with the
+    fixed parameters seeded).
+  - **Open:** ties (R1m = :R1f: leakage of a deviation from the tie, R1m = R1f + δ; later);
+    maps of fixed values (B1 maps: per voxel, later); the names `relative` and `elasticity`.
 - **cond(J)**, an identifiability flag (Lankford & Does).
 - What they showed for SIR, behind the design rule "sample where ∂S/∂kmf is small and does not
   overlap the fitted parameters' sensitivities": kmf enters the signal as a rate, PSR as an
@@ -2095,8 +2145,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    `crlb`'s), fit settings side by side and `simulate_with` (done); Figs. 1
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
-3. Diagnostics: sensitivity maps (Fig. 2A), leakage, cond(J) (independent of 4 and 5; after
-   them, by the plan above).
+3. Diagnostics: leakage first (`leakage(m, s)`, "Diagnostics" above: planned), then
+   sensitivity maps (Fig. 2A); cond(J) is in crlb's results already. Independent of 4 and 5.
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space: `ProtocolDesign` (done; the tissue × condition grid next).
 5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.
