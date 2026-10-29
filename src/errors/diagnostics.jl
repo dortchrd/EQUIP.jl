@@ -10,7 +10,8 @@
 # `crlb!` call does not pay for them (cond's eigenvalues, 1.5–2 µs, were a quarter of a 4-point
 # `crlb!`), and each is computed from what the result keeps. Methods of LinearAlgebra's `cond`
 # and Statistics' `cor`, re-exported. `leakage` needs no crlb result (no noise): it takes the
-# protocol and a scenario, as crlb does. Next (docs/design.md, "Diagnostics"): sensitivity maps.
+# protocol and a scenario, as crlb does. (Dortch 2018's Eq. 6, the sensitivity efficiency, is
+# `jacobian` divided by √t: see its docstring.)
 # =================================================================================================
 
 """

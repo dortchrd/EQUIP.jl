@@ -562,6 +562,23 @@ J = jacobian(m, θ)                           # 4×4: PSR, R1f, Sf, M0f
 J5 = jacobian(m, θ; kmf = Free())           # 4×5: kmf too
 ```
 
+The sensitivity efficiency of Dortch et al., MRM 2018;80:1824, Eq. 6, is J with each row
+divided by √t, t the observation's time (TI + TD + t_FSE for SIR): how much each observation
+tells about each parameter per √s of scan. With each column times θⱼ/M0f, the paper's maps
+(Fig. 2A, in % there): the signal's change for a relative change of θⱼ, comparable between
+parameters. The candidate observations are any protocol's; a grid of acquisition values is one
+protocol with every combination as its observations (the paper's script's values and grid):
+
+```julia
+θ = nominal(QMTSIR; PSR = 0.12, R1f = 1.0, Sf = -1.0, kmf = 12.5)
+ti = exp10.(range(log10(0.01), log10(5), 1000)); td = exp10.(range(log10(0.01), log10(5), 100))
+points = vec(collect(Iterators.product(ti, td)))                   # every (TI, TD), TI fastest
+g = QMTSIR(TI = first.(points), TD = last.(points))
+S = jacobian(g, θ; kmf = Free()) ./ sqrt.(g.TI .+ g.TD .+ 0.3)    # Eq. 6: PSR, R1f, Sf, M0f, kmf
+rel = S .* [θ.PSR θ.R1f θ.Sf θ.M0f θ.kmf] ./ θ.M0f                # θ·∂S/∂θ, in units of M0f
+reshape(rel[:, 1], length(ti), length(td))                         # Fig. 2A's PSR map
+```
+
 Also exported by Zygote and DifferentiationInterface: with either loaded, write
 `EQUIP.jacobian`.
 """

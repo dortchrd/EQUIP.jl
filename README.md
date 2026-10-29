@@ -649,8 +649,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
-  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity maps (Dortch et
-  al. 2018, Eq. 6); leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
+  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity-efficiency
+  plots (Dortch 2018, Fig. 2A: `jacobian` ./ √t over two acquisition variables, contoured, with
+  schemes overlaid) as a function through a plotting extension; leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
   leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives;
   fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
