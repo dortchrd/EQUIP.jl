@@ -1051,6 +1051,17 @@ end
             @test abs(mq.mean[p] - mq.crlb.fit[p]) < 4 * mq.se_mean[p]
             @test abs(mq.sd[p] - mq.crlb.sd[p]) < 4 * mq.se_sd[p]
         end
+        # compare on the same estimates gives montecarlo's statistics (one true value), the
+        # relative bias with the bias's sign, also for Sf's negative truth
+        cq = compare(mq.result, θ)
+        for r in cq.rows
+            p = r.parameter
+            @test r.bias ≈ mq.bias[p] rtol = 1e-10
+            @test r.relbias ≈ mq.relbias[p] rtol = 1e-10
+            @test r.sd ≈ mq.sd[p] rtol = 1e-10
+            @test r.rmse ≈ mq.rmse[p] rtol = 1e-10
+        end
+        @test θ.Sf < 0 && sign(only(r.relbias for r in cq.rows if r.parameter == :Sf)) == sign(mq.bias.Sf) != 0
         # the correlations of the estimates: measured (Statistics' cor, as vcov's scaled), and
         # near crlb's within 4 standard errors, (1 − r²)/√n
         Rm, Rp = cor(mq), cor(mq.crlb)

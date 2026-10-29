@@ -420,6 +420,14 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   `simulate` the same. Found on the way: the first version called `nobs(m)` twice per noise
   check, and the generic `nobs` allocates (it collects the acquisition's lengths in a vector:
   0.06 µs and 144 bytes); N is now passed in.
+- **`compare`'s relative errors are relative to |truth|**, as `crlb`'s and `montecarlo`'s: the
+  relative bias has the sign of the bias. Before, it divided by the truth itself, so for a
+  negative true value (Sf = −1) a bias of −0.009 showed as a relative bias of +0.9%, the
+  opposite of `montecarlo`'s for the same estimates. Found when `compare` moved beside
+  `montecarlo`. Only negative truths change, by an exact sign flip (the phantom snapshot: the
+  Sf rows, nothing else); `relrmse` and `medrel` were unaffected (squares, absolute values).
+  Tested: `compare(mc.result, θ)` gives `montecarlo`'s bias, relative bias, SD and RMSE within
+  2e-12 (4-point WM I, kmf assumed 12.5, 4000 copies).
 
 - **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
   need a value for every parameter of the model (a number, a map, or a tie such as

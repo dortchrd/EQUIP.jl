@@ -11,9 +11,14 @@ The result of [`compare`](@ref): `rows`, one per (group, parameter), each a name
 - `group`: `:all`, or a label
 - `parameter`, `voxels` (voxels fitted in the group), `converged` (fraction)
 - `truth`: the median true value
-- `mean`, `bias` (mean of estimate − truth), `relbias` (mean of the relative error)
+- `mean`, `bias` (mean of estimate − truth), `relbias` (mean of the relative error,
+  (estimate − truth)/|truth|: the sign of the bias, also for a negative truth such as Sf)
 - `sd`: standard deviation of the errors (of the estimates, when the truth is one value)
 - `rmse`, `relrmse`, `medrel` (median of the absolute relative error)
+
+With one true value for every voxel, the statistics are [`montecarlo`](@ref)'s (`relbias` =
+bias/|truth|, as there and in [`crlb`](@ref)); with maps, each voxel's error is relative to its
+own true value.
 
 Statistics use every fitted voxel, converged or not. `rows` is a table: e.g.
 `DataFrame(c.rows)` with DataFrames.jl.
@@ -50,7 +55,7 @@ function compare(res::FitResult, truth::NamedTuple; labels = nothing, mask = not
         t = truth[n] isa Symbol ? truth[truth[n]] : truth[n]    # a tie (R1m = :R1f): the value it names
         tv = t isa AbstractArray ? t[sel] : fill(float(t), count(sel))
         err = est .- tv
-        rel = err ./ tv
+        rel = err ./ abs.(tv)        # relative to |truth|, as crlb and montecarlo: the bias's sign
         push!(rows, (group = g, parameter = n, voxels = count(sel), converged = count(conv .& sel) / count(sel),
                      truth = median(tv), mean = mean(est), bias = mean(err), relbias = mean(rel),
                      sd = length(err) > 1 ? std(err) : NaN, rmse = sqrt(mean(abs2, err)),
