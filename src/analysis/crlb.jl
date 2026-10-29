@@ -49,17 +49,19 @@ like `res.params.PSR` of a [`FitResult`](@ref)):
 - `bias` (θ̂ − truth), `sd`, `rmse` (√(bias² + SD²)), in the parameters' units
 - `relbias`, `relsd`, `relrmse`: the same divided by |truth|
 
-and `cov` (the covariance matrix, free parameters in model order), `cond` (condition number of
-the Jacobian with each column scaled by its parameter's true value: large means the parameters
-are hard to tell apart; computed when read), `onbound` (free parameters on a bound in the noise-free fit: held there,
-SD 0), `status` (the noise-free fit's [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`),
-`σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values), `model`,
-`data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`) and `Σ`
-(`nothing`, or the noise covariance matrix given). [`informationmatrix`](@ref)`(c)`,
-[`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give the information and covariance matrices
-and the SDs, under StatsAPI's names.
+and `cov` (the covariance matrix, free parameters in model order), `onbound` (free parameters
+on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fit's
+[`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`), `σ` (the noise SD per observation),
+`truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`, or the `model => truth`
+the data came from, with `simulate_with`) and `Σ` (`nothing`, or the noise covariance matrix
+given). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
+the information and covariance matrices and the SDs, under StatsAPI's names.
+
+Diagnostics, computed when called (as `fitted(res)` is for a fit): [`cond`](@ref)`(c)`, how hard
+the data make the parameters to tell apart, and [`cor`](@ref)`(c)`, the predicted correlations
+of the estimates. For a sweep, `cond.(s.results)`.
 """
-struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,C}
+struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     fit::N
     bias::N
     sd::N
@@ -68,7 +70,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,C}
     relsd::N
     relrmse::N
     cov::Matrix{Float64}
-    conditioning::C            # what `c.cond` is computed from: J₀ᵀJ₀, the truth, pinned, N
+    gram::G                    # J₀ᵀJ₀ at θ̂, a static P×P matrix: what `cond(c)` is computed from
     onbound::Vector{Symbol}
     status::FitStatus
     method::Symbol
@@ -81,15 +83,6 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,C}
     information::Matrix{Float64}   # Fisher information at θ̂, J₀ᵀΣ⁻¹J₀
     observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
 end
-
-# `c.cond` is computed when it is read, from what the kernel left (J₀ᵀJ₀ and the true values,
-# small static values): an eigenvalue problem, 1.5–2 µs, a quarter of a 4-point `crlb!`, paid
-# only by who asks, as `fitted(res)` is for a fit. `c.name` calls `getproperty(c, :name)`; this
-# method answers `:cond` and reads the field for every other name (with a literal name, as
-# `c.sd`, the compiler resolves the branch, so field reads cost what they did).
-Base.getproperty(c::CRLBResult, s::Symbol) =
-    s === :cond ? _condition(getfield(c, :conditioning)...) : getfield(c, s)
-Base.propertynames(::CRLBResult) = map(n -> n === :conditioning ? :cond : n, fieldnames(CRLBResult))
 
 """
     crlb(m, s::Scenario; snr or σ or Σ, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
@@ -316,22 +309,10 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
     end
     onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
     return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
-                      nt(rel(rmse)), Matrix(k.cov), (G = k.G, θ = k.truth, pinned = k.pinned, N = length(c.y)),
-                      onbound, k.status, c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
+                      nt(rel(rmse)), Matrix(k.cov), k.G, onbound, k.status,
+                      c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed)
-end
-
-# The condition number of J₀ with each column scaled by its parameter's true value (relative
-# sensitivities, so the units drop out; 1 for a true value of 0), over the parameters not on a
-# bound, reported as `c.cond`: √(λmax/λmin) of the scaled J₀ᵀJ₀, P×P (no SVD of the N×P J₀). Inf
-# when there are fewer observations than parameters, or J₀ᵀJ₀ is singular.
-function _condition(G::SMatrix{P,P}, θ, pinned, N) where {P}
-    U = any(pinned) ? [j for j in 1:P if !pinned[j]] : (1:P)    # usually none on a bound
-    (isempty(U) || N < length(U)) && return Inf
-    s = [θ[j] == 0 ? 1.0 : abs(θ[j]) for j in U]
-    λ = eigvals(Symmetric(s .* Matrix(G)[U, U] .* s'))
-    return λ[1] > 0 ? sqrt(λ[end] / λ[1]) : Inf
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -363,6 +344,81 @@ with `cov = :biased`) and their SDs (`c.sd` as a vector), in model order. StatsA
 """
 vcov(c::CRLBResult) = c.cov
 stderror(c::CRLBResult) = collect(values(c.sd))
+
+# -------------------------------------------------------------------------------------------------
+# Diagnostics, computed when called (as `fitted` and `residuals` are for a fit), from what the
+# result keeps: a `crlb!` call does not pay for them (cond's eigenvalues, 1.5–2 µs, were a
+# quarter of a 4-point `crlb!`). Methods of LinearAlgebra's `cond` and Statistics' `cor`.
+# -------------------------------------------------------------------------------------------------
+
+"""
+    cond(c::CRLBResult) -> Float64
+
+How hard the data make the fit's free parameters to tell apart: the condition number of the
+Jacobian J₀ (at the noise-free fit's values θ̂) with each column scaled by its parameter's true
+value (relative sensitivities θⱼ·∂g/∂θⱼ, so the units drop out), over the parameters not on a
+bound. 1 when the scaled columns are orthogonal and of equal length; large when some
+combination of the parameters barely changes the signal, so that noise moves the estimates
+along it (their SDs and correlations grow with it). It depends on the protocol and the truth,
+not on the noise level. `Inf` when there are fewer observations than parameters to estimate, or
+the columns are dependent. For a sweep, `cond.(s.results)`.
+
+```julia
+m = QMTSIR(; SIR_4POINT...)
+θ = nominal(m, :SIR_WM_I)
+cond(crlb(m, θ; snr = 200))                  # 23.5
+cond(crlb(m, θ; snr = 200, kmf = Free()))    # kmf estimated too, 5 parameters from 4 points: Inf
+```
+"""
+cond(c::CRLBResult) =
+    _condition(c.gram, _freetruth(c), map(in(c.onbound), keys(c.fit)), length(c.σ))
+
+# √(λmax/λmin) of the scaled J₀ᵀJ₀, P×P (no SVD of the N×P J₀): the scaled J₀'s singular values
+# are the square roots of its eigenvalues. Each column scaled by its parameter's true value θ
+# (1 for a true value of 0); the parameters on a bound (`pinned`) left out. Inf when there are
+# fewer observations N than parameters, or the scaled J₀ᵀJ₀ is singular.
+function _condition(G::SMatrix{P,P}, θ, pinned, N) where {P}
+    U = any(pinned) ? [j for j in 1:P if !pinned[j]] : (1:P)    # usually none on a bound
+    (isempty(U) || N < length(U)) && return Inf
+    s = [θ[j] == 0 ? 1.0 : abs(θ[j]) for j in U]
+    λ = eigvals(Symmetric(s .* Matrix(G)[U, U] .* s'))
+    return λ[1] > 0 ? sqrt(λ[end] / λ[1]) : Inf
+end
+
+# The true value of each free parameter of a result (crlb's or montecarlo's), exactly (the
+# result keeps its truth as given): read directly when a number, through `resolve` when the
+# truth ties it to another parameter (rare: a tie is usually on a fixed parameter, R1m = :R1f).
+# Also the sweep's table (sweep.jl).
+function _freetruth(r)
+    F = keys(r.sd)
+    given = map(p -> r.truth[p], NamedTuple{F}(F))
+    all(x -> x isa Real, values(given)) && return map(Float64, given)
+    θt = resolve(r.model, r.truth)
+    return NamedTuple{F}(map(p -> Float64(θt[p]), F))
+end
+
+"""
+    cor(c::CRLBResult) -> Matrix
+
+The predicted correlations of the estimates of the fit's free parameters (in model order,
+`keys(c.fit)`), from the covariance [`vcov`](@ref)`(c)`: Cᵢⱼ / (SDᵢ·SDⱼ), 1 on the diagonal (as
+Statistics' `cor`). Near ±1: noise moves the two estimates together (what makes `cond(c)`
+large). `NaN` off the diagonal for a parameter held on a bound (SD 0) or not determined by the
+data (SD `Inf`). [`cor`](@ref)`(mc)` measures the same from a Monte Carlo's estimates.
+
+```julia
+c = crlb(m, θ; snr = 200, kmf = 12.5)
+keys(c.fit)                      # (:PSR, :R1f, :Sf, :M0f), the order of the rows and columns
+cor(c)[1, 2]                     # PSR with R1f: -0.71
+```
+"""
+function cor(c::CRLBResult)
+    C = c.cov
+    sd = sqrt.(diag(C))
+    R = clamp.(C ./ (sd .* sd'), -1.0, 1.0)     # rounding can leave |r| just above 1, as in `cor`
+    R[diagind(R)] .= 1.0
+    return R
+end
 
 # -------------------------------------------------------------------------------------------------
 # Display: at the REPL a table, one row per free parameter, in the style of `compare`

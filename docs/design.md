@@ -1400,6 +1400,24 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   (16-point); `crlb(m, s)` 19–34 µs, `crlb(m, θ; kmf = 12.5)` 30–47 µs (three alternated runs
   against `lean`). Results identical, `cond` included: the 688 cases with either default, the 8
   sweeps, the design objectives.
+- **Diagnostics are functions of a result, not fields** (`diag-proto`): `cond(c)` (and
+  `cor(c)`, `cor(mc)`, new) are called when wanted, as `fitted(res)` and `residuals(res, y)` are
+  for a fit, rather than a property computed on read (`c.cond` through a `getproperty` method,
+  the step before). Why: a field reads as stored, so a property that runs an eigenvalue problem
+  hides a cost and makes `CRLBResult` a struct with a special case; a function says it computes,
+  composes with broadcasting over a sweep (`cond.(s.results)`), and needs nothing kept but what
+  it is computed from. The names are LinearAlgebra's `cond` and Statistics' `cor`, with methods
+  for the results and re-exported (the same function as theirs, so `using LinearAlgebra,
+  Statistics` beside EQUIP clashes with nothing). What they read: `cond`, J₀ᵀJ₀ (`c.gram`, a
+  static P×P matrix, the one field added in place of the lazy property's tuple) and the free
+  true values, the parameters on a bound and the number of observations, already in the result
+  (`_freetruth`, `onbound`, `σ`); `cor(c)`, the covariance, Cᵢⱼ/(SDᵢSDⱼ) with 1 on the diagonal
+  and `NaN` beside a parameter held on a bound (SD 0) or undetermined (SD Inf), as Statistics'
+  `cor` treats a constant column; `cor(mc)`, Statistics' `cor` of the estimates `vcov(mc)` uses.
+  `crlb!` unchanged in cost. Results identical, `cond` included: the 688 cases with either
+  default, the 8 sweeps (rows and displays), the design objectives. On the 4-point WM I fit
+  with kmf assumed 12.5, the predicted correlations are within 0.023 of those measured by 4000
+  Monte Carlo fits (about 1.5 standard errors, (1 − r²)/√n).
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the
@@ -1582,7 +1600,7 @@ Edge cases:
   then gave finite SDs (a pseudo-inverse in effect), not Inf. (The first version tested
   cond(J₀) ≥ 1e8, columns scaled by the true values; the pivot test needs no SVD, so the kernel
   can run it without allocating. Same Inf cases over the 688 cases below; the largest cond
-  among the determined ones is 2.5e3.) `c.cond` still reports the value-scaled cond(J₀).
+  among the determined ones is 2.5e3.) `cond(c)` still reports the value-scaled cond(J₀).
 - **An allocation-free kernel for the optimizer** (`_crlb_plan`, `_crlb_truth`, `_crlb!`; the
   plan is now `CRLBCache` and the kernel a composition of named pieces, see "One
   implementation, fast" above):
@@ -2162,7 +2180,7 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
 3. Diagnostics: leakage first (`leakage(m, s)`, "Diagnostics" above: planned), then
-   sensitivity maps (Fig. 2A); cond(J) is in crlb's results already. Independent of 4 and 5.
+   sensitivity maps (Fig. 2A); `cond(c)` and `cor(c)` done. Independent of 4 and 5.
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space: `ProtocolDesign` (done; the tissue × condition grid next).
 5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.

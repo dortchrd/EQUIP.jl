@@ -36,7 +36,8 @@ the same truth, noise and fit), `result` (the [`FitResult`](@ref) of the noisy c
 e.g. `mc.result.params.PSR` for a histogram), `truth`, `fixed` (the fit's fixed values), `model`
 and `data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`).
 [`vcov`](@ref)`(mc)` is the covariance matrix of the estimates, [`stderror`](@ref)`(mc)` their
-SDs (StatsAPI's names; `informationmatrix(mc.crlb)` for the predicted information).
+SDs (StatsAPI's names; `informationmatrix(mc.crlb)` for the predicted information), and
+[`cor`](@ref)`(mc)` their correlations (`cor(mc.crlb)` predicted).
 """
 struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R<:FitResult,
                         C<:CRLBResult,D}
@@ -187,12 +188,25 @@ end
 
 # StatsAPI's names: the covariance matrix of the estimates (every fitted copy, as the other
 # statistics), and their SDs, the free parameters in model order.
-function vcov(mc::MonteCarloResult)
+vcov(mc::MonteCarloResult) = cov(_estimates(mc))
+stderror(mc::MonteCarloResult) = collect(values(mc.sd))
+
+"""
+    cor(mc::MonteCarloResult) -> Matrix
+
+The measured correlations of the estimates of the fit's free parameters (in model order), over
+every fitted copy, as `vcov(mc)`: Statistics' `cor` of the estimates. The prediction, from
+derivatives: [`cor`](@ref)`(mc.crlb)`.
+"""
+cor(mc::MonteCarloResult) = cor(_estimates(mc))
+
+# The estimates as a matrix, one row per fitted copy (as the statistics: every copy that could
+# be fitted, converged or not) and one column per free parameter, in model order.
+function _estimates(mc::MonteCarloResult)
     r = mc.result
     used = (r.status .!= NotFitted) .& (r.status .!= InvalidData)
-    return cov(reduce(hcat, (Float64.(r.params[p][used]) for p in keys(r.params))))
+    return reduce(hcat, (Float64.(r.params[p][used]) for p in keys(r.params)))
 end
-stderror(mc::MonteCarloResult) = collect(values(mc.sd))
 
 # -------------------------------------------------------------------------------------------------
 # Display: measured and predicted side by side, one row per free parameter

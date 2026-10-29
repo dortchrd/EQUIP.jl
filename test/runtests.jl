@@ -955,11 +955,28 @@ end
         @test cb.onbound == [:Sf] && cb.fit.Sf == -1.0 && cb.sd.Sf == 0 && all(isfinite, values(cb.sd))
         # Undetermined parameters get Inf: 5 free parameters, 4 observations
         @test all(==(Inf), values(crlb(m4, θ; snr = 200, kmf = Free()).sd))
-        @test crlb(m4, θ; snr = 200, kmf = Free()).cond == Inf
-        # cond: computed when read, from what the kernel left; a property like the fields
-        @test :cond in propertynames(c) && !(:conditioning in propertynames(c)) && c.cond isa Float64
-        @test c.cond == EQUIP._condition(EQUIP._crlb!(CRLBCache(m4, θ; kmf = 12.5, bounds4...), m4, EQUIP._crlb_truth(m4, θ), 0.005^2).G,
-                                         [θ[n] for n in keys(c.fit)], falses(4), 4)
+        @test cond(crlb(m4, θ; snr = 200, kmf = Free())) == Inf
+        # cond: computed when called, from what the result keeps (the kernel's J₀ᵀJ₀); the
+        # condition number of J₀ with its columns scaled by the true values, without the
+        # parameters held on a bound
+        @test cond(c) isa Float64 && !hasproperty(c, :cond)
+        @test cond(c) == EQUIP._condition(EQUIP._crlb!(CRLBCache(m4, θ; kmf = 12.5, bounds4...), m4, EQUIP._crlb_truth(m4, θ), 0.005^2).G,
+                                          [θ[n] for n in keys(c.fit)], falses(4), 4)
+        θf = [Float64(θ[p]) for p in F]
+        @test cond(c) ≈ cond(J0 * Diagonal(θf)) rtol = 1e-10
+        @test cond(u) ≈ cond(J * Diagonal([1000.0, 0.08])) rtol = 1e-10
+        jb = findfirst(==(:Sf), keys(cb.fit))
+        kb = setdiff(1:4, jb)
+        @test cond(cb) ≈ cond(FD.jacobian(g, collect(values(cb.fit)))[:, kb] * Diagonal(abs.(θf[kb]))) rtol = 1e-10
+        # cor: the covariance scaled by the SDs, 1 on the diagonal (as Statistics' cor); NaN off
+        # the diagonal for a parameter on a bound (SD 0) or undetermined (SD Inf)
+        R = cor(c)
+        @test R ≈ c.cov ./ (stderror(c) * stderror(c)') rtol = 1e-12
+        @test R == R' && all(==(1), diag(R)) && all(x -> -1 <= x <= 1, R)
+        Rb = cor(cb)
+        @test all(isnan, Rb[jb, kb]) && all(isnan, Rb[kb, jb]) && Rb[jb, jb] == 1 && all(isfinite, Rb[kb, kb])
+        Ru = cor(crlb(m4, θ; snr = 200, kmf = Free()))
+        @test all(==(1), diag(Ru)) && all(isnan(Ru[i, j]) for i in 1:5, j in 1:5 if i != j)
         # The allocation-free kernel the protocol optimizer will call: crlb's own numbers; one
         # plan for another protocol with as many observations (static vectors too); no
         # allocation, for the sandwich and Eq. 3
@@ -1034,6 +1051,11 @@ end
             @test abs(mq.mean[p] - mq.crlb.fit[p]) < 4 * mq.se_mean[p]
             @test abs(mq.sd[p] - mq.crlb.sd[p]) < 4 * mq.se_sd[p]
         end
+        # the correlations of the estimates: measured (Statistics' cor, as vcov's scaled), and
+        # near crlb's within 4 standard errors, (1 − r²)/√n
+        Rm, Rp = cor(mq), cor(mq.crlb)
+        @test Rm ≈ vcov(mq) ./ (sqrt.(diag(vcov(mq))) * sqrt.(diag(vcov(mq)))') rtol = 1e-12
+        @test all(abs.(Rm - Rp) .< 4 .* (1 .- Rp .^ 2) ./ sqrt(4000) .+ 1e-12)
         # the noise as simulate's default (Rician for magnitude data); the fit's changes and
         # options (precision) as for `fit`
         @test montecarlo(m4, θ; snr = 200, n = 50).noise === :rician
@@ -1068,7 +1090,8 @@ end
         # each setting as crlb! gives it, without the truth checked again (numbers varied) or
         # with it (a tie varied); cond as crlb's
         @test s[2].sd == crlb!(CRLBCache(m4, θ; kmf = 12.5), (; θ..., kmf = 7.5); snr = 200).sd
-        @test s[2].cond == crlb(m4, (; θ..., kmf = 7.5); snr = 200, kmf = 12.5).cond
+        @test cond(s[2]) == cond(crlb(m4, (; θ..., kmf = 7.5); snr = 200, kmf = 12.5))
+        @test cond.(s.results)[2] == cond(s[2])
         st = crlb(m4, (; θ..., R1m = 1.0); snr = 200, vary = :R1m => [:R1f, 1.2])
         @test st[1].bias == crlb(m4, (; θ..., R1m = 1.0); snr = 200, R1m = 1.0, vary = :R1m => [θ.R1f]).results[1].bias
         @test st[2].sd == crlb!(CRLBCache(m4, (; θ..., R1m = 1.0)), (; θ..., R1m = 1.2); snr = 200).sd

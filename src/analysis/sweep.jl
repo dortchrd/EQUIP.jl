@@ -111,7 +111,7 @@ end
 # The table: one row per setting and free parameter. Each setting's rows come from a function of
 # their own (`_settingrows`, a "function barrier": the setting's and the result's types are known
 # there, so each row is built directly rather than looked up name by name), with the free
-# parameters' true values found once per setting (`_freetruth`). Before: the whole truth
+# parameters' true values found once per setting (`_freetruth`, crlb.jl). Before: the whole truth
 # resolved for every row, 61% of a crlb sweep's time.
 function _rows(settings, results)
     rows = NamedTuple[]
@@ -122,16 +122,6 @@ function _rows(settings, results)
     return rows
 end
 
-# The true value of each free parameter of a result, exactly (the result keeps its truth as
-# given): read directly when a number, through `resolve` when the truth ties it to another
-# parameter (rare: a tie is usually on a fixed parameter, R1m = :R1f).
-function _freetruth(r)
-    F = keys(r.sd)
-    given = map(p -> r.truth[p], NamedTuple{F}(F))
-    all(x -> x isa Real, values(given)) && return map(Float64, given)
-    θt = resolve(r.model, r.truth)
-    return NamedTuple{F}(map(p -> Float64(θt[p]), F))
-end
 _settingrows(st::NamedTuple, c::CRLBResult, θt) =
     map(p -> (; st..., parameter = p, truth = Float64(θt[p]), noisefree = c.fit[p],
               bias = c.bias[p], relbias = c.relbias[p], sd = c.sd[p], relsd = c.relsd[p],

@@ -27,10 +27,12 @@ module EQUIP
 # `fit` IS StatsBase's `fit` (and our `init` is SciML's `init`): loading those packages together
 # then causes no name clash.
 using LinearAlgebra                        # dot, Diagonal, diag
+import LinearAlgebra: cond                 # cond(c): a crlb result's condition number
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
 import ForwardDiff                         # crlb: ForwardDiff.jacobian, ForwardDiff.hessian
 using Statistics: mean, median, quantile, std, cov   # starts; summaries; compare; montecarlo
+import Statistics: cor                     # cor(c), cor(mc): correlations of the estimates
 using Random: AbstractRNG, randn, Xoshiro   # simulate: noise; montecarlo: one stream per seed
 import Random                               # Random.default_rng()
 import CommonSolve                         # owner of `init` (the SciML convention)
@@ -54,6 +56,7 @@ export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Compar
 export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # analysis
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
+export cond, cor                                                            # diagnostics
 export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 

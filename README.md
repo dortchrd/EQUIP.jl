@@ -511,6 +511,13 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
   for a Monte Carlo.
+- **Diagnostics, computed when called** (as `fitted(res)` and `residuals(res, y)` for a fit):
+  `cond(c)`, the condition number of J₀ with each column scaled by its parameter's true value
+  (how hard the data make the parameters to tell apart; scale-free, and independent of the
+  noise level; `Inf` when they cannot be determined), and `cor(c)`, the predicted correlations
+  of the estimates (`NaN` for a parameter held on a bound); `cor(mc)` the measured ones. They
+  are LinearAlgebra's `cond` and Statistics' `cor`, re-exported; for a sweep,
+  `cond.(s.results)`.
 - **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
   `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
   cache's):
@@ -522,7 +529,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 
   `crlb(m, s)` takes 19–34 µs (4- to 16-point SIR), `crlb(m, θ; kmf = 12.5)` 30–47 µs (the
   scenario is 10 µs of it), `crlb!` 5–14 µs, a sweep 6–17 µs a setting, and the
-  allocation-free kernel inside 1–16 µs. `c.cond` is computed when read.
+  allocation-free kernel inside 1–16 µs.
   Each step is a function of its own, summed over the observations one row of J at a time (as
   the solver sums JᵀJ), with one-call versions from a model and a scenario (or the truth θ and
   the changes as keywords; the derivatives are taken at the truth, with the fit choosing the
