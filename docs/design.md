@@ -1856,12 +1856,13 @@ montecarlo(m, t; simulate_with = m2)                            # data from anot
   plotting through an extension later.
 - **Leakage**: the first-order bias of each fitted parameter per unit error in each fixed one
   (kmf, Sm, Sf, Mzf_td0, B1, a tie). The slope of Fig. 2B; covers roadmap item 3's
-  "sensitivity to model assumptions". The plan (next diagnostic):
+  "sensitivity to model assumptions". Status: implemented (`leakage-proto`, errors/
+  diagnostics.jl), as planned below except where "As built" says otherwise.
 
   ```julia
   s = Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I))      # or with kmf = 12.5: at a biased point
   l = leakage(QMTSIR(; SIR_5POINT...), s)
-  l.kmf.PSR              # ∂PSR̂/∂kmf, in PSR's units per s⁻¹ of error in the assumed kmf
+  l.absolute.kmf.PSR     # ∂PSR̂/∂kmf, in PSR's units per s⁻¹ of error in the assumed kmf
   l.relative.kmf.PSR     # the same relative to the true PSR: −0.119 (−11.9% per s⁻¹)
   l.elasticity.kmf.PSR   # % of PSR per % of kmf: comparable across fixed parameters
   ```
@@ -1906,7 +1907,34 @@ montecarlo(m, t; simulate_with = m2)                            # data from anot
   - **Where:** src/errors/diagnostics.jl, beside `cond` and `cor` (it uses derivatives.jl's
     cache, `hessian!` with the fixed parameters seeded).
   - **Open:** ties (R1m = :R1f: leakage of a deviation from the tie, R1m = R1f + δ; later);
-    maps of fixed values (B1 maps: per voxel, later); the names `relative` and `elasticity`.
+    maps of fixed values (B1 maps: per voxel, later).
+  - **As built:**
+    - *Both blocks from one evaluation, by a second cache:* `LeakageCache` holds crlb's cache
+      (the noise-free fit θ̂) and a "joint" one, made from the same roles with the fixed numbers
+      made free. Nothing is fitted with it: `hessian!` at (θ̂, the assumed values), with the same
+      data, seeds every one of them, so H over (θ, c) comes out whole and H_θθ, H_θc are its
+      blocks. No new derivative code; the nested duals cover P + K parameters (QMTSIR: 4 + 4).
+    - *Fields, not `l.kmf`:* `l.absolute.kmf.PSR` rather than the plan's `l.kmf.PSR`, which would
+      need a `getproperty` method; the result is a plain struct, as `CRLBResult` became.
+    - *Elasticity* (|c|/|θⱼ|)·dθ̂ⱼ/dc, magnitudes on both sides, as `relbias` divides by |truth|:
+      a fixed value of 0 (Mzf_td0, Mzm_td0) has elasticity 0, its relative slope still says how
+      much an error leaks. Shown as a ratio (0.4 = 0.4% per 1%), the relative slopes in %.
+    - *Reported:* the fixed parameters held at numbers; ties follow the parameter they name (an
+      untied `R1m = 1.0` is reported). A fit with no fixed number is an error. A free parameter
+      held on a bound has slope 0 (its row masked, as in crlb); undetermined parameters NaN.
+    - *Exported:* `leakage` and `LeakageResult`; the cache and kernel (`_LeakageCache`,
+      `_leakage!`) internal until the protocol search uses them.
+  - **Measured:** the table's numbers, all eight (−7.85, −11.90, −15.42; −0.62, −2.30, −2.98;
+    −3.25, −2.09). The simple form at the truth within 1e-15 (4-, 5-, 16-point). Central
+    differences: of crlb's noise-free fits, 1e-5 to 1e-2 off, but erratic in h (the fits stop
+    at the solver's 1e-10, and the difference divides that by h); of fits converged to rounding
+    (Newton on the exact Hessian), 9e-9 to 6e-7 per slope (5- and 16-point, at the truth and at
+    kmf 12.5), the error falling as h² (Mzf_td0: 1.8e-6, 1.8e-8, 1.6e-10 at h = 1e-3, 1e-4,
+    1e-5); 4-point's worst, 1e-5, is an R1f slope of 1e-6 (1e-8 of its column's largest). The
+    first-order bias against crlb's for kmf 5 → 5.25: 4% off, a quarter of that at 5.125 (the
+    second-order term). The kernel allocates nothing: 1.1 µs at the truth (exact fit, first-order
+    duals), 16 µs (5-point) and 32 µs (16-point) at kmf 12.5 (nested duals over 8 parameters);
+    `leakage(m, s)` 66–71 µs, most of it the two caches. 30 tests.
 - **cond(J)**, an identifiability flag (Lankford & Does).
 - What they showed for SIR, behind the design rule "sample where ∂S/∂kmf is small and does not
   overlap the fitted parameters' sensitivities": kmf enters the signal as a rate, PSR as an
@@ -2228,8 +2256,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    `crlb`'s), fit settings side by side and `simulate_with` (done); Figs. 1
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
-3. Diagnostics: leakage first (`leakage(m, s)`, "Diagnostics" above: planned), then
-   sensitivity maps (Fig. 2A); `cond(c)` and `cor(c)` done. Independent of 4 and 5.
+3. Diagnostics: `cond(c)`, `cor(c)` and `leakage(m, s)` done ("Diagnostics" above);
+   sensitivity maps (Fig. 2A) next. Independent of 4 and 5.
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space: `ProtocolDesign` (done; the tissue × condition grid next).
 5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.

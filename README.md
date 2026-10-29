@@ -518,6 +518,16 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   of the estimates (`NaN` for a parameter held on a bound); `cor(mc)` the measured ones. They
   are LinearAlgebra's `cond` and Statistics' `cor`, re-exported; for a sweep,
   `cond.(s.results)`.
+- **Leakage: which assumptions matter.** `leakage(m, s)` (or `leakage(m, θ; kmf = 12.5)`) gives,
+  for each parameter the fit holds at a number, dθ̂/dc: how far the noise-free fit's answer
+  moves per unit change in the value it assumes (the slope of Dortch 2018's Fig. 2B), at that
+  fit. Times an error Δc it is the first-order bias, for every fixed parameter at once and
+  without a fit per value; no noise involved. By fixed and then free parameter:
+  `l.absolute.kmf.PSR` (PSR per s⁻¹), `l.relative.kmf.PSR` (per |true PSR|: −0.119, PSR 11.9%
+  low per s⁻¹ of kmf assumed too high, 5-point, WM I) and `l.elasticity.kmf.PSR` (% per %, to
+  compare fixed parameters with different units). From derivatives: −H_θθ⁻¹H_θc, the blocks of
+  the cost's Hessian over the free and fixed parameters, which at the truth is
+  −(JᵀJ)⁻¹Jᵀ∂g/∂c.
 - **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
   `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
   cache's):
@@ -623,7 +633,7 @@ src/
                           (Scenario: a truth and the fit judged against it), derivatives.jl
                           (crlb's pieces: CRLBCache, the sums, the formulas), crlb.jl (the
                           kernel, crlb, crlb!), montecarlo.jl, compare.jl (a dataset fit, e.g.
-                          a phantom's), diagnostics.jl (cond, cor), sweep.jl
+                          a phantom's), diagnostics.jl (cond, cor, leakage), sweep.jl
   design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
 ```
 
@@ -639,8 +649,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
-  data from another model, `CRLBCache`, `cond`, `cor`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
-  fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
+  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity maps (Dortch et
+  al. 2018, Eq. 6); leakage from ties and per-voxel fixed maps; fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
 - **design/** (started: `ProtocolDesign`, Eq. 5 with its options, `optimize_protocol`): tissues

@@ -1555,6 +1555,87 @@ end
         @test occursin("sets its own options", msg(() -> jacobian(m4, θ; precision = Float32)))
     end
 
+    @testset "leakage: how an error in a fixed parameter moves the fitted ones" begin
+        FD = EQUIP.ForwardDiff
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        m4, m5 = QMTSIR(; SIR_4POINT...), QMTSIR(; SIR_5POINT...)
+        ti16 = [round.(exp10.(range(log10(0.01), log10(2), 15)) .* 1e3) ./ 1e3; 10]
+        m16 = QMTSIR(TI = ti16, TD = 2.5)
+        θ = nominal(m5, :SIR_WM_I)
+        # PSR's leakage from kmf, % of the true PSR per s⁻¹ (docs/design.md, "Diagnostics"): at
+        # the truth, WM I and WM II, the three schemes; and where the fit assumes kmf = 12.5
+        for (m, wm1, wm2) in ((m4, -7.85, -0.62), (m5, -11.90, -2.30), (m16, -15.42, -2.98))
+            @test 100 * leakage(m, θ).relative.kmf.PSR ≈ wm1 atol = 0.005
+            @test 100 * leakage(m, nominal(m, :SIR_WM_II)).relative.kmf.PSR ≈ wm2 atol = 0.005
+        end
+        @test 100 * leakage(m5, θ; kmf = 12.5).relative.kmf.PSR ≈ -3.25 atol = 0.005
+        @test 100 * leakage(m16, θ; kmf = 12.5).relative.kmf.PSR ≈ -2.09 atol = 0.005
+        # At the truth: the linear leakage −(JᵀJ)⁻¹Jᵀ∂g/∂c
+        l = leakage(m5, θ)
+        F, C = keys(l.fit), keys(l.absolute)
+        @test C == (:kmf, :Sm, :Mzf_td0, :Mzm_td0)                  # the tie R1m = :R1f is not one
+        Jall = FD.jacobian(x -> signal(m5, merge(θ, NamedTuple{(F..., C...)}(Tuple(x)))),
+                           [[θ[p] for p in F]; [θ[c] for c in C]])
+        J, Jc = Jall[:, 1:4], Jall[:, 5:end]
+        @test [l.absolute[c][p] for p in F, c in C] ≈ -(J' * J) \ (J' * Jc) rtol = 1e-12
+        # Away from the truth (kmf assumed 12.5): central differences of noise-free fits, each
+        # converged to rounding (Newton on the cost's exact Hessian), within 1e-6
+        lb = leakage(m5, θ; kmf = 12.5)
+        y = signal(m5, θ)
+        function nf(assumed)
+            cost(x) = sum(abs2, signal(m5, merge(θ, assumed, NamedTuple{F}(Tuple(x)))) .- y) / 2
+            x = collect(values(lb.fit))
+            for _ in 1:20
+                x -= FD.hessian(cost, x) \ FD.gradient(cost, x)
+            end
+            return x
+        end
+        for c in C
+            x = c === :kmf ? 12.5 : θ[c]
+            h = max(abs(x), 1.0) * 1e-4
+            fd = (nf(merge((kmf = 12.5,), NamedTuple{(c,)}((x + h,)))) -
+                  nf(merge((kmf = 12.5,), NamedTuple{(c,)}((x - h,))))) / 2h
+            @test [lb.absolute[c][p] for p in F] ≈ fd rtol = 1e-6
+        end
+        # Times an error, the first-order bias: crlb's noise-free bias within the second-order
+        # term (a quarter when the error is halved)
+        e(Δ) = crlb(m5, θ; snr = 200, kmf = 5.0 + Δ).bias.PSR - l.absolute.kmf.PSR * Δ
+        @test abs(e(0.25)) < 0.05 * abs(l.absolute.kmf.PSR * 0.25)
+        @test 3.5 < e(0.25) / e(0.125) < 4.5
+        # relative: per |true value|; elasticity: per % of the assumed value
+        @test lb.relative.kmf.PSR == lb.absolute.kmf.PSR / θ.PSR
+        @test lb.elasticity.kmf.PSR == lb.absolute.kmf.PSR * 12.5 / θ.PSR
+        @test lb.relative.Sm.Sf == lb.absolute.Sm.Sf / abs(θ.Sf) && lb.elasticity.Mzf_td0.PSR == 0
+        # A parameter held on a bound: slope 0, the others as with it fixed there
+        lo = leakage(m4, θ; kmf = 12.5, Sf = Free(lower = -1.0, upper = 0))
+        lf = leakage(m4, θ; kmf = 12.5, Sf = -1.0)
+        @test lo.onbound == [:Sf] && all(c -> lo.absolute[c].Sf == 0, keys(lo.absolute))
+        @test all(lo.absolute[c][p] ≈ lf.absolute[c][p] for c in keys(lo.absolute), p in (:PSR, :R1f, :M0f))
+        # Undetermined (5 free parameters, 4 observations): NaN
+        @test all(isnan, values(leakage(m4, θ; kmf = Free()).absolute.Sm))
+        # One free and one fixed parameter: T2 with S0 assumed
+        te = collect(0.01:0.01:0.32)
+        lt = leakage(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); S0 = 1000.0)
+        Jt = FD.jacobian(x -> signal(T2Decay(TE = te), (S0 = 1000.0, T2 = x[1])), [0.08])
+        Js = FD.jacobian(x -> signal(T2Decay(TE = te), (S0 = x[1], T2 = 0.08)), [1000.0])
+        @test lt.absolute.S0.T2 ≈ (-(Jt' * Jt) \ (Jt' * Js))[1] rtol = 1e-12
+        # An untied R1m is a fixed number like the others; the same from a scenario
+        @test keys(leakage(m5, θ; R1m = 1.0).absolute) == (:kmf, :R1m, :Sm, :Mzf_td0, :Mzm_td0)
+        @test leakage(m5, Scenario(m5, θ; kmf = 12.5)).absolute == lb.absolute
+        # The kernel allocates nothing, exact fit or not
+        for s in (Scenario(m5, θ), Scenario(m5, θ; kmf = 12.5))
+            lc = EQUIP._LeakageCache(m5, s)
+            t = EQUIP._crlb_truth(m5, s.truth)
+            k(lc, t) = EQUIP._leakage!(lc, lc.crlb.mT, t)
+            k(lc, t)
+            @test @allocated(k(lc, t)) == 0
+        end
+        out = sprint(show, MIME"text/plain"(), lb)
+        @test occursin("kmf = 12.5 (true 5.0)", out) && occursin("relative:", out) && occursin("elasticity:", out)
+        @test occursin("fixes no parameter at a number", msg(() -> leakage(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08))))
+        @test occursin("the scenario is for QMTSIR", msg(() -> leakage(T2Decay(TE = te), Scenario(m5, θ))))
+    end
+
     @testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)

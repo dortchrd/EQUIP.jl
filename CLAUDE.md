@@ -36,7 +36,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3);
   montecarlo.jl, `montecarlo` (the same measured by simulating and fitting, with `crlb`
   alongside); compare.jl, `compare` (the same measured on a dataset fit, e.g. a phantom's);
-  diagnostics.jl, `cond` and `cor` (where the errors come from; leakage next); sweep.jl:
+  diagnostics.jl, `cond`, `cor` and `leakage` (where the errors come from: dθ̂/dc of each
+  fixed parameter, from a joint cache with the fixed numbers seeded too); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
   returning a `Sweep`
 - src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
