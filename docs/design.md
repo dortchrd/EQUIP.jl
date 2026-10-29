@@ -2552,6 +2552,22 @@ notes.)
    (lineshape integrals, small matrix exponentials, steady states), so EQUIP's design (no
    allocation, static arrays, exact derivatives from dual numbers, threads) matters most; the exact
    models are where its speed may help most.
+   - **Pulse models: the conditions behind the fixed parameters.** For SIR, Sf and Sm are what
+     the inversion pulse does to each pool, so B1, B0 and T2m (the conditions a robust design
+     varies) map to them: the free pool rotated segment by segment (B1 scaling the flip angle,
+     the B0 offset; relaxation neglected over the pulse) for Sf; the bound pool saturated,
+     Sm = exp(−Σₖ π·ω₁,ₖ²·g(Δ)·tₖ), with a lineshape g: Gaussian at resonance,
+     g(0) = T2m/√(2π), as `calcSm_blockPulse.m` and `calcSm_compPulse.m` (Dortch 2018; the
+     1-ms block gives Sm = 0.831 at T2m = 15 µs, the paper's 0.83), or super-Lorentzian for
+     tissue (it diverges on resonance: a cutoff). Pulses: block, the composite 90x-180y-90x,
+     shaped ones given as segments (`calcSm_compPulse.m`'s 64 flip angles and phases). The
+     same bound-pool saturation is the core of the pulsed qMT models below (the MT pulse's
+     saturation in SPGR and bSSFP), so built with them, generic, not as an SIR special case.
+     Then designs robust to B1 × B0 × T2m are scenarios as any other (`Scenario`s whose true
+     Sf and Sm come from the conditions). Measured in an earlier prototype ("Conditions" in the
+     protocol-design section): a 3-point scheme optimized for the nominal case had a worst PSR
+     error of about 50% over B1 ±10%, B0 ±50 Hz and T2m 10–20 µs, against 20% for Table 2's
+     4-point; optimized over those conditions, 18.3%.
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool
      Bloch–McConnell equations under constant off-resonance saturation, in closed form. The
      reference model, and the building block of the pulsed approximations.
