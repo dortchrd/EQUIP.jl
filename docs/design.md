@@ -395,6 +395,32 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 from true values to data. (`compare`, which judges a fit, moved to `src/errors/`: see
 "Folders by what they produce" below.)
 
+- **Folders by what they produce** (`org-proto`): `sim/` makes data from true values (the
+  tissue presets, phantoms, the noise model, `simulate`) and fits nothing; `errors/` (was
+  `analysis/`) fits and judges against a truth, the bias and SD of the estimates, predicted
+  (`crlb` and its pieces) or measured (`montecarlo` for one voxel, `compare` for a dataset such
+  as a phantom), with the diagnostics that say where the errors come from (`cond`, `cor`;
+  leakage and sensitivity maps next) and the sweeps over both. Why: by method, `montecarlo` and
+  `compare` would sit with `simulate`, since they simulate; by product they sit with `crlb`,
+  the other answer to the same question, which they are checked against and shown beside
+  (every Monte Carlo result carries crlb's prediction, and a sweep takes either). The include
+  order says the same: `montecarlo` calls `simulate`, `fit` and `crlb` and keeps a
+  `CRLBResult`, so it comes after all three; in `sim/` it would make `sim/` need `errors/`,
+  which needs `sim/`'s noise model. The name: "errors" as in error analysis, the systematic
+  (bias) and the random (SD), RMSE both; "accuracy" alone reads as bias, "uncertainty" (the
+  GUM's) leaves out the bias that is often the point, "performance" would be read as speed
+  here. Also: the noise model (`snr`, `σ` or `Σ`, and their checks) was written twice, in
+  `simulate` and in `noisecovariance`; now once, sim/noise.jl, for both (a `σ` neither a number
+  nor a vector is now rejected by `simulate` too, with the same message). `_scalename`, the
+  model's `Free(start = :scale)` parameter, moved to models/interface.jl, so `sim/` uses
+  `models/` alone. No exported name changed. Results identical: `simulate`, `compare` and
+  `noisecovariance` (67 cases, the 18 error messages), the 688 crlb cases with either default,
+  the 8 sweeps, the design objectives; 1541 tests. Costs unchanged (three alternated runs
+  against `lean`): `noisecovariance` 0.39–0.41 µs, a sweep setting 5.4–5.5 µs, `crlb!` and
+  `simulate` the same. Found on the way: the first version called `nobs(m)` twice per noise
+  check, and the generic `nobs` allocates (it collects the acquisition's lengths in a vector:
+  0.06 µs and 144 bytes); N is now passed in.
+
 - **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
   need a value for every parameter of the model (a number, a map, or a tie such as
   `R1m = :R1f`); a missing one is an error that lists every missing name and points to

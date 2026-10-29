@@ -43,7 +43,8 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
                   rng::AbstractRNG = Random.default_rng())
     # The noise level, checked (sim/noise.jl): the scale parameter `snr` is relative to, and
     # Σ's Cholesky factor, Σ = LLᵀ (correlated noise is L·z).
-    scale, L = _checked_noise(m, snr, σ, Σ)
+    M = nobs(m)
+    scale, L = _checked_noise(m, M, snr, σ, Σ)
     noise in (:rician, :gaussian) || throw(ArgumentError("`noise` must be :rician or :gaussian"))
 
     # The voxels: the size of the maps, or n copies, or one voxel.
@@ -53,7 +54,6 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
     isempty(maps) || n === nothing ||
         throw(ArgumentError("`n` is for numbers only: with maps, the maps give the voxels"))
 
-    M = nobs(m)
     out = Array{Float64}(undef, sz..., M)
     Y = reshape(out, :, M)                           # a view: row v = voxel v's observations
     for v in axes(Y, 1)

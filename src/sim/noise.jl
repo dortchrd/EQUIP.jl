@@ -33,7 +33,7 @@ noisecovariance(m, s; snr = 200)                           # the same at a scena
 """
 function noisecovariance(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing)
     N = nobs(m)
-    scale, _ = _checked_noise(m, snr, σ, Σ)
+    scale, _ = _checked_noise(m, N, snr, σ, Σ)
     snr !== nothing && return Diagonal(fill((_scalevalue(m, θ, scale) / snr)^2, N))  # σ = M0/snr
     σ isa Real && return Diagonal(fill(Float64(σ)^2, N))
     σ !== nothing && return Diagonal(Float64.(collect(σ)) .^ 2)
@@ -46,8 +46,9 @@ end
 # `σ` and `Σ`; `snr` needs a scale parameter; `σ` is a number or one SD per observation; `Σ` an
 # N×N covariance matrix, checked by factoring it. Returns the scale parameter's name (with `snr`;
 # else `nothing`) and Σ's Cholesky factor (with `Σ`; else `nothing`), which `simulate` draws with.
-function _checked_noise(m::MRIModel, snr, σ, Σ)
-    N = nobs(m)
+# N = nobs(m) is passed in, as the callers have it already (`nobs` collects the acquisition's
+# lengths: 0.06 µs and 144 bytes a call, a tenth of a 4-point `crlb!`'s noise).
+function _checked_noise(m::MRIModel, N, snr, σ, Σ)
     count(!isnothing, (snr, σ, Σ)) == 1 ||
         throw(ArgumentError("give the noise level as `snr`, `σ` or `Σ` (one of them)"))
     scale = snr === nothing ? nothing : _scalename(m)
