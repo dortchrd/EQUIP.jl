@@ -5,14 +5,13 @@
 #   cor(c)      the correlations of the estimates, predicted (crlb) ...
 #   cor(mc)     ... and measured (montecarlo)
 #   leakage(m, s)   how an error in each fixed parameter moves the fitted ones, dθ̂/dc
-#   sensitivityefficiency(m, θ; duration)   what each observation tells about each
-#                   parameter per √s of scan (Eq. 6)
 #
 # Functions of a result rather than fields of it, as `fitted` and `residuals` are for a fit: a
 # `crlb!` call does not pay for them (cond's eigenvalues, 1.5–2 µs, were a quarter of a 4-point
 # `crlb!`), and each is computed from what the result keeps. Methods of LinearAlgebra's `cond`
 # and Statistics' `cor`, re-exported. `leakage` needs no crlb result (no noise): it takes the
-# protocol and a scenario, as crlb does; `sensitivityefficiency` the protocol and the truth.
+# protocol and a scenario, as crlb does. (Dortch 2018's Eq. 6, the sensitivity efficiency, is
+# `jacobian` divided by √t: see its docstring.)
 # =================================================================================================
 
 """
@@ -289,148 +288,5 @@ function Base.show(io::IO, ::MIME"text/plain", l::LeakageResult)
         for r in rows
             print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
         end
-    end
-end
-
-# -------------------------------------------------------------------------------------------------
-# Sensitivity efficiency: how much each observation tells about each parameter, per √s of scan
-# (Dortch et al., MRM 2018;80:1824, Eq. 6)
-#
-#   S_eff = (∂S/∂θₗ) / √t          t: the observation's time (TI + TD + t_FSE for SIR)
-#
-# large where an observation measures θₗ precisely for its time, small where the signal is blind
-# to it. The paper evaluates it on a grid of TI and TD (Fig. 2A) and contours each map at 85% of
-# its largest value; both are its plot's choices, not part of the quantity, so neither is built
-# in here: the observations are any protocol's (a grid is one, made in three lines: see the
-# docstring), and thresholds are the reader's.
-# -------------------------------------------------------------------------------------------------
-
-"""
-    SensitivityEfficiency
-
-What [`sensitivityefficiency`](@ref) returns: two named tuples by parameter (`e.relative.PSR`),
-each a vector with one value per observation of the protocol:
-
-- `absolute`: (∂S/∂θ)/√t, Dortch et al. 2018, Eq. 6 (t each observation's `duration`): the
-  signal's units per unit of θ, per √s
-- `relative`: θ·(∂S/∂θ)/(scale·√t), the signal's change for a relative change of θ
-  (θ → θ(1 + ε), either sign of θ), as a fraction of the model's scale parameter (M0f, S0; 1 if
-  it has none): comparable between parameters (the paper's maps, in %)
-
-and `duration` (each observation's time), `truth` and `model` (the protocol).
-"""
-struct SensitivityEfficiency{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple}
-    absolute::N
-    relative::N
-    duration::Vector{Float64}
-    truth::Tr
-    model::M
-end
-
-"""
-    sensitivityefficiency(m, θ; duration, parameters) -> SensitivityEfficiency
-
-How much each observation of protocol `m` tells about each parameter per √s of scan time, the
-sensitivity efficiency of Dortch et al., MRM 2018;80:1824, Eq. 6: S_eff = (∂S/∂θ)/√t at the true
-values θ. Which observations inform which parameter, and where they overlap: the 4-point SIR
-scheme measures PSR, R1f, Sf and M0f near their most efficient observations while avoiding
-kmf's (so fixing kmf costs little).
-
-- `m`: the protocol: its observations are the candidates (a published scheme, or a grid of
-  acquisition values, below).
-- `θ`: the true values, every parameter (numbers or ties), one voxel, as for [`signal`](@ref).
-- `duration`: the time each observation takes: a function of the protocol
-  (`m -> m.TI .+ m.TD .+ 0.3`, TI + TD + t_FSE for SIR, as `ProtocolDesign`'s `scantime` without
-  the sum), a vector or a number. (The sensitivity alone, ∂S/∂θ for the fit's free parameters,
-  is [`jacobian`](@ref)'s.)
-- `parameters`: the parameters to differentiate, by name; default every parameter given as a
-  number (ties follow the parameter they name: with `R1m = :R1f`, R1f moves both pools).
-
-The derivatives are exact (dual numbers, through the model's own `signal!`: for magnitude data,
-of the magnitude, as the paper's script takes `abs` of the signal).
-
-A grid of candidate observations is a protocol with every combination as its observations; the
-values reshape to the grid (the first axis varying fastest), e.g. Fig. 2A's maps, with the
-paper's script's values and grid:
-
-```julia
-θ = nominal(QMTSIR; PSR = 0.12, R1f = 1.0, Sf = -1.0, kmf = 12.5)
-ti = exp10.(range(log10(0.01), log10(5), 1000)); td = exp10.(range(log10(0.01), log10(5), 100))
-points = vec(collect(Iterators.product(ti, td)))               # every (TI, TD), TI fastest
-e = sensitivityefficiency(QMTSIR(TI = first.(points), TD = last.(points)), θ;
-                          duration = m -> m.TI .+ m.TD .+ 0.3, parameters = (:PSR, :R1f, :Sf, :M0f, :kmf))
-reshape(e.relative.PSR, length(ti), length(td))                # the PSR map (×100 for %)
-e4 = sensitivityefficiency(QMTSIR(; SIR_4POINT...), θ; duration = m -> m.TI .+ m.TD .+ 0.3)
-abs.(e4.relative.PSR) ./ maximum(abs, e.relative.PSR)          # the scheme against the grid's best
-```
-"""
-function sensitivityefficiency(m::MRIModel, θ::NamedTuple; duration, parameters = nothing)
-    names = _efficiencynames(m, θ, parameters)
-    t = _durations(m, duration)
-    # One ForwardDiff Jacobian of the signal at every observation (dual numbers through
-    # `signal`, ties followed), then each column divided by √t (and scaled by θ/scale).
-    x0 = [Float64(θ[n]) for n in names]
-    J = ForwardDiff.jacobian(x -> signal(m, merge(θ, NamedTuple{names}(Tuple(x)))), x0)
-    w = inv.(sqrt.(t))
-    scale = _scalename(m)
-    sv = scale === nothing ? 1.0 : Float64(resolve(m, θ)[scale])
-    col(f) = NamedTuple{names}(ntuple(f, length(names)))
-    return SensitivityEfficiency(col(k -> J[:, k] .* w), col(k -> J[:, k] .* w .* (x0[k] / sv)),
-                                 t, θ, m)
-end
-
-# The parameters to differentiate: given, or every one given a number in θ (in model order).
-function _efficiencynames(m, θ, parameters)
-    resolve(m, θ)                                      # θ complete, numbers or ties
-    any(x -> x isa AbstractArray, values(θ)) &&
-        throw(ArgumentError("sensitivityefficiency is for one voxel: give numbers (or ties), not maps"))
-    parameters === nothing && return Tuple(n for n in keys(θ) if θ[n] isa Real)
-    names = Tuple(parameters)
-    for n in names
-        haskey(θ, n) || throw(ArgumentError("`$n` is not a parameter of $(nameof(typeof(m)))"))
-        θ[n] isa Real || throw(ArgumentError("`$n` is a tie in θ ($(repr(θ[n]))); untie it " *
-                                             "(a number) to differentiate it"))
-    end
-    return names
-end
-
-# Each observation's time: from a function of the protocol, a vector or a number; positive.
-_durations(m, d::Function) = _durations(m, d(m))
-_durations(m, d::Real) = _durations(m, fill(Float64(d), nobs(m)))
-function _durations(m, d::AbstractVector)
-    length(d) == nobs(m) || throw(DimensionMismatch("`duration` has $(length(d)) values; the " *
-                                                    "protocol has $(nobs(m)) observations"))
-    all(>(0), d) || throw(ArgumentError("`duration` must be positive"))
-    return Vector{Float64}(d)
-end
-
-# At the REPL: the relative efficiencies at each observation (one row per parameter), or, for
-# many observations (a grid), each parameter's largest and the observation it is at.
-function Base.show(io::IO, ::MIME"text/plain", e::SensitivityEfficiency)
-    num(x) = iszero(x) ? "0" : string(round(x; sigdigits = 3))
-    pct(x) = iszero(x) ? "0%" : num(100 * x) * "%"
-    names = keys(e.relative)
-    scale = _scalename(e.model)
-    N = nobs(e.model)
-    print(io, "sensitivity efficiency for ", nameof(typeof(e.model)), ", ", N,
-          " observations (Dortch 2018 Eq. 6)")
-    print(io, "\nat ", join(("$n = $(_showvalue(x))" for (n, x) in pairs(e.truth)), ", "))
-    print(io, "\nrelative: θ·∂S/∂θ per √s, in ", scale === nothing ? "the signal's units" : "% of $scale")
-    # The acquisition at observation i: the model's vector fields (TI, TD, TE, ...).
-    acq = NamedTuple(k => getfield(e.model, k) for k in fieldnames(typeof(e.model))
-                     if getfield(e.model, k) isa AbstractVector)
-    at(i) = join(("$k = $(num(v[i]))" for (k, v) in pairs(acq)), ", ")
-    if N <= 12
-        header = ("parameter", ("$i" for i in 1:N)...)
-        rows = [(string(n), (pct(v) for v in e.relative[n])...) for n in names]
-    else
-        header = ("parameter", "largest", "at")
-        rows = [(i = argmax(abs.(e.relative[n])); (string(n), pct(e.relative[n][i]), at(i)))
-                for n in names]
-    end
-    w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
-    print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
-    for r in rows
-        print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end
