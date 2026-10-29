@@ -5,12 +5,13 @@
 #   cor(c)      the correlations of the estimates, predicted (crlb) ...
 #   cor(mc)     ... and measured (montecarlo)
 #   leakage(m, s)   how an error in each fixed parameter moves the fitted ones, dθ̂/dc
+#   sensitivity(m, θ)   where in the acquisition each parameter moves the signal (Eq. 6 maps)
 #
 # Functions of a result rather than fields of it, as `fitted` and `residuals` are for a fit: a
 # `crlb!` call does not pay for them (cond's eigenvalues, 1.5–2 µs, were a quarter of a 4-point
 # `crlb!`), and each is computed from what the result keeps. Methods of LinearAlgebra's `cond`
 # and Statistics' `cor`, re-exported. `leakage` needs no crlb result (no noise): it takes the
-# protocol and a scenario, as crlb does. Next (docs/design.md, "Diagnostics"): sensitivity maps.
+# protocol and a scenario, as crlb does; `sensitivity` the protocol (or a grid) and the truth.
 # =================================================================================================
 
 """
@@ -287,5 +288,200 @@ function Base.show(io::IO, ::MIME"text/plain", l::LeakageResult)
         for r in rows
             print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
         end
+    end
+end
+
+# -------------------------------------------------------------------------------------------------
+# Sensitivity maps: where in the acquisition each parameter moves the signal (Dortch 2018, Eq. 6)
+#
+#   S_eff(TI, TD) = (∂S/∂θₗ) / √(TI + TD + t_FSE)          the signal's derivative per √s of scan
+#
+# large where an observation tells θₗ precisely for its time, small where the signal is blind to
+# it. Fig. 2A draws, for each parameter, the region where |S_eff| is within 15% of its largest
+# value on the grid: the paper's text says the "85th percentile", its script
+# (generateManuscriptResults.m, Fig 02) contours 0.85 × the maximum, which does not depend on
+# the grid's extent or spacing; we follow the script. Its maps are θₗ·∂S/∂θₗ in % of M0f (the
+# signal's change for a relative change of θₗ, comparable between parameters): `relative` here.
+# -------------------------------------------------------------------------------------------------
+
+"""
+    SensitivityResult
+
+What [`sensitivity`](@ref) returns. Three named tuples by parameter (`s.relative.PSR`), each an
+array with one value per observation (the protocol's points), or the grid's shape (`s.axes`):
+
+- `absolute`: ∂S/∂θ / √t, Dortch et al. 2018, Eq. 6 (t each observation's `duration`; 1 if none
+  given): the signal's units per unit of θ, per √s
+- `relative`: θ·∂S/∂θ / (scale·√t), the signal's change for a relative change of θ
+  (θ → θ(1 + ε), either sign of θ), as a fraction of the model's scale parameter (M0f, S0; 1 if
+  it has none): comparable between parameters (Fig. 2A, which shows it in %)
+- `within`: where |∂S/∂θ|/√t is at least `level` (0.85) of its largest value: the region of
+  Fig. 2A's contour, where an observation is within 15% of the most efficient one for θ
+
+and `axes` (the grid's acquisition values by name, e.g. `(TI = ti, TD = td)`, or `nothing` for a
+protocol's own points), `duration` (the time of each observation used, the maps' shape, or
+`nothing`), `level`, `truth` and `model` (the protocol: the grid's points as its observations).
+"""
+struct SensitivityResult{M<:MRIModel,A,N<:NamedTuple,W<:NamedTuple,D,Tr<:NamedTuple}
+    absolute::N
+    relative::N
+    within::W
+    axes::A
+    duration::D
+    level::Float64
+    truth::Tr
+    model::M
+end
+
+"""
+    sensitivity(m, θ; parameters, duration, level = 0.85) -> SensitivityResult
+    sensitivity(M, θ; acquisition values..., parameters, duration, level, options...)
+
+How strongly each parameter moves the signal at each observation, per √s of scan time: Dortch
+et al., MRM 2018;80:1824, Eq. 6, S_eff = (∂S/∂θ)/√t, and Fig. 2A's regions, where an observation
+is within 15% of the most efficient one for that parameter. Which acquisition values inform
+which parameter, and where they overlap: the 4-point SIR scheme samples where PSR, R1f, Sf and
+M0f are measured efficiently while avoiding where kmf is (so fixing kmf costs little).
+
+- `m`: a protocol; the maps are at its own observations (vectors).
+- `M` with acquisition values: a grid. Each keyword given a vector is an axis, every combination
+  is an observation, and the maps are arrays with one dimension per axis in the order given
+  (`s.relative.PSR[i, j]` at `TI[i]`, `TD[j]`); other keywords go to the model, e.g.
+  `magnitude = false`, or `TD = 2.5` for one TD everywhere.
+- `θ`: the true values, every parameter (numbers or ties), one voxel, as for [`signal`](@ref).
+- `parameters`: the parameters to differentiate, by name; default every parameter given as a
+  number (ties follow the parameter they name: with `R1m = :R1f`, R1f moves both pools).
+- `duration`: the time each observation takes, to normalize by √t: a function of the protocol
+  (`m -> m.TI .+ m.TD .+ 0.3`, Σ(TI + TD + t_FSE) for SIR, as `ProtocolDesign`'s `scantime`
+  without the sum), a vector or a number; `nothing` (the default) for the sensitivity alone.
+- `level`: the fraction of the largest |S_eff| that bounds `within` (0.85, the paper's script).
+
+The derivatives are exact (dual numbers, through the model's own `signal!`: for magnitude data,
+of the magnitude, as the script's `abs` of the signal).
+
+```julia
+θ = nominal(QMTSIR; PSR = 0.12, R1f = 1.0, Sf = -1.0, kmf = 12.5)    # the script's values
+ti = exp10.(range(log10(0.01), log10(5), 1000))
+td = exp10.(range(log10(0.01), log10(5), 100))
+s = sensitivity(QMTSIR, θ; TI = ti, TD = td, duration = m -> m.TI .+ m.TD .+ 0.3,
+                parameters = (:PSR, :R1f, :Sf, :M0f, :kmf))
+s.relative.PSR                  # 1000×100: Fig. 2A's PSR map (×100 for %)
+s.within.kmf                    # where kmf is measured within 15% of its best: what 4-point avoids
+s4 = sensitivity(QMTSIR(; SIR_4POINT...), θ; duration = m -> m.TI .+ m.TD .+ 0.3)
+abs.(s4.relative.PSR) ./ maximum(abs, s.relative.PSR)    # each point against the grid's best
+```
+"""
+function sensitivity(m::MRIModel, θ::NamedTuple; parameters = nothing, duration = nothing,
+                     level::Real = 0.85)
+    names = _sensitivitynames(m, θ, parameters)
+    t = _durations(m, duration)
+    return _sensitivity(m, θ, names, t, Float64(level), nothing, (nobs(m),))
+end
+function sensitivity(M::Type{<:MRIModel}, θ::NamedTuple; parameters = nothing, duration = nothing,
+                     level::Real = 0.85, acquisition...)
+    # The axes: the keywords given a vector, in the order given; every combination is one
+    # observation, the first axis varying fastest (`Iterators.product`), so that the maps
+    # reshape to one dimension per axis.
+    axes = NamedTuple(k => v for (k, v) in pairs(acquisition) if v isa AbstractVector)
+    isempty(axes) && throw(ArgumentError("give the grid as acquisition values, e.g. " *
+                                         "`TI = ti, TD = td` (each a vector)"))
+    options = NamedTuple(k => v for (k, v) in pairs(acquisition) if !(v isa AbstractVector))
+    points = vec(collect(Iterators.product(values(axes)...)))
+    m = M(; NamedTuple{keys(axes)}(ntuple(k -> [p[k] for p in points], length(axes)))..., options...)
+    names = _sensitivitynames(m, θ, parameters)
+    t = _durations(m, duration)
+    return _sensitivity(m, θ, names, t, Float64(level), map(collect, axes), map(length, Tuple(axes)))
+end
+
+# The parameters to differentiate: given, or every one given a number in θ (in model order).
+function _sensitivitynames(m, θ, parameters)
+    resolve(m, θ)                                      # θ complete, numbers or ties
+    any(x -> x isa AbstractArray, values(θ)) &&
+        throw(ArgumentError("sensitivity is for one voxel: give numbers (or ties), not maps"))
+    parameters === nothing && return Tuple(n for n in keys(θ) if θ[n] isa Real)
+    names = Tuple(parameters)
+    for n in names
+        haskey(θ, n) || throw(ArgumentError("`$n` is not a parameter of $(nameof(typeof(m)))"))
+        θ[n] isa Real || throw(ArgumentError("`$n` is a tie in θ ($(repr(θ[n]))); untie it " *
+                                             "(a number) to differentiate it"))
+    end
+    return names
+end
+
+# Each observation's time: from a function of the protocol, a vector or a number; or nothing.
+_durations(m, ::Nothing) = nothing
+_durations(m, d::Real) = fill(Float64(d), nobs(m))
+_durations(m, d::Function) = _durations(m, d(m))
+function _durations(m, d::AbstractVector)
+    length(d) == nobs(m) || throw(DimensionMismatch("`duration` has $(length(d)) values; the " *
+                                                    "protocol has $(nobs(m)) observations"))
+    all(>(0), d) || throw(ArgumentError("`duration` must be positive"))
+    return Vector{Float64}(d)
+end
+
+# The derivatives: one ForwardDiff Jacobian of the signal at every observation (dual numbers
+# through `signal`, ties followed), then Eq. 6 and the regions, each reshaped to the grid.
+function _sensitivity(m, θ, names, t, level, axes, shape)
+    x0 = [Float64(θ[n]) for n in names]
+    J = ForwardDiff.jacobian(x -> signal(m, merge(θ, NamedTuple{names}(Tuple(x)))), x0)
+    w = t === nothing ? ones(size(J, 1)) : inv.(sqrt.(t))          # 1/√t per observation
+    scale = _scalename(m)
+    sv = scale === nothing ? 1.0 : Float64(resolve(m, θ)[scale])
+    col(f) = NamedTuple{names}(ntuple(k -> reshape(f(k), shape), length(names)))
+    absolute = col(k -> J[:, k] .* w)
+    relative = col(k -> J[:, k] .* w .* (x0[k] / sv))
+    # The regions from |∂S/∂θ|/√t (the same as from `relative`, which only scales it, except for
+    # a true value of 0, where `relative` is 0 everywhere); none where the signal ignores θ.
+    within = map(absolute) do a
+        big = maximum(abs, a)
+        big > 0 ? abs.(a) .>= level * big : falses(size(a))
+    end
+    return SensitivityResult(absolute, relative, within, axes,
+                             t === nothing ? nothing : reshape(t, shape), level, θ, m)
+end
+
+# At the REPL: for each parameter its largest relative efficiency, where, and the extent of its
+# region (a grid), or its value at each observation (a protocol's points).
+function Base.show(io::IO, ::MIME"text/plain", s::SensitivityResult)
+    num(x) = iszero(x) ? "0" : isinteger(x) ? string(Int(x)) : string(round(x; sigdigits = 3))
+    pct(x) = num(round(100 * x; sigdigits = 3)) * "%"
+    names = keys(s.relative)
+    scale = _scalename(s.model)
+    per = s.duration === nothing ? "" : " per √s"
+    unit = scale === nothing ? "the signal" : "% of $scale"
+    print(io, "sensitivity for ", nameof(typeof(s.model)), ", ")
+    if s.axes === nothing
+        print(io, nobs(s.model), " observations")
+    else
+        range_of(k, v) = "$k ($(num(minimum(v))) to $(num(maximum(v))))"
+        length(s.axes) == 1 ?
+            print(io, length(only(s.axes)), " values of ", range_of(only(keys(s.axes)), only(s.axes))) :
+            print(io, "a ", join(map(length, values(s.axes)), " × "), " grid of ",
+                  join((range_of(k, v) for (k, v) in pairs(s.axes)), " and "))
+    end
+    print(io, s.duration === nothing ? ", not normalized by time" : ", normalized by √(duration) (Dortch 2018 Eq. 6)")
+    print(io, "\nat ", join(("$n = $(_showvalue(x))" for (n, x) in pairs(s.truth)), ", "))
+    print(io, "\nrelative: θ·∂S/∂θ in ", unit, per)
+    if s.axes === nothing
+        header = ("parameter", ("point $i" for i in 1:nobs(s.model))...)
+        rows = [(string(n), (pct(v) for v in vec(s.relative[n]))...) for n in names]
+    else
+        ax = keys(s.axes)
+        header = ("parameter", "largest", "at " * join(ax, ", "),
+                  ("within $(num(100 * s.level))%: $a" for a in ax)...)
+        rows = map(names) do n
+            r = s.relative[n]
+            k = argmax(abs.(r))
+            inside = findall(s.within[n])
+            span(d) = isempty(inside) ? "none" :
+                (v = s.axes[d][[Tuple(c)[d] for c in inside]]; "$(num(minimum(v))) to $(num(maximum(v)))")
+            (string(n), pct(r[k]), join((num(s.axes[d][Tuple(k)[d]]) for d in eachindex(ax)), ", "),
+             (span(d) for d in eachindex(ax))...)
+        end
+    end
+    w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
+    print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
+    for r in rows
+        print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end

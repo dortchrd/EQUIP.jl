@@ -56,7 +56,7 @@ export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Compar
 export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # errors
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
-export cond, cor, leakage, LeakageResult                                    # diagnostics
+export cond, cor, leakage, LeakageResult, sensitivity, SensitivityResult   # diagnostics
 export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 
@@ -90,7 +90,7 @@ include("errors/derivatives.jl")       # crlb's pieces: CRLBCache, the sums, the
 include("errors/crlb.jl")              # crlb: bias, SD and RMSE without noisy fits; the kernel
 include("errors/montecarlo.jl")        # montecarlo: the same measured, with crlb alongside
 include("errors/compare.jl")           # compare: the same measured on a dataset (a phantom)
-include("errors/diagnostics.jl")       # cond, cor, leakage: where the errors come from
+include("errors/diagnostics.jl")       # cond, cor, leakage, sensitivity: where errors come from
 include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise levels and truths
 
 # design: protocols chosen by their predicted errors (uses errors)
