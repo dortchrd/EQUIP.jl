@@ -1414,8 +1414,11 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   (`_freetruth`, `onbound`, `σ`); `cor(c)`, the covariance, Cᵢⱼ/(SDᵢSDⱼ) with 1 on the diagonal
   and `NaN` beside a parameter held on a bound (SD 0) or undetermined (SD Inf), as Statistics'
   `cor` treats a constant column; `cor(mc)`, Statistics' `cor` of the estimates `vcov(mc)` uses.
-  `crlb!` unchanged in cost. Results identical, `cond` included: the 688 cases with either
-  default, the 8 sweeps (rows and displays), the design objectives. On the 4-point WM I fit
+  Costs unchanged (three alternated runs against `lean`): `crlb!` 4.62–4.72 µs (4-point; was
+  4.73–4.84, 96 bytes less: one static matrix kept instead of a tuple) and 13.6–13.8 µs
+  (16-point), a sweep setting 5.9–6.0 µs and 16.0–17.2 µs, `cond(c)` 1.5 µs as `c.cond` was.
+  Results identical, `cond` included: the 688 cases with either default, the 8 sweeps (rows
+  and displays), the design objectives; 1541 tests (10 new). On the 4-point WM I fit
   with kmf assumed 12.5, the predicted correlations are within 0.023 of those measured by 4000
   Monte Carlo fits (about 1.5 standard errors, (1 − r²)/√n).
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
