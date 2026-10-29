@@ -528,15 +528,15 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   compare fixed parameters with different units). From derivatives: −H_θθ⁻¹H_θc, the blocks of
   the cost's Hessian over the free and fixed parameters, which at the truth is
   −(JᵀJ)⁻¹Jᵀ∂g/∂c.
-- **Sensitivity maps: where each parameter is measured.** `sensitivity(QMTSIR, θ; TI = ti,
-  TD = td, duration = m -> m.TI .+ m.TD .+ 0.3)` evaluates Dortch 2018's Eq. 6, (∂S/∂θ)/√t, on
-  every combination of the acquisition values given (vectors are the grid's axes), and marks
-  where each parameter is measured within 15% of its best (Fig. 2A's regions). `s.relative.PSR`
-  (θ·∂S/∂θ as a fraction of M0f, comparable between parameters; a 1000 × 100 array here),
-  `s.absolute`, `s.within`. At a protocol's own points: `sensitivity(QMTSIR(; SIR_4POINT...), θ;
-  duration)`, to compare each point with the grid's best (the 4-point scheme reaches 86–95% of
-  the best for PSR, R1f, Sf and M0f, and at most 31% of kmf's). Exact derivatives (dual numbers),
-  0.2 s for 100,000 points.
+- **Sensitivity efficiency: what each observation tells about each parameter.**
+  `sensitivityefficiency(m, θ; duration = m -> m.TI .+ m.TD .+ 0.3)`: Dortch 2018's Eq. 6,
+  (∂S/∂θ)/√t, at every observation of protocol `m`, by parameter: `e.relative.PSR` (θ·∂S/∂θ as a
+  fraction of M0f, comparable between parameters) and `e.absolute.PSR`. The observations are
+  the candidates: a published scheme, or a grid of acquisition values made as one protocol
+  (every combination as an observation; the vectors reshape to the grid, as in Fig. 2A; see
+  the docstring). Against a TI × TD grid's best, the 4-point scheme reaches 86–95% for PSR,
+  R1f, Sf and M0f and at most 31% for kmf, which it avoids. Exact derivatives (dual numbers),
+  0.2 s for 100,000 observations.
 - **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
   `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
   cache's):
@@ -642,7 +642,7 @@ src/
                           (Scenario: a truth and the fit judged against it), derivatives.jl
                           (crlb's pieces: CRLBCache, the sums, the formulas), crlb.jl (the
                           kernel, crlb, crlb!), montecarlo.jl, compare.jl (a dataset fit, e.g.
-                          a phantom's), diagnostics.jl (cond, cor, leakage, sensitivity), sweep.jl
+                          a phantom's), diagnostics.jl (cond, cor, leakage, sensitivityefficiency), sweep.jl
   design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
 ```
 
@@ -658,8 +658,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
-  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`, `sensitivity`): plots of the
-  maps and regions through a plotting extension; leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
+  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`, `sensitivityefficiency`):
+  plots of the efficiency maps through a plotting extension; leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
   leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives;
   fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing

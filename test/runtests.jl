@@ -1636,64 +1636,60 @@ end
         @test occursin("the scenario is for QMTSIR", msg(() -> leakage(T2Decay(TE = te), Scenario(m5, θ))))
     end
 
-    @testset "sensitivity: Dortch 2018 Eq. 6 maps and Fig. 2A's regions" begin
+    @testset "sensitivityefficiency: Dortch 2018 Eq. 6, and Fig. 2A's reading" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         # The paper's script (generateManuscriptResults.m, Fig 02): its values, t_FSE = 0.3 s, a
-        # log grid from 10 ms to 5 s (coarser here: 200 × 50), the five parameters
+        # log grid from 10 ms to 5 s (coarser here: 200 × 50) as one protocol, five parameters
         θ = nominal(QMTSIR; PSR = 0.12, R1f = 1.0, Sf = -1.0, kmf = 12.5)
         ti = exp10.(range(log10(0.01), log10(5), 200))
         td = exp10.(range(log10(0.01), log10(5), 50))
+        points = vec(collect(Iterators.product(ti, td)))
         dur = m -> m.TI .+ m.TD .+ 0.3
         five = (:PSR, :R1f, :Sf, :M0f, :kmf)
-        s = sensitivity(QMTSIR, θ; TI = ti, TD = td, duration = dur, parameters = five)
-        @test keys(s.relative) == five && size(s.relative.PSR) == (200, 50) && s.axes == (TI = ti, TD = td)
+        e = sensitivityefficiency(QMTSIR(TI = first.(points), TD = last.(points)), θ;
+                                  duration = dur, parameters = five)
+        @test keys(e.relative) == five && length(e.relative.PSR) == 200 * 50
+        @test e.duration == first.(points) .+ last.(points) .+ 0.3
         # the script's numbers: central differences of |signal| (ε = 1e-6), θ·∂S/∂θ·100/M0f/√t,
-        # within 1e-7 of each map's largest value
+        # within 1e-7 of each map's largest value; the grid reshapes, TI fastest
         function script(n, a, b)
             S(x) = signal(QMTSIR(TI = [a], TD = [b]), merge(θ, NamedTuple{(n,)}((x,))))[1]
             ε = 1e-6
             return (S(θ[n] + ε) - S(θ[n] - ε)) / 2ε * θ[n] * 100 / θ.M0f / sqrt(a + b + 0.3)
         end
         for n in five, (i, j) in ((1, 1), (20, 25), (100, 3), (180, 45), (60, 35))
-            @test abs(100 * s.relative[n][i, j] - script(n, ti[i], td[j])) < 1e-7 * 100 * maximum(abs, s.relative[n])
+            map2 = reshape(e.relative[n], length(ti), length(td))
+            @test abs(100 * map2[i, j] - script(n, ti[i], td[j])) < 1e-7 * 100 * maximum(abs, map2)
         end
-        # Fig. 2A: the 5-point scheme has a point within 85% of the best for each of the five
-        # parameters; the 4-point scheme for PSR, R1f, Sf and M0f, while avoiding kmf's region
-        frac(sch, n) = abs.(sensitivity(QMTSIR(; sch...), θ; duration = dur, parameters = five).relative[n]) ./
-                       maximum(abs, s.relative[n])
+        # Fig. 2A, read with the paper's contour (85% of each map's largest value): the 5-point
+        # scheme has a point within it for each of the five parameters; the 4-point scheme for
+        # PSR, R1f, Sf and M0f, while staying out of kmf's
+        frac(sch, n) = abs.(sensitivityefficiency(QMTSIR(; sch...), θ; duration = dur,
+                                                  parameters = five).relative[n]) ./ maximum(abs, e.relative[n])
         @test all(n -> maximum(frac(SIR_5POINT, n)) >= 0.85, five)
         @test all(n -> maximum(frac(SIR_4POINT, n)) >= 0.85, (:PSR, :R1f, :Sf, :M0f))
         @test maximum(frac(SIR_4POINT, :kmf)) < 0.4
-        # a grid point is the protocol of that one point; the regions are 85% of the largest
-        i, j = 37, 21
-        p = sensitivity(QMTSIR(TI = [ti[i]], TD = [td[j]]), θ; duration = dur, parameters = five)
-        @test p.relative.kmf[1] ≈ s.relative.kmf[i, j] rtol = 1e-12
-        @test p.axes === nothing
-        @test s.within.PSR == (abs.(s.absolute.PSR) .>= 0.85 * maximum(abs, s.absolute.PSR))
-        @test s.relative.Sf == s.absolute.Sf .* (θ.Sf / θ.M0f)
-        @test count(sensitivity(QMTSIR, θ; TI = ti, TD = td, duration = dur, level = 0.5).within.PSR) >
-              count(s.within.PSR)
+        # relative = absolute scaled by θ/M0f (signed θ, as the script); a number for every
+        # observation's duration
+        @test e.relative.Sf == e.absolute.Sf .* (θ.Sf / θ.M0f)
+        e4 = sensitivityefficiency(QMTSIR(; SIR_4POINT...), θ; duration = 2.0)
+        @test e4.absolute.PSR ≈ sensitivityefficiency(QMTSIR(; SIR_4POINT...), θ; duration = 1.0).absolute.PSR ./ sqrt(2)
+        @test keys(e4.relative) == (:PSR, :R1f, :Sf, :M0f, :kmf, :Sm, :Mzf_td0, :Mzm_td0)   # not the tie R1m
         # T2 decay, analytic: T2·∂S/∂T2 = S0·(TE/T2)·exp(−TE/T2), largest (S0/e) at TE = T2
         te = collect(0.001:0.001:0.4)
-        st = sensitivity(T2Decay, (S0 = 1000.0, T2 = 0.08); TE = te)
-        @test maximum(st.relative.T2) ≈ exp(-1) rtol = 1e-12
-        @test te[argmax(st.relative.T2)] ≈ 0.08
-        @test st.absolute.T2 ≈ 1000 .* te ./ 0.08^2 .* exp.(-te ./ 0.08) rtol = 1e-12
-        @test st.duration === nothing && keys(st.relative) == (:S0, :T2)       # every number
-        # defaults, options and durations
-        @test keys(sensitivity(QMTSIR(; SIR_4POINT...), θ).relative) ==
-              (:PSR, :R1f, :Sf, :M0f, :kmf, :Sm, :Mzf_td0, :Mzm_td0)        # not the tie R1m
-        @test !sensitivity(QMTSIR, θ; TI = ti, TD = 2.5, magnitude = false).model.magnitude
-        @test sensitivity(QMTSIR(; SIR_4POINT...), θ; duration = 2.0).absolute.PSR ≈
-              sensitivity(QMTSIR(; SIR_4POINT...), θ).absolute.PSR ./ sqrt(2)
-        @test !any(sensitivity(T2Decay, (S0 = 1000.0, T2 = 0.08); TE = te, parameters = (:T2,)).within.T2[end-10:end])
-        out = sprint(show, MIME"text/plain"(), s)
-        @test occursin("200 × 50 grid", out) && occursin("within 85%", out) && occursin("Eq. 6", out)
-        @test occursin("not a parameter", msg(() -> sensitivity(QMTSIR, θ; TI = ti, TD = td, parameters = (:T1,))))
-        @test occursin("is a tie", msg(() -> sensitivity(QMTSIR, θ; TI = ti, TD = td, parameters = (:R1m,))))
-        @test occursin("give the grid", msg(() -> sensitivity(QMTSIR, θ; TD = 2.5)))
-        @test occursin("one voxel", msg(() -> sensitivity(T2Decay(TE = te), (S0 = fill(1.0, 2), T2 = 0.08))))
-        @test occursin("observations", msg(() -> sensitivity(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); duration = [1.0, 2.0])))
+        et = sensitivityefficiency(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); duration = 1.0)
+        @test maximum(et.relative.T2) ≈ exp(-1) rtol = 1e-12
+        @test te[argmax(et.relative.T2)] ≈ 0.08
+        @test et.absolute.T2 ≈ 1000 .* te ./ 0.08^2 .* exp.(-te ./ 0.08) rtol = 1e-12
+        # display: every observation for a few, the largest for many
+        @test occursin("Eq. 6", sprint(show, MIME"text/plain"(), e4))
+        @test occursin("TI = ", sprint(show, MIME"text/plain"(), e)) && occursin("largest", sprint(show, MIME"text/plain"(), e))
+        @test occursin("not a parameter", msg(() -> sensitivityefficiency(QMTSIR(; SIR_4POINT...), θ; duration = 1.0, parameters = (:T1,))))
+        @test occursin("is a tie", msg(() -> sensitivityefficiency(QMTSIR(; SIR_4POINT...), θ; duration = 1.0, parameters = (:R1m,))))
+        @test occursin("one voxel", msg(() -> sensitivityefficiency(T2Decay(TE = te), (S0 = fill(1.0, 2), T2 = 0.08); duration = 1.0)))
+        @test occursin("observations", msg(() -> sensitivityefficiency(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); duration = [1.0, 2.0])))
+        @test occursin("positive", msg(() -> sensitivityefficiency(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); duration = 0.0)))
+        @test occursin("duration", msg(() -> sensitivityefficiency(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08))))
     end
 
     @testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin

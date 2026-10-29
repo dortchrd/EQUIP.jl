@@ -1851,40 +1851,42 @@ montecarlo(m, t; simulate_with = m2)                            # data from anot
 
 ### Diagnostics: why a protocol works
 
-- **Sensitivity maps** (Dortch 2018 Eq. 6, Fig. 2A): S_eff(TI, TD) = (∂S/∂θ) / √(TI + TD +
-  t_FSE) for each parameter on a grid, with Fig. 2A's regions. Returned as arrays; plotting
-  through an extension later. Status: implemented (`sens-proto`, errors/diagnostics.jl).
-  - **API:** `sensitivity(M, θ; TI = ti, TD = td, duration, parameters, level)`: the keywords
-    given vectors are the grid's axes (every combination is an observation of one protocol, the
-    first axis fastest, so the maps reshape to one dimension per axis); the others go to the
-    model (`magnitude = false`, `TD = 2.5`). `sensitivity(m, θ; ...)`: at a protocol's own
-    points, to compare a scheme with a grid's best. Generic over models (T2Decay over TE: one
-    axis). `duration`: the time per observation, a function of the protocol (as
-    `ProtocolDesign`'s `scantime` without the sum), a vector or a number; none by default
-    (the sensitivity alone). Default parameters: every one given a number (ties follow).
-  - **Output:** by parameter, `absolute` (Eq. 6), `relative` (θ·∂S/∂θ/(scale·√t), the script's
-    maps: a relative change θ → θ(1 + ε), as a fraction of M0f; signed θ, as the script), and
-    `within` (|S_eff| ≥ 0.85 of its largest).
-  - **The regions follow the paper's script, not its text:** the caption says the contours are
-    the "85th percentile" of S_eff; generateManuscriptResults.m (Fig 02) contours
-    0.85 × max|S_eff|, the region within 15% of the most efficient observation for that
-    parameter. That one does not depend on the grid's extent or spacing (a percentile does).
-    `level` changes the fraction.
+- **Sensitivity efficiency** (Dortch 2018 Eq. 6, Fig. 2A): S_eff = (∂S/∂θ)/√t, t the
+  observation's time (TI + TD + t_FSE for SIR), for each parameter at each observation. Status:
+  implemented (`sens-proto`, errors/diagnostics.jl), `sensitivityefficiency(m, θ; duration,
+  parameters)`.
+  - **At a protocol's observations, no grid built in.** The first version took a grid (every
+    combination of the vectors given, `TI = ti, TD = td`) and reshaped the maps to it. Dropped:
+    a TI × TD grid assumes the protocol has two acquisition variables to choose; the general
+    object is a set of candidate observations, i.e. any protocol (a published scheme, a grid,
+    a random sample), and a grid is three lines for the user (`Iterators.product`, one
+    protocol, `reshape`; in the docstring, with Fig. 2A's grid).
+  - **No regions.** The first version also marked where each map is within 85% of its largest
+    value (`within`, `level`). Dropped: the 85% is the figure's contour choice (the paper's
+    text calls it the "85th percentile", its script contours 0.85 × the maximum), not a
+    property of the protocol; thresholds belong to the reader or a plot. The tests use the
+    script's 85% only to check the paper's reading of its figure.
+  - **The name** says what it is: the paper's "sensitivity efficiency", the sensitivity per √s
+    of scan time. `duration` is required (a function of the protocol, `m -> m.TI .+ m.TD .+
+    0.3`, as `ProtocolDesign`'s `scantime` without the sum; a vector; a number); the
+    sensitivity alone is `jacobian`'s.
+  - **Output:** by parameter, `absolute` (Eq. 6) and `relative` (θ·∂S/∂θ/(scale·√t), the
+    script's maps: a relative change θ → θ(1 + ε), signed θ as the script, as a fraction of
+    M0f). Default parameters: every one given a number (ties follow: R1 moves both pools, as
+    the script's `R1 + eps` on both).
   - **The script's values, not Table 1's:** the caption says white matter as in Table 1; the
-    script uses PSR 0.12, R1f = R1m = 1 s⁻¹ (moved together: the tie R1m = :R1f), Sf −1,
-    Sm 0.83, kmf 12.5 s⁻¹, M0f 1, t_FSE 0.3 s, magnitude signal, on log grids of 1000 TIs and
-    100 TDs from 10 ms to 5 s.
+    script uses PSR 0.12, R1f = R1m = 1 s⁻¹, Sf −1, Sm 0.83, kmf 12.5 s⁻¹, M0f 1, t_FSE 0.3 s,
+    magnitude signal, log grids of 1000 TIs and 100 TDs from 10 ms to 5 s.
   - **Measured:** the script's central differences (ε = 1e-6) at five points per parameter,
     within 1e-7 of each map's largest value (the one large relative difference is kmf at
     TI = TD = 2.7 s, where the true derivative is 4e-14 and the difference is rounding). The
     paper's reading of Fig. 2A holds at the schemes' own points against the 1000 × 100 grid's
     best: the 5-point scheme reaches 0.87 (PSR), 0.98 (R1f), 0.90 (Sf), 0.92 (M0f) and 0.99
-    (kmf); the 4-point scheme 0.88, 0.93, 0.86, 0.95 and at most 0.31 for kmf (it avoids
-    kmf's region). Largest values (% of M0f per √s): PSR 7.65 at TI 166 ms, TD 1.62 s; R1f
-    34.5 at 670 ms, 10 ms; Sf 56.4 at 10 ms, 1.52 s; M0f 57.6 at 1.56 s, 10 ms; kmf 3.83 at
-    65 ms, 1.62 s. Analytic check: T2·∂S/∂T2 = S0·(TE/T2)·e^(−TE/T2), largest S0/e at TE = T2.
-    0.16–0.19 s and 29 MB for the 100,000 points (one ForwardDiff Jacobian through `signal`).
-    48 tests.
+    (kmf); the 4-point scheme 0.88, 0.93, 0.86, 0.95 and at most 0.31 for kmf. Largest values
+    (% of M0f per √s): PSR 7.65 at TI 166 ms, TD 1.62 s; R1f 34.5 at 670 ms, 10 ms; Sf 56.4 at
+    10 ms, 1.52 s; M0f 57.6 at 1.56 s, 10 ms; kmf 3.83 at 65 ms, 1.62 s. Analytic check:
+    T2·∂S/∂T2 = S0·(TE/T2)·e^(−TE/T2), largest S0/e at TE = T2. 0.16–0.19 s and 29 MB for
+    100,000 observations (one ForwardDiff Jacobian through `signal`). 44 tests.
 - **Leakage**: the first-order bias of each fitted parameter per unit error in each fixed one
   (kmf, Sm, Sf, Mzf_td0, B1, a tie). The slope of Fig. 2B; covers roadmap item 3's
   "sensitivity to model assumptions". Status: implemented (`leakage-proto`, errors/
@@ -2287,8 +2289,8 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    `crlb`'s), fit settings side by side and `simulate_with` (done); Figs. 1
    and 2B. Moved ahead of the diagnostics: it is the check on `crlb`, and it
    settles the sandwich against Eq. 3 with data (16-point, WM I, kmf fixed: 2.88% vs 2.72%).
-3. Diagnostics: `cond(c)`, `cor(c)`, `leakage(m, s)` and `sensitivity` (Eq. 6 maps,
-   Fig. 2A) done ("Diagnostics" above); their plots through an extension later.
+3. Diagnostics: `cond(c)`, `cor(c)`, `leakage(m, s)` and `sensitivityefficiency` (Eq. 6,
+   Fig. 2A's maps) done ("Diagnostics" above); their plots through an extension later.
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space: `ProtocolDesign` (done; the tissue × condition grid next).
 5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.
