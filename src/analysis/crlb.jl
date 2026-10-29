@@ -51,7 +51,7 @@ like `res.params.PSR` of a [`FitResult`](@ref)):
 
 and `cov` (the covariance matrix, free parameters in model order), `cond` (condition number of
 the Jacobian with each column scaled by its parameter's true value: large means the parameters
-are hard to tell apart), `onbound` (free parameters on a bound in the noise-free fit: held there,
+are hard to tell apart; computed when read), `onbound` (free parameters on a bound in the noise-free fit: held there,
 SD 0), `status` (the noise-free fit's [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`),
 `σ` (the noise SD per observation), `truth`, `fixed` (the fit's fixed values), `model`,
 `data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`) and `Σ`
@@ -59,7 +59,7 @@ SD 0), `status` (the noise-free fit's [`FitStatus`](@ref)), `method` (`:sandwich
 [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give the information and covariance matrices
 and the SDs, under StatsAPI's names.
 """
-struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
+struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,C}
     fit::N
     bias::N
     sd::N
@@ -68,7 +68,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
     relsd::N
     relrmse::N
     cov::Matrix{Float64}
-    cond::Float64
+    conditioning::C            # what `c.cond` is computed from: J₀ᵀJ₀, the truth, pinned, N
     onbound::Vector{Symbol}
     status::FitStatus
     method::Symbol
@@ -81,6 +81,15 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S}
     information::Matrix{Float64}   # Fisher information at θ̂, J₀ᵀΣ⁻¹J₀
     observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
 end
+
+# `c.cond` is computed when it is read, from what the kernel left (J₀ᵀJ₀ and the true values,
+# small static values): an eigenvalue problem, 1.5–2 µs, a quarter of a 4-point `crlb!`, paid
+# only by who asks, as `fitted(res)` is for a fit. `c.name` calls `getproperty(c, :name)`; this
+# method answers `:cond` and reads the field for every other name (with a literal name, as
+# `c.sd`, the compiler resolves the branch, so field reads cost what they did).
+Base.getproperty(c::CRLBResult, s::Symbol) =
+    s === :cond ? _condition(getfield(c, :conditioning)...) : getfield(c, s)
+Base.propertynames(::CRLBResult) = map(n -> n === :conditioning ? :cond : n, fieldnames(CRLBResult))
 
 """
     crlb(m, s::Scenario; snr or σ or Σ, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
@@ -174,9 +183,15 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
         caches = map(x -> _CRLBCache(m, x, cov), s isa Scenario ? (one = s,) : s)
         cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches.one
-        results = [crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, simulate_with);
-                         snr = _snr_of(st, snr), σ, Σ, simulate_with = _data_of(st, simulate_with))
-                   for st in settings]
+        # Numbers varied in the fitted model's truth: each setting's truth needs no second check
+        # (`_crlb_varied!`); otherwise (a tie varied, data from another model) `crlb!` checks it.
+        numbers = simulate_with === nothing && all(v -> all(x -> x isa Real, v), values(vary))
+        resultof(st) = numbers ?
+            _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, nothing);
+                          snr = _snr_of(st, snr), σ, Σ) :
+            crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, simulate_with);
+                  snr = _snr_of(st, snr), σ, Σ, simulate_with = _data_of(st, simulate_with))
+        results = [resultof(st) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, simulate_with)
@@ -204,8 +219,19 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
     # with `truth` then the reference values the fit is judged against; `snr` is relative to
     # the data's scale parameter.
     dm, dt = _datasource(c.model, truth, simulate_with)
+    t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
     Σn = noisecovariance(dm, dt; snr, σ, Σ)
-    return _crlbresult(c, truth, dm, dt, Σn, Σ, simulate_with)
+    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with)
+end
+
+# One setting of a sweep: `truth` is a scenario's truth (checked when the scenario was made: in
+# model order, every parameter, no roles, no maps) with numbers in place of the varied values,
+# so it goes to the kernel's form without being checked again (1.1–1.4 µs a setting). The
+# sweep takes this path only when every varied value is a number and the data are the fitted
+# model's own.
+function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ)
+    Σn = noisecovariance(c.model, truth; snr, σ, Σ)
+    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing)
 end
 
 """
@@ -268,9 +294,8 @@ end
 
 # The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A
 # separate function (a "function barrier") so that F and P are known types here.
-function _crlbresult(c::CRLBCache{F,P,T}, truth, dm, dt, Σn, Σ, simulate_with) where {F,P,T}
+function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with) where {F,P,T}
     σ2 = _kernelnoise(Σn, P)
-    t = _crlb_truth(c.model, truth)
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
     k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
     sd = sqrt.(diag(k.cov))
@@ -291,7 +316,7 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, dm, dt, Σn, Σ, simulate_with)
     end
     onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
     return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
-                      nt(rel(rmse)), Matrix(k.cov), _condition(k.G, k.truth, k.pinned, length(c.y)),
+                      nt(rel(rmse)), Matrix(k.cov), (G = k.G, θ = k.truth, pinned = k.pinned, N = length(c.y)),
                       onbound, k.status, c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed)

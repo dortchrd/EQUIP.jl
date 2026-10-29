@@ -1384,6 +1384,22 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   `_condition` (2 µs a call, a third of a 4-point `crlb!`); a pure-Julia eigenvalue solver for
   the small static matrix would remove most of it, at the price of `cond` changing at rounding
   level, so not done.
+- **The result pays only for what is read** (`result-proto`): of a 4-point `crlb!` (5.7 µs),
+  the kernel was 2.1 µs, checking the truth 1.4, `cond` 1.45 (LAPACK's symmetric eigenvalues),
+  everything else in the `CRLBResult` (named tuples, matrix copies, 7 KB) about 0.3. So the
+  struct itself was not the cost; a value computed for every result and read by few was. Fits
+  were measured the same way first and need nothing: `fit!`'s `FitResult` costs what the
+  per-voxel core costs (0 bytes), `fitted` and `residuals` are computed when called, and a
+  dataset's maps, tasks and result add at most 0.1 µs a voxel (≤ 5%; one-off `fit(m, y)` is
+  mostly `init`, 7–13 µs). Changed: `c.cond` is computed when read (`getproperty`, from J₀ᵀJ₀
+  and the true values the kernel left, kept as small static values), and a sweep whose varied
+  values are numbers (data from the fitted model) puts each setting's truth in the kernel's
+  form without checking it again (`_crlb_varied!`; the scenario's truth was checked when it was
+  made). `crlb!` 6.3–6.6 → 4.7–4.8 µs (4-point, 7.1 → 4.6 KB) and 15.7–16.0 → 13.5–14.4 µs
+  (16-point); a sweep setting 8.7–9.1 → 5.9–6.1 µs (4-point) and 18.9–20.8 → 16.2–17.4 µs
+  (16-point); `crlb(m, s)` 19–34 µs, `crlb(m, θ; kmf = 12.5)` 30–47 µs (three alternated runs
+  against `lean`). Results identical, `cond` included: the 688 cases with either default, the 8
+  sweeps, the design objectives.
 - Named `crlb`, the name the qMRI papers and the MATLAB code use; the docstring also says CRB,
   the signal-processing spelling, so a search for either finds it.
 - Output, indexed by quantity then parameter (`c.sd.PSR`, like `res.params.PSR`): the

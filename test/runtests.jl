@@ -956,6 +956,10 @@ end
         # Undetermined parameters get Inf: 5 free parameters, 4 observations
         @test all(==(Inf), values(crlb(m4, θ; snr = 200, kmf = Free()).sd))
         @test crlb(m4, θ; snr = 200, kmf = Free()).cond == Inf
+        # cond: computed when read, from what the kernel left; a property like the fields
+        @test :cond in propertynames(c) && !(:conditioning in propertynames(c)) && c.cond isa Float64
+        @test c.cond == EQUIP._condition(EQUIP._crlb!(CRLBCache(m4, θ; kmf = 12.5, bounds4...), m4, EQUIP._crlb_truth(m4, θ), 0.005^2).G,
+                                         [θ[n] for n in keys(c.fit)], falses(4), 4)
         # The allocation-free kernel the protocol optimizer will call: crlb's own numbers; one
         # plan for another protocol with as many observations (static vectors too); no
         # allocation, for the sandwich and Eq. 3
@@ -1061,6 +1065,13 @@ end
         @test s.settings[1] == (kmf = 5.0,) && s.settings[end] == (kmf = 20.0,)
         @test s[3].bias == crlb(m4, (; θ..., kmf = 10.0); snr = 200, kmf = 12.5).bias
         @test s[4].bias.PSR == 0                                      # true kmf = the assumed 12.5
+        # each setting as crlb! gives it, without the truth checked again (numbers varied) or
+        # with it (a tie varied); cond as crlb's
+        @test s[2].sd == crlb!(CRLBCache(m4, θ; kmf = 12.5), (; θ..., kmf = 7.5); snr = 200).sd
+        @test s[2].cond == crlb(m4, (; θ..., kmf = 7.5); snr = 200, kmf = 12.5).cond
+        st = crlb(m4, (; θ..., R1m = 1.0); snr = 200, vary = :R1m => [:R1f, 1.2])
+        @test st[1].bias == crlb(m4, (; θ..., R1m = 1.0); snr = 200, R1m = 1.0, vary = :R1m => [θ.R1f]).results[1].bias
+        @test st[2].sd == crlb!(CRLBCache(m4, (; θ..., R1m = 1.0)), (; θ..., R1m = 1.2); snr = 200).sd
         @test [r.fixed.kmf for r in s] == fill(12.5, 7)               # the fit never changes
         @test length(s.rows) == 7 * 4 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR
         @test s.rows[1].truth == 0.12 && s.rows[1].relbias == s[1].relbias.PSR
