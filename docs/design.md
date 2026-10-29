@@ -2352,6 +2352,39 @@ notes.)
      bi-exponential, ADCDecay vs ADCKurtosis). No new fields where a value follows from what is
      stored (σ̂, AIC, BIC come from `sse`, n and p). All assume Gaussian noise: biased for
      low-SNR magnitude data, documented once, next to the Rician-likelihood work.
+   - **Weighted fits**: minimize ½(g − y)ᵀW(g − y) with W = Σ⁻¹, from the noise as crlb takes
+     it (`σ` per observation: a weight per row; a full `Σ`: rows whitened by L⁻¹, as
+     `_FullNoise` does for crlb). Why: with unequal σ (different averages or bandwidths, σ
+     rising over the echoes) the unweighted fit is not efficient; its SD is the sandwich
+     H⁻¹J₀ᵀΣJ₀H⁻¹, above the bound (JᵀΣ⁻¹J)⁻¹ a weighted fit reaches (crlb's tests: σ 5 → 20
+     over 32 echoes, T2). How: the solver sums JᵀWJ and JᵀWr row by row (one multiply per row
+     for a diagonal W); the weights are part of the fit, so of a `Scenario`, and crlb, Eq. 3 and
+     leakage follow: H = Σᵢ wᵢ(JᵢJᵢᵀ + rᵢ∇²gᵢ), meat J₀ᵀWΣWJ₀ (= J₀ᵀWJ₀ when W = Σ⁻¹, so the
+     sandwich at the truth is F⁻¹), ∇b = H⁻¹J₀ᵀWJ_t − I, dθ̂/dc = −H_θθ⁻¹H_θc with the weighted
+     H. Per-voxel σ maps later.
+   - **Iteratively reweighted least squares (IRWLS)**: the weights recomputed from the current
+     fit, then fitted again, until they settle (a few rounds, an outer loop around the weighted
+     fit of each voxel). Uses: robust fits against outliers (Huber or Tukey's bisquare weights
+     from the residuals, scaled by a robust σ such as the MAD), noise whose variance depends on
+     the signal (e.g. weights ∝ S² for log-linear fits, as diffusion's WLLS/IWLLS, Veraart et
+     al., NeuroImage 2013), and one route to the Rician-likelihood fitting of item 12. Built on
+     weighted fits. To settle with it: the weight-function interface, the stopping rule, and
+     crlb with the converged weights (the weights' own dependence on θ ignored, or kept, for
+     M-estimators, through the sandwich's ψ′ terms).
+   - **Leakage and crlb, faster for the protocol search**: when profiling shows the search
+     needs it (e.g. once a robust-design term uses leakage × the plausible error of each fixed
+     parameter). Two changes, in this order of value:
+     - *The 4×8 nested duals*: the outer layer seeded with the P free parameters only, the
+       inner with all P + K, so one evaluation gives ∂/∂θ of the full gradient: the H_θθ and
+       H_θc blocks exactly, without the K×K block of the fixed parameters or the symmetric
+       repeats (32 of 64 second derivatives for QMTSIR, 4 + 4). Estimated to halve the
+       biased-point leakage kernel (16 → about 8 µs, 5-point).
+     - *One combined kernel*: crlb and leakage each run their own noise-free fit and Hessian,
+       but leakage's joint Hessian holds crlb's H as its θθ block and its buffer J₀'s rows. One
+       noise-free fit, one joint Hessian, one Cholesky factor of H_θθ and one evaluation at the
+       truth (J_t) give the covariance (sandwich or Eq. 3), ∇b and the leakage together, about
+       half the cost of the two. The bias gradient needs nothing new: crlb's kernel already
+       computes ∇b = H⁻¹J₀ᵀJ_t − I (Eq. 3; `biasgradient(m, s)`).
 4. **Starting values and outliers**:
    - Done (the baseline, see Parameter roles): start options per parameter in `Free` (a number
      or map, `:scale`, `:data`, `BestOf(values)`), declared by models in `parameters(m)`;

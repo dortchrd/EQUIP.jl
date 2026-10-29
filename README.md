@@ -650,9 +650,14 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   (starting values, bounds, accuracy vs SNR), with recorded results
 - **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
   data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity maps (Dortch et
-  al. 2018, Eq. 6); leakage from ties and per-voxel fixed maps; fit statistics on `FitResult` under StatsAPI's names
+  al. 2018, Eq. 6); leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
+  leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives;
+  fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
+- **Weighted fits** (W = Σ⁻¹, for σ that differs between observations, or correlated noise) and
+  **iteratively reweighted least squares** (robust weights against outliers, weights from a
+  signal-dependent noise), with crlb, Eq. 3 and leakage weighted to match
 - **design/** (started: `ProtocolDesign`, Eq. 5 with its options, `optimize_protocol`): tissues
   × uncertain conditions as scenarios (B1, B0, T2m → Sf, Sm), Li 2010's T1 targets, Eq. 6
   efficiency, data-driven designs from `FitResult`s, other optimizers through an extension
