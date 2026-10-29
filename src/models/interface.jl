@@ -368,12 +368,18 @@ acquisition settings, e.g. `TI` and `TD`). Throws an error if they differ. A mod
 fields of another kind can define its own method.
 """
 function nobs(m::MRIModel)
-    lens = [length(x) for x in _fields(m) if x isa AbstractVector]
-    name = nameof(typeof(m))
-    isempty(lens) && throw(ArgumentError("$name has no per-observation (vector) fields; define `nobs` for it"))
-    all(==(lens[1]), lens) ||
-        throw(DimensionMismatch("$name: the per-observation fields have different lengths, $lens"))
-    return lens[1]
+    # Each field's length if it is a vector, -1 if not: a tuple (`map` over the tuple of fields,
+    # each field's type known), so nothing is allocated. It is called for every noise level
+    # crlb is given; collecting the lengths in an array cost 35–65 ns and 80–240 bytes a call.
+    lens = map(x -> x isa AbstractVector ? length(x) : -1, _fields(m))
+    i = findfirst(>=(0), lens)
+    i === nothing && throw(ArgumentError("$(nameof(typeof(m))) has no per-observation (vector) " *
+                                         "fields; define `nobs` for it"))
+    n = lens[i]
+    all(l -> l < 0 || l == n, lens) ||
+        throw(DimensionMismatch("$(nameof(typeof(m))): the per-observation fields have " *
+                                "different lengths, $(filter(>=(0), collect(lens)))"))
+    return n
 end
 # `nobs` is StatsAPI's function (imported in EQUIP.jl); this adds a method for every
 # MRIModel. A specific model can add its own, more specific method, e.g.

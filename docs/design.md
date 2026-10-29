@@ -428,6 +428,14 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   Sf rows, nothing else); `relrmse` and `medrel` were unaffected (squares, absolute values).
   Tested: `compare(mc.result, θ)` gives `montecarlo`'s bias, relative bias, SD and RMSE within
   2e-12 (4-point WM I, kmf assumed 12.5, 4000 copies).
+- **`nobs` allocates nothing** (`nobs-proto`): the generic method collected the lengths of the
+  model's vector fields in an array, 35–65 ns and 80–240 bytes a call, on every noise level
+  crlb is given (`noisecovariance`), every `simulate` and every `signal`. Now a `map` over the
+  tuple of fields (each field's type known, so the lengths form a tuple: no array), 2–3 ns and
+  0 bytes (constant-folded for static vectors). `crlb!` allocates 144 bytes less (4-point 3696 →
+  3552, 16-point 4560 → 4416), its time unchanged within noise; one-voxel `simulate` 0.2 µs
+  faster (8.3 → 8.1 µs). The 21 built-in models' values and the error messages identical; the
+  phantom snapshot and the 688 crlb cases bit-identical; 1560 tests (an allocation test added).
 
 - **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
   need a value for every parameter of the model (a number, a map, or a tie such as
