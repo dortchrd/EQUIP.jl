@@ -391,7 +391,9 @@ dataset). Numbers for one voxel, maps for a dataset; `_onevoxel(res)` (is the st
 
 ## Simulation
 
-`src/sim/` (uses models and fit): `simulate`, the tissue presets, phantoms and `compare`.
+`src/sim/` (uses models only): the tissue presets, phantoms, the noise model and `simulate`;
+from true values to data. (`compare`, which judges a fit, moved to `src/errors/`: see
+"Folders by what they produce" below.)
 
 - **Every value is given; nothing is filled in silently.** `signal(m, p)` and `simulate(m, p)`
   need a value for every parameter of the model (a number, a map, or a tie such as
@@ -488,10 +490,12 @@ src/
                        (FitResult), starts.jl (starting values: :data, BestOf, :scale),
                        cache.jl (init: the cache), voxel.jl (one voxel: fit!, and fit for a
                        vector), dataset.jl (fit for a dataset, threaded; refit)
-  sim/                 simulate (noise), TISSUES / tissue / truth (presets), phantom and
-                       labelshapes, compare (fit vs truth)
-  analysis/            (later) crlb, montecarlo, sensitivity maps, leakage (see "Simulation,
-                       CRLB and protocol design")
+  sim/                 TISSUES / tissue / nominal (presets), phantom and labelshapes, the noise
+                       model (noise.jl), simulate: from true values to data
+  errors/              a fit's errors against the truth: Scenario, crlb and its pieces,
+                       montecarlo, compare (a dataset fit vs its truth), diagnostics (cond,
+                       cor; leakage and sensitivity maps later), sweeps (see "Simulation, CRLB
+                       and protocol design")
   design/              (later) protocol objective (Eq. 5 and options), scan time, constraints,
                        tissue sets
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
@@ -1246,9 +1250,9 @@ The pieces, each using the ones before it:
 
 ### `crlb`: one function, biased or not by the fit settings
 
-Status: implemented (src/analysis/crlb.jl); merged into `lean` from `crlb-proto`, and its
-pieces (src/analysis/derivatives.jl), general noise and `CRLBCache` from `analysis-proto`; the
-`Scenario` (src/analysis/scenario.jl) and plain keywords from `scenario-proto` (6c7cc50).
+Status: implemented (src/errors/crlb.jl); merged into `lean` from `crlb-proto`, and its
+pieces (src/errors/derivatives.jl), general noise and `CRLBCache` from `analysis-proto`; the
+`Scenario` (src/errors/scenario.jl) and plain keywords from `scenario-proto` (6c7cc50).
 Checked: Fopt4 = 0.243395 and Fopt5 = 1.602062 (Eq. 5 of the Table 2 schemes, both
 covariances), the exact-fit identity, ∇b against central differences of noise-free fits
 (1e-5), the classical CRLB when nothing fixed is wrong, and Monte Carlo (below).
@@ -1470,7 +1474,7 @@ c.fit, c.cov                                 # the noise-free fit's values; the 
   estimated from residuals, Kirstine.jl (optimal design for nonlinear regression),
   CorleoneOED and DynamicOED (dynamic systems) have no bias from wrong fixed values. The
   reusable part, the derivatives, is ForwardDiff's; F = JᵀΣ⁻¹J itself is one line.
-- **One implementation, fast: a cache and allocation-free pieces** (src/analysis/derivatives.jl;
+- **One implementation, fast: a cache and allocation-free pieces** (src/errors/derivatives.jl;
   the kernel `_crlb!` in crlb.jl). Each step of `crlb` is a function
   of its own, one formula each, and the kernel is their composition:
 
@@ -1670,7 +1674,7 @@ How, with what was measured:
 
 ### `montecarlo`: sweeps, and simulating with another model
 
-Status: one case and sweeps implemented, merged into `lean` (src/analysis/montecarlo.jl,
+Status: one case and sweeps implemented, merged into `lean` (src/errors/montecarlo.jl,
 sweep.jl); fit settings side by side and `simulate_with` too (from `analysis-proto`); a
 `Scenario`, its starts, and scenarios side by side (from `scenario-proto`).
 
@@ -1857,8 +1861,8 @@ montecarlo(m, t; simulate_with = m2)                            # data from anot
     truth and at a biased point; the simple form at the truth; the first-order bias against
     crlb's for a small error (kmf 5 → 5.25: within the second-order term); the kernel form
     allocates nothing.
-  - **Where:** src/analysis/leakage.jl, after derivatives.jl (its cache, `hessian!` with the
-    fixed parameters seeded).
+  - **Where:** src/errors/diagnostics.jl, beside `cond` and `cor` (it uses derivatives.jl's
+    cache, `hessian!` with the fixed parameters seeded).
   - **Open:** ties (R1m = :R1f: leakage of a deviation from the tie, R1m = R1f + δ; later);
     maps of fixed values (B1 maps: per voxel, later); the names `relative` and `elasticity`.
 - **cond(J)**, an identifiability flag (Lankford & Does).
@@ -2136,7 +2140,7 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
 
 ### Where it lives
 
-`src/analysis/`: `crlb`, `montecarlo`, sensitivity maps, leakage. `src/design/`: the objective,
+`src/errors/`: `crlb`, `montecarlo`, sensitivity maps, leakage. `src/design/`: the objective,
 `scantime`, constraints, tissue sets (presets, ranges, or from `FitResult`s). `ext/`: the
 optimizer (`optimize_protocol`). Names and keywords to settle with the first implementation.
 

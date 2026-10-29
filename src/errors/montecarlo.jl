@@ -6,7 +6,7 @@
 #   statistics over the n estimates (mean, bias, SD, RMSE, ± standard errors) ◀┘
 #   next to crlb's prediction for the same scenario (truth and fit) and noise
 #
-# Why both this and `crlb` (analysis/crlb.jl): crlb predicts from derivatives, first order in
+# Why both this and `crlb` (crlb.jl): crlb predicts from derivatives, first order in
 # the noise, for Gaussian noise; Monte Carlo shows the actual estimator, with what the
 # derivatives leave out: Rician noise (the magnitude floor at low signal), bounds, local minima
 # and the fit's own starts (`:scale`, `:data`, `BestOf`), nonlinearity at low SNR. Where both
@@ -190,15 +190,6 @@ end
 # statistics), and their SDs, the free parameters in model order.
 vcov(mc::MonteCarloResult) = cov(_estimates(mc))
 stderror(mc::MonteCarloResult) = collect(values(mc.sd))
-
-"""
-    cor(mc::MonteCarloResult) -> Matrix
-
-The measured correlations of the estimates of the fit's free parameters (in model order), over
-every fitted copy, as `vcov(mc)`: Statistics' `cor` of the estimates. The prediction, from
-derivatives: [`cor`](@ref)`(mc.crlb)`.
-"""
-cor(mc::MonteCarloResult) = cor(_estimates(mc))
 
 # The estimates as a matrix, one row per fitted copy (as the statistics: every copy that could
 # be fitted, converged or not) and one column per free parameter, in model order.

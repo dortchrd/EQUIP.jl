@@ -111,8 +111,8 @@ end
 # The table: one row per setting and free parameter. Each setting's rows come from a function of
 # their own (`_settingrows`, a "function barrier": the setting's and the result's types are known
 # there, so each row is built directly rather than looked up name by name), with the free
-# parameters' true values found once per setting (`_freetruth`, crlb.jl). Before: the whole truth
-# resolved for every row, 61% of a crlb sweep's time.
+# parameters' true values found once per setting (`_freetruth`, diagnostics.jl). Before: the
+# whole truth resolved for every row, 61% of a crlb sweep's time.
 function _rows(settings, results)
     rows = NamedTuple[]
     sizehint!(rows, sum(r -> length(r.sd), results))     # one row per setting and parameter

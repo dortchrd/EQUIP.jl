@@ -248,11 +248,6 @@ end
 # by every task.
 # -------------------------------------------------------------------------------------------------
 
-# The scale parameter's value (M0, S0): read directly when given as a number; otherwise (a tie,
-# or missing: then `resolve` says what is wrong) through `resolve`, which checks every value.
-_scalevalue(m, θ, scale) =
-    haskey(θ, scale) && θ[scale] isa Real ? Float64(θ[scale]) : Float64(resolve(m, θ)[scale])
-
 # A full noise covariance by its Cholesky factor (Σ = LLᵀ, lower triangle) and the factor's
 # inverse, stored transposed, (L⁻¹)ᵀ (upper triangle), both made once: `meat` whitens with L,
 # `information` with L⁻¹. Transposed so that `information`'s inner loop reads down a column (Julia
@@ -452,56 +447,16 @@ end
 @inline _near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
 
 # -------------------------------------------------------------------------------------------------
-# The noise
+# The noise: at a scenario's truth, and in the form the sums take (the noise model itself,
+# `noisecovariance(m, θ)` and its checks, is sim/noise.jl, shared with `simulate`)
 # -------------------------------------------------------------------------------------------------
 
-"""
-    noisecovariance(m, θ; snr or σ or Σ) -> Diagonal or Matrix
-    noisecovariance(m, s::Scenario; snr or σ or Σ) -> Diagonal or Matrix
-
-The covariance Σ of Gaussian noise between the observations of `m` (N×N), from one of:
-
-- `snr`: relative to the model's scale parameter at the values θ (a scenario's truth), as for
-  [`simulate`](@ref):
-  σ = M0/snr, the same for every observation, independent: Σ = σ²I (a `Diagonal`)
-- `σ`: a number (Σ = σ²I), or one SD per observation (Σ = Diagonal(σ²): independent noise, e.g.
-  different numbers of averages)
-- `Σ`: the covariance matrix itself (correlated noise, e.g. after denoising), checked
-  (symmetric, positive definite) and returned
-
-```julia
-noisecovariance(m, nominal(m, :SIR_WM_I); snr = 200)       # 4×4 Diagonal, (M0f/200)²
-noisecovariance(m, s; snr = 200)                           # the same at a scenario's truth
-```
-"""
 function noisecovariance(m::MRIModel, s::Scenario; snr = nothing, σ = nothing, Σ = nothing)
     _check_protocol(m, s)
     return noisecovariance(m, s.truth; snr, σ, Σ)
 end
-function noisecovariance(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing)
-    N = nobs(m)
-    count(!isnothing, (snr, σ, Σ)) == 1 ||
-        throw(ArgumentError("give the noise level as `snr`, `σ` or `Σ` (one of them)"))
-    if snr !== nothing
-        scale = _scalename(m)
-        scale === nothing && throw(ArgumentError("$(nameof(typeof(m))) has no " *
-                                   "`Free(start = :scale)` parameter to define the SNR; give `σ`"))
-        s = _scalevalue(m, θ, scale) / snr            # σ = M0/snr
-        return Diagonal(fill(s^2, N))
-    elseif σ isa Real
-        return Diagonal(fill(Float64(σ)^2, N))
-    elseif σ !== nothing
-        σ isa AbstractVector || throw(ArgumentError("`σ` is a number or one SD per observation; " *
-                                                    "for a covariance matrix, give `Σ`"))
-        length(σ) == N ||
-            throw(DimensionMismatch("`σ` has $(length(σ)) values; the model has $N observations"))
-        return Diagonal(Float64.(collect(σ)) .^ 2)
-    end
-    _noisefactor(Σ, N)                    # the checks `simulate` makes (sim/simulate.jl)
-    return Σ
-end
 
-# Σ checked and factored as `simulate` does (`_noisefactor`, sim/simulate.jl), and the factor
+# Σ checked and factored as `simulate` does (`_noisefactor`, sim/noise.jl), and the factor
 # inverted once: (Lᵀ)⁻¹ = (L⁻¹)ᵀ, a triangular inverse in place on a copy of Lᵀ (O(N³/3); N ≤ 100).
 function _fullnoise(Σ, N)
     L = _noisefactor(Σ, N)

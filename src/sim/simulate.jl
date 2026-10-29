@@ -1,14 +1,8 @@
 # =================================================================================================
 # simulate: noisy data from a model, for Monte Carlo, phantoms, benchmarks and tests
 #
-# The noise level is set by `snr` or `σ`:
-#   snr   relative to the model's scale parameter (M0, S0, M0f: the parameter declared
-#         `Free(start = :scale)`), σ = scale / snr: the "SNR at thermal equilibrium" of Dortch
-#         et al. 2018. It does not depend on the protocol, as on a scanner, where σ is set by the
-#         hardware.
-#   σ     absolute, in the units of the signal (e.g. estimated from an image's background); one
-#         number, or one per observation.
-#   Σ     the covariance matrix of the noise between observations (correlated noise).
+# The noise level (`snr`, `σ` or `Σ`) is checked and turned into what is drawn by the noise model,
+# sim/noise.jl, which `crlb` shares.
 # =================================================================================================
 
 """
@@ -47,13 +41,10 @@ data = simulate(m, phantom(labelshapes((64, 64)), tissues); snr = 50)    # a pha
 function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
                   noise::Symbol = _default_noise(m), n::Union{Nothing,Integer} = nothing,
                   rng::AbstractRNG = Random.default_rng())
-    count(!isnothing, (snr, σ, Σ)) == 1 ||
-        throw(ArgumentError("give the noise level as `snr`, `σ` or `Σ` (one of them)"))
+    # The noise level, checked (sim/noise.jl): the scale parameter `snr` is relative to, and
+    # Σ's Cholesky factor, Σ = LLᵀ (correlated noise is L·z).
+    scale, L = _checked_noise(m, snr, σ, Σ)
     noise in (:rician, :gaussian) || throw(ArgumentError("`noise` must be :rician or :gaussian"))
-    scale = _scalename(m)
-    snr !== nothing && scale === nothing &&
-        throw(ArgumentError("$(nameof(typeof(m))) has no `Free(start = :scale)` parameter to " *
-                            "define the SNR; give `σ`"))
 
     # The voxels: the size of the maps, or n copies, or one voxel.
     maps = filter(x -> x isa AbstractArray, Tuple(values(truth)))
@@ -63,9 +54,6 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
         throw(ArgumentError("`n` is for numbers only: with maps, the maps give the voxels"))
 
     M = nobs(m)
-    σ isa AbstractVector && length(σ) != M &&
-        throw(DimensionMismatch("`σ` has $(length(σ)) values; the model has $M observations"))
-    L = Σ === nothing ? nothing : _noisefactor(Σ, M)   # Σ = LLᵀ: correlated noise is L·z
     out = Array{Float64}(undef, sz..., M)
     Y = reshape(out, :, M)                           # a view: row v = voxel v's observations
     for v in axes(Y, 1)
@@ -93,18 +81,3 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
     end
     return out
 end
-
-# The lower Cholesky factor of a noise covariance matrix, checked: M×M, symmetric, positive
-# definite.
-function _noisefactor(Σ::AbstractMatrix, M)
-    size(Σ) == (M, M) ||
-        throw(DimensionMismatch("`Σ` is $(join(size(Σ), "×")); the model has $M observations"))
-    isapprox(Σ, Σ'; rtol = 1e-10) || throw(ArgumentError("`Σ` must be symmetric"))
-    c = cholesky(Symmetric(Matrix{Float64}(Σ)); check = false)
-    issuccess(c) || throw(ArgumentError("`Σ` must be positive definite"))
-    return Matrix(c.L)
-end
-_noisefactor(Σ, M) = throw(ArgumentError("`Σ` is the noise covariance matrix, $M×$M"))
-
-# Magnitude images get Rician noise; models fitted to signed data (magnitude = false) Gaussian.
-_default_noise(m) = hasproperty(m, :magnitude) && !m.magnitude ? :gaussian : :rician

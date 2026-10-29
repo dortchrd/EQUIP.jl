@@ -1,5 +1,6 @@
 # =================================================================================================
-# compare: accuracy of a dataset fit against the truth it was simulated from
+# compare: the errors of a dataset fit (bias, SD, RMSE) against the truth it was simulated from,
+# e.g. a phantom's maps: what montecarlo measures for one voxel, measured over maps and labels
 # =================================================================================================
 
 """

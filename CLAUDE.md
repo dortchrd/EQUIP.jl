@@ -24,16 +24,21 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
-- src/sim/: `simulate`, `nominal` and tissue presets (`TISSUES`), `phantom`, `compare`
-- src/analysis/: scenario.jl, the `Scenario` (a truth and the fit judged against it, built
+- src/sim/, from true values to data (uses models only): `nominal` and tissue presets
+  (`TISSUES`), `phantom`, noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
+  `simulate` and crlb; `noisecovariance`), `simulate`
+- src/errors/, a fit's errors against the truth (bias, SD, RMSE): scenario.jl, the `Scenario` (a truth and the fit judged against it, built
   from the truth with fit's keywords: what crlb and montecarlo take; `crlb(m, θ; kmf = 12.5)`
   makes one); derivatives.jl, crlb's pieces one function each (`CRLBCache`, `noisefree!`,
   `hessian!`, `meat`, `information`, `sandwich`, `biasgradient`, `biasedcrlb`; allocation-free,
   summed row by row from dual numbers), with one-call versions (`jacobian`, `hessian`,
   `informationmatrix`, ...); crlb.jl, the kernel `_crlb!` (their composition), `crlb!` and
-  `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3); and
-  `montecarlo` (the same measured by simulating and fitting, with `crlb` alongside); sweep.jl:
-  both over noise levels and true values (`snr = [...]`, `vary = (...)`), returning a `Sweep`
+  `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3);
+  montecarlo.jl, `montecarlo` (the same measured by simulating and fitting, with `crlb`
+  alongside); compare.jl, `compare` (the same measured on a dataset fit, e.g. a phantom's);
+  diagnostics.jl, `cond` and `cor` (where the errors come from; leakage next); sweep.jl:
+  crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
+  returning a `Sweep`
 - src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
   search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;

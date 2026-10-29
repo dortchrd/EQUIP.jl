@@ -77,15 +77,6 @@ function _override(d::Fixed, x::Free, name)
     return Free(start = d.value, lower = x.lower, upper = x.upper)
 end
 
-# The name of the parameter the model declares `Free(start = :scale)` (M0, S0, M0f), or nothing:
-# from a model, or from its own roles. Also used by `simulate` (its `snr` is relative to this
-# parameter).
-_scalename(m::MRIModel) = _scalename(parameters(m))
-function _scalename(roles::NamedTuple)
-    i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
-    return i === nothing ? nothing : keys(roles)[i]
-end
-
 # `:scale` assumes the signal is proportional to the parameter (true for M0, not for T1), so only
 # the model can declare it. A fit can turn it off (M0 = Free(start = 1000.0)) but not move it.
 # `M` is the model's name, `own` its own roles.
@@ -149,7 +140,7 @@ end
 
 # Steps 3–5 of `setup`, from a complete set of roles (every parameter, in the model's order, each
 # start computed for the acquisition): what `setup` makes from the keywords, and what crlb makes
-# from a scenario's roles (analysis/scenario.jl) without merging them in one by one.
+# from a scenario's roles (errors/scenario.jl) without merging them in one by one.
 function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}) where {T}
     names = keys(roles)
     # 3. Split by role, keeping the model's order.

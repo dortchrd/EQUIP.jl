@@ -490,7 +490,7 @@ function resolve(m::MRIModel, p::NamedTuple)
 end
 
 # The checks of `resolve`, for model `M` (its name) with the roles `roles`: `p` in the model's
-# order, as given (ties kept). Also used by `Scenario` (analysis/scenario.jl), which knows the
+# order, as given (ties kept). Also used by `Scenario` (errors/scenario.jl), which knows the
 # model's type but not its acquisition. The names K come from the roles' type (`where {K}`), so
 # the compiler knows them and the reordering is a plain copy.
 function _complete(M::Symbol, roles::NamedTuple{K}, p::NamedTuple) where {K}
@@ -526,7 +526,16 @@ simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); 
 """
 defaults(m::_ModelOrType) = (; (n => r.value for (n, r) in pairs(_roles(m)) if r isa Fixed)...)
 
-# The value a role gives `nominal` (src/sim/tissues.jl) when neither a keyword nor a tissue does:
+# The name of the parameter the model declares `Free(start = :scale)` (M0, S0, M0f), or nothing:
+# from a model, or from its own roles. Used by the fit's checks (`_check_scale`, fit/setup.jl)
+# and by the noise level: `snr` is relative to this parameter (sim/noise.jl).
+_scalename(m::MRIModel) = _scalename(parameters(m))
+function _scalename(roles::NamedTuple)
+    i = findfirst(r -> r isa Free && r.start === :scale, values(roles))
+    return i === nothing ? nothing : keys(roles)[i]
+end
+
+# The value a role gives `nominal` (sim/tissues.jl) when neither a keyword nor a tissue does:
 # a fixed value (a tie kept as written), 1 for the scale parameter, and a number start if
 # `starts` (no tissue given); `nothing` when there is none.
 _model_value(r::Fixed, starts) = r.value

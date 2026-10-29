@@ -53,7 +53,7 @@ export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDeca
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
-export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # analysis
+export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # errors
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
 export cond, cor                                                            # diagnostics
@@ -61,7 +61,8 @@ export ProtocolDesign, optimize_protocol, DesignResult                       # p
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 
 # --- Source files, in layers ----------------------------------------------------------------
-# Each layer only uses the layers above it: models ← fit ← sim ← analysis ← design.
+# Each layer only uses the layers above it: models ← fit, sim ← errors ← design (fit and sim
+# each use models alone).
 
 # models: the interface every model implements, and the built-in models
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
@@ -76,20 +77,23 @@ include("fit/cache.jl")                # init -> FitCache: everything a voxel fi
 include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
 include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit
 
-# sim: simulated data and accuracy against the truth (uses models and fit)
-include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian), snr or σ
+# sim: from true values to data (uses models only)
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
-include("sim/compare.jl")              # compare: bias, SD, RMSE, % converged
+include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
+include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
 
-# analysis: the accuracy of a fit predicted from derivatives (uses models, fit and sim)
-include("analysis/scenario.jl")        # Scenario: a truth and the fit judged against it
-include("analysis/derivatives.jl")     # crlb's pieces: CRLBCache, the sums, the formulas
-include("analysis/crlb.jl")            # crlb: bias, SD and RMSE without noisy fits; the kernel
-include("analysis/montecarlo.jl")      # montecarlo: the same measured, with crlb alongside
-include("analysis/sweep.jl")           # Sweep: either one over noise levels and true values
+# errors: a fit's errors against the truth, bias and SD, predicted from derivatives or measured
+# (uses models, fit and sim)
+include("errors/scenario.jl")          # Scenario: a truth and the fit judged against it
+include("errors/derivatives.jl")       # crlb's pieces: CRLBCache, the sums, the formulas
+include("errors/crlb.jl")              # crlb: bias, SD and RMSE without noisy fits; the kernel
+include("errors/montecarlo.jl")        # montecarlo: the same measured, with crlb alongside
+include("errors/compare.jl")           # compare: the same measured on a dataset (a phantom)
+include("errors/diagnostics.jl")       # cond, cor: where the errors come from
+include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise levels and truths
 
-# design: protocols chosen by the predicted accuracy (uses analysis)
+# design: protocols chosen by their predicted errors (uses errors)
 include("design/design.jl")            # ProtocolDesign: the objective (Eq. 5), made once
 include("design/search.jl")            # optimize_protocol: differential evolution, Nelder–Mead
 

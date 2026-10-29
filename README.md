@@ -603,7 +603,8 @@ model's own estimates from the data for parameters declared `:data`; then a `Bes
 the value that fits that voxel best, with the `:scale` parameter at its least-squares value for
 each (or, without `BestOf`, for the start).
 
-The code is in layers; each only uses the ones before it:
+The code is in layers; each only uses the ones before it (`fit/` and `sim/` use `models/`
+alone):
 
 ```
 src/
@@ -616,10 +617,13 @@ src/
                           (FitResult), starts.jl (each voxel's starting point), cache.jl
                           (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
                           a dataset, threaded; refit)
-  sim/                    simulate.jl, tissues.jl, phantom.jl, compare.jl
-  analysis/               scenario.jl (Scenario: a truth and the fit judged against it),
-                          derivatives.jl (crlb's pieces: CRLBCache, the sums, the formulas),
-                          crlb.jl (the kernel, crlb, crlb!), montecarlo.jl, sweep.jl
+  sim/                    from true values to data: tissues.jl (TISSUES, nominal), phantom.jl,
+                          noise.jl (snr, σ or Σ; noisecovariance), simulate.jl
+  errors/                 a fit's errors against the truth (bias, SD, RMSE): scenario.jl
+                          (Scenario: a truth and the fit judged against it), derivatives.jl
+                          (crlb's pieces: CRLBCache, the sums, the formulas), crlb.jl (the
+                          kernel, crlb, crlb!), montecarlo.jl, compare.jl (a dataset fit, e.g.
+                          a phantom's), diagnostics.jl (cond, cor), sweep.jl
   design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
 ```
 
@@ -634,8 +638,8 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results
-- **analysis/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
-  data from another model, `CRLBCache`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
+- **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
+  data from another model, `CRLBCache`, `cond`, `cor`): sensitivity maps (Dortch et al. 2018, Eq. 6) and leakage of
   fixed parameters into fitted ones; fit statistics on `FitResult` under StatsAPI's names
   (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
   models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
