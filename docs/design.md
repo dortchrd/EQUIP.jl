@@ -2452,6 +2452,20 @@ notes.)
        truth (J_t) give the covariance (sandwich or Eq. 3), ∇b and the leakage together, about
        half the cost of the two. The bias gradient needs nothing new: crlb's kernel already
        computes ∇b = H⁻¹J₀ᵀJ_t − I (Eq. 3; `biasgradient(m, s)`).
+   - **An active set for minimax designs** (when a design has thousands of scenarios, or a
+     model's kernel is much slower than SIR's): with `aggregate = maximum` only the scenarios
+     near the worst set the value, so evaluate those (the set A, e.g. within 50% of the worst)
+     for most candidate protocols. The maximum over A is a lower bound on the true one; every
+     scenario is checked for the candidates the search accepts, every few generations and for
+     the final answer, and one that has risen near the top joins A (the exchange method of
+     minimax and semi-infinite problems, as in Remez's algorithm). Measured on the 3⁵ grid of
+     true values (243 scenarios, kmf assumed 12.5): within 10% of the worst, 6 at Table 2's
+     4-point scheme, 3 at the scheme moved slightly, 6 at one far from it; within 50%, 45, 27
+     and 63. So about 30–60 kernel calls an evaluation instead of 243, 4–8× fewer. The full
+     checks are essential: the worst scenario changed between those protocols (kmf 5, then
+     20, then R1f 0.5), and a set fixed once would let the search prefer a protocol that is
+     good on A and bad elsewhere. For `maximum` only (a mean needs every scenario). Not needed
+     now: 243 scenarios cost about 30 s a start.
    - **Sensitivity-efficiency plots** (Dortch 2018, Fig. 2A): the figure is what has value
      (the numbers are `jacobian` ./ √t: "Diagnostics", Sensitivity efficiency). A function,
      through a plotting package extension (Makie or Plots), so that EQUIP itself does not
