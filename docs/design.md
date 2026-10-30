@@ -2093,11 +2093,47 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   what is true and what the fit assumes, so a wrong assumption is counted as the bias it causes
   (Dortch's biased CRLB inside Eq. 5) without a separate mechanism. Conditions (B1, B0, T2m,
   mapped to Sf and Sm) are more scenarios, the truth varied and the fit kept:
-  `Scenario(QMTSIR, merge(θ, (Sm = 0.78,)); kmf = 12.5, Sm = 0.83)`. A helper builds the grid,
-  tissues × conditions, each named (`scenarios(QMTSIR, tissues; conditions = (Sm = [0.78, 0.83,
-  0.88],), kmf = 12.5, Sm = 0.83)`; the name is open). A design optimizes one fit's protocol in
+  `Scenario(QMTSIR, merge(θ, (Sm = 0.78,)); kmf = 12.5, Sm = 0.83)`, and `scenarios` makes the
+  sets (done: "Sets of scenarios" below). A design optimizes one fit's protocol in
   the usual case; comparing fits (kmf fixed or fitted) is comparing their designs' optima, as
   Table 2 does.
+- **Sets of scenarios: `scenarios(M, truths; vary, midpoint = true, fit...)`** (`scen-proto`),
+  the modes of the paper's `calcVmax.m`: `'single'` (one truth), `'multiple'` (discrete
+  tissues: what the 4-point paper used, for its computing time) and `'ranges'` (every
+  combination of each parameter's values, plus the midpoint: for two values each, a box's
+  corners and center, Li 2010's 2⁵ + 1 = 33 sets), and the two combined: each tissue × each
+  combination (tissues × conditions, for a robust design; calcVmax holds Sm common).
+  - *`vary` is crlb's:* the same forms (a pair, pairs, a named tuple), values a vector or a
+    range, every combination with the first parameter slowest, the truth changed and the fit
+    never (one parser, `_varyaxes`, and one ordering, `_sweep_settings`). A first proposal
+    wrote boxes as tuples, `PSR = (0.05, 0.2)`, which crlb's `vary` rejects: one syntax for both.
+  - *The result is a `Sweep` whose results are the scenarios:* `settings` says which tissue
+    (`tissue`: its name, key or place; slowest) and values each has, `rows` a table (the
+    setting and every true value), and the display a row per scenario with what its fit gets
+    wrong. `ProtocolDesign` takes it unchanged (it takes any collection of scenarios); after an
+    evaluation `d.values` holds each one's value, so `s.settings[argmax(d.values)]` is the worst.
+  - *`midpoint = true` by default*, as calcVmax's `'ranges'` always includes it; put first, as
+    calcVmax evaluates it first; halfway between each parameter's smallest and largest value,
+    rounded to 12 significant digits (found by the tests: (0.78 + 0.88)/2 is
+    0.8300000000000001, which a fit assuming 0.83 counted as wrong, and which duplicated a given
+    0.83); not added when a combination is within 1e-12 of it. Numbers only (a tie has no
+    midpoint: `midpoint = false`).
+  - *A fixed parameter the fit does not set follows each scenario's truth* (`Scenario`'s rule):
+    varying Sm without `Sm = 0.83` gives unbiased fits, one per Sm, so one cache each (3 groups
+    for one tissue × 3 values, tested).
+  - *Many scenarios are cheap to hold:* a `Scenario` is 472 bytes; `ProtocolDesign` keeps, per
+    fit, one cache and a typed vector of truths (the tuple is over fits, not scenarios), so
+    evaluation is a loop and the compile time does not grow with their number. Measured (one
+    fit, Table 2's 4-point): 4 tissues 17.5 µs an evaluation, a 2⁵ + 1 box 144 µs, a 3⁵ grid
+    (243) 783 µs: 3–4 µs a scenario; the design made in 0.5, 1.1 and 7.5 ms. The search is then
+    the cost (243 scenarios: about 30 s per start of differential evolution, 40,000
+    evaluations); if it matters, an active set for minimax (search over the currently worst
+    scenarios, check all at the end), not another container. At Table 2's scheme the box and
+    the 3⁵ grid give the same value (0.8526): the worst case is on a corner there.
+  - *Checked:* the tissue set gives the hand-built list's design value to the bit (0.243395,
+    Table 2); the box's 33 settings in calcVmax's order; the robust set's 12 (0.3274 at Table 2,
+    against 0.2434 over the tissues; worst WM I at Sm = 0.78), equal to the hand-built 12.
+    31 tests.
 - **Eq. 5 by default, every choice a keyword**:
   - `weights`: per parameter, by name (default 1 for each free parameter, as Eq. 5). A
     parameter with weight 0 still costs precision through the fit (it is estimated).

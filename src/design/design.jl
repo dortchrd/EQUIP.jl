@@ -50,10 +50,12 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
 
 - `m`: the protocol to start from, a model with its acquisition: it sets the number of points
   and every field that is not varied (`magnitude`, ...).
-- `scenarios`: a [`Scenario`](@ref) or a vector of them, each a truth and the fit judged
-  against it (a tissue, and what the fit assumes): `[Scenario(QMTSIR, nominal(QMTSIR, t);
-  kmf = 12.5) for t in tissues]`. A wrong assumption counts as the bias it causes; uncertain
-  conditions (B1, T2m, ...) are more scenarios, the truth changed and the fit kept.
+- `scenarios`: a [`Scenario`](@ref) or several (a vector, or a set from [`scenarios`](@ref)),
+  each a truth and the fit judged against it (a tissue, and what the fit assumes):
+  `scenarios(QMTSIR, tissues; kmf = 12.5)`. A wrong assumption counts as the bias it causes;
+  uncertain conditions are more scenarios, the truth changed and the fit kept:
+  `scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)`. After an
+  evaluation, `d.values` holds each scenario's value.
 - The noise, one σ for every observation: `snr` (relative to each scenario's scale parameter,
   as for `crlb`) or `σ`.
 - `vary`: the acquisition fields to optimize, with their bounds (s): `(TI = (0.01, 10.0),
@@ -76,7 +78,7 @@ Not thread-safe (the caches' buffers): [`optimize_protocol`](@ref) gives each st
 
 ```julia
 tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)
-ss = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = 12.5) for t in tissues]
+ss = scenarios(QMTSIR, tissues; kmf = 12.5)                 # the four tissues, kmf assumed 12.5
 m = QMTSIR(; SIR_4POINT..., magnitude = false)
 d = ProtocolDesign(m, ss; snr = 200, vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3), constraints = m -> m.TI .+ m.TD .- 0.5)

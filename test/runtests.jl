@@ -1636,6 +1636,60 @@ end
         @test occursin("the scenario is for QMTSIR", msg(() -> leakage(T2Decay(TE = te), Scenario(m5, θ))))
     end
 
+    @testset "scenarios: tissues, boxes of true values, and both (calcVmax's modes)" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
+        m4 = QMTSIR(; SIR_4POINT..., magnitude = false)
+        kw = (snr = 200, vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+        # 'multiple': the tissues, as the hand-built list (the same design value, to the bit)
+        s4 = scenarios(QMTSIR, tissues; kmf = 12.5)
+        @test s4 isa Sweep && length(s4) == 4 && s4.settings == [(tissue = t,) for t in tissues]
+        hand = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = 12.5) for t in tissues]
+        @test all(i -> s4[i].truth == hand[i].truth && s4[i].wrong == hand[i].wrong, 1:4)
+        v4 = ProtocolDesign(m4, s4; kw...)(m4)
+        @test v4 == ProtocolDesign(m4, hand; kw...)(m4)
+        @test v4 ≈ 0.243395 rtol = 2e-6                                  # Table 2's 4-point
+        # 'ranges': every combination of two values each (the first slowest) and the midpoint
+        # first: 2⁵ + 1 = 33 (Li 2010's sets)
+        box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,
+                        vary = (PSR = [0.05, 0.2], kmf = [5.0, 20.0], R1f = [0.5, 1.5], Sf = [-1.0, -0.8], M0f = [0.8, 1.2]))
+        @test length(box) == 33 && !haskey(box.settings[1], :tissue)
+        @test box.settings[1] == (PSR = 0.125, kmf = 12.5, R1f = 1.0, Sf = -0.9, M0f = 1.0)
+        @test box.settings[2] == (PSR = 0.05, kmf = 5.0, R1f = 0.5, Sf = -1.0, M0f = 0.8)
+        @test box.settings[3] == (PSR = 0.05, kmf = 5.0, R1f = 0.5, Sf = -1.0, M0f = 1.2)
+        @test box.settings[end] == (PSR = 0.2, kmf = 20.0, R1f = 1.5, Sf = -0.8, M0f = 1.2)
+        @test box[2].truth == merge(nominal(QMTSIR), box.settings[2]) && box[2].wrong.kmf.truth == 5.0
+        @test box.rows[2].PSR == 0.05 && box.rows[2].Sm == 0.83                       # every true value
+        # both: each tissue × each condition, the fit's assumption kept (a robust design's set)
+        rob = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)
+        @test length(rob) == 12 && rob.settings[1:3] == [(tissue = :SIR_WM_I, Sm = s) for s in (0.83, 0.78, 0.88)]
+        @test !haskey(rob[1].wrong, :Sm) && rob[2].wrong.Sm.truth == 0.78     # 0.83 exactly: not wrong
+        hr = [Scenario(QMTSIR, merge(nominal(QMTSIR, t), (Sm = s,)); kmf = 12.5, Sm = 0.83) for t in tissues for s in (0.83, 0.78, 0.88)]
+        d = ProtocolDesign(m4, rob; kw...)
+        @test d(m4) == ProtocolDesign(m4, hr; kw...)(m4) && length(d.groups) == 1
+        @test rob.settings[argmax(d.values)] == (tissue = :SIR_WM_I, Sm = 0.78)
+        # the midpoint not repeated, or not wanted; a fixed value not given follows each truth
+        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], Sm = 0.83)) == 12
+        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], midpoint = false)) == 8
+        own = scenarios(QMTSIR, [:SIR_WM_I]; vary = :Sm => [0.78, 0.88])
+        @test all(x -> isempty(x.wrong), own) && length(ProtocolDesign(m4, own; kw...).groups) == 3
+        # truths: one name, a named tuple, named truths, a vector of named tuples (by place)
+        @test scenarios(QMTSIR, :SIR_GM).settings == [(tissue = :SIR_GM,)]
+        @test scenarios(QMTSIR, nominal(QMTSIR, :SIR_GM)).settings == [(;)]
+        @test [st.tissue for st in scenarios(QMTSIR, (wm = nominal(QMTSIR, :SIR_WM_I), gm = (PSR = 0.1, R1f = 1.1, Sf = -0.9, M0f = 1.0))).settings] == [:wm, :gm]
+        @test [st.tissue for st in scenarios(QMTSIR, [nominal(QMTSIR, :SIR_WM_I), nominal(QMTSIR, :SIR_GM)]).settings] == [1, 2]
+        out = sprint(show, MIME"text/plain"(), rob)
+        @test occursin("12 scenarios for QMTSIR: tissue × Sm", out) && occursin("the fit: PSR, R1f, Sf, M0f free", out)
+        @test occursin("SIR_WM_I    0.78  kmf (true 5.0), Sm (true 0.78)", out)
+        @test occursin("the fits differ", sprint(show, MIME"text/plain"(), own))
+        @test occursin("a tie has no midpoint", msg(() -> scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0])))
+        @test length(scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0], midpoint = false)) == 8
+        @test occursin("names the truths", msg(() -> scenarios(QMTSIR, tissues; vary = :tissue => [1, 2])))
+        @test occursin("not a parameter of QMTSIR", msg(() -> scenarios(QMTSIR, tissues; vary = :T1 => [1.0, 2.0])))
+        @test occursin("a tissue name", msg(() -> scenarios(QMTSIR, [1.0, 2.0])))
+        @test occursin("at least one truth", msg(() -> scenarios(QMTSIR, Symbol[])))
+    end
+
     @testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)

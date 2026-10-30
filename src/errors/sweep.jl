@@ -58,13 +58,13 @@ const _VARY_FORMS = "`vary`: a parameter's name and its true values, `vary = :km
 # Every combination of the noise levels and the varied values, the first keyword slowest.
 # `Iterators.product` varies its FIRST argument fastest, so the axes go in reversed and each
 # combination is reversed back.
-function _sweep_settings(m::MRIModel, snr, vary::NamedTuple, fits::NamedTuple = (;))
+function _sweep_settings(m::_ModelOrType, snr, vary::NamedTuple, fits::NamedTuple = (;))
     roles = parameters(m)
     for (k, v) in pairs(vary)
         k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fits in a " *
             "sweep; for several fits, give scenarios side by side: `crlb(m, (a = s1, b = s2); ...)`"))
         haskey(roles, k) || throw(ArgumentError("`vary = :$k => ...`: not a parameter of " *
-            "$(nameof(typeof(m))); the parameters are $(keys(roles))"))
+            "$(_modelname(m)); the parameters are $(keys(roles))"))
         v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = :$k => ...`: give " *
             "the values as a vector or a range, e.g. `:$k => [5.0, 10.0]` or `:$k => 5:2.5:20`"))
     end
@@ -193,6 +193,134 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:MonteCarloResult})
 end
 
 function Base.show(io::IO, s::Sweep)
-    kind = eltype(s) <: CRLBResult ? "crlb" : eltype(s) <: MonteCarloResult ? "montecarlo" : "?"
+    kind = eltype(s) <: CRLBResult ? "crlb" : eltype(s) <: MonteCarloResult ? "montecarlo" :
+           eltype(s) <: Scenario ? "scenario" : "?"
     print(io, "Sweep(", length(s), " ", kind, " results: ", join(keys(s.settings[1]), ", "), ")")
+end
+
+# -------------------------------------------------------------------------------------------------
+# A set of scenarios: tissues, boxes of true values, or both (what a protocol design is judged
+# over; the MATLAB calcVmax's 'single', 'multiple' and 'ranges', Dortch et al. 2018)
+#
+#   scenarios(QMTSIR, :SIR_WM_I; kmf = 12.5)                         one
+#   scenarios(QMTSIR, [:SIR_WM_I, :SIR_GM]; kmf = 12.5)              discrete tissues
+#   scenarios(QMTSIR, θ; vary = (PSR = [0.05, 0.2], ...))           a box: its corners + midpoint
+#   scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], Sm = 0.83)   each tissue × each value
+#
+# A sweep of the truth, as `vary` is for crlb and montecarlo (the same forms and order; the fit
+# never changes), whose results are the scenarios themselves rather than their numbers: a
+# `Sweep` of `Scenario`s, so `settings` says which tissue and values each one has.
+# -------------------------------------------------------------------------------------------------
+
+"""
+    scenarios(M, truths; vary, midpoint = true, starts = :truth, changes...) -> Sweep
+
+A set of [`Scenario`](@ref)s, the truths a protocol is judged over: one or several tissues,
+every combination of true values within ranges, or both. The result is a [`Sweep`](@ref) whose
+results are the scenarios: `s.settings[i]` says which tissue and values scenario `s[i]` has, and
+`s.rows` is a table (setting, then every true value). [`ProtocolDesign`](@ref) takes it as it is;
+after an evaluation `d.values` holds each scenario's value, so `s.settings[argmax(d.values)]` is
+the worst.
+
+- `M`: the model (its type, `QMTSIR`, or a protocol), as for `Scenario`.
+- `truths`: a tissue name (`:SIR_WM_I`, [`TISSUES`](@ref)) or a named tuple of true values
+  (filled in from the model as [`nominal`](@ref) does), or several: a vector of them, or a named
+  tuple of named truths, `(wm = θ1, gm = θ2)`. With several, `settings` has their name (or
+  place) as `tissue`, varying slowest.
+- `vary`: true values to combine with each truth, as crlb's `vary` (`:Sm => [0.78, 0.88]`,
+  `[:kmf => [5, 20], :PSR => [0.05, 0.2]]`, or a named tuple): every combination, the first
+  parameter varying slowest. Two values each give the corners of a box; more, a grid.
+- `midpoint`: also the box's center for each truth (each varied parameter halfway between its
+  smallest and largest value, to 12 significant digits), first, as calcVmax's `'ranges'`
+  (2⁵ corners + 1 = Li 2010's 33 sets); not repeated when the combinations already contain it
+  (`Sm => [0.78, 0.83, 0.88]`). Numbers only.
+- `starts`, `changes...`: the fit, the same for every scenario, as for `Scenario` (`kmf = 12.5`:
+  the fit assumes 12.5 whatever the true kmf; a parameter fixed by default and not given holds
+  each scenario's own true value).
+
+Fitting a parameter the fit holds fixed at a wrong value is what makes a scenario biased; with
+`vary` on such a parameter (`Sm`) and its assumed value given (`Sm = 0.83`), the set is a robust
+design's: the tissues under conditions where the assumption is wrong.
+
+```julia
+tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
+s4 = scenarios(QMTSIR, tissues; kmf = 12.5)                       # Dortch 2018 (calcVmax 'multiple')
+box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,               # 'ranges': 2⁵ corners + midpoint
+                vary = (PSR = [0.05, 0.2], kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8], M0f = [0.8, 1.2]))
+robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)   # 4 × 3
+d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), robust; snr = 200,
+                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+d(d.model); robust.settings[argmax(d.values)]                     # the worst: which tissue and Sm
+```
+"""
+function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = true,
+                   starts::Symbol = :truth, changes...)
+    named = _named_truths(M, truths)               # name => complete truth, or nothing => one
+    ax = _varyaxes(vary)
+    haskey(ax, :tissue) && throw(ArgumentError("`vary = :tissue => ...`: `tissue` names the truths; give several truths instead"))
+    # Every combination of the varied values (crlb's order: the first slowest), then the box's
+    # center first, as calcVmax evaluates it first.
+    combos = isempty(ax) ? NamedTuple[(;)] : _sweep_settings(M, nothing, ax)
+    if midpoint && !isempty(ax)
+        all(v -> all(x -> x isa Real, v), values(ax)) ||
+            throw(ArgumentError("`midpoint`: the varied values must be numbers (a tie has no " *
+                                "midpoint); give `midpoint = false`"))
+        # Halfway, rounded to 12 significant digits so that the rounding of the sum does not
+        # show: (0.78 + 0.88)/2 is 0.8300000000000001 in floating point, which a fit assuming
+        # 0.83 would count as wrong. A combination within 1e-12 of it is the center already.
+        center = map(v -> round((minimum(v) + maximum(v)) / 2; sigdigits = 12), ax)
+        near(a, b) = isapprox(a, b; rtol = 1e-12, atol = 1e-15)
+        any(c -> all(k -> near(c[k], center[k]), keys(ax)), combos) || pushfirst!(combos, center)
+    end
+    settings = NamedTuple[]
+    list = Scenario[]
+    for (name, θ) in named, c in combos
+        push!(settings, name === nothing ? c : (; tissue = name, c...))
+        push!(list, Scenario(M, merge(θ, c); starts, changes...))
+    end
+    rows = NamedTuple[merge(st, sc.truth) for (st, sc) in zip(settings, list)]
+    return Sweep(settings, list, rows)
+end
+
+# The truths by name: one (no name: `nothing`), or several, each named by its tissue name, its
+# key (a named tuple of truths) or its place; each complete, as `nominal` fills it in.
+_named_truths(M, t::Symbol) = [t => nominal(M, t)]
+_named_truths(M, t::NamedTuple) = all(x -> x isa NamedTuple, values(t)) && !isempty(t) ?
+    [k => nominal(M, v) for (k, v) in pairs(t)] : [nothing => nominal(M, t)]
+function _named_truths(M, ts::Union{AbstractVector,Tuple})
+    isempty(ts) && throw(ArgumentError("give at least one truth"))
+    return [(t isa Symbol ? t : i) => _one_truth(M, t) for (i, t) in enumerate(ts)]
+end
+_named_truths(M, t) = throw(ArgumentError("a truth is a tissue name (e.g. :SIR_WM_I) or a " *
+    "named tuple of true values, or several of them; got $(repr(t))"))
+_one_truth(M, t::Union{Symbol,NamedTuple}) = nominal(M, t)
+_one_truth(M, t) = _named_truths(M, t)            # the error above
+
+# At the REPL: how many, the fit (if the same for all), and one row per scenario: its setting and
+# what the fit gets wrong in it.
+function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:Scenario})
+    cell(x) = x isa Real ? repr(x; context = :compact => true) : _showvalue(x)
+    sc = s.results
+    print(io, length(sc), " scenario", length(sc) == 1 ? "" : "s", " for ", nameof(sc[1].model))
+    ks = keys(s.settings[1])
+    isempty(ks) || print(io, ": ", join(ks, " × "))
+    fixed(x) = NamedTuple(n => r.value for (n, r) in pairs(x.roles) if r isa Fixed)
+    free(x) = Tuple(n for (n, r) in pairs(x.roles) if r isa Free)
+    if all(x -> free(x) == free(sc[1]) && isequal(fixed(x), fixed(sc[1])), sc)
+        print(io, "\nthe fit: ", join(free(sc[1]), ", "), " free; ",
+              join(("$n = $(cell(v))" for (n, v) in pairs(fixed(sc[1]))), ", "))
+    else
+        print(io, "\nthe fits differ (fixed values that follow each truth)")
+    end
+    header = (string.(ks)..., "wrong in the fit")
+    value(k, x) = k === :tissue && x isa Symbol ? string(x) : cell(x)     # WM, not :WM
+    rows = [((value(k, st[k]) for k in ks)...,
+             isempty(x.wrong) ? "nothing" :
+             join(("$n (true $(cell(w.truth)))" for (n, w) in pairs(x.wrong)), ", "))
+            for (st, x) in zip(s.settings, sc)]
+    w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
+    print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
+    for r in rows
+        print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
+    end
 end

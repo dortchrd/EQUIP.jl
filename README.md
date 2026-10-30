@@ -573,8 +573,8 @@ crlb's kernel) times the scan time. Each scenario is a tissue and what the fit a
 wrong assumption counts as the bias it causes.
 
 ```julia
-tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)
-ss = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = 12.5) for t in tissues]
+tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
+ss = scenarios(QMTSIR, tissues; kmf = 12.5)        # the four tissues, the fit assuming kmf = 12.5
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
                    vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),     # bounds (s)
                    constraints = m -> m.TI .+ m.TD .- 0.5,            # TR ≥ 0.8 s
@@ -588,8 +588,25 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
 - `d(x)`, x the varied values (the TIs, then the TDs), takes 11 µs here and allocates nothing:
   one cache per fit (the four tissues share one), the kernel once per scenario.
 - Options: `weights` per parameter, `budget` (a fixed scan time instead of × T),
-  `aggregate` (`maximum` by default; a mean, a quantile), `shared = (:TD,)` (one TD for every
-  point), `cov`.
+  `aggregate` (`maximum` by default, Vmax; `mean`, a quantile, `v -> sum(w .* v)` with tissue
+  weights), `shared = (:TD,)` (one TD for every point), `cov`.
+- **Sets of scenarios**: `scenarios` makes the truths a design is judged over, the modes of the
+  paper's `calcVmax`: one tissue, several (`'multiple'`), or a box of true values
+  (`'ranges'`: every combination of the values given, plus the midpoint, 2⁵ + 1 = 33 for five
+  parameters), or tissues × conditions for a robust design:
+
+  ```julia
+  box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, vary = (PSR = [0.05, 0.2],
+                  kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8], M0f = [0.8, 1.2]))   # 33
+  robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
+  ```
+
+  `vary` is crlb's (true values; the fit unchanged), and the result a `Sweep` whose results are
+  the scenarios: `robust.settings` says which tissue and Sm each one has, and after `d(x)`,
+  `robust.settings[argmax(d.values)]` is the worst. At Table 2's 4-point scheme, Eq. 5 is
+  0.2434 over the tissues and 0.3274 with the true Sm 0.78–0.88 (the fit assuming 0.83), worst
+  in WM I at Sm = 0.78. Each scenario costs 3–4 µs per evaluation: 243 (a 3⁵ grid) make one
+  evaluation 0.8 ms.
 - The search: differential evolution, then Nelder–Mead, from several starts on threads
   (repeatable with `rng`); the result rounded to the ms by a search of its own (rounding each
   value to the nearest ms can raise one of the tissues that tie at the optimum). It finds both

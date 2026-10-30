@@ -53,7 +53,7 @@ export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDeca
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
-export Scenario, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep   # errors
+export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
