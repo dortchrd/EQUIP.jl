@@ -2130,6 +2130,16 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
     evaluations); if it matters, an active set for minimax (search over the currently worst
     scenarios, check all at the end), not another container. At Table 2's scheme the box and
     the 3⁵ grid give the same value (0.8526): the worst case is on a corner there.
+  - *Checked for efficiency* (warm, best of many runs): `scenarios` costs about 15 µs a
+    scenario, once (243 in 3.7 ms: 4–5 evaluations' worth); a design made from its `Sweep`
+    costs what one from a vector does; an evaluation allocates nothing, and 93–96% of it is
+    crlb's kernel (the design adds 0.2–0.4 µs a scenario). No regression: the test's 4-point
+    design takes 17 µs an evaluation on this machine on the commit that recorded 11.4 µs
+    (a3ac634), on `lean` and here alike (the machine is slower than then); the 5-point design
+    5.2 µs (6.6–9.7 at a3ac634: the unbiased rows reused since). Where more speed would come
+    from, if a search needs it: warm starts (each scenario's noise-free fit from its answer at
+    the previous protocol: a search's successive protocols are close, and the solver's
+    iterations are most of a biased scenario's kernel), and the active set above.
   - *Checked:* the tissue set gives the hand-built list's design value to the bit (0.243395,
     Table 2); the box's 33 settings in calcVmax's order; the robust set's 12 (0.3274 at Table 2,
     against 0.2434 over the tissues; worst WM I at Sm = 0.78), equal to the hand-built 12.
