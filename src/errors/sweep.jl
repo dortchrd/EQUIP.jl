@@ -205,8 +205,8 @@ end
 #
 #   scenarios(QMTSIR, :SIR_WM_I; kmf = 12.5)                         one
 #   scenarios(QMTSIR, [:SIR_WM_I, :SIR_GM]; kmf = 12.5)              discrete tissues
-#   scenarios(QMTSIR, θ; vary = (PSR = [0.05, 0.2], ...))           a box: its corners + midpoint
-#   scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], Sm = 0.83)   each tissue × each value
+#   scenarios(QMTSIR, θ; vary = (PSR = [0.05, 0.2], ...), midpoint = true)   a box: corners + center
+#   scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], Sm = 0.83)   each tissue × each value
 #
 # A sweep of the truth, as `vary` is for crlb and montecarlo (the same forms and order; the fit
 # never changes), whose results are the scenarios themselves rather than their numbers: a
@@ -214,7 +214,7 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    scenarios(M, truths; vary, midpoint = true, starts = :truth, changes...) -> Sweep
+    scenarios(M, truths; vary, midpoint = false, starts = :truth, changes...) -> Sweep
 
 A set of [`Scenario`](@ref)s, the truths a protocol is judged over: one or several tissues,
 every combination of true values within ranges, or both. The result is a [`Sweep`](@ref) whose
@@ -231,10 +231,11 @@ the worst.
 - `vary`: true values to combine with each truth, as crlb's `vary` (`:Sm => [0.78, 0.88]`,
   `[:kmf => [5, 20], :PSR => [0.05, 0.2]]`, or a named tuple): every combination, the first
   parameter varying slowest. Two values each give the corners of a box; more, a grid.
-- `midpoint`: also the box's center for each truth (each varied parameter halfway between its
-  smallest and largest value, to 12 significant digits), first, as calcVmax's `'ranges'`
-  (2⁵ corners + 1 = Li 2010's 33 sets); not repeated when the combinations already contain it
-  (`Sm => [0.78, 0.83, 0.88]`). Numbers only.
+- `midpoint = true`: also the box's center for each truth (each varied parameter halfway
+  between its smallest and largest value, to 12 significant digits), first, as calcVmax's
+  `'ranges'` (2⁵ corners + 1 = Li 2010's 33 sets); not repeated when the combinations already
+  contain it. Numbers only. Off by default, so that `vary` gives exactly the combinations of
+  the values given, as it does for `crlb` and `montecarlo`.
 - `starts`, `changes...`: the fit, the same for every scenario, as for `Scenario` (`kmf = 12.5`:
   the fit assumes 12.5 whatever the true kmf; a parameter fixed by default and not given holds
   each scenario's own true value).
@@ -267,15 +268,16 @@ the set's settings (`crlb(m, robust; snr = 200)`).
 ```julia
 tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
 s4 = scenarios(QMTSIR, tissues; kmf = 12.5)                       # Dortch 2018 (calcVmax 'multiple')
-box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,               # 'ranges': 2⁴ corners + midpoint
+box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, midpoint = true,   # 'ranges': 2⁴ + 1
                 vary = (PSR = [0.05, 0.2], kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))
-robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)   # 4 × 3
+robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), robust; snr = 200,
-                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+                   acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
+                   scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
 d(d.model); robust.settings[argmax(d.values)]                     # the worst: which tissue and Sm
 ```
 """
-function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = true,
+function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = false,
                    starts::Symbol = :truth, changes...)
     named = _named_truths(M, truths)               # name => complete truth, or nothing => one
     ax = _varyaxes(vary)

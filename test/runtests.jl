@@ -1640,7 +1640,7 @@ end
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
         m4 = QMTSIR(; SIR_4POINT..., magnitude = false)
-        kw = (snr = 200, vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+        kw = (snr = 200, acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
         # 'multiple': the tissues, as the hand-built list (the same design value, to the bit)
         s4 = scenarios(QMTSIR, tissues; kmf = 12.5)
         @test s4 isa Sweep && length(s4) == 4 && s4.settings == [(tissue = t,) for t in tissues]
@@ -1649,9 +1649,9 @@ end
         v4 = ProtocolDesign(m4, s4; kw...)(m4)
         @test v4 == ProtocolDesign(m4, hand; kw...)(m4)
         @test v4 ≈ 0.243395 rtol = 2e-6                                  # Table 2's 4-point
-        # 'ranges': every combination of two values each (the first slowest) and the midpoint
-        # first: 2⁵ + 1 = 33 (Li 2010's sets)
-        box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,
+        # 'ranges': every combination of two values each (the first slowest) and, asked for, the
+        # midpoint first: 2⁵ + 1 = 33 (Li 2010's sets)
+        box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, midpoint = true,
                         vary = (PSR = [0.05, 0.2], kmf = [5.0, 20.0], R1f = [0.5, 1.5], Sf = [-1.0, -0.8], M0f = [0.8, 1.2]))
         @test length(box) == 33 && !haskey(box.settings[1], :tissue)
         @test box.settings[1] == (PSR = 0.125, kmf = 12.5, R1f = 1.0, Sf = -0.9, M0f = 1.0)
@@ -1661,17 +1661,20 @@ end
         @test box[2].truth == merge(nominal(QMTSIR), box.settings[2]) && box[2].wrong.kmf.truth == 5.0
         @test box.rows[2].PSR == 0.05 && box.rows[2].Sm == 0.83                       # every true value
         # both: each tissue × each condition, the fit's assumption kept (a robust design's set)
-        rob = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)
-        @test length(rob) == 12 && rob.settings[1:3] == [(tissue = :SIR_WM_I, Sm = s) for s in (0.83, 0.78, 0.88)]
-        @test !haskey(rob[1].wrong, :Sm) && rob[2].wrong.Sm.truth == 0.78     # 0.83 exactly: not wrong
-        hr = [Scenario(QMTSIR, merge(nominal(QMTSIR, t), (Sm = s,)); kmf = 12.5, Sm = 0.83) for t in tissues for s in (0.83, 0.78, 0.88)]
+        rob = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)
+        @test length(rob) == 12 && rob.settings[1:3] == [(tissue = :SIR_WM_I, Sm = s) for s in (0.78, 0.83, 0.88)]
+        @test rob[1].wrong.Sm.truth == 0.78 && !haskey(rob[2].wrong, :Sm)     # 0.83: not wrong
+        hr = [Scenario(QMTSIR, merge(nominal(QMTSIR, t), (Sm = s,)); kmf = 12.5, Sm = 0.83) for t in tissues for s in (0.78, 0.83, 0.88)]
         d = ProtocolDesign(m4, rob; kw...)
         @test d(m4) == ProtocolDesign(m4, hr; kw...)(m4) && length(d.groups) == 1
         @test rob.settings[argmax(d.values)] == (tissue = :SIR_WM_I, Sm = 0.78)
-        # the midpoint not repeated, or not wanted; a fixed value not given follows each truth
-        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], Sm = 0.83)) == 12
-        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], midpoint = false)) == 8
-        own = scenarios(QMTSIR, [:SIR_WM_I]; vary = :Sm => [0.78, 0.88])
+        # the midpoint only when asked for (vary's combinations as for crlb), rounded (not
+        # 0.8300000000000001) and not repeated; a fixed value not given follows each truth
+        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88])) == 8
+        mid = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], midpoint = true, kmf = 12.5, Sm = 0.83)
+        @test length(mid) == 12 && mid.settings[1] == (tissue = :SIR_WM_I, Sm = 0.83) && !haskey(mid[1].wrong, :Sm)
+        @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], midpoint = true)) == 12
+        own = scenarios(QMTSIR, [:SIR_WM_I]; vary = :Sm => [0.78, 0.83, 0.88])
         @test all(x -> isempty(x.wrong), own) && length(ProtocolDesign(m4, own; kw...).groups) == 3
         # truths: one name, a named tuple, named truths, a vector of named tuples (by place)
         @test scenarios(QMTSIR, :SIR_GM).settings == [(tissue = :SIR_GM,)]
@@ -1682,8 +1685,8 @@ end
         @test occursin("12 scenarios for QMTSIR: tissue × Sm", out) && occursin("the fit: PSR, R1f, Sf, M0f free", out)
         @test occursin("SIR_WM_I    0.78  kmf (true 5.0), Sm (true 0.78)", out)
         @test occursin("the fits differ", sprint(show, MIME"text/plain"(), own))
-        @test occursin("a tie has no midpoint", msg(() -> scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0])))
-        @test length(scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0], midpoint = false)) == 8
+        @test occursin("a tie has no midpoint", msg(() -> scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0], midpoint = true)))
+        @test length(scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0])) == 8
         @test occursin("names the truths", msg(() -> scenarios(QMTSIR, tissues; vary = :tissue => [1, 2])))
         @test occursin("not a parameter of QMTSIR", msg(() -> scenarios(QMTSIR, tissues; vary = :T1 => [1.0, 2.0])))
         @test occursin("a tissue name", msg(() -> scenarios(QMTSIR, [1.0, 2.0])))
@@ -1697,13 +1700,13 @@ end
         # crlb and montecarlo take a set: one result per scenario, the set's settings (after the
         # noise levels), each as the single-scenario call
         mm = QMTSIR(; SIR_4POINT...)
-        two = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)
+        two = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)
         c = crlb(mm, two; snr = 200)
         @test c isa Sweep && length(c) == 6 && c.settings == two.settings
         @test all(i -> c[i].sd == crlb(mm, two[i]; snr = 200).sd && c[i].bias == crlb(mm, two[i]; snr = 200).bias, 1:6)
-        @test length(c.rows) == 6 * 4 && c.rows[5].tissue === :SIR_WM_I && c.rows[5].Sm == 0.78
+        @test length(c.rows) == 6 * 4 && c.rows[5].tissue === :SIR_WM_I && c.rows[5].Sm == 0.83
         c2 = crlb(mm, two; snr = [100, 200], cov = :biased)
-        @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.83)
+        @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.78)
         @test c2[8].sd == crlb(mm, two[2]; snr = 200, cov = :biased).sd
         mc = montecarlo(mm, two; snr = 200, n = 200, rng = MersenneTwister(1))
         @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; snr = 200, n = 200, rng = MersenneTwister(1)).sd
@@ -1726,15 +1729,15 @@ end
         m5 = QMTSIR(; SIR_5POINT..., magnitude = false)
         s4 = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = 12.5, bounds4...) for t in tissues]
         s5 = [Scenario(QMTSIR, nominal(QMTSIR, t); kmf = Free()) for t in tissues]
-        d4 = ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, constraints = g)
-        d5 = ProtocolDesign(m5, s5; snr = 200, vary = space, scantime = st, constraints = g)
+        d4 = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, constraints = g)
+        d5 = ProtocolDesign(m5, s5; snr = 200, acquisition = space, scantime = st, constraints = g)
         # the objective: Eq. 5 at the Table 2 schemes, as crlb gives it, both covariances
         eq5(m, ss; cov = :sandwich) = maximum(sum(abs2, values(crlb(m, s; snr = 200, cov).relrmse)) for s in ss) * st(m)
         @test d4(m4) ≈ 0.243395 rtol = 2e-6
         @test d4(m4) ≈ eq5(m4, s4) rtol = 1e-12
         @test d5(m5) ≈ 1.602062 rtol = 2e-6
         @test d5(m5) ≈ eq5(m5, s5) rtol = 1e-12
-        d4b = ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, cov = :biased)
+        d4b = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, cov = :biased)
         @test d4b(m4) ≈ eq5(m4, s4; cov = :biased) rtol = 1e-12
         # the same as x (the TIs, then the TDs), without allocation; one cache for the 4 tissues
         x4 = [m4.TI; m4.TD]
@@ -1745,14 +1748,14 @@ end
         # a broken constraint: Inf; the options: weights, a budget, another aggregate, a shared TD
         @test d4([0.01, 0.01, 0.278, 0.1, 4.171, 0.684, 2.73, 0.01]) == Inf     # TI + TD < 0.5
         cs = [crlb(m4, s; snr = 200) for s in s4]
-        dw = ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, weights = (R1f = 0, Sf = 0, M0f = 0))
+        dw = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, weights = (R1f = 0, Sf = 0, M0f = 0))
         @test dw(m4) ≈ maximum(c.relrmse.PSR^2 for c in cs) * st(m4) rtol = 1e-12
-        db = ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, budget = st(m4))
+        db = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, budget = st(m4))
         @test db(m4) ≈ d4(m4) / st(m4) rtol = 1e-12             # B = T: Eq. 5 without × T
-        dm = ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, aggregate = v -> sum(v) / length(v))
+        dm = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, aggregate = v -> sum(v) / length(v))
         @test dm(m4) ≈ sum(sum(abs2, values(c.relrmse)) for c in cs) / 4 * st(m4) rtol = 1e-12
         m4s = QMTSIR(TI = m4.TI, TD = 2.5, magnitude = false)
-        dsh = ProtocolDesign(m4s, s4; snr = 200, vary = space, shared = (:TD,), scantime = st)
+        dsh = ProtocolDesign(m4s, s4; snr = 200, acquisition = space, shared = (:TD,), scantime = st)
         @test length(dsh.lower) == 5 && dsh([m4.TI; 2.5]) == dsh(m4s)
         @test dsh(m4s) ≈ eq5(m4s, s4) rtol = 1e-12
         # the search reaches the paper's optima (Fopt4 0.2433, Fopt5 1.6020, the GA's before
@@ -1770,15 +1773,17 @@ end
         @test startswith(s, "DesignResult for QMTSIR, 4 points: value 0.2432") && occursin("\n  rounded:  TI = [0.01, 0.01,", s)
         @test sprint(show, d4) == "ProtocolDesign(QMTSIR, 4 points: TI ∈ [0.01, 10.0], TD ∈ [0.01, 10.0]; 4 scenarios)"
         # mistakes
-        @test occursin("give `scantime", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = space)))
-        @test occursin("has no field `TR`", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = (TR = (0.1, 1.0),), scantime = st)))
-        @test occursin("not a per-observation field", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = (magnitude = (0, 1),), scantime = st)))
-        @test occursin("(lower, upper)", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = (TI = (1.0, 0.1),), scantime = st)))
-        @test occursin("`snr` or `σ`", msg(() -> ProtocolDesign(m4, s4; vary = space, scantime = st)))
-        @test occursin("not a free parameter", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st, weights = (kmf = 1,))))
-        @test occursin("the scenario is for QMTSIR", msg(() -> ProtocolDesign(T2Decay(TE = TD5), s4; snr = 200, vary = (TE = (0.01, 1.0),), scantime = sum)))
+        @test occursin("give `scantime", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = space)))
+        @test occursin("the acquisition to optimize is `acquisition", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st)))
+        @test occursin("give `acquisition`", msg(() -> ProtocolDesign(m4, s4; snr = 200, scantime = st)))
+        @test occursin("has no field `TR`", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (TR = (0.1, 1.0),), scantime = st)))
+        @test occursin("not a per-observation field", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (magnitude = (0, 1),), scantime = st)))
+        @test occursin("(lower, upper)", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (TI = (1.0, 0.1),), scantime = st)))
+        @test occursin("`snr` or `σ`", msg(() -> ProtocolDesign(m4, s4; acquisition = space, scantime = st)))
+        @test occursin("not a free parameter", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, weights = (kmf = 1,))))
+        @test occursin("the scenario is for QMTSIR", msg(() -> ProtocolDesign(T2Decay(TE = TD5), s4; snr = 200, acquisition = (TE = (0.01, 1.0),), scantime = sum)))
         @test occursin("is 0 in a scenario's truth", msg(() -> ProtocolDesign(m4, [Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I; PSR = 0.0))];
-                                                                              snr = 200, vary = space, scantime = st)))
+                                                                              snr = 200, acquisition = space, scantime = st)))
     end
 
     @testset "parameters(m; changes...): roles made by a call, kept and passed" begin

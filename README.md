@@ -576,7 +576,7 @@ wrong assumption counts as the bias it causes.
 tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
 ss = scenarios(QMTSIR, tissues; kmf = 12.5)        # the four tissues, the fit assuming kmf = 12.5
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
-                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),     # bounds (s)
+                   acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),   # to optimize, bounds (s)
                    constraints = m -> m.TI .+ m.TD .- 0.5,            # TR ≥ 0.8 s
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3))          # Σ(TI + TD + t_FSE)
 d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 of a protocol: 0.243395 (Table 2)
@@ -592,13 +592,15 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   weights), `shared = (:TD,)` (one TD for every point), `cov`.
 - **Sets of scenarios**: `scenarios` makes the truths a design is judged over, the modes of the
   paper's `calcVmax`: one tissue, several (`'multiple'`), or a box of true values
-  (`'ranges'`: every combination of the values given, plus the midpoint, 2⁴ + 1 = 17 for four
-  parameters), or tissues × conditions for a robust design:
+  (`'ranges'`: every combination of the values given, plus with `midpoint = true` the center,
+  2⁴ + 1 = 17 for four parameters), or tissues × conditions for a robust design. `vary` is
+  crlb's (true values, every combination, the fit unchanged); the keywords are the fit
+  (`Sm = 0.83`: what it assumes, whatever the true Sm):
 
   ```julia
-  box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, vary = (PSR = [0.05, 0.2],
+  box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, midpoint = true, vary = (PSR = [0.05, 0.2],
                   kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))                   # 17
-  robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
+  robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
   crlb(m, robust; snr = 200)          # one crlb result per scenario (montecarlo too), a Sweep
   ```
 

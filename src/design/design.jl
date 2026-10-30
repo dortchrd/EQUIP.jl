@@ -1,7 +1,7 @@
 # =================================================================================================
 # ProtocolDesign: the objective of a protocol search, made once, evaluated many times
 #
-#   d = ProtocolDesign(m, scenarios; snr, vary, constraints, scantime)
+#   d = ProtocolDesign(m, scenarios; snr, acquisition, constraints, scantime)
 #   d(x)            the objective at the acquisition values x (one vector: the TIs, then the TDs)
 #   d(m)            the same at a protocol, a model (e.g. a published scheme)
 #
@@ -36,7 +36,7 @@ struct _Group{C<:CRLBCache,TT,P}
 end
 
 """
-    ProtocolDesign(m, scenarios; snr or σ, vary, scantime, constraints, shared, weights,
+    ProtocolDesign(m, scenarios; snr or σ, acquisition, scantime, constraints, shared, weights,
                    budget, aggregate, cov)
 
 The objective of a protocol search, made once: called with the varied acquisition values
@@ -54,13 +54,14 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
   each a truth and the fit judged against it (a tissue, and what the fit assumes):
   `scenarios(QMTSIR, tissues; kmf = 12.5)`. A wrong assumption counts as the bias it causes;
   uncertain conditions are more scenarios, the truth changed and the fit kept:
-  `scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)`. After an
+  `scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)`. After an
   evaluation, `d.values` holds each scenario's value.
 - The noise, one σ for every observation: `snr` (relative to each scenario's scale parameter,
   as for `crlb`) or `σ`.
-- `vary`: the acquisition fields to optimize, with their bounds (s): `(TI = (0.01, 10.0),
+- `acquisition`: the acquisition fields to optimize, with their bounds (s): `(TI = (0.01, 10.0),
   TD = (0.01, 10.0))`. `x` is their values one after the other (the TIs, then the TDs). With
-  `shared = (:TD,)`, one TD for every point (one value in `x`).
+  `shared = (:TD,)`, one TD for every point (one value in `x`). (Not `vary`, which elsewhere,
+  in `crlb`, `montecarlo` and `scenarios`, changes true parameter values.)
 - `scantime`: the scan time of a protocol (s), a function: for SIR-FSE Σ(TI + TD + t_FSE),
   `m -> sum(m.TI .+ m.TD .+ 0.3)` (t_FSE is the readout's, which the model does not hold).
 - `constraints`: a function of the protocol whose values must all be ≥ 0, or `nothing`: e.g.
@@ -80,7 +81,7 @@ Not thread-safe (the caches' buffers): [`optimize_protocol`](@ref) gives each st
 tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)
 ss = scenarios(QMTSIR, tissues; kmf = 12.5)                 # the four tissues, kmf assumed 12.5
 m = QMTSIR(; SIR_4POINT..., magnitude = false)
-d = ProtocolDesign(m, ss; snr = 200, vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
+d = ProtocolDesign(m, ss; snr = 200, acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3), constraints = m -> m.TI .+ m.TD .- 0.5)
 d(m)                                                        # Eq. 5 of the Table 2 scheme
 d([0.01, 0.01, 0.278, 1.007, 4.171, 0.684, 2.73, 0.01])    # the same, as x
@@ -106,10 +107,17 @@ end
 # :TD)); W, the model's type without its parameters (e.g. QMTSIR), to build each protocol. As
 # type parameters, the compiler knows them, so building a protocol from x is static code.
 
-function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing, vary::NamedTuple,
-                        scantime = nothing, constraints = nothing, shared = (),
-                        weights::NamedTuple = (;), budget = nothing, aggregate = maximum,
-                        cov::Symbol = :sandwich)
+function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
+                        acquisition = nothing, scantime = nothing, constraints = nothing,
+                        shared = (), weights::NamedTuple = (;), budget = nothing,
+                        aggregate = maximum, cov::Symbol = :sandwich, vary = nothing)
+    # `vary` is taken only to say where its meaning went: elsewhere it changes true values.
+    vary === nothing || throw(ArgumentError("`vary` changes true parameter values (crlb, " *
+        "montecarlo, scenarios); the acquisition to optimize is `acquisition = (TI = (0.01, " *
+        "10.0), TD = (0.01, 10.0))`, each field with its bounds"))
+    acquisition isa NamedTuple && !isempty(acquisition) ||
+        throw(ArgumentError("give `acquisition`, the fields to optimize with their bounds (s), " *
+                            "e.g. `acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0))`"))
     ss = scenarios isa Scenario ? Scenario[scenarios] : Scenario[s for s in scenarios]
     isempty(ss) && throw(ArgumentError("give at least one scenario"))
     foreach(s -> _check_protocol(m, s), ss)
@@ -123,23 +131,23 @@ function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing, var
     # The protocol space: the varied fields, their bounds, and where each sits in x.
     N = nobs(m)
     names = fieldnames(typeof(m))
-    for (f, b) in pairs(vary)
-        f in names || throw(ArgumentError("`vary`: $(nameof(typeof(m))) has no field `$f`; " *
+    for (f, b) in pairs(acquisition)
+        f in names || throw(ArgumentError("`acquisition`: $(nameof(typeof(m))) has no field `$f`; " *
             "its fields are $(join(names, ", "))"))
         getfield(m, f) isa AbstractVector{<:Real} && length(getfield(m, f)) == N ||
-            throw(ArgumentError("`vary`: `$f` is not a per-observation field (a vector of $N numbers)"))
+            throw(ArgumentError("`acquisition`: `$f` is not a per-observation field (a vector of $N numbers)"))
         b isa Tuple{Real,Real} && isfinite(b[1]) && isfinite(b[2]) && b[1] < b[2] ||
-            throw(ArgumentError("`vary`: the bounds of `$f` as (lower, upper), finite, e.g. `$f = (0.01, 10.0)`"))
+            throw(ArgumentError("`acquisition`: the bounds of `$f` as (lower, upper), finite, e.g. `$f = (0.01, 10.0)`"))
     end
     for f in shared
-        haskey(vary, f) || throw(ArgumentError("`shared`: `$f` is not varied"))
+        haskey(acquisition, f) || throw(ArgumentError("`shared`: `$f` is not in `acquisition`"))
     end
-    V = keys(vary)
+    V = keys(acquisition)
     sh = map(f -> f in shared, V)
     len = map(s -> s ? 1 : N, sh)
     offsets = ntuple(j -> sum(len[1:j-1]; init = 0), length(V))
-    lower = reduce(vcat, (fill(Float64(vary[f][1]), len[j]) for (j, f) in enumerate(V)))
-    upper = reduce(vcat, (fill(Float64(vary[f][2]), len[j]) for (j, f) in enumerate(V)))
+    lower = reduce(vcat, (fill(Float64(acquisition[f][1]), len[j]) for (j, f) in enumerate(V)))
+    upper = reduce(vcat, (fill(Float64(acquisition[f][2]), len[j]) for (j, f) in enumerate(V)))
     fields = NamedTuple{names}(map(x -> _static(x, Val(N)), _fields(m)))
 
     # The scenarios, by fit: one cache for each, shared by the scenarios that differ only in the
@@ -218,7 +226,7 @@ end
     (d::ProtocolDesign)(m::MRIModel) -> Float64
 
 The objective at the acquisition values `x` (the varied fields one after the other, as
-`vary` lists them) or at a protocol `m` (a model of the same kind, with as many points). `Inf`
+`acquisition` lists them) or at a protocol `m` (a model of the same kind, with as many points). `Inf`
 where a constraint is broken or the data cannot determine the parameters. `x` is not checked
 against the bounds (the search keeps it within them).
 """

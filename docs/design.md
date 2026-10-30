@@ -2069,7 +2069,7 @@ observations. First goal: reproduce Dortch 2018 Table 2 by optimization (Fopt4 0
 tissues = [nominal(QMTSIR, t) for t in (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)]
 ss = [Scenario(QMTSIR, θ; kmf = 12.5) for θ in tissues]       # what the 4-point fit assumes
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
-                   vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)),   # bounds, s
+                   acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),   # bounds, s
                    constraints = m -> m.TI .+ m.TD .- 0.5,          # TR ≥ 0.8 s with t_FSE 0.3 s
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3))        # Σ(TI + TD + t_FSE)
 d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 at a protocol: 0.243395
@@ -2097,7 +2097,7 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   sets (done: "Sets of scenarios" below). A design optimizes one fit's protocol in
   the usual case; comparing fits (kmf fixed or fitted) is comparing their designs' optima, as
   Table 2 does.
-- **Sets of scenarios: `scenarios(M, truths; vary, midpoint = true, fit...)`** (`scen-proto`),
+- **Sets of scenarios: `scenarios(M, truths; vary, midpoint = false, fit...)`** (`scen-proto`),
   the modes of the paper's `calcVmax.m`: `'single'` (one truth), `'multiple'` (discrete
   tissues: what the 4-point paper used, for its computing time) and `'ranges'` (every
   combination of each parameter's values, plus the midpoint: for two values each, a box's
@@ -2112,12 +2112,14 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
     setting and every true value), and the display a row per scenario with what its fit gets
     wrong. `ProtocolDesign` takes it unchanged (it takes any collection of scenarios); after an
     evaluation `d.values` holds each one's value, so `s.settings[argmax(d.values)]` is the worst.
-  - *`midpoint = true` by default*, as calcVmax's `'ranges'` always includes it; put first, as
-    calcVmax evaluates it first; halfway between each parameter's smallest and largest value,
-    rounded to 12 significant digits (found by the tests: (0.78 + 0.88)/2 is
+  - *`midpoint = true` adds the box's center* (calcVmax's `'ranges'` always includes it); put
+    first, as calcVmax evaluates it first; halfway between each parameter's smallest and
+    largest value, rounded to 12 significant digits (found by the tests: (0.78 + 0.88)/2 is
     0.8300000000000001, which a fit assuming 0.83 counted as wrong, and which duplicated a given
     0.83); not added when a combination is within 1e-12 of it. Numbers only (a tie has no
-    midpoint: `midpoint = false`).
+    midpoint). Off by default (`names-proto`; first built on by default): `vary` then gives
+    exactly the combinations of the values given, as for `crlb` and `montecarlo`, where the
+    same `vary = :Sm => [0.78, 0.88]` had given 2 cases and 3 here.
   - *A fixed parameter the fit does not set follows each scenario's truth* (`Scenario`'s rule):
     varying Sm without `Sm = 0.83` gives unbiased fits, one per Sm, so one cache each (3 groups
     for one tissue × 3 values, tested).
@@ -2176,7 +2178,10 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   - Relative to the truth: a free parameter with true value 0 cannot be; an error at
     construction, unless its weight is 0. Parameters the data cannot determine (SD `Inf`) make
     the value `Inf`, which the search avoids.
-- **The protocol space**: `vary` names acquisition fields with their bounds; the other fields
+- **The protocol space**: `acquisition` names the fields to optimize with their bounds (named
+  `vary` until `names-proto`, renamed because `vary` elsewhere, in `crlb`, `montecarlo` and
+  `scenarios`, changes true parameter values: two meanings for one keyword, and a parameter
+  name for the acquisition, against the naming rule); the other fields
   stay as in the model given (its number of points, `magnitude`, TR of an MFA). One value shared
   by every point (the MATLAB's `tdType = 'fixed'`) is an option (syntax open). Constraints are
   functions of the protocol whose values must be ≥ 0 (a number or a vector): a penalty in the
