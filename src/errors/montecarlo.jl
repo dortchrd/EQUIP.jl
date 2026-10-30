@@ -67,6 +67,7 @@ end
                solver, precision) -> MonteCarloResult or Sweep
     montecarlo(m, θ; ..., starts = :truth, changes...)
     montecarlo(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
+    montecarlo(m, set; snr or σ or Σ, n, noise, rng, solver, precision) -> Sweep   (`scenarios`)
 
 Simulate `n` noisy copies of one voxel with a [`Scenario`](@ref)'s true values, fit them with
 its fit, and measure each fitted parameter's bias, SD and RMSE, with standard errors, next to
@@ -98,6 +99,8 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
   results.
 - Fits side by side, as for `crlb`: scenarios by name, `(fixed = s1, free = s2)`. The same
   noisy copies are fitted each way: a paired comparison.
+- A set of scenarios from [`scenarios`](@ref), as for `crlb`: one run per scenario (and noise
+  level), each from the same seed.
 - Data from another model, as for `crlb`: `simulate_with = m2 => θ2`; the estimates are judged
   against the scenario's truth, your reference values for `m`'s parameters; `snr` is relative to
   `m2`'s scale parameter, and `vary` changes `θ2`.

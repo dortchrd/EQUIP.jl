@@ -40,7 +40,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   fixed parameter, from a joint cache with the fixed numbers seeded too); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
   returning a `Sweep`, and `scenarios` (a set of `Scenario`s: tissues, boxes of true values,
-  or both; calcVmax's modes; a `Sweep` whose results are the scenarios)
+  or both; calcVmax's modes; a `Sweep` whose results are the scenarios), which `crlb` and
+  `montecarlo` also take
 - src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
   search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;

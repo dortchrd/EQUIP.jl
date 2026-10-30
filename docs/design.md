@@ -2129,7 +2129,9 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
     the cost (243 scenarios: about 30 s per start of differential evolution, 40,000
     evaluations); if it matters, an active set for minimax (search over the currently worst
     scenarios, check all at the end), not another container. At Table 2's scheme the box and
-    the 3⁵ grid give the same value (0.8526): the worst case is on a corner there.
+    the 3⁵ grid give the same value (0.8526): at that protocol, a grid's interior points found
+    nothing worse than the corners; that is not a guarantee (see "What a set is, and is not",
+    below).
   - *Checked for efficiency* (warm, best of many runs): `scenarios` costs about 15 µs a
     scenario, once (243 in 3.7 ms: 4–5 evaluations' worth); a design made from its `Sweep`
     costs what one from a vector does; an evaluation allocates nothing, and 93–96% of it is
@@ -2140,6 +2142,23 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
     from, if a search needs it: warm starts (each scenario's noise-free fit from its answer at
     the previous protocol: a search's successive protocols are close, and the solver's
     iterations are most of a biased scenario's kernel), and the active set above.
+  - *What a set is, and is not* (`set-proto`, after review): stated in `scenarios`' docstring.
+    A set of points, not the box: corners and the midpoint need not contain the worst case of a
+    nonlinear model, so a set's minimax is an approximation, not an exhaustive robust optimum
+    (the check is on the roadmap: an inner maximization over the box). Equal weights: with
+    `aggregate = mean` the center counts as much as each corner, and a midpoint added to two
+    values gets a third of the weight; a discrete mean, not one over the continuous box (for
+    that: a regular grid or quadrature points with `midpoint = false`, or weights). The scale
+    parameter need not be varied: with `snr` relative to it the relative errors do not depend
+    on it (Eq. 5's terms at M0f 0.8, 1.0, 1.2 agree to 6e-14), so SIR's box over PSR, kmf,
+    R1f and Sf is 2⁴ + 1 = 17 scenarios, not calcVmax's 33 with M0f. Free against fixed:
+    varying a free parameter moves the operating point; varying a fixed one with the fit's
+    value given is a misspecification (each scenario's `wrong`).
+  - *crlb and montecarlo take a set* (`set-proto`): one result per scenario, a `Sweep` with the
+    set's settings, after the noise levels when `snr` is a vector; one cache per scenario,
+    reused across noise levels; montecarlo's from one seed (common random numbers). `vary` and
+    `simulate_with` are refused: the set's truths are given. Each result equals the
+    single-scenario call (tested).
   - *Checked:* the tissue set gives the hand-built list's design value to the bit (0.243395,
     Table 2); the box's 33 settings in calcVmax's order; the robust set's 12 (0.3274 at Table 2,
     against 0.2434 over the tissues; worst WM I at Sm = 0.78), equal to the hand-built 12.
@@ -2452,6 +2471,14 @@ notes.)
        truth (J_t) give the covariance (sandwich or Eq. 3), ∇b and the leakage together, about
        half the cost of the two. The bias gradient needs nothing new: crlb's kernel already
        computes ∇b = H⁻¹J₀ᵀJ_t − I (Eq. 3; `biasgradient(m, s)`).
+   - **An inner maximization: the worst case inside the box, not only at its points.** A set's
+     minimax is over its points (corners, midpoint, a grid), and a nonlinear model's worst
+     case can lie between them. After a search, at the protocol found: maximize the
+     scenario's value over the box of true values (a bounded local search from the worst
+     point of the set, or several), and if it finds a worse one, add it as a scenario and
+     search again, until nothing worse is found (the exchange method of semi-infinite
+     minimax problems; with the active set below, the same loop). The check alone, without
+     the re-search, already says whether the set's answer is the box's.
    - **An active set for minimax designs** (when a design has thousands of scenarios, or a
      model's kernel is much slower than SIR's): with `aggregate = maximum` only the scenarios
      near the worst set the value, so evaluate those (the set A, e.g. within 50% of the worst)

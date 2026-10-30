@@ -592,14 +592,20 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   weights), `shared = (:TD,)` (one TD for every point), `cov`.
 - **Sets of scenarios**: `scenarios` makes the truths a design is judged over, the modes of the
   paper's `calcVmax`: one tissue, several (`'multiple'`), or a box of true values
-  (`'ranges'`: every combination of the values given, plus the midpoint, 2⁵ + 1 = 33 for five
+  (`'ranges'`: every combination of the values given, plus the midpoint, 2⁴ + 1 = 17 for four
   parameters), or tissues × conditions for a robust design:
 
   ```julia
   box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, vary = (PSR = [0.05, 0.2],
-                  kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8], M0f = [0.8, 1.2]))   # 33
+                  kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))                   # 17
   robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
+  crlb(m, robust; snr = 200)          # one crlb result per scenario (montecarlo too), a Sweep
   ```
+
+  A set is points, not the box: corners and the midpoint need not contain a nonlinear model's
+  worst case, and with `aggregate = mean` every point weighs the same (a discrete mean). The
+  scale parameter (M0f) need not be varied: with `snr` relative to it, the relative errors do
+  not depend on it.
 
   `vary` is crlb's (true values; the fit unchanged), and the result a `Sweep` whose results are
   the scenarios: `robust.settings` says which tissue and Sm each one has, and after `d(x)`,

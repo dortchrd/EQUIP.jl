@@ -141,7 +141,8 @@ _settingrows(st::NamedTuple, r::MonteCarloResult, θt) =
 
 # A setting's value in a table cell: a fit setting by its name (`free`, not `:free`), a value
 # as it is written (a tie keeps its colon: `:R1f`).
-_settingvalue(name, x) = name === :fit ? string(x) : _showvalue(x)
+_settingvalue(name, x) = name === :fit || (name === :tissue && x isa Symbol) ? string(x) :
+                         _showvalue(x)
 
 function _print_table(io::IO, header, rows)
     w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
@@ -238,15 +239,36 @@ the worst.
   the fit assumes 12.5 whatever the true kmf; a parameter fixed by default and not given holds
   each scenario's own true value).
 
-Fitting a parameter the fit holds fixed at a wrong value is what makes a scenario biased; with
-`vary` on such a parameter (`Sm`) and its assumed value given (`Sm = 0.83`), the set is a robust
-design's: the tissues under conditions where the assumption is wrong.
+Varying a free parameter (PSR) moves the estimator's operating point; varying a fixed one (`Sm`)
+with the fit's value given (`Sm = 0.83`) is a misspecification, what makes a scenario biased
+(each scenario's `wrong`, the display's last column): the tissues under conditions where the
+assumption is wrong, a robust design's set. Without the fit's value given, a varied fixed
+parameter follows each truth, and nothing is wrong.
+
+What a set is, and is not:
+
+- **A set of points, not the box.** The corners and the midpoint need not contain the worst
+  case: for a nonlinear model (SIR qMT) the largest error can lie inside the box. Check the
+  worst case found with a denser grid (three or more values per parameter), or around the
+  worst scenario.
+- **Equal weights.** With `ProtocolDesign`'s default `aggregate = maximum` the midpoint is one
+  more candidate. With `aggregate = mean` every scenario weighs the same: the center as much as
+  each corner, a midpoint added to two values a third of the weight. That is a discrete mean,
+  not a mean over the continuous box; for one, a regular grid (or quadrature points) with
+  `midpoint = false`, or weights, `aggregate = v -> sum(w .* v)`.
+- **The scale parameter need not be varied.** With `snr` relative to it (M0f, S0), the relative
+  errors do not depend on it (Eq. 5's terms at M0f 0.8, 1.0 and 1.2 agree to 6e-14), so a box
+  over SIR's PSR, kmf, R1f and Sf is 2⁴ + 1 = 17 scenarios; with M0f too, twice as many for
+  the same answer.
+
+[`crlb`](@ref) and [`montecarlo`](@ref) take a set too: one result per scenario, a `Sweep` with
+the set's settings (`crlb(m, robust; snr = 200)`).
 
 ```julia
 tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
 s4 = scenarios(QMTSIR, tissues; kmf = 12.5)                       # Dortch 2018 (calcVmax 'multiple')
-box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,               # 'ranges': 2⁵ corners + midpoint
-                vary = (PSR = [0.05, 0.2], kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8], M0f = [0.8, 1.2]))
+box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5,               # 'ranges': 2⁴ corners + midpoint
+                vary = (PSR = [0.05, 0.2], kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))
 robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)   # 4 × 3
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), robust; snr = 200,
                    vary = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
@@ -324,3 +346,41 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:Scenario})
         print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end
+
+# crlb and montecarlo over a set of scenarios: one result per scenario (and noise level), the
+# set's settings as the sweep's. Here rather than with crlb and montecarlo: a method for a
+# `Sweep` of scenarios needs `Sweep` defined, which this file does after them.
+function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
+              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing)
+    _check_set(set, vary, simulate_with)
+    foreach(x -> _check_protocol(m, x), set.results)
+    caches = [_CRLBCache(m, sc, cov) for sc in set.results]          # one per scenario, once
+    levels = snr isa AbstractVector ? collect(snr) : [snr]
+    settings = _set_settings(set, snr, levels)
+    results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ) for x in levels for i in eachindex(caches)]
+    return Sweep(settings, results, _rows(settings, results))
+end
+function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing,
+                    Σ = nothing, n::Integer = 10_000, noise = nothing,
+                    rng::AbstractRNG = Random.default_rng(), vary = (;), simulate_with = nothing,
+                    solver::LM = LM(), precision::Type{<:AbstractFloat} = Float64)
+    _check_set(set, vary, simulate_with)
+    foreach(x -> _check_protocol(m, x), set.results)
+    n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
+    noise = something(noise, _default_noise(m))
+    seed = rand(rng, UInt64)                 # one seed for every setting (common random numbers)
+    options = (; solver, precision)
+    levels = snr isa AbstractVector ? collect(snr) : [snr]
+    settings = _set_settings(set, snr, levels)
+    results = [_montecarlo(m, sc, sc.truth, x, σ, Σ, n, options, noise, seed, nothing)
+               for x in levels for sc in set.results]
+    return Sweep(settings, results, _rows(settings, results))
+end
+_check_set(set, vary, simulate_with) =
+    !isempty(vary) ? throw(ArgumentError("`vary`: the set's truths are given; vary them in " *
+                                         "`scenarios` (its `vary`)")) :
+    simulate_with !== nothing ? throw(ArgumentError("`simulate_with` is for one scenario, not a " *
+                                                    "set")) : nothing
+# The noise level first (slowest), then the set's own settings.
+_set_settings(set, snr, levels) = snr isa AbstractVector ?
+    NamedTuple[(; snr = x, st...) for x in levels for st in set.settings] : copy(set.settings)

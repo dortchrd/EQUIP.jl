@@ -1688,6 +1688,28 @@ end
         @test occursin("not a parameter of QMTSIR", msg(() -> scenarios(QMTSIR, tissues; vary = :T1 => [1.0, 2.0])))
         @test occursin("a tissue name", msg(() -> scenarios(QMTSIR, [1.0, 2.0])))
         @test occursin("at least one truth", msg(() -> scenarios(QMTSIR, Symbol[])))
+        # the scale parameter need not be varied: with snr relative to it, Eq. 5's terms do not
+        # depend on it
+        sm0 = scenarios(QMTSIR, nominal(QMTSIR, :SIR_WM_I); vary = :M0f => [0.8, 1.0, 1.2], kmf = 12.5)
+        dm0 = ProtocolDesign(m4, sm0; kw...)
+        dm0(m4)
+        @test maximum(dm0.values) - minimum(dm0.values) < 1e-12 * maximum(dm0.values)
+        # crlb and montecarlo take a set: one result per scenario, the set's settings (after the
+        # noise levels), each as the single-scenario call
+        mm = QMTSIR(; SIR_4POINT...)
+        two = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; vary = :Sm => [0.78, 0.88], kmf = 12.5, Sm = 0.83)
+        c = crlb(mm, two; snr = 200)
+        @test c isa Sweep && length(c) == 6 && c.settings == two.settings
+        @test all(i -> c[i].sd == crlb(mm, two[i]; snr = 200).sd && c[i].bias == crlb(mm, two[i]; snr = 200).bias, 1:6)
+        @test length(c.rows) == 6 * 4 && c.rows[5].tissue === :SIR_WM_I && c.rows[5].Sm == 0.78
+        c2 = crlb(mm, two; snr = [100, 200], cov = :biased)
+        @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.83)
+        @test c2[8].sd == crlb(mm, two[2]; snr = 200, cov = :biased).sd
+        mc = montecarlo(mm, two; snr = 200, n = 200, rng = MersenneTwister(1))
+        @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; snr = 200, n = 200, rng = MersenneTwister(1)).sd
+        @test occursin("SIR_lesion", sprint(show, MIME"text/plain"(), c)) && !occursin(":SIR_lesion", sprint(show, MIME"text/plain"(), c))
+        @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = :kmf => [5.0, 10.0])))
+        @test occursin("not a set", msg(() -> montecarlo(mm, two; snr = 200, n = 10, simulate_with = mm => nominal(mm))))
     end
 
     @testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin

@@ -88,6 +88,7 @@ end
     crlb(m, s::Scenario; snr or σ or Σ, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
     crlb(m, θ; snr or σ or Σ, cov, vary, simulate_with, changes...)
     crlb(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
+    crlb(m, set; snr or σ or Σ, cov) -> Sweep          (a set from `scenarios`)
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
 Cramér–Rao lower bound (CRLB, also CRB), biased when the fit fixes a parameter at a value other
@@ -121,6 +122,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
 - Fits side by side: scenarios by name, `crlb(m, (fixed = Scenario(m, θ), free = Scenario(m, θ;
   kmf = Free())); snr = 200)`: one more axis of the sweep (the last, so a table has the fits of
   one case next to each other).
+- A set of scenarios from [`scenarios`](@ref) (tissues, a box of true values, or both): one
+  result per scenario, the set's settings as the sweep's (`tissue`, the varied values), after
+  the noise levels when `snr` is a vector: `crlb(m, scenarios(QMTSIR, tissues; kmf = 12.5);
+  snr = 200)`. Its truths are the set's (`vary` and `simulate_with` are not taken).
 - Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
   every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
   against the scenario's truth, your reference values for `m`'s parameters (e.g. the long T2 of
