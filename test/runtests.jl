@@ -4,7 +4,7 @@ using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
-using Statistics: mean, std, cov
+using Statistics: mean, std, cov, median
 using Test
 
 # A model for testing `datastart`: T2 starts at 0.05·c, from the fixed parameter c (as DESPOT1
@@ -808,6 +808,84 @@ end
         @test occursin("kmf = 15.0", s) && occursin("R1m = R1f (tied)", s)
         s = sprint(show, MIME("text/plain"), res)
         @test occursin("19 of 20 voxels (mask)", s) && occursin("medians", s)
+    end
+
+    @testset "fit statistics: stderror, vcov, cor, residualsd, AIC/BIC, onbound" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.08)
+        y = simulate(m, θ; σ = 10.0, noise = :gaussian, rng = MersenneTwister(1))
+        r = fit(m, y)
+        # the counts: N, the free parameters and σ, N − P, the SSE
+        @test nobs(r) == 32 && dof(r) == 3 && dof_residual(r) == 30 && rss(r) == r.sse
+        @test residualsd(r) ≈ sqrt(r.sse / 30) rtol = 1e-14
+        # the covariance σ̂²(JᵀJ)⁻¹ at the fit's answer; with σ given, crlb's at the fit's values
+        J = jacobian(r)
+        C = residualsd(r)^2 * inv(J' * J)
+        @test vcov(r) ≈ C rtol = 1e-10
+        @test vcov(r) == vcov(r)'
+        @test collect(values(stderror(r))) ≈ sqrt.(diag(C)) rtol = 1e-10
+        @test keys(stderror(r)) == keys(r.params)
+        s10, c10 = stderror(r; σ = 10.0), crlb(m, merge(θ, r.params); σ = 10.0).sd
+        @test all(p -> s10[p] ≈ c10[p], keys(s10))
+        R = cor(r)
+        @test R ≈ C ./ sqrt.(diag(C) * diag(C)') rtol = 1e-10
+        @test R[1, 1] == R[2, 2] == 1
+        # calibrated: over noisy copies, the standard errors match the spread of the estimates
+        Y = simulate(m, θ; σ = 10.0, noise = :gaussian, n = 2000, rng = MersenneTwister(2))
+        res = fit(m, Y)
+        se = stderror(res)
+        @test se.T2 isa Vector{Float64} && length(se.T2) == 2000
+        @test median(se.T2) ≈ std(res.params.T2) rtol = 0.05
+        @test median(se.S0) ≈ std(res.params.S0) rtol = 0.05
+        @test se.T2[7] == stderror(fit(m, Y[7, :])).T2                      # each voxel its own fit
+        @test residualsd(res) ≈ sqrt.(res.sse ./ 30)
+        @test median(residualsd(res)) ≈ 10 rtol = 0.05
+        @test size(vcov(res)) == (2000,)
+        @test vcov(res)[7] ≈ vcov(fit(m, Y[7, :])) rtol = 1e-12
+        # a parameter on a bound: flagged, its SD NaN, the others with it held
+        rb = fit(m, y; S0 = Free(lower = 0, upper = 900.0))
+        @test rb.params.S0 == 900 && onbound(rb) == (S0 = true, T2 = false)
+        @test isnan(stderror(rb).S0) && isfinite(stderror(rb).T2)
+        Jt = jacobian(rb)[:, 2:2]
+        @test stderror(rb).T2 ≈ residualsd(rb) * sqrt(inv(Jt' * Jt)[1]) rtol = 1e-10
+        @test cor(rb)[1, 1] == 1 && isnan(cor(rb)[1, 2])
+        @test onbound(fit(m, Y; S0 = Free(lower = 0, upper = 990.0))).S0 isa BitVector
+        # N = P (4-point SIR, four free parameters): no residual estimate of σ; with σ given,
+        # crlb's at the fit's values and the fit's assumption
+        m4 = QMTSIR(; SIR_4POINT...)
+        θ4 = nominal(m4, :SIR_WM_I)
+        r4 = fit(m4, simulate(m4, θ4; snr = 200, rng = MersenneTwister(3)))
+        @test dof_residual(r4) == 0 && isnan(residualsd(r4)) && all(isnan, values(stderror(r4)))
+        s4 = stderror(r4; σ = 0.005)
+        c4 = crlb(m4, merge(θ4, r4.params, (kmf = 12.5,)); σ = 0.005)
+        @test all(p -> s4[p] ≈ c4.sd[p], keys(s4))
+        # maps: fixed values per voxel (B1), a mask (unfitted voxels NaN), σ as a map
+        mf = T1MFA(FA = [3.0, 6, 10, 15, 20], TR = 0.015)
+        b1 = [0.8 + 0.4 * (i + j) / 20 for i in 1:6, j in 1:5]
+        data = simulate(mf, (M0 = fill(1000.0, 6, 5), T1 = fill(1.2, 6, 5), B1 = b1); σ = 5.0,
+                        noise = :gaussian, rng = MersenneTwister(4))
+        mask = trues(6, 5); mask[1, 1] = false
+        rm = fit(mf, data; B1 = b1, mask)
+        sm = stderror(rm)
+        one = fit!(init(mf; B1 = b1), data[3, 4, :]; voxel = LinearIndices((6, 5))[3, 4])
+        @test size(sm.T1) == (6, 5) && isnan(sm.T1[1, 1]) && sm.T1[3, 4] == stderror(one).T1
+        @test stderror(rm; σ = fill(5.0, 6, 5)).T1[3, 4] == stderror(rm; σ = 5.0).T1[3, 4]
+        @test occursin("`σ` is a map of size", msg(() -> stderror(rm; σ = fill(5.0, 2, 2))))
+        # a Float32 fit: the statistics in Float64, as the Float64 fit's to its rounding
+        @test collect(values(stderror(fit(m, y; precision = Float32)))) ≈ collect(values(stderror(r))) rtol = 1e-4
+        # AIC/BIC: the information criteria pick the model that made the data
+        mb = T2BiexpDecay(TE = te)
+        yb = simulate(mb, (S0 = 1000.0, fshort = 0.3, T2short = 0.015, T2long = 0.09); σ = 5.0,
+                      noise = :gaussian, rng = MersenneTwister(5))
+        ym = simulate(m, θ; σ = 5.0, noise = :gaussian, rng = MersenneTwister(6))
+        @test bic(fit(mb, yb)) < bic(fit(m, yb)) && aic(fit(mb, yb)) < aic(fit(m, yb))
+        @test bic(fit(m, ym)) < bic(fit(mb, ym))
+        @test loglikelihood(r) ≈ -16 * (log(2π * r.sse / 32) + 1) rtol = 1e-14
+        @test aic(r) ≈ -2loglikelihood(r) + 6 && bic(r) ≈ -2loglikelihood(r) + 3log(32)
+        @test aicc(r) ≈ aic(r) + 2 * 3 * 4 / (32 - 3 - 1)
+        @test bic(res) isa Vector{Float64} && bic(res)[7] == bic(fit(m, Y[7, :]))
     end
 
     @testset "simulation: simulate, tissue presets, maps, compare" begin

@@ -403,23 +403,8 @@ end
 # Symmetric part, for sums that come out symmetric only to rounding.
 _sym(A) = (A + A') / 2
 
-# Can the data tell the parameters apart? The Cholesky pivots of G = JᵀJ (or JᵀΣ⁻¹J) with unit
-# diagonal (each column of J normalized) are the squared sines of the angles between each column
-# and the span of the ones before it. A pivot below `_PIVOT_MIN` (an angle below 1e-6 rad: the
-# condition number of J is then at least ~1e6, a relative SD of ~1e6 × noise/signal) means a
-# parameter is a combination of the others, to within what rounding in JᵀJ can resolve. A
-# parameter with no influence at all (a zero column) is undetermined too. Why test: a singular
-# H can look positive definite after rounding, and the covariance then has finite, meaningless
-# values. `u` masks parameters on a bound (the observation count is checked by the caller).
-@inline function _determined(G::SMatrix{P,P,T}, u::SVector{P,T}) where {P,T}
-    g = diag(G)
-    any((u .> 0) .& .!(g .> 0)) && return false
-    s = map((gj, uj) -> uj > 0 ? inv(sqrt(gj)) : zero(T), g, u)
-    L, ok = _cholesky((s * s') .* G + Diagonal(one(T) .- u))
-    ok || return false
-    return all(j -> u[j] == 0 || L[j, j]^2 >= _PIVOT_MIN, 1:P)
-end
-const _PIVOT_MIN = 1e-12
+# (`_determined` and `_near`, which crlb uses too, are in fit/statistics.jl: the fit's
+# statistics need them, and the fit layer comes first.)
 
 # Inf for every pair of parameters not on a bound, 0 for those on one.
 @inline _infcov(u::SVector{P,T}) where {P,T} =
@@ -443,8 +428,6 @@ const _PIVOT_MIN = 1e-12
     return SVector(z)
 end
 
-# A parameter on a bound (within 1e-9, relative for large bounds).
-@inline _near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
 
 # -------------------------------------------------------------------------------------------------
 # The noise: at a scenario's truth, and in the form the sums take (the noise model itself,

@@ -30,7 +30,9 @@ a dataset (maps with the spatial size of the data).
 For a dataset, voxels that were not fitted hold `NaN` parameters and SSE, 0 iterations and
 status `NotFitted` (outside the mask) or `InvalidData`. [`isconverged`](@ref)`(res)`,
 [`fitted`](@ref)`(res)` / `fitted(res, i)` and [`resolve`](@ref)`(res)` / `resolve(res, i)`
-(every parameter's value, fitted and fixed) work on both.
+(every parameter's value, fitted and fixed) work on both, as do the fit's statistics:
+[`stderror`](@ref), [`vcov`](@ref), `cor`, [`residualsd`](@ref), [`onbound`](@ref), `rss`,
+`dof`, `dof_residual`, `nobs`, [`loglikelihood`](@ref), `aic`, `aicc`, `bic` (fit/statistics.jl).
 """
 struct FitResult{P,X,S,I,St,M,K}
     params::P           # named tuple: numbers (one voxel) or maps (a dataset)

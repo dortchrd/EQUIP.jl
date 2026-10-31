@@ -225,6 +225,31 @@ and interquartile range of each parameter, and the fixed parameters.
 
 Voxels that are not fitted hold NaN parameters and SSE and 0 iterations.
 
+### Fit statistics
+
+How uncertain the fitted values are, and how good the fit, from the fit itself, under
+StatsAPI's names (GLM's and StatsBase's). Numbers for one voxel; for a dataset, maps shaped
+like `res.params`, each voxel its own fit:
+
+```julia
+res = fit(T2Decay(TE = te), data; mask)
+stderror(res).T2            # a map of T2's standard error: σ̂²(JᵀJ)⁻¹ at each voxel's answer
+residualsd(res)             # σ̂ = √(rss/(N − P)), the noise estimated from the residuals
+stderror(res; σ = 12.0)     # with the noise known (a number or a map) instead
+vcov(res), cor(res)         # the covariance and correlation matrices, one per voxel
+onbound(res).T2             # where T2 ended on a bound (its SE then NaN, the others with it held)
+bic(fit(T2BiexpDecay(TE = te), y)) < bic(fit(T2Decay(TE = te), y))   # the second pool earns its keep
+```
+
+- `nobs`, `dof` (the free parameters and σ, as GLM counts), `dof_residual` (N − P), `rss`,
+  `loglikelihood`, `aic`, `aicc`, `bic` (Gaussian, σ estimated).
+- With as many observations as free parameters (the 4-point SIR scheme) the residuals say
+  nothing about the noise: `residualsd` is NaN, so give `σ`. With σ given, the standard errors
+  are `crlb`'s at the fit's values (tested), so the two can be compared.
+- Checked on 2000 noisy copies (T2 decay): the median standard error matches the spread of
+  the estimates within 1%, and σ̂ the true σ. All of it assumes Gaussian noise: for magnitude
+  data at low SNR (Rician) σ̂ and the standard errors are biased.
+
 ## Built-in models
 
 Names put the quantity first, then the method, so typing `T1` + Tab lists every T1 model.
@@ -675,10 +700,7 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity-efficiency
   plots (Dortch 2018, Fig. 2A: `jacobian` ./ √t over two acquisition variables, contoured, with
   schemes overlaid) as a function through a plotting extension; leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
-  leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives;
-  fit statistics on `FitResult` under StatsAPI's names
-  (`stderror`, `vcov`, `rss`, `dof`, the residual SD per voxel, `aic` / `bic` for comparing
-  models such as mono vs bi-exponential, and a flag for parameters that ended at a bound)
+  leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives
 - **Weighted fits** (W = Σ⁻¹, for σ that differs between observations, or correlated noise) and
   **iteratively reweighted least squares** (robust weights against outliers, weights from a
   signal-dependent noise), with crlb, Eq. 3 and leakage weighted to match

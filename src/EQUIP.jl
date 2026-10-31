@@ -38,7 +38,8 @@ import Random                               # Random.default_rng()
 import CommonSolve                         # owner of `init` (the SciML convention)
 using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
-import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results
+import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
+import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
 
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
@@ -48,6 +49,8 @@ export resolve, signal!, signal, nobs                                       # va
 export datastart, relabel                                                   # optional hooks
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
+export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit statistics
+export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
@@ -76,6 +79,7 @@ include("fit/starts.jl")               # each voxel's starting point: :data, Bes
 include("fit/cache.jl")                # init -> FitCache: everything a voxel fit needs, made once
 include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
 include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit
+include("fit/statistics.jl")           # the fit's statistics: stderror, vcov, AIC/BIC, onbound
 
 # sim: from true values to data (uses models only)
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal

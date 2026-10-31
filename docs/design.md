@@ -2392,8 +2392,7 @@ scope (decided 2026-10-31):
   set aside, in git at d901143 (src/sim/phantom.jl and its test), to come back with the
   phantom work of item 2 (smooth variation, partial volume, B1, brain-like label images).
   `compare` stays: it judges any dataset fit, and its `labels` is any integer map.
-- **To add before it:** fit statistics on `FitResult` (item 3: `rss`, `dof`, the residual SD,
-  `stderror`, `vcov`, `cor`, AIC/BIC, parameters on a bound); models: NODDI and SMT (item 7),
+- **To add before it:** fit statistics on `FitResult` (item 3; done, `stats-proto`); models: NODDI and SMT (item 7),
   and the pulsed qMT models of Yarnykh and of Ramani (item 6), which bring the bound pool's
   saturation (the pulse models, item 6) with them.
 - **Then the release basics:** a license, CI running the tests, a version number, the
@@ -2468,6 +2467,32 @@ scope (decided 2026-10-31):
      bi-exponential, ADCDecay vs ADCKurtosis). No new fields where a value follows from what is
      stored (σ̂, AIC, BIC come from `sse`, n and p). All assume Gaussian noise: biased for
      low-SNR magnitude data, documented once, next to the Rician-likelihood work.
+     **Done** (`stats-proto`, src/fit/statistics.jl), as built:
+     - *The values' shape:* numbers for one voxel; for a dataset, maps shaped like `r.params`
+       (`stderror(res).T2` a map; `vcov` and `cor` an array of static P×P matrices, one per
+       voxel). Not StatsAPI's vector for `stderror`: a named tuple by parameter, as `r.params`
+       (crlb's `stderror` stays a vector: it has `c.sd` by name already).
+     - *`dof` = P + 1* (the free parameters and σ, GLM's convention for a linear model), used
+       by AIC/BIC; `dof_residual` = N − P; ℓ with σ at its maximum-likelihood value, rss/N.
+     - *`σ`, the noise, given or estimated:* σ̂ = √(rss/(N − P)) per voxel by default; `σ = ...`
+       (a number or a map) for a known noise, and the only way when N = P (4-point SIR: four
+       observations, four free parameters, σ̂ undefined: NaN).
+     - *A parameter on a bound* (`onbound`, the solver's 1e-9 rule, `_near`): held, as crlb
+       holds it (its row of JᵀJ masked), SD NaN (not 0: the fit did not estimate it freely),
+       the others as if it were fixed (tested against JᵀJ without its column). Undetermined
+       (dependent columns, `_determined`): Inf. Unfitted voxels: NaN.
+     - *How:* the fit's own setup again (`init` with the result's settings, maps included, in
+       Float64 whatever the fit's precision), JᵀJ from the solver's `normal_equations` at each
+       voxel's answer with that voxel's fixed values (`r.fixed`: for one voxel from a map, the
+       value it used), σ²(JᵀJ)⁻¹ by Cholesky. 2000 voxels (T2) in 0.6 ms, serial. `_near` and
+       `_determined` moved from errors/derivatives.jl to here (crlb uses them too; the fit
+       layer comes first).
+     - *Checked:* σ̂²(JᵀJ)⁻¹ with `jacobian(r)`; with σ given, crlb's SD at the fit's values
+       and assumptions (T2; 4-point SIR at N = P); 2000 noisy copies, the median SE against
+       the estimates' SD (within 1%) and the median σ̂ against σ; each voxel of a dataset
+       (B1 map, mask) as its own one-voxel fit; a Float32 fit's statistics as the Float64
+       fit's; AIC and BIC choose the bi-exponential for bi-exponential data and the mono for
+       mono. 34 tests.
    - **Weighted fits**: minimize ½(g − y)ᵀW(g − y) with W = Σ⁻¹, from the noise as crlb takes
      it (`σ` per observation: a weight per row; a full `Σ`: rows whitened by L⁻¹, as
      `_FullNoise` does for crlb). Why: with unequal σ (different averages or bandwidths, σ

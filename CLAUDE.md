@@ -22,8 +22,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, `datastart`); src/models/*/: the built-in models
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
-  → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
-  result.jl the `FitResult`
+  → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
+  `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the
+  solver, result.jl the `FitResult`
 - src/sim/, from true values to data (uses models only): `nominal` and tissue presets
   (`TISSUES`), noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
   `simulate` and crlb; `noisecovariance`), `simulate`
