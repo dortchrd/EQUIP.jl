@@ -2427,6 +2427,70 @@ differentiation through solvers: ImplicitDifferentiation.jl.
 - t_FSE: a QMTSIR field or a keyword of the design call.
 - Designs as distinct points with repeat counts (later).
 
+## Weighted fits: the plan (2026-10, branch `weights-proto`)
+
+Decided with the owner: the keyword is `weights` for the fit and for `ProtocolDesign`'s
+per-parameter weights alike (a vector by observation for the fit, a named tuple by parameter
+for the design: told apart by type); diagonal weights first, one per observation, the same in
+every voxel. A full weight matrix (GLS, W = Σ⁻¹ for correlated noise) and per-voxel weight
+maps are later.
+
+- **What the fit minimizes**: ½ Σᵢ wᵢ(gᵢ(θ) − yᵢ)², wᵢ ≥ 0 (0 drops an observation), at least
+  one positive. Only the ratios matter for the estimates. W = Σ⁻¹ (wᵢ = 1/σᵢ²; with averages
+  wᵢ = NEXⱼ) is the efficient choice for Gaussian noise: the fit then reaches the bound
+  (JᵀΣ⁻¹J)⁻¹ that crlb's `:biased` gives for an unbiased fit, where the unweighted fit's
+  sandwich is above it.
+- **Where the weights live**: a keyword of `fit`, `init` and `refit` (`weights = nex`), checked
+  once (length N, finite, ≥ 0, one positive) and kept in the `FitSpec` (`weights`: `nothing`
+  or a vector in the working precision), so the solver, the statistics and crlb's cache read
+  them from one place. `VoxelProblem` carries them to the solver; `nothing` means unweighted,
+  and every sum multiplies by `_wt(w, i)`, which is `one(T)` then: x·1 is exact, so the
+  unweighted results stay the same bit for bit (checked against a snapshot: fits of every
+  model in both precisions, crlb, leakage, the design, a montecarlo), at the same speed.
+- **The solver**: JᵀWJ, JᵀWr and Σwr² row by row (`normal_equations`); the starts' scale
+  (`_score`) as the weighted slope a = Σwsy/Σws², the SSE weighted. The model's `datastart`
+  (log-linear and the like) stays unweighted: it only starts the fit.
+- **Statistics**: `res.sse` is the weighted SSE. `residualsd` = √(Σwr²/(N − P)), the SD of an
+  observation of weight 1 (so with wᵢ = 1/σᵢ², about 1; with wᵢ = NEXᵢ, one average's σ); `vcov`
+  = σ̂²(JᵀWJ)⁻¹, right when W ∝ Σ⁻¹; `stderror(res; σ)` takes σ as that unit-weight SD.
+  N counts the observations with positive weight. `loglikelihood` for variances s²/wᵢ:
+  −N/2(log(2πŝ²) + 1) + ½Σ log wᵢ, ŝ² = Σwr²/N (unchanged when every w = 1, and the same for
+  any scaling of w).
+- **Scenario**: the weights are part of the fit judged (`Scenario(m, θ; weights = nex)`,
+  `scenarios(...; weights)`, and through `crlb(m, θ; weights)`, `montecarlo`, `leakage`), checked
+  against the protocol's N where it meets one. Shown in the display.
+- **crlb's kernel** (the cache takes the spec's weights): the noise-free fit weighted;
+  H = Σ wᵢ(JᵢJᵢᵀ + rᵢ∇²gᵢ), G = Σ wᵢJᵢJᵢᵀ; the meat J₀ᵀWΣWJ₀ (Σ wᵢ²σᵢ²JᵢJᵢᵀ; with a full Σ,
+  rows of LᵀWJ₀), so the sandwich is H⁻¹J₀ᵀWΣWJ₀H⁻¹, = (JᵀΣ⁻¹J)⁻¹ when W = Σ⁻¹ and the fit is
+  unbiased; K = J₀ᵀWJ_t and ∇b = H⁻¹K − I for Eq. 3. The Fisher information F = J_tᵀΣ⁻¹J_t,
+  `c.information` and `c.observed` are the likelihood's, not the fit's: unchanged. The exactness
+  test compares the weighted SSE with Σwy².
+- **leakage**: the joint cache weighted the same way (dθ̂/dc = −H_θθ⁻¹H_θc with the weighted H).
+- **montecarlo** fits with the scenario's weights; **ProtocolDesign** groups scenarios by their
+  weights too (part of the fit's key).
+- **Not changed**: `jacobian` (the signal's), `informationmatrix` (the likelihood's).
+  `hessian(m, s, y; Σ)` is the likelihood's Hessian (with Σ given), as now.
+- **Tests**: weights all 1 give the unweighted fit exactly; weights scaled give the same
+  estimates; a zero weight equals dropping the observation; a weighted fit equals an unweighted
+  one of √w-scaled data and model (T2 with S0 scaled); crlb's weighted sandwich against the
+  closed form (JᵀWJ)⁻¹JᵀWΣWJ(JᵀWJ)⁻¹ and, with W = Σ⁻¹, against (JᵀΣ⁻¹J)⁻¹; montecarlo of a
+  weighted fit against crlb; stderror against the closed form; errors (length, negative, all
+  zero, NaN, a parameter named `weights`).
+- **Built as planned** (2026-10), with one addition: the results say a fit was weighted
+  (`c.weights`, the crlb and montecarlo displays: "weighted fit: weights 1.0 to 16.0 (5
+  observations)"; the scenario's too). The unrolled bias gradient takes Gauss–Newton steps with
+  the weights; unweighted it keeps (JᵀJ)⁻¹Jᵀr itself (J'·I·J rounds differently from J'J).
+  Measured: unweighted results bit-identical (the snapshot: 91 entries, every bench case and
+  the other built-in models in both precisions, statistics, crlb in every noise form and
+  covariance, sweeps, sets, the pieces, leakage, the design, montecarlo); speed unchanged
+  within run-to-run noise, alternating with the commit before (`fit!` 1.6–20 µs by model, a
+  100k-voxel dataset, `crlb!` 5.2 µs and the 5-point Eq. 3 13.3 µs, the design 11.6 µs,
+  leakage 67 µs); the weighted fit, crlb kernel and design allocate nothing. T2 decay, σ 5 → 40
+  over 32 echoes, wᵢ = 1/σᵢ²: SD of T2 1.15e-3 over 2000 copies against the bound 1.12e-3
+  (unweighted 1.75e-3 against its sandwich 1.70e-3: 1.5×); median stderror 1.12e-3, σ̂ ≈ 1;
+  montecarlo (20 000 copies) SD/crlb 0.99 ± 0.005. Leakage against central differences of the
+  weighted noise-free fit: 3e-11; ∇b implicit against unrolled: 5e-10. 50 tests.
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
@@ -2560,7 +2624,8 @@ scope (decided 2026-10-31):
        rounding-level SSE, making AIC, AICc and BIC huge and meaningless. Now NaN: all four
        when N ≤ P (as `residualsd`), AICc also when N ≤ k + 1. Tested at the boundaries (T2
        with 3, 4 and 5 echoes; the 4-point SIR; a dataset). 43 tests.
-   - **Weighted fits**: minimize ½(g − y)ᵀW(g − y) with W = Σ⁻¹, from the noise as crlb takes
+   - **Weighted fits** (diagonal W built, 2026-10: "Weighted fits: the plan" above; what
+     remains is a full W and per-voxel weight maps): minimize ½(g − y)ᵀW(g − y) with W = Σ⁻¹, from the noise as crlb takes
      it (`σ` per observation: a weight per row; a full `Σ`: rows whitened by L⁻¹, as
      `_FullNoise` does for crlb). Why: with unequal σ (different averages or bandwidths, σ
      rising over the echoes) the unweighted fit is not efficient; its SD is the sandwich

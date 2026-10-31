@@ -31,12 +31,14 @@ The resolved parameter roles of one fit (made by `setup`):
   `candindex` (those within its bounds); `candindex = 0` means none
 - `fromdata`: for each free parameter, whether it starts at `:data` (the model's
   [`datastart`](@ref))
+- `weights`: `nothing` (unweighted), or one weight per observation in precision `T`: the fit
+  minimizes ½Σᵢwᵢrᵢ²
 
 `F` and `P` are type parameters rather than fields: the compiler then knows the names and the
 number of free parameters and generates code specialized for them (fixed-size vectors and
 compile-time named tuples instead of name lookups at run time).
 """
-struct FitSpec{F,P,T,S,X}
+struct FitSpec{F,P,T,S,X,W}
     lower::SVector{P,T}
     upper::SVector{P,T}
     start::S        # NamedTuple with names F (a :scale parameter holds 1 here)
@@ -45,6 +47,7 @@ struct FitSpec{F,P,T,S,X}
     candidates::Vector{T}       # BestOf values to try for one free parameter (empty = none)
     candindex::Int              # which free parameter they are for (0 = none)
     fromdata::NTuple{P,Bool}    # true for free parameters that start at :data
+    weights::W                  # nothing, or Vector{T}: one weight per observation
 end
 
 freenames(::FitSpec{F}) where {F} = F       # read the names back out of the type
@@ -54,6 +57,23 @@ freenames(::FitSpec{F}) where {F} = F       # read the names back out of the typ
 # Keywords of `fit` and `init` that are options, not parameters. A model's parameter cannot have
 # one of these names: the keyword would be ambiguous.
 const _OPTIONS = (:mask, :precision, :solver)
+# `weights` cannot be a parameter's name either, but it is part of what a fit minimizes, not an
+# option of how: a scenario holds it (errors/scenario.jl), where the options are refused.
+const _RESERVED = (_OPTIONS..., :weights)
+
+# The observations' weights, checked once: one per observation, finite, ≥ 0 (0 leaves an
+# observation out), at least one positive; in the working precision. `nothing`: unweighted.
+_checked_weights(::Nothing, N, ::Type{T}) where {T} = nothing
+function _checked_weights(w, N, ::Type{T}) where {T}
+    w isa AbstractVector{<:Real} || throw(ArgumentError("`weights` is one weight per " *
+        "observation, a vector of $N numbers (e.g. the numbers of averages), got $(repr(w))"))
+    length(w) == N ||
+        throw(DimensionMismatch("`weights` has $(length(w)) values; the model has $N observations"))
+    all(x -> isfinite(x) && x >= 0, w) ||
+        throw(ArgumentError("`weights` must be finite and ≥ 0 (0 leaves an observation out)"))
+    any(>(0), w) || throw(ArgumentError("`weights`: at least one must be positive"))
+    return Vector{T}(w)
+end
 
 # A keyword `name = x` turns the parameter's default role into the fit's role:
 #   Free(...)       estimated; whatever it leaves out (start, bounds) keeps the default
@@ -119,14 +139,16 @@ and fixed. Each keyword is named after a parameter of the model:
 - `Free(...)` estimates it, with the start (a number, a map, `:data` or `BestOf(values)`) and
   bounds given, and the model's defaults for anything left out: `kmf = Free()`,
   `R1f = Free(start = 0.8)`, `Sf = Free(lower = -1.5)`.
+
+`weights`: one weight per observation (the fit then minimizes ½Σwᵢrᵢ²), or `nothing`.
 """
-function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
+function setup(model::MRIModel, ::Type{T} = Float64; weights = nothing, params...) where {T}
     # 1. The model's defaults, e.g. (PSR = Free(start = 0.1, ...), ..., kmf = Fixed(12.5), ...).
     roles = parameters(model)
     names = keys(roles)
     for n in names
-        n in _OPTIONS && throw(ArgumentError("$(nameof(typeof(model))) has a parameter named `$n`, " *
-            "which is also an option of fit ($(join(_OPTIONS, ", "))); rename the parameter"))
+        n in _RESERVED && throw(ArgumentError("$(nameof(typeof(model))) has a parameter named `$n`, " *
+            "which is also an option of fit ($(join(_RESERVED, ", "))); rename the parameter"))
     end
 
     # 2. Apply the keywords, one parameter each (`_apply_roles`, above).
@@ -136,15 +158,16 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
         n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
         n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
         "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
-        "nor an option ($(join(_OPTIONS, ", ")))"))
-    return _spec(model, roles, T)
+        "nor an option ($(join(_RESERVED, ", ")))"))
+    return _spec(model, roles, T, weights)
 end
 
 # Steps 3–5 of `setup`, from a complete set of roles (every parameter, in the model's order, each
 # start computed for the acquisition): what `setup` makes from the keywords, and what crlb makes
 # from a scenario's roles (errors/scenario.jl) without merging them in one by one.
-function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}) where {T}
+function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing) where {T}
     names = keys(roles)
+    w = _checked_weights(weights, nobs(model), T)
     # 3. Split by role, keeping the model's order.
     F = Tuple(n for n in names if roles[n] isa Free)     # e.g. (:PSR, :R1f, :Sf, :M0f)
     X = Tuple(n for n in names if roles[n] isa Fixed)    # e.g. (:kmf, :R1m, :Sm)
@@ -193,8 +216,8 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}) where {T}
     starts = NamedTuple{F}(map(startvalue, F))
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
-    return FitSpec{F,P,T,typeof(starts),typeof(fixedvals)}(lower, upper, starts, scale, fixedvals,
-                                                           candidates, candindex, fromdata)
+    return FitSpec{F,P,T,typeof(starts),typeof(fixedvals),typeof(w)}(lower, upper, starts, scale,
+                                                    fixedvals, candidates, candindex, fromdata, w)
 end
 
 # The BestOf values of parameter `name` within its bounds, in precision T; an error if none is.

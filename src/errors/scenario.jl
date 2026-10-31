@@ -12,6 +12,7 @@
 #                then the changes given, by `fit`'s rules (a value fixes; `Free(...)` estimates;
 #                a start or a bound given wins)
 #       wrong    the fixed values that differ from the truth's: the source of any bias
+#       weights  the fit's weights, one per observation (`weights = nex`), or nothing
 #   crlb(m, s; snr = 200), montecarlo(m, s; noise = :rician, snr = 200)        the scenario under protocol m
 #
 # Why an object: crlb and montecarlo answer "how well does this fit recover this truth?". Built
@@ -28,8 +29,8 @@
 # =================================================================================================
 
 """
-    Scenario(M, θ; starts = :truth, changes...)
-    Scenario(m, θ; starts = :truth, changes...)
+    Scenario(M, θ; starts = :truth, weights, changes...)
+    Scenario(m, θ; starts = :truth, weights, changes...)
 
 A truth and the fit judged against it: what [`crlb`](@ref) and [`montecarlo`](@ref) take, with
 a protocol (a model with its acquisition): `crlb(m, s; snr = 200)`. Made from a model's type `M`
@@ -45,13 +46,16 @@ The fit is built from the truth:
 - then the changes, keywords named after the parameters, by `fit`'s rules: a value fixes
   (`kmf = 12.5`; a tie, `R1m = :R1f`), `Free(...)` estimates (`kmf = Free()` starts at the true
   kmf, or with `starts = :model` at the model's value, as `fit` would), and a start or a bound
-  given wins (`R1f = Free(start = 0.8)`, `PSR = Free(lower = 0.05)`).
+  given wins (`R1f = Free(start = 0.8)`, `PSR = Free(lower = 0.05)`);
+- `weights`: the fit's weights, one per observation, as for `fit` (`weights = nex`, the numbers
+  of averages): a weighted fit is judged (crlb's sandwich H⁻¹J₀ᵀWΣWJ₀H⁻¹; montecarlo fits with
+  them). Checked against the protocol's number of observations where the scenario meets one.
 
 Fields: `model` (the type), `truth` (every parameter in model order, as given), `roles` (every
 parameter's role in the fit, [`Free`](@ref) or [`Fixed`](@ref)), `starts`, `wrong` (the fixed
 parameters whose value in the fit, a tie followed at the truth, differs from the truth's, each as
-`(fit = ..., truth = ...)`; empty when the fit is unbiased) and `attruth` (the estimated
-parameters that start at their true value).
+`(fit = ..., truth = ...)`; empty when the fit is unbiased), `attruth` (the estimated
+parameters that start at their true value) and `weights` (`nothing`, or a vector).
 
 crlb's noise-free fit always starts at the truth, whatever `starts` says; montecarlo's fits
 start where the scenario says. In a sweep over true values (`vary`), the starts taken from the
@@ -65,19 +69,21 @@ crlb(QMTSIR(; SIR_5POINT...), Scenario(QMTSIR, θ; kmf = Free()); snr = 200)
 montecarlo(QMTSIR(; SIR_4POINT...), Scenario(QMTSIR, θ; kmf = 12.5, starts = :model); noise = :rician, snr = 200)
 ```
 """
-struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple}
+struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple,V}
     model::Type{M}        # the model's type, without an acquisition (e.g. QMTSIR)
     truth::T              # every parameter's true value, in model order, as given (ties kept)
     roles::R              # every parameter's role in the fit: Free(start, bounds) or Fixed(value)
     starts::Symbol        # :truth or :model: where estimated parameters start, unless given
     wrong::W              # (name = (fit = value, truth = value), ...): the fixed values that are wrong
     attruth::A            # the estimated parameters that start at their true value
+    weights::V            # nothing, or the fit's weights (Vector{Float64}, one per observation)
 end
 
-Scenario(M::Type{<:MRIModel}, θ::NamedTuple; starts::Symbol = :truth, changes...) =
-    _scenario(Base.typename(M).wrapper, _roles(M), θ, starts, changes)
-Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, changes...) =
-    _scenario(Base.typename(typeof(m)).wrapper, _ownroles(m), θ, starts, changes)
+Scenario(M::Type{<:MRIModel}, θ::NamedTuple; starts::Symbol = :truth, weights = nothing,
+         changes...) =
+    _scenario(Base.typename(M).wrapper, _roles(M), θ, starts, changes, weights)
+Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, weights = nothing, changes...) =
+    _scenario(Base.typename(typeof(m)).wrapper, _ownroles(m), θ, starts, changes, weights)
 # `Base.typename(T).wrapper` is the type without its parameters: QMTSIR for a
 # QMTSIR{Vector{Float64}}, so the scenario fits a QMTSIR with any kind of acquisition vectors.
 
@@ -86,7 +92,7 @@ Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, changes...) =
 # otherwise the model's own method's (`parameters(m::MyModel)`).
 _ownroles(m::MRIModel) = applicable(parameters, typeof(m)) ? parameters(typeof(m)) : parameters(m)
 
-function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes)
+function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, weights = nothing)
     starts in (:truth, :model) || throw(ArgumentError("`starts` must be :truth (every " *
         "estimated parameter starts at its true value) or :model (the model's own starting " *
         "rules, as `fit` starts a real fit), got $(repr(starts))"))
@@ -125,14 +131,17 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes)
         x isa Free && x.start !== nothing && (given = (given..., n))
         roles = merge(roles, NamedTuple{(n,)}((r,)))
     end
-    return _checked_scenario(M, truth, θt, roles, starts, given)
+    # The weights, checked as `fit` checks them (finite, ≥ 0, one positive); their number is
+    # checked against a protocol's observations when the scenario meets one (`_check_protocol`).
+    w = weights === nothing ? nothing : _checked_weights(weights, length(weights), Float64)
+    return _checked_scenario(M, truth, θt, roles, starts, given, w)
 end
 
 # The rest in a function of its own (a "function barrier"): after the changes the compiler no
 # longer knows the roles' type in the function above (a change can make any parameter Free or
 # Fixed); here it does again, so the `map`s below compile to straight-line code, not a lookup
 # per parameter (the constructor 2.5× faster; docs/design.md, "Scenario").
-function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given) where {K}
+function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w) where {K}
     # Checked as `setup` checks a fit's roles: something to estimate, ties that name a parameter
     # that is not a tie, bounds in order.
     isfree = map(r -> r isa Free, roles)
@@ -147,7 +156,7 @@ function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given) w
     fitvalues = map((r, v) -> r isa Fixed ? r.value : v, roles, θt)   # free ones at the truth
     names = NamedTuple{K}(K)                  # each parameter's name, by name
     attruth = starts === :truth ? _names(map((f, n) -> f && !(n in given), isfree, names)) : ()
-    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth)
+    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth, w)
 end
 
 # The names whose flag is true, in order; the entries of `x` with those names.
@@ -174,9 +183,14 @@ function _roles_at(s::Scenario, m::MRIModel, θt::NamedTuple)
     return NamedTuple{keys(s.roles)}(map(at, keys(s.roles), values(s.roles)))
 end
 
-# The protocol must be a model of the scenario's type.
-_check_protocol(m::MRIModel, s::Scenario) = m isa s.model || throw(ArgumentError("the scenario " *
-    "is for $(nameof(s.model)); the model is a $(nameof(typeof(m)))"))
+# The protocol must be a model of the scenario's type, with one observation per weight.
+function _check_protocol(m::MRIModel, s::Scenario)
+    m isa s.model || throw(ArgumentError("the scenario is for $(nameof(s.model)); the model is " *
+                                         "a $(nameof(typeof(m)))"))
+    s.weights === nothing || length(s.weights) == nobs(m) || throw(DimensionMismatch("the " *
+        "scenario's fit has $(length(s.weights)) weights; the protocol has $(nobs(m)) observations"))
+    return true
+end
 
 # Several scenarios side by side, by name: `(fixed = Scenario(...), free = Scenario(...))`, at
 # least one. One more axis of a sweep (crlb, montecarlo).
@@ -210,6 +224,14 @@ function Base.show(io::IO, ::MIME"text/plain", s::Scenario)
     print(io, isempty(s.wrong) ? "\nnothing fixed is wrong: the fit is unbiased" :
           "\nwrong: " * join(("$n = $(cell(w.fit)) (true $(cell(w.truth)))" for (n, w) in pairs(s.wrong)), ", ") *
           ": the fit is biased")
+    s.weights === nothing || print(io, "\nweighted fit: ", _weightstext(s.weights))
+end
+
+# The weights, in words: "weights 1 to 8 (7 observations)".
+function _weightstext(w)
+    f(x) = repr(round(x; sigdigits = 4); context = :compact => true)
+    span = all(==(w[1]), w) ? f(w[1]) : "$(f(minimum(w))) to $(f(maximum(w)))"
+    return "weights $span ($(length(w)) observations)"
 end
 
 Base.show(io::IO, s::Scenario) = print(io, "Scenario(", nameof(s.model), "; ",

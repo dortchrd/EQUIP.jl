@@ -187,14 +187,20 @@ t2 = R2DecayOffset(TE = 0.01:0.01:0.32)
 fit(t2, data; C = 40.0)                          # a known offset instead of estimating it
 ```
 
-Three keywords are options rather than parameters, so no model has a parameter with these
+Four keywords are options rather than parameters, so no model has a parameter with these
 names:
 
 - `mask`: which voxels of a dataset to fit (true = fit);
 - `precision`: `Float64` (the default) or `Float32`;
 - `solver`: the solver's settings, e.g. `solver = LM(maxiter = 50)`. `LM` takes `maxiter`
   (100), the tolerances `xtol`, `ftol`, `gtol` (defaults set by the precision) and the starting
-  `damping` (1e-3). Most fits need none of them.
+  `damping` (1e-3). Most fits need none of them;
+- `weights`: one weight per observation, the same in every voxel: the fit minimizes
+  ½Σwᵢ(gᵢ − yᵢ)² (a weight 0 leaves an observation out; only the ratios matter for the
+  estimates). With noise that differs between observations, wᵢ = 1/σᵢ² is the efficient choice:
+  `weights = nex` for different numbers of averages (σ/√NEX), `weights = 1 ./ σ.^2` for σ per
+  observation. On T2 decay with σ rising from 5 to 40 over 32 echoes, the weighted fit's SD of
+  T2 is 1.5 times smaller than the unweighted fit's, at the bound (JᵀΣ⁻¹J)⁻¹.
 
 Mistakes raise an error before any fitting starts: a name that is neither a parameter nor an
 option, freeing a parameter tied by default without giving it a start, a missing acquisition
@@ -252,6 +258,10 @@ bic(fit(T2BiexpDecay(TE = te), y)) < bic(fit(T2Decay(TE = te), y))   # the secon
 
 - `nobs`, `dof` (the free parameters and σ, as GLM counts), `dof_residual` (N − P), `rss`,
   `loglikelihood`, `aic`, `aicc`, `bic` (Gaussian, σ estimated).
+- A weighted fit (`weights`) assumes variances σ²/wᵢ: `rss` is Σwr², `residualsd` the SD of an
+  observation of weight 1 (one average's with `weights = nex`; about 1 with `weights = 1 ./ σ.^2`),
+  the covariance σ̂²(JᵀWJ)⁻¹, `stderror(res; σ)` with that unit-weight σ, the log-likelihood with
+  its ½Σ log wᵢ, and N the observations with a positive weight.
 - With as many observations as free parameters (the 4-point SIR scheme) the residuals say
   nothing about the noise: `residualsd` and the information criteria are NaN; for standard
   errors, give `σ`. AICc, the one for few observations per parameter, is NaN also when
@@ -520,7 +530,12 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   bounds) and holds the others at their TRUE values, so it is unbiased; changes, keywords as for
   `fit`, make it otherwise: `kmf = 12.5` (held at a wrong value, listed in `s.wrong`),
   `kmf = Free()` (estimated), `R1f = Free(start = 0.8)`, `PSR = Free(lower = 0.05)`. Fields:
-  `truth`, `roles` (every parameter's role in the fit), `starts`, `wrong`. The same scenario is
+  `truth`, `roles` (every parameter's role in the fit), `starts`, `wrong`, `weights`. The fit
+  can be weighted, as `fit` is: `Scenario(m, θ; weights = nex)`, or `crlb(m, θ; weights = nex)`;
+  crlb then gives the weighted fit's sandwich H⁻¹J₀ᵀWΣWJ₀H⁻¹ (the bound (JᵀΣ⁻¹J)⁻¹ when W = Σ⁻¹
+  and nothing fixed is wrong), montecarlo fits with the weights, and side by side
+  (`(plain = Scenario(m, θ), weighted = Scenario(m, θ; weights = nex))`) the two compare on the
+  same data. The same scenario is
   judged under any protocol (`crlb(QMTSIR(; SIR_5POINT...), s; snr = 200)`), and `s.roles` fits
   real data the same way: `fit(m, data, s.roles)`. `crlb(m, θ; changes...)` and
   `montecarlo(m, θ; noise, changes...)` make one inside.

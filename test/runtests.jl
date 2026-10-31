@@ -22,6 +22,13 @@ function EQUIP.signal!(out, m::DataStartTest, p)
 end
 EQUIP.datastart(::DataStartTest, y, p) = (T2 = p.c < 0 ? NaN : 0.05 * p.c,)
 
+# A model with a parameter named like a keyword of `fit` (`weights`): refused, with a message.
+struct WeightsNamed <: MRIModel
+    t::Vector{Float64}
+end
+EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(start = 1.0))
+EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
+
 # A model still being written, with no `parameters` method yet: it must still print.
 struct NoParametersYet <: MRIModel
     TE::Vector{Float64}
@@ -1491,7 +1498,126 @@ end
         @test occursin("crlb takes no averaging", msg(() -> crlb(m4, set; snr = 200, averages = 4, averaging = :complex)))
         @test occursin("ProtocolDesign takes no averaging", msg(() -> ProtocolDesign(m4, [sU]; snr = 200, averaging = :magnitude, acquisition = space, scantime = st)))
         @test occursin("fit takes no averages", msg(() -> fit(md, signal(md, θ); averages = nex)))
+        @test occursin("give `weights = nex`", msg(() -> fit(md, signal(md, θ); averages = nex)))
         @test occursin("Scenario takes no averages", msg(() -> Scenario(md, θ; averages = nex)))
+    end
+
+    @testset "weighted fits: fit, statistics, crlb, leakage, montecarlo, design" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        # T2 decay with σ rising over the echoes, 5 to 40: W = Σ⁻¹ (wᵢ = 1/σᵢ²) is the efficient fit
+        te = collect(0.01:0.01:0.32)
+        mt = T2Decay(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.08)
+        σv = collect(range(5.0, 40.0; length = 32))
+        W = 1 ./ σv .^ 2
+        Y = simulate(mt, θ; σ = σv, noise = :gaussian, n = 2000, rng = MersenneTwister(1))
+        y = Y[1, :]
+        # Weights all 1 are the unweighted fit, bit for bit; scaled weights give the same estimates
+        r0, r1 = fit(mt, y), fit(mt, y; weights = ones(32))
+        @test r1.params == r0.params && r1.sse == r0.sse
+        @test fit(mt, Y[1:50, :]; weights = ones(32)).params == fit(mt, Y[1:50, :]).params
+        rw, rs = fit(mt, y; weights = W), fit(mt, y; weights = 7 .* W)
+        @test collect(values(rw.params)) ≈ collect(values(rs.params)) rtol = 1e-12
+        @test rw.settings.weights == W && !haskey(r0.settings, :weights)
+        # At the answer the weighted gradient JᵀW(g − y) is 0; a weight 0 leaves an observation out
+        J = jacobian(mt, merge(θ, rw.params))
+        rr = signal(mt, rw.params) .- y
+        @test norm(J' * (W .* rr)) <= 1e-6 * norm(J' * (W .* abs.(rr)))
+        w0 = ones(32); w0[[3, 10, 30]] .= 0
+        keep = setdiff(1:32, [3, 10, 30])
+        rz, rd = fit(mt, y; weights = w0), fit(T2Decay(TE = te[keep]), y[keep])
+        @test collect(values(rz.params)) ≈ collect(values(rd.params)) rtol = 1e-8
+        @test nobs(rz) == 29 && dof_residual(rz) == 27
+        @test residualsd(rz) ≈ residualsd(rd) rtol = 1e-8
+        @test loglikelihood(rz) ≈ loglikelihood(rd) rtol = 1e-8
+        # Statistics: σ̂² = Σwr²/(N − P) (about 1 with wᵢ = 1/σᵢ²), Cov = σ̂²(JᵀWJ)⁻¹, ℓ the Gaussian
+        # log-likelihood for variances s²/wᵢ (the same for any scaling of the weights)
+        @test residualsd(rw) ≈ sqrt(sum(W .* rr .^ 2) / 30) rtol = 1e-10
+        @test vcov(rw) ≈ residualsd(rw)^2 * inv(J' * (W .* J)) rtol = 1e-8
+        @test collect(values(stderror(rw; σ = 1.0))) ≈ sqrt.(diag(inv(J' * (W .* J)))) rtol = 1e-8
+        s2 = sum(W .* rr .^ 2) / 32
+        @test loglikelihood(rw) ≈ sum(@. -0.5 * log(2π * s2 / W) - W * rr^2 / (2s2)) rtol = 1e-10
+        @test loglikelihood(rw) ≈ loglikelihood(rs) rtol = 1e-10
+        @test aic(rw) ≈ -2 * loglikelihood(rw) + 6 rtol = 1e-12
+        # The weighted fit reaches the bound (JᵀΣ⁻¹J)⁻¹ (here SD 1.12e-3 for T2), the unweighted
+        # fit the sandwich, 1.5 times larger; stderror of each copy about the bound
+        Rw, Ru = fit(mt, Y; weights = W), fit(mt, Y)
+        Jt = jacobian(mt, θ)
+        bound = sqrt(inv(Jt' * (W .* Jt))[2, 2])
+        @test std(Rw.params.T2) ≈ bound rtol = 0.07
+        @test std(Ru.params.T2) / std(Rw.params.T2) > 1.4
+        @test median(stderror(Rw).T2) ≈ bound rtol = 0.02
+        # Float32, refit keeps the weights, a cache with them allocates nothing per voxel
+        @test fit(mt, Float32.(y); weights = W, precision = Float32).params.T2 ≈ rw.params.T2 rtol = 1e-4
+        @test refit(rw, y).settings.weights == W
+        @test refit(rw, y).params.T2 ≈ rw.params.T2 rtol = 1e-10
+        cw = init(mt; weights = W)
+        fit!(cw, y)
+        @test @allocated(fit!(cw, y)) == 0
+        # crlb of the weighted fit: the sandwich H⁻¹J₀ᵀWΣWJ₀H⁻¹ against the closed form, for any W;
+        # with W = Σ⁻¹ (unbiased) the bound (JᵀΣ⁻¹J)⁻¹; with a full Σ; weights all 1 unweighted
+        @test vcov(crlb(mt, θ; σ = σv, weights = W)) ≈ inv(Jt' * (W .* Jt)) rtol = 1e-9
+        w2 = collect(1.0:32.0)
+        A = inv(Jt' * (w2 .* Jt))
+        @test vcov(crlb(mt, θ; σ = σv, weights = w2)) ≈ A * Jt' * Diagonal(w2 .^ 2 .* σv .^ 2) * Jt * A rtol = 1e-9
+        Σ = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
+        @test vcov(crlb(mt, θ; Σ, weights = w2)) ≈ A * Jt' * Diagonal(w2) * Σ * Diagonal(w2) * Jt * A rtol = 1e-9
+        @test vcov(crlb(mt, θ; σ = σv, weights = ones(32))) == vcov(crlb(mt, θ; σ = σv))
+        @test crlb(mt, θ; σ = σv, weights = W).weights == W && crlb(mt, θ; σ = σv).weights === nothing
+        # A biased fit (5-point SIR, kmf assumed 12.5 for a true 5), weighted: its noise-free fit
+        # moves; ∇b by the implicit function theorem against Gauss–Newton steps unrolled (weighted);
+        # leakage against central differences of the noise-free fit in kmf
+        m5 = QMTSIR(; SIR_5POINT...)
+        θs = nominal(m5, :SIR_WM_I)
+        wv = [1.0, 2, 4, 8, 16]
+        cb = crlb(m5, θs; snr = 200, kmf = 12.5, weights = wv)
+        @test abs(cb.bias.PSR - crlb(m5, θs; snr = 200, kmf = 12.5).bias.PSR) > 0.005
+        @test biasgradient(m5, θs; kmf = 12.5, weights = wv) ≈
+              biasgradient(m5, θs; kmf = 12.5, weights = wv, method = :unrolled, steps = 8) atol = 1e-8
+        lk = leakage(m5, θs; kmf = 12.5, weights = wv)
+        h = 1e-4
+        fd = (collect(values(crlb(m5, θs; snr = 200, kmf = 12.5 + h, weights = wv).fit)) .-
+              collect(values(crlb(m5, θs; snr = 200, kmf = 12.5 - h, weights = wv).fit))) ./ 2h
+        @test collect(values(lk.absolute.kmf)) ≈ fd rtol = 1e-6
+        # The weighted kernel allocates nothing
+        c5 = CRLBCache(m5, θs; kmf = 12.5, weights = wv, cov = :biased)
+        t5 = EQUIP._crlb_truth(m5, θs)
+        k(c, t) = EQUIP._crlb!(c, c.mT, t, 2.5e-5)
+        k(c5, t5)
+        @test @allocated(k(c5, t5)) == 0
+        # montecarlo fits with the scenario's weights; its SD as crlb predicts (within 4 SE)
+        mc = montecarlo(mt, θ; σ = σv, weights = W, noise = :gaussian, n = 4000, rng = MersenneTwister(3))
+        @test mc.result.settings.weights == W && mc.crlb.weights == W
+        @test all(abs.(collect(values(mc.sd)) .- collect(values(mc.crlb.sd))) .< 4 .* collect(values(mc.se_sd)))
+        @test occursin("weighted fit: weights 0.000625 to 0.04 (32 observations)", sprint(show, MIME"text/plain"(), mc))
+        @test occursin("weighted fit: weights 1.0 to 16.0 (5 observations)", sprint(show, MIME"text/plain"(), cb))
+        # Scenarios hold the weights; side by side, weighted against not; sets; the design
+        s = Scenario(m5, θs; kmf = 12.5, weights = wv)
+        @test s.weights == wv && Scenario(m5, θs).weights === nothing
+        @test occursin("weighted fit: weights 1.0 to 16.0", sprint(show, MIME"text/plain"(), s))
+        two = crlb(m5, (plain = Scenario(m5, θs; kmf = 12.5), weighted = s); snr = 200)
+        @test two[2].sd == cb.sd && two[1].weights === nothing
+        set = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; kmf = 12.5, weights = wv)
+        @test all(x -> x.weights == wv, set.results)
+        sp = (TI = (0.01, 10.0), TD = (0.01, 10.0))
+        st(m) = sum(m.TI .+ m.TD .+ 0.3)
+        d = ProtocolDesign(m5, set.results; snr = 200, acquisition = sp, scantime = st)
+        @test d(m5) ≈ maximum(sum(abs2, collect(values(crlb(m5, x; snr = 200).relrmse))) for x in set.results) * st(m5) rtol = 1e-10
+        mixed = [set[1], Scenario(QMTSIR, nominal(QMTSIR, :SIR_lesion); kmf = 12.5)]
+        @test length(ProtocolDesign(m5, mixed; snr = 200, acquisition = sp, scantime = st).groups) == 2
+        x5 = [m5.TI; m5.TD]
+        d(x5); d(x5)
+        @test @allocated(d(x5)) == 0
+        @test copy(d)(x5) == d(x5)                 # the copy each search task gets
+        # Mistakes
+        @test occursin("`weights` has 3 values", msg(() -> fit(mt, y; weights = ones(3))))
+        @test occursin("finite and ≥ 0", msg(() -> fit(mt, y; weights = -ones(32))))
+        @test occursin("finite and ≥ 0", msg(() -> fit(mt, y; weights = fill(NaN, 32))))
+        @test occursin("at least one must be positive", msg(() -> fit(mt, y; weights = zeros(32))))
+        @test occursin("one weight per observation", msg(() -> fit(mt, y; weights = 2.0)))
+        @test occursin("finite and ≥ 0", msg(() -> Scenario(m5, θs; weights = [-1.0, 1, 1, 1, 1])))
+        @test occursin("32 weights; the protocol has 5 observations", msg(() -> crlb(m5, θs; snr = 200, weights = W)))
+        @test occursin("rename the parameter", msg(() -> fit(WeightsNamed([0.1, 0.2, 0.3]), [1.0, 0.8, 0.6])))
     end
 
     @testset "crlb's pieces: jacobian, hessian, informationmatrix, biasgradient, sandwich, biasedcrlb" begin

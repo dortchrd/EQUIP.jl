@@ -19,6 +19,11 @@
 # Cov(θ̂) ≈ σ²(JᵀJ)⁻¹, with σ the noise SD (estimated by σ̂, or given: `σ = ...`). It is what
 # crlb gives at the fit's answer when nothing fixed is wrong (tested). A parameter on a bound was
 # not estimated freely: its row is held (as in crlb), and its SD reported as NaN.
+#
+# A weighted fit (`weights`, minimizing Σwᵢrᵢ²) assumes the noise variances σ²/wᵢ: σ is then the
+# SD of an observation of weight 1 (one average's, with wᵢ = NEXᵢ; about 1 with wᵢ = 1/σᵢ²), σ̂² =
+# Σwr²/(N − P), Cov(θ̂) ≈ σ²(JᵀWJ)⁻¹, and the log-likelihood has the term ½Σ log wᵢ. N counts the
+# observations with a positive weight (a weight 0 leaves one out).
 # =================================================================================================
 
 # Can the data tell the parameters apart? The Cholesky pivots of G = JᵀJ (or JᵀΣ⁻¹J) with unit
@@ -52,7 +57,11 @@ The number of observations N (per voxel, for a dataset), the degrees of freedom 
 (its P free parameters and the noise σ: P + 1, as GLM counts), the residual degrees of freedom
 N − P, and the residual sum of squares (`r.sse`). StatsAPI's names.
 """
-nobs(r::FitResult) = nobs(r.model)
+nobs(r::FitResult) = _nobs(_weights(r), r.model)
+# The observations that count: every one, or those with a positive weight.
+_nobs(::Nothing, m) = nobs(m)
+_nobs(w::AbstractVector, m) = count(>(0), w)
+_weights(r::FitResult) = get(r.settings, :weights, nothing)
 dof(r::FitResult) = length(r.params) + 1
 dof_residual(r::FitResult) = nobs(r) - length(r.params)
 rss(r::FitResult) = r.sse
@@ -89,20 +98,25 @@ r2 = fit(T2BiexpDecay(TE = te), y)
 bic(r2) < bic(r1)              # the second pool is worth its two parameters
 ```
 """
-loglikelihood(r::FitResult) = _voxelwise(sse -> _loglik(sse, nobs(r), dof_residual(r)), r)
-aic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(sse, nobs(r), dof_residual(r)) + 2 * dof(r), r)
+loglikelihood(r::FitResult) = _voxelwise(sse -> _loglik(r, sse, nobs(r), dof_residual(r)), r)
+aic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + 2 * dof(r), r)
 function aicc(r::FitResult)
     N, k = nobs(r), dof(r)
     # The correction 2k(k + 1)/(N − k − 1) is defined for N > k + 1 only: at N = k + 1 it is
     # infinite, below it negative (it would reward the parameters it is meant to penalize).
     N > k + 1 || return _voxelwise(sse -> NaN, r)
-    return _voxelwise(sse -> -2 * _loglik(sse, N, dof_residual(r)) + 2k + 2k * (k + 1) / (N - k - 1), r)
+    return _voxelwise(sse -> -2 * _loglik(r, sse, N, dof_residual(r)) + 2k + 2k * (k + 1) / (N - k - 1), r)
 end
 bic(r::FitResult) =
-    _voxelwise(sse -> -2 * _loglik(sse, nobs(r), dof_residual(r)) + log(nobs(r)) * dof(r), r)
+    _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + log(nobs(r)) * dof(r), r)
 # ℓ needs residuals: with N ≤ P (ν = N − P ≤ 0) the fit passes through every point, the SSE is
 # rounding and its log meaningless (it made AIC and BIC huge and negative): NaN, as `residualsd`.
 _loglik(sse, N, ν) = ν > 0 ? -N / 2 * (log(2π * Float64(sse) / N) + 1) : NaN
+# For a fit: weighted, the noise variances s²/wᵢ add ½Σ log wᵢ (over the positive weights), so ℓ
+# is the same for any scaling of the weights.
+_loglik(r::FitResult, sse, N, ν) = _withweights(_loglik(sse, N, ν), _weights(r))
+_withweights(ℓ, ::Nothing) = ℓ
+_withweights(ℓ, w) = ℓ + sum(x -> x > 0 ? log(Float64(x)) : 0.0, w) / 2
 _voxelwise(f, r::FitResult) = _onevoxel(r) ? f(r.sse) : map(f, r.sse)
 
 """
@@ -177,7 +191,7 @@ function _covariances(c::FitCache, spec::FitSpec{F,P,T}, r, σ, unit) where {F,P
     σ isa AbstractArray && size(σ) != size(r.sse) &&
         throw(DimensionMismatch("`σ` is a map of size $(size(σ)); the fit's maps are $(size(r.sse))"))
     ν = dof_residual(r)
-    N = length(c.y)
+    N = nobs(r)                                      # with weights: those that are positive
     fill!(c.y, zero(T))                              # JᵀJ does not depend on the data
     out = Vector{SMatrix{P,P,T,P * P}}(undef, nv)
     for v in 1:nv
@@ -190,12 +204,13 @@ function _covariances(c::FitCache, spec::FitSpec{F,P,T}, r, σ, unit) where {F,P
     end
     return _onevoxel(r) ? out : reshape(out, size(r.sse))
 end
-# One voxel: JᵀJ at θ (the solver's own sums, with this voxel's fixed values), parameters on a
-# bound held (masked to the identity, as crlb does), then σ²(JᵀJ)⁻¹; NaN rows for the held ones.
+# One voxel: JᵀJ at θ (JᵀWJ when weighted: the solver's own sums, with this voxel's fixed
+# values), parameters on a bound held (masked to the identity, as crlb does), then σ²(JᵀJ)⁻¹;
+# NaN rows for the held ones.
 function _covariance(c, spec::FitSpec{F,P,T}, θ, s2, fixed, N) where {F,P,T}
     nan = fill(T(NaN), SMatrix{P,P,T})
     all(isfinite, θ) && isfinite(s2) || return nan                       # not fitted
-    _, A, _ = normal_equations(VoxelProblem{F}(c.model, c.y, fixed), θ, c.buf)
+    _, A, _ = normal_equations(VoxelProblem{F}(c.model, c.y, fixed, spec.weights), θ, c.buf)  # JᵀWJ
     pinned = map(_near, θ, spec.lower) .| map(_near, θ, spec.upper)
     u = map(p -> ifelse(p, zero(T), one(T)), pinned)
     keep(C) = SMatrix{P,P,T}(ntuple(n -> (i = (n - 1) % P + 1; j = (n - 1) ÷ P + 1;

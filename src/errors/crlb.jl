@@ -54,8 +54,8 @@ on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fi
 [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`), `σ` (the noise SD per observation,
 σ/√NEX with averages), `truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`,
 or the `model => truth` the data came from, with `simulate_with`), `Σ` (`nothing`, or the
-noise covariance matrix given) and `averages` (`nothing`, or the number of averages of each
-observation). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
+noise covariance matrix given), `averages` (`nothing`, or the number of averages of each
+observation) and `weights` (`nothing`, or the fit's weights). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
 the information and covariance matrices and the SDs, under StatsAPI's names.
 
 Diagnostics, computed when called (as `fitted(res)` is for a fit): [`cond`](@ref)`(c)`, how hard
@@ -84,6 +84,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     information::Matrix{Float64}   # Fisher information at θ̂, J₀ᵀΣ⁻¹J₀
     observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
     averages::Union{Nothing,Vector{Int}}   # nothing, or the averages of each observation
+    weights::Union{Nothing,Vector{Float64}}   # nothing, or the fit's weights (a weighted fit)
 end
 
 """
@@ -140,9 +141,11 @@ SD from the derivatives at that fit's answer, first order in the noise.
   with respect to `m`'s parameters.
 
 A free parameter that ends on a bound in the noise-free fit is held there (SD 0; `c.onbound`).
-Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. EQUIP's fits are
-unweighted: with σ per observation or a full Σ, the sandwich is the SD of the unweighted fit,
-H⁻¹J₀ᵀΣJ₀H⁻¹, and `:biased` the bound a weighted fit would reach, (JᵀΣ⁻¹J)⁻¹. Rician noise,
+Parameters the data cannot determine (a singular Jacobian) get SD `Inf`. The fit is the
+scenario's, weighted or not (`weights = nex`, as for `fit`): with σ per observation or a full Σ,
+the sandwich is the SD of the unweighted fit, H⁻¹J₀ᵀΣJ₀H⁻¹, or of the weighted one,
+H⁻¹J₀ᵀWΣWJ₀H⁻¹ (H with the weights); with W = Σ⁻¹ and nothing fixed wrong, that is the bound
+(JᵀΣ⁻¹J)⁻¹, which `:biased` gives for any fit (the weights change its ∇b, not F). Rician noise,
 bounds hit by noisy fits and nonlinearity at low SNR are not modelled: simulate and fit for
 those ([`montecarlo`](@ref)).
 
@@ -273,7 +276,7 @@ function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIMod
     #    evaluation there already holds the rows of J₀ (the same model, point, fixed values and
     #    duals): copied, not evaluated again (the unbiased kernel 25–35% faster, results
     #    identical).
-    exact = r.sse <= _EXACT^2 * sum(abs2, c.y)
+    exact = r.sse <= _EXACT^2 * _sumsq(c.y, c.w)      # (weighted: Σwr² against Σwy²)
     H, G = r.iterations == 0 && iszero(r.sse) && θ̂ == r.θ ? _startrows!(c) : hessian!(c, m, θ̂, exact)
     Hm = (u * u') .* H + Diagonal(one(T) .- u)
     nan = fill(T(NaN), SMatrix{P,P,T})
@@ -283,19 +286,19 @@ function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIMod
     # ③ Can the data determine the parameters? Fewer observations than parameters to estimate,
     #    nearly dependent columns of J₀ (`_determined`), or H not positive definite: Inf (no
     #    negative variance hidden by abs(), as in the MATLAB code).
-    N = length(c.y)
+    N = _ncounted(c)                                 # (weighted: the positive weights)
     _, okH = _cholesky(Hm)
     (N >= count(!, pinned) && _determined(G, u) && okH) || return out(_infcov(u), nan)
 
     # ④ The covariance. The sandwich, H⁻¹(J₀ᵀΣJ₀)H⁻¹ ...
     if !c.biased
-        M = exact ? meat(c.jbuf, σ2, u) : meat(c.hbuf, σ2, u)
+        M = exact ? meat(c.jbuf, σ2, u, c.w) : meat(c.hbuf, σ2, u, c.w)    # J₀ᵀWΣWJ₀
         return out(sandwich(Hm, M), nan)
     end
     #    ... or Eq. 3: J_t (the true signal's Jacobian at the truth, in `c.fitbuf`), the bias
     #    gradient ∇b = H⁻¹J₀ᵀJ_t − I, and F = J_tᵀΣ⁻¹J_t.
     attruth!(c.fitbuf, c, m, t, θt)
-    K = exact ? crossgram(c.jbuf, c.fitbuf, u) : crossgram(c.hbuf, c.fitbuf, u)
+    K = exact ? crossgram(c.jbuf, c.fitbuf, u, c.w) : crossgram(c.hbuf, c.fitbuf, u, c.w)
     ∇b = biasgradient(Hm, K)
     Fm = information(c.fitbuf, σ2)
     _, okF = _cholesky(Fm)
@@ -332,7 +335,8 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
                       c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
-                      averages === nothing ? nothing : _averages(averages, length(c.y)))
+                      averages === nothing ? nothing : _averages(averages, length(c.y)),
+                      c.w === nothing ? nothing : copy(c.w))
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -381,6 +385,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     _print_data(io, c.data)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
     _print_fixed(io, c.fixed, resolve(c.model, c.truth))
+    c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
     isconverged(c.status) ||
         print(io, "\nthe noise-free fit did not converge ($(c.status)): the bias may be inaccurate")
     isempty(c.onbound) ||

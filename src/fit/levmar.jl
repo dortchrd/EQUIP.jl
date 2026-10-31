@@ -137,19 +137,28 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
-    VoxelProblem{F}(model, y, fixed)
+    VoxelProblem{F}(model, y, fixed[, w])
 
 Everything needed to evaluate one voxel's residuals: the free parameter names `F` (a tuple of
 Symbols, stored in the TYPE so the compiler knows them), the model (with its acquisition), the
-data `y` and this voxel's fixed values (numbers and ties).
+data `y`, this voxel's fixed values (numbers and ties) and the observations' weights `w`
+(`nothing`: unweighted; else one weight per observation, the fit minimizing ½Σwᵢrᵢ²).
 """
-struct VoxelProblem{F,M,Y,X}
+struct VoxelProblem{F,M,Y,X,W}
     model::M
     y::Y
     fixed::X
+    w::W
 end
 # Constructor that takes F explicitly and lets Julia infer the other type parameters.
-VoxelProblem{F}(model::M, y::Y, fixed::X) where {F,M,Y,X} = VoxelProblem{F,M,Y,X}(model, y, fixed)
+VoxelProblem{F}(model::M, y::Y, fixed::X, w::W = nothing) where {F,M,Y,X,W} =
+    VoxelProblem{F,M,Y,X,W}(model, y, fixed, w)
+
+# Observation i's weight, in precision T: 1 for an unweighted fit. Every sum multiplies by it;
+# x·1 is exact (and the compiler drops the multiplication), so an unweighted fit is the same, bit
+# for bit and as fast, as before weights existed. Julia picks the method by the type of `w`.
+@inline _wt(::Nothing, i, ::Type{T}) where {T} = one(T)
+@inline _wt(w::AbstractVector, i, ::Type{T}) where {T} = T(@inbounds w[i])
 
 # A unique "tag" type for our dual numbers, so they never mix with duals from other code.
 struct FitTag end
@@ -173,10 +182,11 @@ end
 @inline _params(::Val{F}, θ, fixed) where {F} = _resolve_ties(merge(NamedTuple{F}(Tuple(θ)), fixed))
 
 """
-    normal_equations(prob, θ, buf) -> (sse, JᵀJ, Jᵀr)
+    normal_equations(prob, θ, buf) -> (sse, JᵀWJ, JᵀWr)
 
 Evaluate the model at θ with dual numbers into `buf` (one dual per observation) and sum the
-SSE, JᵀJ (P×P) and Jᵀr (P) from it.
+SSE, JᵀJ (P×P) and Jᵀr (P) from it, each term times the observation's weight wᵢ (1 when the
+fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
 """
 @inline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
     p = _params(Val(F), _seed(θ), prob.fixed)   # every parameter; the free ones are duals
@@ -189,9 +199,11 @@ SSE, JᵀJ (P×P) and Jᵀr (P) from it.
         d = buf[i]
         J = SVector{P,T}(partials(d).values)     # row i of the Jacobian
         r = T(value(d)) - T(y[i])                # residual i
-        A += J * J'                              # outer product, P×P
-        g += r * J
-        sse += r * r
+        w = _wt(prob.w, i, T)                    # its weight (1: unweighted)
+        wJ = w * J
+        A += wJ * J'                             # outer product, P×P
+        g += r * wJ
+        sse += w * r * r
     end
     return sse, A, g
 end

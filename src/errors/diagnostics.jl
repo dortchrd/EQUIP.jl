@@ -129,7 +129,7 @@ function _LeakageCache(m::MRIModel, s::Scenario)
                      s.roles[n] isa Free ? Free(start = 0.0, lower = s.roles[n].lower,
                                                 upper = s.roles[n].upper) : s.roles[n],
                 NamedTuple{keys(s.roles)}(keys(s.roles)))
-    a = _crlbcache(m, c.mT, _spec(c.mT, joint, Float64), false)
+    a = _crlbcache(m, c.mT, _spec(c.mT, joint, Float64, s.weights), false)   # the same weights
     return LeakageCache{C,length(C),typeof(c),typeof(a)}(c, a)
 end
 
@@ -156,7 +156,7 @@ function _leakage!(lc::LeakageCache{C,K}, m::MRIModel, t::NamedTuple) where {C,K
     θ̂, θt, r = noisefree!(c, m, t, m, t)
     pinned = map(_near, θ̂, c.lower) .| map(_near, θ̂, c.upper)
     u = map(p -> ifelse(p, zero(T), one(T)), pinned)
-    exact = r.sse <= _EXACT^2 * sum(abs2, c.y)
+    exact = r.sse <= _EXACT^2 * _sumsq(c.y, c.w)
 
     # ② The cost's Hessian over (θ, c) at θ̂ and the values the fit assumes, for the same data:
     #    the joint cache, with the free values θ̂ and the fixed numbers in model order. When the
@@ -171,7 +171,7 @@ function _leakage!(lc::LeakageCache{C,K}, m::MRIModel, t::NamedTuple) where {C,K
     # ③ Can the data determine the free parameters (as crlb's ③)? Otherwise NaN.
     Hm = (u * u') .* Hθθ + Diagonal(one(T) .- u)     # held parameters: identity rows
     L, ok = _cholesky(Hm)
-    N = length(c.y)
+    N = _ncounted(c)
     nan = fill(T(NaN), SMatrix{P,K,T})
     out(D) = (fit = θ̂, truth = θt, D, status = r.status, pinned, exact)
     (N >= count(!, pinned) && _determined(Gθθ, u) && ok) || return out(nan)

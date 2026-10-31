@@ -17,7 +17,8 @@
 # `sc` among the free parameters), so with s = the signal at scale 1 (its "shape"), the scale that
 # best matches the data y is the least-squares slope through the origin, a = (s·y) / (s·s), and
 # the SSE there is Σ (a·s - y)² = y·y - 2a·(s·y) + a²·(s·s). Returns θ with that scale, and the
-# SSE. Without a scale parameter (sc = 0): θ unchanged, and its SSE.
+# SSE. Without a scale parameter (sc = 0): θ unchanged, and its SSE. A weighted fit weights each
+# product by wᵢ (Σwsy, Σws², Σwy²: the weighted slope and SSE); unweighted, wᵢ = 1.
 #
 # If a is unusable (zero signal at θ, a NaN, or a ≤ 0, e.g. noise-only data) the scale stays at 1.
 # The model is evaluated with plain numbers; storing them in the dual buffer just sets the
@@ -30,9 +31,11 @@
     sy = ss = yy = zero(T)
     @inbounds for i in eachindex(buf)
         s, y = T(value(buf[i])), T(prob.y[i])
-        sy += s * y
-        ss += s * s
-        yy += y * y
+        w = _wt(prob.w, i, T)
+        ws = w * s
+        sy += ws * y
+        ss += ws * s
+        yy += w * y * y
     end
     sc > 0 || return θ, yy - 2 * sy + ss                     # Σ (s - y)²
     a = sy / ss

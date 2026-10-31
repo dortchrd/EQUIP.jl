@@ -160,7 +160,7 @@ function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
 
     # The scenarios, by fit: one cache for each, shared by the scenarios that differ only in the
     # truth (and the kind of truth, so each group's truths have one type).
-    keyof(s) = (map(_fitkey, s.roles), typeof(_crlb_truth(m, s.truth)))
+    keyof(s) = (map(_fitkey, s.roles), typeof(_crlb_truth(m, s.truth)), s.weights)  # the weights too
     keys_ = Any[]
     members = Vector{Int}[]
     for (i, s) in enumerate(ss)
@@ -291,9 +291,11 @@ function Base.copy(d::ProtocolDesign{N,V,W,M,X,O,H,G,S,C,A}) where {N,V,W,M,X,O,
         d.shared, groups, d.scenarios, zeros(length(d.values)), d.scantime, d.constraints,
         d.aggregate, d.budget, d.cov)
 end
-_copy(c::CRLBCache{F,P,T,M,MT,X,B1,B2}) where {F,P,T,M,MT,X,B1,B2} =
-    CRLBCache{F,P,T,M,MT,X,B1,B2}(c.model, c.mT, c.lower, c.upper, c.fixed, c.opts, c.biased,
-                                  similar(c.y), similar(c.fitbuf), similar(c.jbuf), similar(c.hbuf))
+# (The weights are read only, so the copies share them; the buffers are each task's own.)
+_copy(c::CRLBCache{F,P,T,M,MT,X,B1,B2,W}) where {F,P,T,M,MT,X,B1,B2,W} =
+    CRLBCache{F,P,T,M,MT,X,B1,B2,W}(c.model, c.mT, c.lower, c.upper, c.fixed, c.opts, c.biased,
+                                    similar(c.y), similar(c.fitbuf), similar(c.jbuf), similar(c.hbuf),
+                                    c.w)
 
 # The values x of a protocol (a shared field: its first value), within the bounds.
 function _x(d::ProtocolDesign{N,V}, m) where {N,V}

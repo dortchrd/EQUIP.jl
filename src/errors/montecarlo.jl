@@ -182,7 +182,7 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     # scenario's fit (its starts taken from the truth follow this truth).
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
     Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
-    res = fit(m, Y; options..., _roles_at(s, m, θ)...)
+    res = fit(m, Y; options..., weights = s.weights, _roles_at(s, m, θ)...)   # the scenario's fit
 
     # Statistics over every fitted copy (as `compare`), each against the parameter's true value.
     F = keys(res.params)
@@ -231,6 +231,7 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
           string(round(100 * mc.converged; sigdigits = 4)), "% converged")
     _print_data(io, mc.data)
     _print_fixed(io, mc.fixed, resolve(mc.model, mc.truth))
+    c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
     print(io, "\nmeasured (± standard error) and predicted by crlb (sandwich, Gaussian noise)")
     header = ("parameter", "true", "mean", "rel bias", "crlb", "SD", "crlb", "SD/crlb",
               "rel RMSE", "crlb")

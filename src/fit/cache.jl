@@ -37,7 +37,7 @@ end
 # model's bare type name, e.g. `QMTSIR`.
 
 """
-    init(model; precision = Float64, solver = LM(), params...) -> FitCache
+    init(model; precision = Float64, solver = LM(), weights, params...) -> FitCache
 
 Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 
@@ -47,16 +47,20 @@ Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
   indexed by the `voxel` keyword of `fit!`.
 - `precision`: `Float64` or `Float32`.
 - `solver`: solver settings, [`LM`](@ref)`(maxiter = 50, ...)`.
+- `weights`: one weight per observation, the same in every voxel (`weights = nex`, the numbers
+  of averages; or 1/σᵢ²): the fit minimizes ½Σwᵢrᵢ². Left out, unweighted.
 
 `init` is `CommonSolve.init`, the SciML convention, so it does not clash with other packages.
 """
 function CommonSolve.init(model::MRIModel; precision::Type{<:AbstractFloat} = Float64,
-                          solver::LM = LM(), params...)
+                          solver::LM = LM(), weights = nothing, params...)
     T = precision
     n = nobs(model)                                # also checks the acquisition's lengths
-    spec = setup(model, T; params...)              # the parameter keywords
+    spec = setup(model, T; weights, params...)     # the parameter keywords, the weights
     opts = SolverOptions{T}(solver)
-    settings = (; precision, solver, params...)    # kept for the results; `(; solver)` = `(solver = solver,)`
+    # Kept for the results (`(; solver)` = `(solver = solver,)`); the weights only when given.
+    settings = weights === nothing ? (; precision, solver, params...) :
+                                     (; precision, solver, weights, params...)
     return _cache(_with_precision(model, T), spec, opts, n, settings)
 end
 # The roles as one named tuple, made by `parameters(m; changes...)`: `init(m, roles)`.

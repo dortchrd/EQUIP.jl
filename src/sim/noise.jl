@@ -169,8 +169,8 @@ function _noise_refused(fname, key = :noise)
         "A scenario is the truth and the fit judged against it; the noise belongs to the data: " *
         "give `averages` and `averaging` to `montecarlo` or `simulate` (and `averages` to `crlb`)." :
         fname == "fit" ?
-        "The fit is unweighted least squares (weights, e.g. from the averages, are on the roadmap); " *
-        "how averages were combined matters where data are made (`simulate`, `montecarlo`)." :
+        "To weight the fit by them, give `weights = nex` (σ/√NEX: wᵢ = NEXᵢ is 1/σᵢ² up to a " *
+        "scale); how averages were combined matters where data are made (`simulate`, `montecarlo`)." :
         "crlb is first order in the noise, where NEX averages give σ/√NEX however they were " *
         "combined (give `averages`); the noise floor that magnitude averaging keeps is what " *
         "`montecarlo(m, θ; noise = :rician, averages, averaging = :magnitude, ...)` measures."))

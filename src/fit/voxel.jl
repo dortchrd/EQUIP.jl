@@ -96,7 +96,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     if !(all(isfinite, c.y) && all(_finite, values(fixed)) && all(isfinite, θ0))
         return _invalid(spec)
     end
-    prob = VoxelProblem{F}(c.model, c.y, fixed)
+    prob = VoxelProblem{F}(c.model, c.y, fixed, spec.weights)
     # 4. Starting point from the data (starts.jl): parameters starting at `:data` from the model's
     #    estimates (`datastart`); then a `BestOf` parameter at its best value, or else the `:scale`
     #    parameter at the value that best matches the data's scale.

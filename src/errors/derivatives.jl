@@ -77,7 +77,7 @@ c = CRLBCache(m, nominal(m, :SIR_WM_I); kmf = 12.5)
 [crlb!(c, nominal(m, :SIR_WM_I; kmf = k); snr = 200) for k in 5.0:2.5:20.0]   # the true kmf
 ```
 """
-struct CRLBCache{F,P,T,M,MT,X,B1,B2}
+struct CRLBCache{F,P,T,M,MT,X,B1,B2,W}
     model::M                   # the model, as given (kept in the results)
     mT::MT                     # the same, acquisition in precision T (what is computed with)
     lower::SVector{P,T}
@@ -89,6 +89,7 @@ struct CRLBCache{F,P,T,M,MT,X,B1,B2}
     fitbuf::B1                 # Vector{Dual{FitTag,T,P}}: the noise-free fit; then J_t
     jbuf::B1                   # J₀ at θ̂ (first-order duals), when the fit is exact
     hbuf::B2                   # Vector{Dual{CRLBTag,Dual{FitTag,T,P},P}}: J₀ and ∇²g at θ̂
+    w::W                       # the fit's weights: nothing, or one per observation (Vector{T})
 end
 
 CRLBCache(m::MRIModel, s::Scenario; cov::Symbol = :sandwich) = _CRLBCache(m, s, cov)
@@ -101,7 +102,7 @@ function _CRLBCache(m::MRIModel, s::Scenario, cov::Symbol)
     _check_protocol(m, s)
     _check_cov(cov)
     mT = _with_precision(m, Float64)           # acquisition vectors as Float64, as `fit` does
-    spec = _spec(mT, map(r -> _at_acquisition(r, mT), s.roles), Float64)
+    spec = _spec(mT, map(r -> _at_acquisition(r, mT), s.roles), Float64, s.weights)
     return _crlbcache(m, mT, spec, cov === :biased)
 end
 function _CRLBCache(m::MRIModel, fit::NamedTuple, cov::Symbol)
@@ -116,10 +117,19 @@ function _crlbcache(m, mT, spec::FitSpec{F,P,T}, biased::Bool) where {F,P,T}
     n = nobs(mT)
     D1 = Dual{FitTag,T,P}
     D2 = Dual{CRLBTag,D1,P}
-    return CRLBCache{F,P,T,typeof(m),typeof(mT),typeof(spec.fixed),Vector{D1},Vector{D2}}(
+    return CRLBCache{F,P,T,typeof(m),typeof(mT),typeof(spec.fixed),Vector{D1},Vector{D2},
+                     typeof(spec.weights)}(
         m, mT, spec.lower, spec.upper, spec.fixed, SolverOptions{T}(_CRLB_SOLVER), biased,
-        Vector{T}(undef, n), Vector{D1}(undef, n), Vector{D1}(undef, n), Vector{D2}(undef, n))
+        Vector{T}(undef, n), Vector{D1}(undef, n), Vector{D1}(undef, n), Vector{D2}(undef, n),
+        spec.weights)
 end
+
+# For a weighted fit (the cache's `w`): the observations that count (a weight 0 leaves one out),
+# and the data's weighted sum of squares Σwy², the scale of the exactness test. Unweighted, the
+# count and Σy², as before weights existed.
+@inline _ncounted(c::CRLBCache) = c.w === nothing ? length(c.y) : count(>(0), c.w)
+@inline _sumsq(y, ::Nothing) = sum(abs2, y)
+@inline _sumsq(y, w::AbstractVector) = sum(i -> w[i] * abs2(y[i]), eachindex(y, w))
 _crlbnames(::CRLBCache{F}) where {F} = F
 
 Base.show(io::IO, c::CRLBCache{F}) where {F} =
@@ -199,7 +209,7 @@ started at the truth's free values θt, with the fit's fixed values and bounds. 
 @inline function noisefree!(c::CRLBCache{F,P,T}, m, t, dm, dt) where {F,P,T}
     signal!(c.y, dm, _resolve_ties(dt))
     θt = _freevalues(c, t)
-    r = levmar(VoxelProblem{F}(m, c.y, c.fixed), θt, c.lower, c.upper, c.opts, c.fitbuf)
+    r = levmar(VoxelProblem{F}(m, c.y, c.fixed, c.w), θt, c.lower, c.upper, c.opts, c.fitbuf)
     θ̂ = SVector{P,T}(Tuple(relabel(m, NamedTuple{F}(Tuple(r.θ)))))
     return θ̂, θt, r
 end
@@ -208,7 +218,8 @@ end
     hessian!(c, m, θ̂, exact) -> (H, G)
 
 The Hessian of the fit's cost ½‖g − y‖² at θ̂, H = Σᵢ (JᵢJᵢᵀ + rᵢ∇²gᵢ), rᵢ = gᵢ(θ̂) − yᵢ, and its
-Gauss–Newton part G = Σᵢ JᵢJᵢᵀ = J₀ᵀJ₀ (static P×P). The second term, the residual's curvature,
+Gauss–Newton part G = Σᵢ JᵢJᵢᵀ = J₀ᵀJ₀ (static P×P); for a weighted fit (cost ½Σwᵢrᵢ²) each
+term times wᵢ: H = Σᵢ wᵢ(JᵢJᵢᵀ + rᵢ∇²gᵢ), G = J₀ᵀWJ₀. The second term, the residual's curvature,
 is what a wrong assumption adds; when the fit is `exact` (r = 0) it is zero, H = G, and the
 model is evaluated with first-order duals (into `c.jbuf`) instead of nested ones (`c.hbuf`,
 3–6× the cost). The rows J₀ᵢ stay in that buffer for `meat` and `crossgram`. No allocation.
@@ -216,7 +227,7 @@ model is evaluated with first-order duals (into `c.jbuf`) instead of nested ones
 @inline function hessian!(c::CRLBCache{F,P,T}, m, θ̂, exact::Bool) where {F,P,T}
     if exact
         atfit!(c.jbuf, c, m, θ̂)
-        G = information(c.jbuf, one(T))
+        G = _gram(c.jbuf, c.w, T)
         return G, G
     end
     atfit!(c.hbuf, c, m, θ̂)
@@ -225,17 +236,31 @@ model is evaluated with first-order duals (into `c.jbuf`) instead of nested ones
     @inbounds for i in eachindex(c.hbuf)
         d = c.hbuf[i]
         Jᵢ = _row(d)
-        G += Jᵢ * Jᵢ'
-        H += Jᵢ * Jᵢ' + (_val(d) - c.y[i]) * _second(d)
+        w = _wt(c.w, i, T)                       # 1 when unweighted (x·1 is exact)
+        wJ = w * Jᵢ
+        G += wJ * Jᵢ'
+        H += wJ * Jᵢ' + (w * (_val(d) - c.y[i])) * _second(d)
     end
     return H, G
+end
+
+# The Gauss–Newton matrix J₀ᵀWJ₀ from a buffer's rows: unweighted, J₀ᵀJ₀ (`information` with
+# σ² = 1, as before weights existed); weighted, Σ wᵢJᵢJᵢᵀ.
+@inline _gram(buf, ::Nothing, ::Type{T}) where {T} = information(buf, one(T))
+@inline function _gram(buf, w::AbstractVector, ::Type{T}) where {T}
+    G = _zeroPP(buf)
+    @inbounds for i in eachindex(buf)
+        Jᵢ = _row(buf[i])
+        G += (w[i] * Jᵢ) * Jᵢ'
+    end
+    return G
 end
 
 # H = G = J₀ᵀJ₀ from the rows the noise-free fit left in `c.fitbuf` (its evaluation at its start,
 # when it stopped there), copied to `c.jbuf`, where `meat`, `crossgram` and the result read J₀.
 @inline function _startrows!(c::CRLBCache{F,P,T}) where {F,P,T}
     copyto!(c.jbuf, c.fitbuf)
-    G = information(c.jbuf, one(T))
+    G = _gram(c.jbuf, c.w, T)
     return G, G
 end
 
@@ -261,10 +286,11 @@ end
 @inline _at(s::AbstractVector, i) = @inbounds s[i]   # or one per observation
 
 """
-    meat(rows, σ², u) -> SMatrix{P,P}
+    meat(rows, σ², u[, w]) -> SMatrix{P,P}
 
 The sandwich's "meat" J₀ᵀΣJ₀: Σᵢ σᵢ² JᵢJᵢᵀ, or with a full Σ = LLᵀ, Σₖ wₖwₖᵀ with wₖ = row k of
-LᵀJ₀ = Σᵢ≥ₖ LᵢₖJᵢ (O(N²P), N ≤ 100). `rows`: a buffer evaluated by `hessian!`.
+LᵀJ₀ = Σᵢ≥ₖ LᵢₖJᵢ (O(N²P), N ≤ 100). `rows`: a buffer evaluated by `hessian!`. For a weighted
+fit (weights `w`), J₀ᵀWΣWJ₀: each row Jᵢ times wᵢ (Σᵢ wᵢ²σᵢ² JᵢJᵢᵀ; rows of LᵀWJ₀).
 """
 @inline function meat(buf, σ2::Union{Real,AbstractVector}, u::SVector{P,T}) where {P,T}
     M = zero(SMatrix{P,P,T})
@@ -284,6 +310,30 @@ function meat(buf, n::_FullNoise, u::SVector{P,T}) where {P,T}
         end
         w = u .* w
         M += w * w'
+    end
+    return M
+end
+# The fit's weights: none, the meat above; else each row times its weight.
+@inline meat(buf, σ2, u, ::Nothing) = meat(buf, σ2, u)
+@inline function meat(buf, σ2::Union{Real,AbstractVector}, u::SVector{P,T},
+                      w::AbstractVector) where {P,T}
+    M = zero(SMatrix{P,P,T})
+    @inbounds for i in eachindex(buf)
+        Jᵢ = u .* (w[i] * _row(buf[i]))
+        M += _at(σ2, i) * (Jᵢ * Jᵢ')
+    end
+    return M
+end
+function meat(buf, n::_FullNoise, u::SVector{P,T}, wt::AbstractVector) where {P,T}
+    L = n.L
+    M = zero(SMatrix{P,P,T})
+    @inbounds for k in eachindex(buf)
+        v = zero(SVector{P,T})
+        for i in k:length(buf)
+            v += (L[i, k] * wt[i]) * _row(buf[i])     # row k of LᵀWJ₀
+        end
+        v = u .* v
+        M += v * v'
     end
     return M
 end
@@ -317,15 +367,23 @@ function information(buf, n::_FullNoise)
 end
 
 """
-    crossgram(rows₀, rowsₜ, u) -> SMatrix{P,P}
+    crossgram(rows₀, rowsₜ, u[, w]) -> SMatrix{P,P}
 
 K = J₀ᵀJ_t = Σᵢ J₀ᵢJ_tᵢᵀ: the fit's Jacobian at θ̂ against the true signal's at the truth (J₀'s
-rows masked by `u`), for the bias gradient.
+rows masked by `u`), for the bias gradient; for a weighted fit J₀ᵀWJ_t.
 """
 @inline function crossgram(b0, bt, u::SVector{P,T}) where {P,T}
     K = zero(SMatrix{P,P,T})
     @inbounds for i in eachindex(b0)
         K += (u .* _row(b0[i])) * _row(bt[i])'
+    end
+    return K
+end
+@inline crossgram(b0, bt, u, ::Nothing) = crossgram(b0, bt, u)
+@inline function crossgram(b0, bt, u::SVector{P,T}, w::AbstractVector) where {P,T}
+    K = zero(SMatrix{P,P,T})
+    @inbounds for i in eachindex(b0)
+        K += (u .* (w[i] * _row(b0[i]))) * _row(bt[i])'
     end
     return K
 end
@@ -685,16 +743,19 @@ _biasgradient(c::CRLBCache{F,P,T}, t) where {F,P,T} = Matrix(_crlb!(c, c.mT, t, 
 function _biasgradient_unrolled(m::MRIModel, s::Scenario, steps::Integer)
     _check_protocol(m, s)
     θ = s.truth
-    spec = _spec(m, map(r -> _at_acquisition(r, m), s.roles), Float64)
+    spec = _spec(m, map(r -> _at_acquisition(r, m), s.roles), Float64, s.weights)
     F = freenames(spec)
     θfit = merge(θ, map(_untie, spec.fixed))     # the values the fit assumes
     g(vals, x) = signal(m, merge(vals, NamedTuple{F}(Tuple(x))))
+    w = spec.weights                             # the fit's weights, or nothing
+    # One Gauss–Newton step: (JᵀJ)⁻¹Jᵀr, or (JᵀWJ)⁻¹JᵀWr for a weighted fit.
+    step(J, r) = w === nothing ? (J' * J) \ (J' * r) : (J' * (w .* J)) \ (J' * (w .* r))
     function θ̂(x)
         y = g(θ, x)                              # the noise-free data, true values x
         φ = x                                    # the fit, started at the truth
         for _ in 1:steps
             J = ForwardDiff.jacobian(p -> g(θfit, p), φ)
-            φ = φ - (J' * J) \ (J' * (g(θfit, φ) - y))
+            φ = φ - step(J, g(θfit, φ) - y)
         end
         return φ
     end
@@ -733,6 +794,7 @@ function _fitsettings(fname, m::MRIModel, settings, own)
         k in _OPTIONS && throw(ArgumentError("`$k`: the noise-free fit sets its own options; " *
             "give only the parameters' settings"))
         k in (:noise, :averaging) && !(k in names) && throw(_noise_refused(fname, k))
+        k === :weights && continue               # the fit's weights: part of the scenario
         k in names || throw(ArgumentError("`$k` is neither a parameter of " *
             "$(nameof(typeof(m))) ($(join(names, ", "))) nor an option of $fname" *
             (isempty(own) ? "" : " ($(join(own, ", ")))")))
