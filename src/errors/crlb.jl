@@ -51,10 +51,11 @@ like `res.params.PSR` of a [`FitResult`](@ref)):
 
 and `cov` (the covariance matrix, free parameters in model order), `onbound` (free parameters
 on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fit's
-[`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`), `σ` (the noise SD per observation),
-`truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`, or the `model => truth`
-the data came from, with `simulate_with`) and `Σ` (`nothing`, or the noise covariance matrix
-given). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
+[`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`), `σ` (the noise SD per observation,
+σ/√NEX with averages), `truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`,
+or the `model => truth` the data came from, with `simulate_with`), `Σ` (`nothing`, or the
+noise covariance matrix given) and `averages` (`nothing`, or the number of averages of each
+observation). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
 the information and covariance matrices and the SDs, under StatsAPI's names.
 
 Diagnostics, computed when called (as `fitted(res)` is for a fit): [`cond`](@ref)`(c)`, how hard
@@ -82,13 +83,14 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     Σ::S                       # nothing, or the noise covariance matrix given (`Σ = ...`)
     information::Matrix{Float64}   # Fisher information at θ̂, J₀ᵀΣ⁻¹J₀
     observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
+    averages::Union{Nothing,Vector{Int}}   # nothing, or the averages of each observation
 end
 
 """
-    crlb(m, s::Scenario; snr or σ or Σ, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
-    crlb(m, θ; snr or σ or Σ, cov, vary, simulate_with, changes...)
+    crlb(m, s::Scenario; snr or σ or Σ, averages, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
+    crlb(m, θ; snr or σ or Σ, averages, cov, vary, simulate_with, changes...)
     crlb(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
-    crlb(m, set; snr or σ or Σ, cov) -> Sweep          (a set from `scenarios`)
+    crlb(m, set; snr or σ or Σ, averages, cov) -> Sweep          (a set from `scenarios`)
 
 The bias, SD and RMSE of each fitted parameter predicted for one voxel, from derivatives: the
 Cramér–Rao lower bound (CRLB, also CRB), biased when the fit fixes a parameter at a value other
@@ -109,6 +111,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
   between observations (correlated noise, e.g. after denoising or a joint reconstruction).
   Chosen by type, so the common case, one σ for every observation ("pulled out" of
   JᵀΣ⁻¹J = JᵀJ/σ²), costs nothing extra.
+- `averages`: the number of averages (NEX) of each observation, or one for all, with `snr` or
+  `σ` given for one average: σⱼ = σ/√NEXⱼ, as [`simulate`](@ref) makes the data. To first order
+  in the noise this holds however the averages were combined, so crlb takes no `averaging`;
+  the noise floor that averaging magnitude images keeps is [`montecarlo`](@ref)'s to measure.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
@@ -164,17 +170,20 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
 ```
 """
 function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing, changes...)
+              averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
+              changes...)
     # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
     # as for `fit`.
-    ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :cov, :vary, :simulate_with))
-    return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, cov, vary, simulate_with)
+    ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :cov, :vary, :simulate_with))
+    return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, averages, cov, vary, simulate_with)
 end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
-              Σ = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
-              noise = nothing)
-    # `noise` is taken only to say why it is refused: crlb assumes Gaussian noise.
+              Σ = nothing, averages = nothing, cov::Symbol = :sandwich, vary = (;),
+              simulate_with = nothing, noise = nothing, averaging = nothing)
+    # `noise` and `averaging` are taken only to say why they are refused: crlb assumes Gaussian
+    # noise, first order, where averages give σ/√NEX however they were combined.
     noise === nothing || throw(_noise_refused("crlb"))
+    averaging === nothing || throw(_noise_refused("crlb", :averaging))
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     _check_simulate_with(simulate_with)
@@ -189,17 +198,18 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         numbers = simulate_with === nothing && all(v -> all(x -> x isa Real, v), values(vary))
         resultof(st) = numbers ?
             _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, nothing);
-                          snr = _snr_of(st, snr), σ, Σ) :
+                          snr = _snr_of(st, snr), σ, Σ, averages) :
             crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, simulate_with);
-                  snr = _snr_of(st, snr), σ, Σ, simulate_with = _data_of(st, simulate_with))
+                  snr = _snr_of(st, snr), σ, Σ, averages,
+                  simulate_with = _data_of(st, simulate_with))
         results = [resultof(st) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, simulate_with)
+    return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, averages, simulate_with)
 end
 
 """
-    crlb!(c::CRLBCache, truth; snr or σ or Σ, simulate_with) -> CRLBResult
+    crlb!(c::CRLBCache, truth; snr or σ or Σ, averages, simulate_with) -> CRLBResult
 
 [`crlb`](@ref) with the fit and the covariance already in a [`CRLBCache`](@ref): for many noise
 levels or truths with the same fit, the setup is made once. The fit stays the cache's: with a
@@ -211,7 +221,7 @@ cs = [crlb!(c, nominal(m, :SIR_WM_I); snr) for snr in (50, 100, 200)]
 ```
 """
 function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-               simulate_with = nothing)
+               averages = nothing, simulate_with = nothing)
     _check_simulate_with(simulate_with)
     simulate_with === nothing || !c.biased || throw(ArgumentError("with data from " *
         "another model (`simulate_with`), the sandwich only: Eq. 3 needs the true model's " *
@@ -221,8 +231,8 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
     # the data's scale parameter.
     dm, dt = _datasource(c.model, truth, simulate_with)
     t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
-    Σn = noisecovariance(dm, dt; snr, σ, Σ)
-    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with)
+    Σn = noisecovariance(dm, dt; snr, σ, Σ, averages)
+    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages)
 end
 
 # One setting of a sweep: `truth` is a scenario's truth (checked when the scenario was made: in
@@ -230,9 +240,9 @@ end
 # so it goes to the kernel's form without being checked again (1.1–1.4 µs a setting). The
 # sweep takes this path only when every varied value is a number and the data are the fitted
 # model's own.
-function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ)
-    Σn = noisecovariance(c.model, truth; snr, σ, Σ)
-    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing)
+function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = nothing)
+    Σn = noisecovariance(c.model, truth; snr, σ, Σ, averages)
+    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages)
 end
 
 """
@@ -295,7 +305,8 @@ end
 
 # The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A
 # separate function (a "function barrier") so that F and P are known types here.
-function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with) where {F,P,T}
+function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with,
+                     averages = nothing) where {F,P,T}
     σ2 = _kernelnoise(Σn, P)
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
     k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
@@ -320,7 +331,8 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
                       nt(rel(rmse)), Matrix(k.cov), k.G, onbound, k.status,
                       c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
                       map(_untie, c.fixed), c.model, simulate_with,
-                      Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed)
+                      Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
+                      averages === nothing ? nothing : _averages(averages, length(c.y)))
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -361,7 +373,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     f(x) = isfinite(x) ? string(round(x; sigdigits = 4)) : string(x)
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     σ = c.σ
-    noise = _noisetext(σ, c.Σ)
+    noise = _noisetext(σ, c.Σ, c.averages)
     how = c.method === :sandwich ? "sandwich (the least-squares fit)" :
                                    "biased CRLB (Dortch 2018 Eq. 3)"
     print(io, "crlb for ", nameof(typeof(c.model)), ", ", length(σ), " observations, ", noise,
@@ -400,11 +412,22 @@ function _print_fixed(io::IO, fixed::NamedTuple, θt, label = "fixed in the fit"
     print(io, "\n", label, ": ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
 end
 
-# The noise, in words: one σ, σ per observation (its range), or a covariance matrix.
-function _noisetext(σ, Σ)
+# The noise, in words: one σ, σ per observation (its range), or a covariance matrix; with
+# averages, one average's σ (σ·√NEX, the level given) and the averages' range.
+function _noisetext(σ, Σ, averages = nothing)
     f(x) = string(round(x; sigdigits = 4))
+    # One value, or the range (as printed: σ·√NEX is one average's σ to rounding)
+    span(x, g) = (v = g.(x); all(==(v[1]), v) ? v[1] : "$(g(minimum(x))) to $(g(maximum(x)))")
+    averages === nothing ||
+        return "σ = $(span(σ .* sqrt.(averages), f)) per average, " * _averagestext(averages)
     range = all(==(σ[1]), σ) ? "σ = $(f(σ[1]))" : "σ = $(f(minimum(σ))) to $(f(maximum(σ)))"
     return Σ === nothing ? range : "$range, correlated (Σ given)"
+end
+
+# The averages, in words: "4 averages", "1 to 8 averages".
+function _averagestext(a)
+    x = all(==(a[1]), a) ? string(a[1]) : "$(minimum(a)) to $(maximum(a))"
+    return x == "1" ? "1 average" : "$x averages"
 end
 
 # Where the data came from, when not from the fitted model (`simulate_with`).

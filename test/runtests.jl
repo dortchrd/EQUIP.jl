@@ -1397,6 +1397,103 @@ end
         @test occursin("`σ` has 3 values", msg(() -> simulate(mt, θ; noise = :rician, σ = [1.0, 2.0, 3.0])))
     end
 
+    @testset "averages: σ/√NEX, complex or magnitude averaging; crlb, montecarlo, design" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        # Diffusion with more averages at high b: SNR 20 per average at b = 0, 1.8σ at b = 3000
+        b = [0.0, 500, 1000, 1500, 2000, 2500, 3000]
+        nex = [1, 1, 2, 2, 4, 4, 8]
+        md = ADCDecay(; b)
+        θ = (S0 = 1.0, ADC = 0.8e-3)
+        σ1 = 0.05
+        # Averaged in complex (or real-valued data): σ/√NEX, the same data draw for draw as σ
+        # given per observation; with `snr` (one average's σ = S0/snr) too; one average changes
+        # nothing
+        @test simulate(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :complex, n = 50, rng = MersenneTwister(1)) ==
+              simulate(md, θ; σ = σ1 ./ sqrt.(nex), noise = :rician, n = 50, rng = MersenneTwister(1))
+        @test simulate(md, θ; snr = 20, averages = nex, noise = :gaussian, n = 50, rng = MersenneTwister(1)) ==
+              simulate(md, θ; σ = (1.0 / 20) ./ sqrt.(nex), noise = :gaussian, n = 50, rng = MersenneTwister(1))
+        @test simulate(md, θ; σ = σ1, averages = 1, noise = :gaussian, rng = MersenneTwister(1)) ==
+              simulate(md, θ; σ = σ1, noise = :gaussian, rng = MersenneTwister(1))
+        # Magnitude images averaged: the SD falls with √NEX, the floor does not (the mean of one
+        # average's Rician values); averaged in complex, the floor falls too
+        Ym = simulate(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :magnitude, n = 40_000, rng = MersenneTwister(2))
+        Yc = simulate(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :complex, n = 40_000, rng = MersenneTwister(2))
+        Y1 = simulate(md, θ; σ = σ1, noise = :rician, n = 40_000, rng = MersenneTwister(3))
+        @test mean(Ym[:, end]) ≈ mean(Y1[:, end]) rtol = 0.01
+        @test std(Ym[:, end]) ≈ std(Y1[:, end]) / sqrt(8) rtol = 0.03
+        @test mean(Yc[:, end]) < mean(Ym[:, end]) - 0.005
+        # crlb: σ/√NEX (first order, however the averages were combined), as σ per observation;
+        # the averages recorded and shown
+        c = crlb(md, θ; σ = σ1, averages = nex)
+        @test c.sd.ADC ≈ crlb(md, θ; σ = σ1 ./ sqrt.(nex)).sd.ADC rtol = 1e-12
+        @test c.σ ≈ σ1 ./ sqrt.(nex) rtol = 1e-12
+        @test c.averages == nex && crlb(md, θ; σ = σ1).averages === nothing
+        @test crlb(md, θ; σ = σ1, averages = 2.0).averages == fill(2, 7)
+        @test noisecovariance(md, θ; snr = 20, averages = nex) ≈ Diagonal((1 / 20)^2 ./ nex) rtol = 1e-12
+        @test informationmatrix(md, θ; σ = σ1, averages = nex) ≈ informationmatrix(md, θ; σ = σ1 ./ sqrt.(nex)) rtol = 1e-12
+        @test occursin("σ = 0.05 per average, 1 to 8 averages, covariance", sprint(show, MIME"text/plain"(), c))
+        cs = crlb(md, θ; snr = [10, 20], averages = 4)
+        @test cs[2].sd.ADC ≈ crlb(md, θ; snr = 40).sd.ADC rtol = 1e-12       # 4 averages: SNR × 2
+        @test occursin("2 settings of snr, 4 averages, covariance", sprint(show, MIME"text/plain"(), cs))
+        # montecarlo: the averages to the data and to crlb alongside; the floor magnitude
+        # averaging keeps is a bias crlb does not predict (−1.96% ± 0.04% in ADC with 20 000
+        # copies; −1.7% ± 0.14% here), the SD as predicted
+        mc = montecarlo(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :magnitude, n = 2000, rng = MersenneTwister(4))
+        @test mc.averages == nex && mc.averaging === :magnitude && mc.crlb.averages == nex
+        @test mc.crlb.sd.ADC ≈ c.sd.ADC rtol = 1e-12
+        @test mc.σ ≈ σ1 ./ sqrt.(nex) rtol = 1e-12
+        @test mc.sd.ADC / c.sd.ADC ≈ 1 atol = 0.05
+        @test mc.relbias.ADC < -0.01
+        @test occursin("σ = 0.05 per average, 1 to 8 averages, rician noise, magnitude averaging: 2000 noisy copies",
+                       sprint(show, MIME"text/plain"(), mc))
+        @test montecarlo(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :complex, n = 300, rng = MersenneTwister(5)).sd ==
+              montecarlo(md, θ; σ = σ1 ./ sqrt.(nex), noise = :rician, n = 300, rng = MersenneTwister(5)).sd
+        @test montecarlo(md, θ; σ = σ1, averages = nex, noise = :gaussian, n = 50).averaging === nothing
+        sw = montecarlo(md, θ; snr = [10, 20], averages = nex, noise = :rician, averaging = :magnitude, n = 100, rng = MersenneTwister(6))
+        @test sw[2].averaging === :magnitude && sw[2].averages == nex
+        @test occursin("rician noise, magnitude averaging, 1 to 8 averages", sprint(show, MIME"text/plain"(), sw))
+        # Sets of scenarios, and the design (an unbiased scenario: Eq. 5 is all variance, so 4
+        # averages divide it by 4; the scan time is the user's, here left unchanged)
+        m4 = QMTSIR(; SIR_4POINT...)
+        set = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; kmf = 12.5)
+        @test collect(values(crlb(m4, set; snr = 200, averages = 4)[2].sd)) ≈ collect(values(crlb(m4, set[2]; snr = 400).sd)) rtol = 1e-12
+        a4 = [1, 2, 2, 4]
+        ms = montecarlo(m4, set; snr = 200, averages = a4, noise = :rician, averaging = :complex, n = 50, rng = MersenneTwister(7))
+        @test ms[2].averages == a4
+        @test collect(values(ms[2].crlb.sd)) ≈ collect(values(crlb(m4, set[2]; snr = 200, averages = a4).sd)) rtol = 1e-12
+        sU = Scenario(m4, nominal(m4, :SIR_WM_I))
+        space = (TI = (0.01, 10.0), TD = (0.01, 10.0))
+        st(m) = sum(m.TI .+ m.TD .+ 0.3)
+        d1 = ProtocolDesign(m4, [sU]; snr = 200, acquisition = space, scantime = st)
+        d4 = ProtocolDesign(m4, [sU]; snr = 200, averages = 4, acquisition = space, scantime = st)
+        @test d4(m4) ≈ d1(m4) / 4 rtol = 1e-9
+        # averages that differ per point: Eq. 5 from crlb with them (unbiased: Σ rel RMSE² × T),
+        # as the search evaluates it, without allocation
+        dv = ProtocolDesign(m4, [sU]; snr = 200, averages = a4, acquisition = space, scantime = st)
+        cv = crlb(m4, sU; snr = 200, averages = a4)
+        @test dv(m4) ≈ sum(abs2, collect(values(cv.relrmse))) * st(m4) rtol = 1e-9
+        xv = [m4.TI; m4.TD]
+        allocs(d, x) = @allocated d(x)
+        allocs(dv, xv)
+        @test allocs(dv, xv) == 0
+        # Mistakes
+        @test occursin("`averages` with `Σ`", msg(() -> simulate(md, θ; Σ = Matrix(0.0025I, 7, 7), averages = nex, noise = :gaussian)))
+        @test occursin("`averages` with `Σ`", msg(() -> crlb(md, θ; Σ = Matrix(0.0025I, 7, 7), averages = nex)))
+        @test occursin("give how they were combined", msg(() -> simulate(md, θ; σ = σ1, averages = nex, noise = :rician)))
+        @test occursin("give how they were combined", msg(() -> montecarlo(md, θ; σ = σ1, averages = nex, noise = :rician, n = 10)))
+        @test occursin("leave it out", msg(() -> simulate(md, θ; σ = σ1, averages = nex, noise = :gaussian, averaging = :complex)))
+        @test occursin("give `averages` too", msg(() -> simulate(md, θ; σ = σ1, noise = :rician, averaging = :magnitude)))
+        @test occursin("must be :complex or :magnitude", msg(() -> simulate(md, θ; σ = σ1, averages = nex, noise = :rician, averaging = :sum)))
+        @test occursin("`averages` has 2 values", msg(() -> crlb(md, θ; σ = σ1, averages = [1, 2])))
+        @test occursin("whole numbers, at least 1", msg(() -> crlb(md, θ; σ = σ1, averages = 1.5)))
+        @test occursin("whole numbers, at least 1", msg(() -> crlb(md, θ; σ = σ1, averages = [0, 1, 1, 1, 1, 1, 1])))
+        @test occursin("crlb takes no averaging", msg(() -> crlb(md, θ; σ = σ1, averages = nex, averaging = :magnitude)))
+        @test occursin("crlb takes no averaging", msg(() -> crlb(m4, set; snr = 200, averages = 4, averaging = :complex)))
+        @test occursin("ProtocolDesign takes no averaging", msg(() -> ProtocolDesign(m4, [sU]; snr = 200, averaging = :magnitude, acquisition = space, scantime = st)))
+        @test occursin("fit takes no averages", msg(() -> fit(md, signal(md, θ); averages = nex)))
+        @test occursin("Scenario takes no averages", msg(() -> Scenario(md, θ; averages = nex)))
+    end
+
     @testset "crlb's pieces: jacobian, hessian, informationmatrix, biasgradient, sandwich, biasedcrlb" begin
         FD = EQUIP.ForwardDiff
         msg(f) = try f(); "" catch e; sprint(showerror, e) end

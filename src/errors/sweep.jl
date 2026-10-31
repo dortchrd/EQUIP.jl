@@ -157,7 +157,8 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:CRLBResult})
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     c1 = s.results[1]
     σ = c1.σ
-    noise = haskey(s.settings[1], :snr) ? "" : ", " * _noisetext(σ, c1.Σ)
+    noise = !haskey(s.settings[1], :snr) ? ", " * _noisetext(σ, c1.Σ, c1.averages) :
+            c1.averages === nothing ? "" : ", " * _averagestext(c1.averages)
     print(io, "crlb sweep for ", nameof(typeof(c1.model)), ", ", length(σ), " observations: ",
           length(s), " settings of ", join(keys(s.settings[1]), ", "), noise, ", covariance: ",
           c1.method)
@@ -175,10 +176,12 @@ function Base.show(io::IO, ::MIME"text/plain", s::Sweep{<:MonteCarloResult})
     f2(x) = isfinite(x) ? string(round(x; sigdigits = 2)) : string(x)
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     r1 = s.results[1]
-    noise = haskey(s.settings[1], :snr) ? "" : ", " * _noisetext(r1.σ, r1.crlb.Σ)
+    noise = !haskey(s.settings[1], :snr) ? ", " * _noisetext(r1.σ, r1.crlb.Σ, r1.averages) :
+            r1.averages === nothing ? "" : ", " * _averagestext(r1.averages)
     print(io, "montecarlo sweep for ", nameof(typeof(r1.model)), ", ", length(r1.crlb.σ),
           " observations: ", length(s), " settings of ", join(keys(s.settings[1]), ", "), ", ",
-          r1.n, " noisy copies each, ", r1.noise, " noise", noise)
+          r1.n, " noisy copies each, ", r1.noise, " noise",
+          r1.averaging === nothing ? "" : ", $(r1.averaging) averaging", noise)
     _print_sweep_fixed(io, s)                # the fit's assumptions (the truth varies)
     print(io, "\nmeasured (± standard error) and predicted by crlb (sandwich, Gaussian noise)")
     names = collect(keys(s.settings[1]))
@@ -353,29 +356,35 @@ end
 # set's settings as the sweep's. Here rather than with crlb and montecarlo: a method for a
 # `Sweep` of scenarios needs `Sweep` defined, which this file does after them.
 function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
-              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing, noise = nothing)
+              averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
+              noise = nothing, averaging = nothing)
     noise === nothing || throw(_noise_refused("crlb"))     # crlb assumes Gaussian noise
+    averaging === nothing || throw(_noise_refused("crlb", :averaging))    # first order: σ/√NEX
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     caches = [_CRLBCache(m, sc, cov) for sc in set.results]          # one per scenario, once
     levels = snr isa AbstractVector ? collect(snr) : [snr]
     settings = _set_settings(set, snr, levels)
-    results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ) for x in levels for i in eachindex(caches)]
+    results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ, averages)
+               for x in levels for i in eachindex(caches)]
     return Sweep(settings, results, _rows(settings, results))
 end
 function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing,
-                    Σ = nothing, n::Integer = 10_000, noise = nothing,
-                    rng::AbstractRNG = Random.default_rng(), vary = (;), simulate_with = nothing,
-                    solver::LM = LM(), precision::Type{<:AbstractFloat} = Float64)
+                    Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
+                    averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
+                    simulate_with = nothing, solver::LM = LM(),
+                    precision::Type{<:AbstractFloat} = Float64)
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
+    averaging = _checked_averaging(averaging, noise, averages)    # Rician with averages
     seed = rand(rng, UInt64)                 # one seed for every setting (common random numbers)
     options = (; solver, precision)
     levels = snr isa AbstractVector ? collect(snr) : [snr]
     settings = _set_settings(set, snr, levels)
-    results = [_montecarlo(m, sc, sc.truth, x, σ, Σ, n, options, noise, seed, nothing)
+    results = [_montecarlo(m, sc, sc.truth, x, σ, Σ, n, options, noise, averages, averaging,
+                           seed, nothing)
                for x in levels for sc in set.results]
     return Sweep(settings, results, _rows(settings, results))
 end

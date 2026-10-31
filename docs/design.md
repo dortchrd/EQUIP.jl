@@ -494,6 +494,37 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   generic "not a parameter". For magnitude inversion recovery, adding complex noise to the
   signed signal and taking the magnitude depends only on |S|, so Rician noise on the model's
   |S| is exact.
+- **Averages: `averages = nex`, and with Rician noise `averaging = :complex` or `:magnitude`**
+  (2026-10). With `averages` (one per observation, or one number for all; whole numbers ≥ 1),
+  `snr` and `σ` are one average's noise and observation j's is σ/√NEXⱼ, in `simulate`,
+  `montecarlo`, `crlb` (every form), `crlb!`, `noisecovariance`, `informationmatrix` and
+  `ProtocolDesign`; results record them (`c.averages`, `mc.averages`, `mc.averaging`) and the
+  displays say "σ = 0.05 per average, 1 to 8 averages". Why a keyword, when σ per observation
+  could already express it: with `snr` the σ is relative to each voxel's M0, so it cannot be
+  given as numbers, and the script should say how the data were acquired. How the averages
+  were combined changes Rician data, so it is the user's choice as the distribution is, with
+  no default:
+  - `:complex`: the complex images averaged, then the magnitude: Rician with σ/√NEX, the same
+    data, draw for draw, as σ/√NEX given per observation (tested);
+  - `:magnitude`: the magnitude images averaged (most diffusion: shot-to-shot motion phase
+    rules out complex averaging): the mean of NEX Rician values with one average's σ. Its SD
+    falls with √NEX but its floor stays at one average's. Measured (ADC, b 0–3000 s/mm², NEX
+    1, 1, 2, 2, 4, 4, 8, SNR 20 per average at b = 0, 40 000 copies): at b = 3000 (1.8σ for one
+    average) the mean is 0.106 (one average's floor: 0.106), complex averaging's 0.093, the
+    signal 0.091. Fitted ADC (montecarlo, 20 000 copies): bias −1.96% ± 0.04% and SD/crlb
+    0.987, against −0.33% and 1.002 averaged in complex.
+  Refused, each with a message that says what to do: `averaging` without `averages`, or with
+  Gaussian noise (real-valued data average the same either way); `averages` with `Σ` (Σ is
+  the covariance of the data as fitted, after averaging and any processing, which is where
+  correlation between observations mostly comes from, e.g. denoising; per-average correlation
+  with different NEX per observation has no single meaning); `averaging` to crlb, its pieces
+  and ProtocolDesign (first order, σ/√NEX however combined; the floor is montecarlo's to
+  measure); `averages` or `averaging` to `fit` (unweighted least squares; weights next) or a
+  `Scenario` (the noise belongs to the data). `ProtocolDesign` now takes σ² per point too
+  (averages that differ, or σ per point): a design group holds one variance or one vector per
+  scenario, the kernel's per-observation path; the objective still allocates nothing.
+  Correlation between voxels (parallel imaging, k-space filtering) is not modelled: each voxel
+  is fitted alone, so it changes no voxel's bias or SD, only ROI averages.
 - **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
@@ -2519,7 +2550,9 @@ scope (decided 2026-10-31):
      for a diagonal W); the weights are part of the fit, so of a `Scenario`, and crlb, Eq. 3 and
      leakage follow: H = Σᵢ wᵢ(JᵢJᵢᵀ + rᵢ∇²gᵢ), meat J₀ᵀWΣWJ₀ (= J₀ᵀWJ₀ when W = Σ⁻¹, so the
      sandwich at the truth is F⁻¹), ∇b = H⁻¹J₀ᵀWJ_t − I, dθ̂/dc = −H_θθ⁻¹H_θc with the weighted
-     H. Per-voxel σ maps later.
+     H. Per-voxel σ maps later. With `averages` (2026-10), weights from them (wⱼ = NEXⱼ, so
+     W = Σ⁻¹ up to a scale); the magnitude-averaging floor biases most the points weighted
+     most, so montecarlo with both shows the trade of SD against bias.
    - **Iteratively reweighted least squares (IRWLS)**: the weights recomputed from the current
      fit, then fitted again, until they settle (a few rounds, an outer loop around the weighted
      fit of each voxel). Uses: robust fits against outliers (Huber or Tukey's bisquare weights

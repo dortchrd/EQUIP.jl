@@ -31,7 +31,8 @@ What [`montecarlo`](@ref) returns. Fields, each a named tuple over the fit's fre
 - `se_sd`: standard error of the SD, SD/√(2(n − 1)) (the Gaussian approximation)
 
 and `converged` (the fraction of the `n` fits that converged), `n`, `noise` (`:rician` or
-`:gaussian`), `σ` (the noise SD of each observation), `crlb` (the [`crlb`](@ref) prediction at
+`:gaussian`), `σ` (the noise SD of each observation, σ/√NEX with averages), `averages` and
+`averaging` (`nothing`, or as given), `crlb` (the [`crlb`](@ref) prediction at
 the same truth, noise and fit), `result` (the [`FitResult`](@ref) of the noisy copies: the estimates themselves,
 e.g. `mc.result.params.PSR` for a histogram), `truth`, `fixed` (the fit's fixed values), `model`
 and `data` (`nothing`, or the `model => truth` the data came from, with `simulate_with`).
@@ -60,14 +61,16 @@ struct MonteCarloResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,R
     fixed::X
     model::M
     data::D                    # nothing, or `model => truth` the data came from (simulate_with)
+    averages::Union{Nothing,Vector{Int}}   # nothing, or the averages of each observation
+    averaging::Union{Nothing,Symbol}       # nothing, :complex or :magnitude (Rician, averages)
 end
 
 """
-    montecarlo(m, s::Scenario; snr or σ or Σ, n = 10_000, noise, rng, vary, simulate_with,
-               solver, precision) -> MonteCarloResult or Sweep
+    montecarlo(m, s::Scenario; snr or σ or Σ, n = 10_000, noise, averages, averaging, rng,
+               vary, simulate_with, solver, precision) -> MonteCarloResult or Sweep
     montecarlo(m, θ; ..., starts = :truth, changes...)
     montecarlo(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
-    montecarlo(m, set; snr or σ or Σ, n, noise, rng, solver, precision) -> Sweep   (`scenarios`)
+    montecarlo(m, set; snr or σ or Σ, n, noise, averages, averaging, rng, solver, precision) -> Sweep   (`scenarios`)
 
 Simulate `n` noisy copies of one voxel with a [`Scenario`](@ref)'s true values, fit them with
 its fit, and measure each fitted parameter's bias, SD and RMSE, with standard errors, next to
@@ -89,6 +92,10 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
 - `noise`: `:rician` (magnitude images) or `:gaussian` (real-valued data), always given: the
   distribution follows from how the images were reconstructed, which the model does not know.
   crlb assumes Gaussian noise.
+- `averages`, `averaging`: as for `simulate`, the number of averages of each observation (with
+  `snr` or `σ` for one average: σ/√NEX), and, with Rician noise, how they were combined
+  (`:complex` or `:magnitude`). crlb alongside takes the averages (σ/√NEX); the floor that
+  `:magnitude` keeps is what the simulation adds.
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
   One number is drawn from it, the seed of the noise.
 - `solver`, `precision`: the fits' options, as for `fit`.
@@ -121,27 +128,31 @@ montecarlo(m5, (fixed = Scenario(m5, θ), free = Scenario(m5, θ; kmf = Free()))
 ```
 """
 function montecarlo(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                    n::Integer = 10_000, noise = nothing, rng::AbstractRNG = Random.default_rng(),
+                    n::Integer = 10_000, noise = nothing, averages = nothing,
+                    averaging = nothing, rng::AbstractRNG = Random.default_rng(),
                     vary = (;), simulate_with = nothing, solver::LM = LM(),
                     precision::Type{<:AbstractFloat} = Float64, starts::Symbol = :truth,
                     changes...)
     # The scenario from the truth and the changes: every keyword that is not one of
     # montecarlo's own, as for `fit` (whose options, `solver` and `precision`, are among them).
     haskey(changes, :mask) && throw(ArgumentError("`mask`: montecarlo fits every copy"))
-    ch = _fitsettings("montecarlo", m, changes, (:snr, :σ, :Σ, :n, :noise, :rng, :vary,
-                                                 :simulate_with, :solver, :precision, :starts))
-    return montecarlo(m, Scenario(m, θ; starts, ch...); snr, σ, Σ, n, noise, rng, vary,
-                      simulate_with, solver, precision)
+    ch = _fitsettings("montecarlo", m, changes, (:snr, :σ, :Σ, :n, :noise, :averages,
+                                                 :averaging, :rng, :vary, :simulate_with,
+                                                 :solver, :precision, :starts))
+    return montecarlo(m, Scenario(m, θ; starts, ch...); snr, σ, Σ, n, noise, averages,
+                      averaging, rng, vary, simulate_with, solver, precision)
 end
 function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
-                    Σ = nothing, n::Integer = 10_000, noise = nothing,
-                    rng::AbstractRNG = Random.default_rng(), vary = (;), simulate_with = nothing,
-                    solver::LM = LM(), precision::Type{<:AbstractFloat} = Float64)
+                    Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
+                    averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
+                    simulate_with = nothing, solver::LM = LM(),
+                    precision::Type{<:AbstractFloat} = Float64)
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     _check_simulate_with(simulate_with)
     noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
+    averaging = _checked_averaging(averaging, noise, averages)    # Rician with averages
     seed = rand(rng, UInt64)                 # the noise's seed: one draw, for every setting
     options = (; solver, precision)          # the fits' options, as for `fit`
     fits = s isa Scenario ? (;) : s          # side by side: one more axis, by name
@@ -149,26 +160,28 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
         results = [_montecarlo(m, _scenario_of(st, s),
                                _truth_of(st, _scenario_of(st, s).truth, simulate_with),
-                               _snr_of(st, snr), σ, Σ, n, options, noise, seed,
-                               _data_of(st, simulate_with)) for st in settings]
+                               _snr_of(st, snr), σ, Σ, n, options, noise, averages,
+                               averaging, seed, _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return _montecarlo(m, s, s.truth, snr, σ, Σ, n, options, noise, seed, simulate_with)
+    return _montecarlo(m, s, s.truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
+                       simulate_with)
 end
 
 # One setting: one scenario, judged at one truth (the scenario's, or a setting's in a sweep over
 # true values), one noise level.
-function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, seed, simulate_with)
+function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
+                     simulate_with)
     θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
 
-    # The prediction first: it also checks the noise level and the data's model.
-    c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, simulate_with)
+    # The prediction first: it also checks the noise level (and averages) and the data's model.
+    c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, averages, simulate_with)
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset with the
     # scenario's fit (its starts taken from the truth follow this truth).
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
-    Y = simulate(dm, dt; snr, σ, Σ, noise, n, rng = Xoshiro(seed))
+    Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
     res = fit(m, Y; options..., _roles_at(s, m, θ)...)
 
     # Statistics over every fitted copy (as `compare`), each against the parameter's true value.
@@ -186,7 +199,7 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, seed, simulate
     se_sd = map(s -> s / sqrt(2 * (k - 1)), sd)
     return MonteCarloResult(meanv, bias, sd, rmse, rel(bias), rel(sd), rel(rmse), se_mean, se_sd,
                             count(isconverged, res.status) / n, Int(n), noise, c.σ, c, res,
-                            truth, c.fixed, m, simulate_with)
+                            truth, c.fixed, m, simulate_with, c.averages, averaging)
 end
 
 # StatsAPI's names: the covariance matrix of the estimates (every fitted copy, as the other
@@ -212,7 +225,9 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
     pct(x) = isfinite(x) ? string(round(100 * x; sigdigits = 3), "%") : string(x)
     c = mc.crlb
     print(io, "montecarlo for ", nameof(typeof(mc.model)), ", ", length(c.σ), " observations, ",
-          _noisetext(mc.σ, c.Σ), ", ", mc.noise, " noise: ", mc.n, " noisy copies, ",
+          _noisetext(mc.σ, c.Σ, mc.averages), ", ", mc.noise, " noise",
+          mc.averaging === nothing ? "" : ", $(mc.averaging) averaging", ": ", mc.n,
+          " noisy copies, ",
           string(round(100 * mc.converged; sigdigits = 4)), "% converged")
     _print_data(io, mc.data)
     _print_fixed(io, mc.fixed, resolve(mc.model, mc.truth))

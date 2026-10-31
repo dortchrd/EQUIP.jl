@@ -386,6 +386,10 @@ m = T2Decay(TE = 0.01:0.01:0.32)
 maps = (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64))   # any maps
 res = fit(m, simulate(m, maps; noise = :rician, snr = 100))
 compare(res, maps)                            # labels = an integer map, for each tissue
+
+m = ADCDecay(b = [0, 500, 1000, 1500, 2000, 2500, 3000])
+Y = simulate(m, (S0 = 1.0, ADC = 8e-4); snr = 20, averages = [1, 1, 2, 2, 4, 4, 8],
+             noise = :rician, averaging = :magnitude, n = 10_000)   # magnitude images averaged
 ```
 
 Four functions give a model's parameters in different forms:
@@ -427,7 +431,7 @@ Parameters:
   Mzm_td0  fixed  0.0                        0.0
 ```
 
-- `simulate(m, truth; snr or σ, noise, n, rng)` and `signal(m, truth)` (one voxel, no noise):
+- `simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
   is filled in silently, so the script shows everything the data were made with: `nominal(m,
   tissue)` gives every value for a tissue, `nominal(m; changes...)` every value from the model
@@ -440,6 +444,16 @@ Parameters:
   (phase-corrected, a real channel; the noise crlb assumes). A model's `magnitude` option says how
   the signal is computed, not how the data were reconstructed, so it does not choose the noise.
   Pass `rng = MersenneTwister(seed)` for repeatable data.
+- **Averages:** `averages = nex` (the number of averages of each observation, or one number
+  for all) makes `snr` or `σ` one average's noise, and observation j's σ/√NEXⱼ. With Rician
+  noise, `averaging` says how they were combined, always given: `:complex` (complex images
+  averaged, then the magnitude: Rician with σ/√NEX, so the noise floor falls with the averages)
+  or `:magnitude` (magnitude images averaged, as in most diffusion, where shot-to-shot motion
+  phase rules out complex averaging: the SD falls with √NEX, the floor stays at one average's).
+  At 1.8σ (one average) and 8 averages, the floor is 0.106 averaged as magnitudes and 0.093 in
+  complex, against a signal of 0.091, and the ADC of the example above is biased −1.96% instead of
+  −0.33% (± 0.04%; SNR 20 per average at b = 0, 20 000 copies). `Σ` is the covariance of the data as fitted, after
+  averaging, so it takes no `averages`.
 - `TISSUES`, `tissue(name)`: T1 and T2 at 3 T from Stanisz et al., MRM 2005 (in vitro, 37 °C:
   `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...); `:CSF` (T1 = 4.124 s, the mean of three
   in vivo inversion recovery studies reviewed by Bojorquez et al., MRI 2017; T2 = 1.75 s, a
@@ -539,9 +553,13 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   drawn from `rng`), so differences between settings are not noise: scenarios side by side are
   a paired comparison.
 - **Noise:** `snr` (relative to M0), `σ` (a number, or one SD per observation, e.g. different
-  bandwidths or averages) or `Σ` (the full covariance matrix between observations, for
-  correlated noise), for `crlb`, `montecarlo` and `simulate`. One σ, the usual case for
-  separately acquired images with the same readout, costs nothing extra.
+  bandwidths) or `Σ` (the full covariance matrix between observations, for correlated noise),
+  for `crlb`, `montecarlo` and `simulate`; `averages = nex` with `snr` or `σ` (one average's:
+  σ/√NEX per observation), also for `ProtocolDesign`. crlb takes no `averaging`: to first order
+  averages give σ/√NEX however they were combined; the floor that magnitude averaging keeps is
+  montecarlo's to measure (`montecarlo(m, θ; snr, averages, noise = :rician, averaging =
+  :magnitude)`). One σ, the usual case for separately acquired images with the same readout,
+  costs nothing extra.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
@@ -597,8 +615,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, s; snr = 200))
   biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
-- Not modelled by crlb: Rician noise (the magnitude floor), bounds reached by noisy fits,
-  nonlinearity at low SNR. That is what montecarlo is for.
+- Not modelled by crlb: Rician noise (the magnitude floor, and the floor that averaging
+  magnitude images keeps), bounds reached by noisy fits, nonlinearity at low SNR. That is what
+  montecarlo is for.
 
 ## Protocol design
 

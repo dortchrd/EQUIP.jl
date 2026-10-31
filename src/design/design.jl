@@ -27,17 +27,18 @@
 
 # The scenarios that share a fit: the cache, and each one's truth, noise and place in the list.
 # One group per fit and kind of truth, so the vectors below have concrete element types.
-struct _Group{C<:CRLBCache,TT,P}
+struct _Group{C<:CRLBCache,TT,P,S}
     cache::C                       # the fit these scenarios share
     truths::Vector{TT}             # their truths, in the kernel's form (`_crlb_truth`)
-    σ2::Vector{Float64}            # their noise variances (one σ for every observation)
+    σ2::Vector{S}                  # their noise variances: a number each (one σ for every
+                                   # observation), or a vector each (σ per observation, averages)
     weights::SVector{P,Float64}    # each free parameter's weight, in the cache's order
     index::Vector{Int}             # their places among the design's scenarios
 end
 
 """
-    ProtocolDesign(m, scenarios; snr or σ, acquisition, scantime, constraints, shared, weights,
-                   budget, aggregate, cov)
+    ProtocolDesign(m, scenarios; snr or σ, averages, acquisition, scantime, constraints, shared,
+                   weights, budget, aggregate, cov)
 
 The objective of a protocol search, made once: called with the varied acquisition values
 `d(x)`, or with a protocol `d(m)`, it gives Eq. 5 of Dortch et al., MRM 2018 (after Li et al.,
@@ -56,8 +57,10 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
   uncertain conditions are more scenarios, the truth changed and the fit kept:
   `scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)`. After an
   evaluation, `d.values` holds each scenario's value.
-- The noise, one σ for every observation: `snr` (relative to each scenario's scale parameter,
-  as for `crlb`) or `σ`.
+- The noise, independent: `snr` (relative to each scenario's scale parameter, as for `crlb`)
+  or `σ` (a number, or one per point); with `averages` (the number of averages of each point,
+  fixed in the search), one average's, σ/√NEX for each point. Count the averages in
+  `scantime` too: `m -> sum(nex .* (m.TI .+ m.TD .+ 0.3))`.
 - `acquisition`: the acquisition fields to optimize, with their bounds (s): `(TI = (0.01, 10.0),
   TD = (0.01, 10.0))`. `x` is their values one after the other (the TIs, then the TDs). With
   `shared = (:TD,)`, one TD for every point (one value in `x`). (Not `vary`, which elsewhere,
@@ -108,13 +111,15 @@ end
 # type parameters, the compiler knows them, so building a protocol from x is static code.
 
 function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
-                        acquisition = nothing, scantime = nothing, constraints = nothing,
-                        shared = (), weights::NamedTuple = (;), budget = nothing,
-                        aggregate = maximum, cov::Symbol = :sandwich, vary = nothing,
-                        noise = nothing)
-    # `noise` is taken only to say why it is refused (the objective is crlb's: Gaussian noise),
-    # `vary` only to say where its meaning went: elsewhere it changes true values.
+                        averages = nothing, acquisition = nothing, scantime = nothing,
+                        constraints = nothing, shared = (), weights::NamedTuple = (;),
+                        budget = nothing, aggregate = maximum, cov::Symbol = :sandwich,
+                        vary = nothing, noise = nothing, averaging = nothing)
+    # `noise` and `averaging` are taken only to say why they are refused (the objective is
+    # crlb's: Gaussian noise, first order), `vary` only to say where its meaning went:
+    # elsewhere it changes true values.
     noise === nothing || throw(_noise_refused("ProtocolDesign"))
+    averaging === nothing || throw(_noise_refused("ProtocolDesign", :averaging))
     vary === nothing || throw(ArgumentError("`vary` changes true parameter values (crlb, " *
         "montecarlo, scenarios); the acquisition to optimize is `acquisition = (TI = (0.01, " *
         "10.0), TD = (0.01, 10.0))`, each field with its bounds"))
@@ -168,7 +173,7 @@ function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
         n in free || throw(ArgumentError("`weights`: `$n` is not a free parameter of the scenarios' fits ($(join(free, ", ")))"))
         weights[n] >= 0 || throw(ArgumentError("`weights`: `$n` must be ≥ 0"))
     end
-    groups = Tuple(_group(m, ss, idx, snr, σ, weights, cov) for idx in members)
+    groups = Tuple(_group(m, ss, idx, snr, σ, averages, weights, cov) for idx in members)
 
     W = Base.typename(typeof(m)).wrapper
     d = ProtocolDesign{N,V,W,typeof(m),typeof(fields),typeof(offsets),typeof(sh),typeof(groups),
@@ -191,17 +196,18 @@ _fitkey(r::Free) = (:free, r.lower, r.upper)
 _fitkey(r::Fixed) = (:fixed, r.value)
 
 # One group: the cache of the first scenario's fit, and every member's truth, noise and weights.
-function _group(m, ss, idx, snr, σ, weights, cov)
-    return _groupof(_CRLBCache(m, ss[idx[1]], cov), m, ss, idx, snr, σ, weights)
+function _group(m, ss, idx, snr, σ, averages, weights, cov)
+    return _groupof(_CRLBCache(m, ss[idx[1]], cov), m, ss, idx, snr, σ, averages, weights)
 end
 # A separate function so that F and P are known here (a function barrier).
-function _groupof(c::CRLBCache{F,P}, m, ss, idx, snr, σ, weights) where {F,P}
+function _groupof(c::CRLBCache{F,P}, m, ss, idx, snr, σ, averages, weights) where {F,P}
     truths = [_crlb_truth(m, ss[i].truth) for i in idx]
-    σ2 = map(idx) do i
-        s2 = _kernelnoise(noisecovariance(m, ss[i].truth; snr, σ), P)
-        s2 isa Real || throw(ArgumentError("one σ for every observation"))
-        Float64(s2)
-    end
+    # Each scenario's noise in the kernel's form: one variance (a number), or one per point (a
+    # vector: σ per point, or averages that differ), so that the group's vector has one
+    # concrete element type, a number each or a vector each.
+    s2 = [_kernelnoise(noisecovariance(m, ss[i].truth; snr, σ, averages), P) for i in idx]
+    σ2 = all(x -> x isa Real, s2) ? Float64[x for x in s2] :
+         [x isa Real ? fill(Float64(x), length(c.y)) : Vector{Float64}(x) for x in s2]
     w = SVector{P,Float64}(map(n -> Float64(get(weights, n, 1.0)), F))
     for t in truths, j in 1:P
         w[j] > 0 && _freevalues(c, t)[j] == 0 && throw(ArgumentError("`$(F[j])` is 0 in a " *

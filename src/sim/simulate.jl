@@ -6,7 +6,7 @@
 # =================================================================================================
 
 """
-    simulate(m, truth; snr or σ or Σ, noise, n, rng) -> data
+    simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng) -> data
 
 Noisy data for model `m`, with the observations along the last dimension (the layout `fit`
 takes).
@@ -25,6 +25,14 @@ takes).
 - `noise`: the distribution, always given: `:rician` (magnitude images: |S + σ·(n₁ + i·n₂)|)
   or `:gaussian` (S + σ·n: real-valued data, e.g. phase-corrected; the noise crlb assumes). It
   follows from how the images were reconstructed, which the model does not know.
+- `averages`: the number of averages (NEX) of each observation, or one number for all, with
+  `snr` or `σ` given for one average: observation j's noise is σ/√NEXⱼ (more averages at high
+  b-values, say). Not with `Σ`, which is the noise of the data as fitted.
+- `averaging`: how the averages were combined, given with Rician noise and `averages` (only
+  there does it change the data): `:complex` (the complex images averaged, then the magnitude:
+  Rician with σ/√NEX, so the noise floor falls with √NEX) or `:magnitude` (the magnitude images
+  averaged, as in most diffusion: the mean of NEX Rician values with one average's σ, whose SD
+  falls with √NEX but whose floor does not).
 - `n`: number of noisy copies when no value in `truth` is a map (Monte Carlo).
 - `rng`: the random number generator, e.g. `MersenneTwister(1)` for repeatable data.
 
@@ -38,16 +46,21 @@ y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, noise = :rician)            
 Y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, noise = :rician, n = 10_000)    # Monte Carlo
 maps = (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64))
 data = simulate(m, maps; snr = 50, noise = :gaussian)                                # real data
+md = ADCDecay(b = [0, 1000, 2000, 3000])
+simulate(md, (S0 = 1.0, ADC = 8e-4); snr = 20, averages = [1, 2, 4, 8], noise = :rician,
+         averaging = :magnitude, n = 10_000)                     # magnitude images averaged
 ```
 """
 function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                  noise = nothing, n::Union{Nothing,Integer} = nothing,
-                  rng::AbstractRNG = Random.default_rng())
+                  noise = nothing, averages = nothing, averaging = nothing,
+                  n::Union{Nothing,Integer} = nothing, rng::AbstractRNG = Random.default_rng())
     # The noise level, checked (sim/noise.jl): the scale parameter `snr` is relative to, and
     # Σ's Cholesky factor, Σ = LLᵀ (correlated noise is L·z).
     M = nobs(m)
-    scale, L = _checked_noise(m, M, snr, σ, Σ)
+    scale, L = _checked_noise(m, M, snr, σ, Σ, averages)
     noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
+    averaging = _checked_averaging(averaging, noise, averages)
+    nex = averages === nothing ? nothing : _averages(averages, M)
 
     # The voxels: the size of the maps, or n copies, or one voxel.
     maps = filter(x -> x isa AbstractArray, Tuple(values(truth)))
@@ -62,13 +75,27 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
         p = map(x -> x isa AbstractArray ? x[v] : x, truth)    # this voxel's parameters
         s = signal(m, p)
         if L === nothing
-            # Independent noise: one σ, or one per observation. (The order of the random draws
-            # is the same either way, so one σ given as a vector gives the same data.)
+            # Independent noise: one σ, or one per observation (one average's, with
+            # `averages`). (The order of the random draws is the same either way, so one σ given
+            # as a vector gives the same data; so do `averages` combined in complex and
+            # σ/√NEX given as a vector.)
             σv = σ === nothing ? p[scale] / snr : σ
             for j in 1:M
                 σj = σv isa AbstractVector ? σv[j] : σv
-                Y[v, j] = noise === :rician ? hypot(s[j] + σj * randn(rng), σj * randn(rng)) :
-                                              s[j] + σj * randn(rng)
+                if averaging === :magnitude
+                    # Magnitude images averaged: the mean of NEXⱼ Rician values, each with one
+                    # average's σ (its floor does not fall with the averages).
+                    acc = 0.0
+                    for _ in 1:nex[j]
+                        acc += hypot(s[j] + σj * randn(rng), σj * randn(rng))
+                    end
+                    Y[v, j] = acc / nex[j]
+                else
+                    # One image, or the average of complex (or real) images: σ/√NEX.
+                    nex === nothing || (σj = σj / sqrt(nex[j]))
+                    Y[v, j] = noise === :rician ? hypot(s[j] + σj * randn(rng), σj * randn(rng)) :
+                                                  s[j] + σj * randn(rng)
+                end
             end
         else
             # Correlated noise: L·z, z independent standard normal, has covariance LLᵀ = Σ.

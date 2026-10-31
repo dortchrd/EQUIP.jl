@@ -109,7 +109,7 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes)
     # value, `starts = :model`).
     given = ()                                # the parameters given a start here
     for (n, x) in pairs(changes)
-        haskey(roles, n) || throw(n === :noise ? _noise_refused("Scenario") :
+        haskey(roles, n) || throw(n in (:noise, :averages, :averaging) ? _noise_refused("Scenario", n) :
             ArgumentError(n in _OPTIONS ?
                 "`$n` is an option of the fit, not a parameter's role: give it to montecarlo" :
                 "`$n` is not a parameter of $name; the parameters are $(join(keys(own), ", "))"))

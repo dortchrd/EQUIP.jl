@@ -434,9 +434,10 @@ end
 # `noisecovariance(m, θ)` and its checks, is sim/noise.jl, shared with `simulate`)
 # -------------------------------------------------------------------------------------------------
 
-function noisecovariance(m::MRIModel, s::Scenario; snr = nothing, σ = nothing, Σ = nothing)
+function noisecovariance(m::MRIModel, s::Scenario; snr = nothing, σ = nothing, Σ = nothing,
+                         averages = nothing)
     _check_protocol(m, s)
-    return noisecovariance(m, s.truth; snr, σ, Σ)
+    return noisecovariance(m, s.truth; snr, σ, Σ, averages)
 end
 
 # Σ checked and factored as `simulate` does (`_noisefactor`, sim/noise.jl), and the factor
@@ -613,8 +614,8 @@ function _hessian(c::CRLBCache{F,P}, at, y, Σ) where {F,P}
 end
 
 """
-    informationmatrix(m, θ; snr or σ or Σ, expected = true, y, changes...) -> Matrix (P×P)
-    informationmatrix(m, s::Scenario; snr or σ or Σ, expected = true, y) -> Matrix
+    informationmatrix(m, θ; snr or σ or Σ, averages, expected = true, y, changes...) -> Matrix (P×P)
+    informationmatrix(m, s::Scenario; snr or σ or Σ, averages, expected = true, y) -> Matrix
 
 The information matrix of the free parameters (as for [`jacobian`](@ref)) at the values θ (or a
 scenario's truth), for
@@ -631,13 +632,13 @@ sqrt.(diag(inv(F)))                          # the classical CRLB of each SD
 ```
 """
 informationmatrix(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                  expected::Bool = true, y = nothing, changes...) =
+                  averages = nothing, expected::Bool = true, y = nothing, changes...) =
     informationmatrix(m, Scenario(m, θ; _fitsettings("informationmatrix", m, changes,
-                                                     (:snr, :σ, :Σ, :expected, :y))...);
-                      snr, σ, Σ, expected, y)
+                                                     (:snr, :σ, :Σ, :averages, :expected, :y))...);
+                      snr, σ, Σ, averages, expected, y)
 function informationmatrix(m::MRIModel, s::Scenario; snr = nothing, σ = nothing, Σ = nothing,
-                           expected::Bool = true, y = nothing)
-    Σn = noisecovariance(m, s.truth; snr, σ, Σ)
+                           averages = nothing, expected::Bool = true, y = nothing)
+    Σn = noisecovariance(m, s.truth; snr, σ, Σ, averages)
     expected || return hessian(m, s, something(y, signal(m, s.truth)); Σ = Σn)
     return _information(_CRLBCache(m, s, :sandwich), _crlb_truth(m, s.truth), Σn)
 end
@@ -731,7 +732,7 @@ function _fitsettings(fname, m::MRIModel, settings, own)
             "truth; `starts` is for montecarlo's fits"))
         k in _OPTIONS && throw(ArgumentError("`$k`: the noise-free fit sets its own options; " *
             "give only the parameters' settings"))
-        k === :noise && !(k in names) && throw(_noise_refused(fname))
+        k in (:noise, :averaging) && !(k in names) && throw(_noise_refused(fname, k))
         k in names || throw(ArgumentError("`$k` is neither a parameter of " *
             "$(nameof(typeof(m))) ($(join(names, ", "))) nor an option of $fname" *
             (isempty(own) ? "" : " ($(join(own, ", ")))")))
