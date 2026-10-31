@@ -2485,7 +2485,15 @@ maps are later.
   covariance, sweeps, sets, the pieces, leakage, the design, montecarlo); speed unchanged
   within run-to-run noise, alternating with the commit before (`fit!` 1.6–20 µs by model, a
   100k-voxel dataset, `crlb!` 5.2 µs and the 5-point Eq. 3 13.3 µs, the design 11.6 µs,
-  leakage 67 µs); the weighted fit, crlb kernel and design allocate nothing. T2 decay, σ 5 → 40
+  leakage 67 µs); the weighted fit, crlb kernel and design allocate nothing.
+  Weighted against unweighted (500 voxels, SNR 100): the sums cost the same alone (16-point SIR
+  702 and 711 ns), but inlined into `levmar` (twice) the weighted loop made the solver slower for
+  the bigger models with the same iterations (weights all 1: 16-point SIR with kmf free 8.3 →
+  11.5 µs, biexponential 15.9 → 18.8 µs, T2 1.55 → 1.61 µs). The weighted `normal_equations` is
+  therefore a method of its own, not inlined, and the unweighted one is the original code: with
+  weights all 1 now 8.2 → 8.7 µs, 15.9 → 15.6 µs, 1.54 → 1.55 µs. Weights that differ change the
+  path, not the cost of a step: with weights 1 to 8 the biexponential takes 28.7 iterations
+  against 22.0 (24.0 → 30.7 evaluations), so its fits take longer; T2, T1IR and ADC the same. T2 decay, σ 5 → 40
   over 32 echoes, wᵢ = 1/σᵢ²: SD of T2 1.15e-3 over 2000 copies against the bound 1.12e-3
   (unweighted 1.75e-3 against its sandwich 1.70e-3: 1.5×); median stderror 1.12e-3, σ̂ ≈ 1;
   montecarlo (20 000 copies) SD/crlb 0.99 ± 0.005. Leakage against central differences of the
