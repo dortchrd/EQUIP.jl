@@ -78,6 +78,10 @@ The Gaussian log-likelihood at the fit, with σ at its maximum-likelihood value 
 AICc = AIC + 2k(k + 1)/(N − k − 1), BIC = −2ℓ + k·log N, with k = `dof(r)` (the free parameters
 and σ). For choosing between models fitted to the same data: the lower, the better (a
 difference above about 2 for AIC, 6 for BIC, is notable). Voxel by voxel for a dataset.
+AICc is the one to use with few observations per parameter (Burnham & Anderson: N/k below
+about 40, so nearly every voxel-wise fit). `NaN` when the residuals say nothing: all four when
+N ≤ P (the fit passes through every point, as the 4-point SIR scheme's does), and AICc when
+N ≤ k + 1 (its correction undefined).
 
 ```julia
 r1 = fit(T2Decay(TE = te), y)
@@ -85,14 +89,20 @@ r2 = fit(T2BiexpDecay(TE = te), y)
 bic(r2) < bic(r1)              # the second pool is worth its two parameters
 ```
 """
-loglikelihood(r::FitResult) = _voxelwise(sse -> _loglik(sse, nobs(r)), r)
-aic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(sse, nobs(r)) + 2 * dof(r), r)
+loglikelihood(r::FitResult) = _voxelwise(sse -> _loglik(sse, nobs(r), dof_residual(r)), r)
+aic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(sse, nobs(r), dof_residual(r)) + 2 * dof(r), r)
 function aicc(r::FitResult)
     N, k = nobs(r), dof(r)
-    return _voxelwise(sse -> -2 * _loglik(sse, N) + 2k + 2k * (k + 1) / (N - k - 1), r)
+    # The correction 2k(k + 1)/(N − k − 1) is defined for N > k + 1 only: at N = k + 1 it is
+    # infinite, below it negative (it would reward the parameters it is meant to penalize).
+    N > k + 1 || return _voxelwise(sse -> NaN, r)
+    return _voxelwise(sse -> -2 * _loglik(sse, N, dof_residual(r)) + 2k + 2k * (k + 1) / (N - k - 1), r)
 end
-bic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(sse, nobs(r)) + log(nobs(r)) * dof(r), r)
-_loglik(sse, N) = -N / 2 * (log(2π * Float64(sse) / N) + 1)
+bic(r::FitResult) =
+    _voxelwise(sse -> -2 * _loglik(sse, nobs(r), dof_residual(r)) + log(nobs(r)) * dof(r), r)
+# ℓ needs residuals: with N ≤ P (ν = N − P ≤ 0) the fit passes through every point, the SSE is
+# rounding and its log meaningless (it made AIC and BIC huge and negative): NaN, as `residualsd`.
+_loglik(sse, N, ν) = ν > 0 ? -N / 2 * (log(2π * Float64(sse) / N) + 1) : NaN
 _voxelwise(f, r::FitResult) = _onevoxel(r) ? f(r.sse) : map(f, r.sse)
 
 """

@@ -861,6 +861,18 @@ end
         s4 = stderror(r4; σ = 0.005)
         c4 = crlb(m4, merge(θ4, r4.params, (kmf = 12.5,)); σ = 0.005)
         @test all(p -> s4[p] ≈ c4.sd[p], keys(s4))
+        # the information criteria where the residuals say nothing: all four NaN at N = P; AICc
+        # NaN at N ≤ k + 1 (k = P + 1: its correction undefined, or negative below), finite
+        # from N = k + 2 (T2: P = 2, k = 3)
+        @test all(isnan, (loglikelihood(r4), aic(r4), aicc(r4), bic(r4)))
+        for (n, defined) in ((3, false), (4, false), (5, true))
+            rn = fit(T2Decay(TE = te[1:n]), y[1:n])
+            @test isfinite(aic(rn)) && isfinite(bic(rn)) && isfinite(loglikelihood(rn))
+            @test isfinite(aicc(rn)) == defined
+        end
+        r5 = fit(T2Decay(TE = te[1:5]), y[1:5])
+        @test aicc(r5) ≈ aic(r5) + 2 * 3 * 4 / (5 - 3 - 1)
+        @test all(isnan, aicc(fit(T2Decay(TE = te[1:4]), Y[:, 1:4])))
         # maps: fixed values per voxel (B1), a mask (unfitted voxels NaN), σ as a map
         mf = T1MFA(FA = [3.0, 6, 10, 15, 20], TR = 0.015)
         b1 = [0.8 + 0.4 * (i + j) / 20 for i in 1:6, j in 1:5]

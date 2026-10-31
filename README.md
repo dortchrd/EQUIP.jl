@@ -253,7 +253,9 @@ bic(fit(T2BiexpDecay(TE = te), y)) < bic(fit(T2Decay(TE = te), y))   # the secon
 - `nobs`, `dof` (the free parameters and σ, as GLM counts), `dof_residual` (N − P), `rss`,
   `loglikelihood`, `aic`, `aicc`, `bic` (Gaussian, σ estimated).
 - With as many observations as free parameters (the 4-point SIR scheme) the residuals say
-  nothing about the noise: `residualsd` is NaN, so give `σ`. With σ given, the standard errors
+  nothing about the noise: `residualsd` and the information criteria are NaN; for standard
+  errors, give `σ`. AICc, the one for few observations per parameter, is NaN also when
+  N ≤ P + 2 (its small-sample correction is undefined there). With σ given, the standard errors
   are `crlb`'s at the fit's values (tested), so the two can be compared.
 - Checked on 2000 noisy copies (T2 decay): the median standard error matches the spread of
   the estimates within 1%, and σ̂ the true σ. All of it assumes Gaussian noise: for magnitude

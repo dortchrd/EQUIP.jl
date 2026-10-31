@@ -2493,6 +2493,12 @@ scope (decided 2026-10-31):
        (B1 map, mask) as its own one-voxel fit; a Float32 fit's statistics as the Float64
        fit's; AIC and BIC choose the bi-exponential for bi-exponential data and the mono for
        mono. 34 tests.
+     - *Fixed after review* (`aicc-fix`): AICc's correction 2k(k + 1)/(N − k − 1) was used for
+       any N, so at N < k + 1 it was negative (the 4-point SIR, N = 4, k = 5: −30, rewarding
+       the parameters it should penalize); and at N = P the log-likelihood took the log of a
+       rounding-level SSE, making AIC, AICc and BIC huge and meaningless. Now NaN: all four
+       when N ≤ P (as `residualsd`), AICc also when N ≤ k + 1. Tested at the boundaries (T2
+       with 3, 4 and 5 echoes; the 4-point SIR; a dataset). 43 tests.
    - **Weighted fits**: minimize ½(g − y)ᵀW(g − y) with W = Σ⁻¹, from the noise as crlb takes
      it (`σ` per observation: a weight per row; a full `Σ`: rows whitened by L⁻¹, as
      `_FullNoise` does for crlb). Why: with unequal σ (different averages or bandwidths, σ
