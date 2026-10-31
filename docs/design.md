@@ -2489,9 +2489,13 @@ maps are later.
   Weighted against unweighted (500 voxels, SNR 100): the sums cost the same alone (16-point SIR
   702 and 711 ns), but inlined into `levmar` (twice) the weighted loop made the solver slower for
   the bigger models with the same iterations (weights all 1: 16-point SIR with kmf free 8.3 →
-  11.5 µs, biexponential 15.9 → 18.8 µs, T2 1.55 → 1.61 µs). The weighted `normal_equations` is
-  therefore a method of its own, not inlined, and the unweighted one is the original code: with
-  weights all 1 now 8.2 → 8.7 µs, 15.9 → 15.6 µs, 1.54 → 1.55 µs. Weights that differ change the
+  11.5 µs, biexponential 15.9 → 18.8 µs, T2 1.55 → 1.61 µs). Not the size of the compiled
+  solver: inlined, the weighted `levmar` had about as many lines of LLVM IR as the fast
+  unweighted one (16-point SIR 4040 against 3962), so how LLVM optimizes the merged loop, not
+  yet pinned down. So `normal_equations` is one function for both (each term times `_wt`, 1
+  unweighted) and not inlined: unweighted 8.3, 15.7 and 1.56 µs (as inlined, within noise; the
+  same numbers bit for bit), weights all 1 8.7, 15.9 and 1.55 µs. (Two methods, the unweighted
+  inlined, were 1–3% faster unweighted; one function was chosen to keep one sum to read.) Weights that differ change the
   path, not the cost of a step: with weights 1 to 8 the biexponential takes 28.7 iterations
   against 22.0 (24.0 → 30.7 evaluations), so its fits take longer; T2, T1IR and ADC the same. T2 decay, σ 5 → 40
   over 32 echoes, wᵢ = 1/σᵢ²: SD of T2 1.15e-3 over 2000 copies against the bound 1.12e-3

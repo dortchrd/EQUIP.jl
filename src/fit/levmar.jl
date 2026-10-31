@@ -154,10 +154,10 @@ end
 VoxelProblem{F}(model::M, y::Y, fixed::X, w::W = nothing) where {F,M,Y,X,W} =
     VoxelProblem{F,M,Y,X,W}(model, y, fixed, w)
 
-# Observation i's weight, in precision T: 1 for an unweighted fit. The starts' and crlb's sums
-# multiply by it; x·1 is exact (and the compiler drops the multiplication), so an unweighted fit
-# is the same, bit for bit and as fast, as before weights existed. Julia picks the method by the
-# type of `w`. (The solver's own sums, `normal_equations`, have a method for each.)
+# Observation i's weight, in precision T: 1 for an unweighted fit. Every sum multiplies by it
+# (the solver's, the starts', crlb's); x·1 is exact (and the compiler drops the multiplication),
+# so an unweighted fit gives the same numbers, bit for bit, as before weights existed. Julia picks
+# the method by the type of `w`, when it compiles: no test at run time.
 @inline _wt(::Nothing, i, ::Type{T}) where {T} = one(T)
 @inline _wt(w::AbstractVector, i, ::Type{T}) where {T} = T(@inbounds w[i])
 
@@ -189,45 +189,29 @@ Evaluate the model at θ with dual numbers into `buf` (one dual per observation)
 SSE, JᵀJ (P×P) and Jᵀr (P) from it, each term times the observation's weight wᵢ (1 when the
 fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
 """
-@inline function normal_equations(prob::VoxelProblem{F,M,Y,X,Nothing}, θ::SVector{P,T},
-                                  buf) where {F,M,Y,X,P,T}
+# One function for weighted and unweighted fits: each term times the observation's weight,
+# `_wt(prob.w, i, T)`, which is 1 for an unweighted fit (exact: the same numbers, bit for bit, as
+# without it). Not inlined into `levmar`: inlined there (twice, at the start and at each trial
+# point), the weighted loop made the whole solver slower for the bigger models with the same
+# iterations (weights all 1: 39% for the 16-point SIR with kmf free, 18% for the biexponential),
+# though the sum alone costs the same; as a call, weighted and unweighted fits run at the same
+# speed (docs/design.md, "Weighted fits").
+@noinline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
     p = _params(Val(F), _seed(θ), prob.fixed)   # every parameter; the free ones are duals
     signal!(buf, prob.model, p)                 # the model fills buf[i] = (fᵢ, ∂fᵢ/∂θ)
-    A = zero(SMatrix{P,P,T})                     # JᵀJ
-    g = zero(SVector{P,T})                       # Jᵀr
-    sse = zero(T)
+    A = zero(SMatrix{P,P,T})                     # JᵀWJ
+    g = zero(SVector{P,T})                       # JᵀWr
+    sse = zero(T)                                # Σwr²
     y = prob.y
     @inbounds for i in eachindex(buf)
         d = buf[i]
         J = SVector{P,T}(partials(d).values)     # row i of the Jacobian
         r = T(value(d)) - T(y[i])                # residual i
-        A += J * J'                              # outer product, P×P
-        g += r * J
-        sse += r * r
-    end
-    return sse, A, g
-end
-# Weighted: each row times its weight. A method of its own, not inlined into `levmar`: inlined
-# (twice, at the start and at each trial point), the larger loop made the whole solver slower for
-# the bigger models, 39% for the 16-point SIR with kmf free and 18% for the biexponential, with
-# the same iterations (weights all 1); as a call, the weighted fit is as fast as the unweighted
-# one (docs/design.md, "Weighted fits").
-@noinline function normal_equations(prob::VoxelProblem{F,M,Y,X,<:AbstractVector},
-                                    θ::SVector{P,T}, buf) where {F,M,Y,X,P,T}
-    p = _params(Val(F), _seed(θ), prob.fixed)
-    signal!(buf, prob.model, p)
-    A = zero(SMatrix{P,P,T})                     # JᵀWJ
-    g = zero(SVector{P,T})                       # JᵀWr
-    sse = zero(T)                                # Σwr²
-    y, w = prob.y, prob.w
-    @inbounds for i in eachindex(buf)
-        d = buf[i]
-        J = SVector{P,T}(partials(d).values)
-        r = T(value(d)) - T(y[i])
-        wJ = T(w[i]) * J
-        A += wJ * J'
+        w = _wt(prob.w, i, T)                    # its weight (1: unweighted)
+        wJ = w * J
+        A += wJ * J'                             # outer product, P×P
         g += r * wJ
-        sse += T(w[i]) * r * r
+        sse += w * r * r
     end
     return sse, A, g
 end
