@@ -1,14 +1,23 @@
 # EQUIP.jl
 
+*EQUIP: Estimation of QUantitative Imaging Parameters: fit, predict (CRLB), measure (Monte
+Carlo) and design MRI protocols.*
+
 **E**stimation of **QU**antitative **I**maging **P**arameters: MRI signal models and fast
 voxel-wise fitting, for quantitative maps (T1, T2, qMT, ...). Built for millions of small fits:
 fewer than 10 parameters and fewer than 100 observations per voxel. A custom
 Levenberg–Marquardt solver with automatic derivatives fits one voxel in a few microseconds
 without allocating memory, and threads spread the voxels over your CPU cores.
 
-The signal model is the center of the package. Fitting comes first; CRLB, Monte Carlo,
-sensitivity analysis and protocol optimization will build on the same models (see
-[Roadmap](#roadmap)).
+The signal model is the center of the package, and four parts build on it:
+
+- **Fit**: `fit` a voxel or a dataset, with the fit's statistics (`stderror`, AIC/BIC, ...).
+- **Predict**: `crlb`, the bias and SD of each fitted parameter from derivatives, before
+  scanning: the Cramér–Rao bound, biased when the fit assumes a wrong value.
+- **Measure**: `montecarlo`, the same measured by simulating and fitting noisy copies, with
+  crlb's prediction alongside.
+- **Design**: `ProtocolDesign` and `optimize_protocol`, the protocol that minimizes the
+  predicted error over a set of `scenarios` (tissues, ranges of true values, conditions).
 
 ## Install and test
 
