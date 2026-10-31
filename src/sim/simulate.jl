@@ -1,5 +1,5 @@
 # =================================================================================================
-# simulate: noisy data from a model, for Monte Carlo, phantoms, benchmarks and tests
+# simulate: noisy data from a model, for Monte Carlo, maps, benchmarks and tests
 #
 # The noise level (`snr`, `σ` or `Σ`) is checked and turned into what is drawn by the noise model,
 # sim/noise.jl, which `crlb` shares.
@@ -28,14 +28,14 @@ takes).
 - `rng`: the random number generator, e.g. `MersenneTwister(1)` for repeatable data.
 
 The result is a vector (one voxel), an `n × M` matrix (`n` copies), or an array with the size
-of the maps plus a last dimension of `M` observations. Voxels with a NaN parameter (e.g. the
-background of a [`phantom`](@ref)) give NaN data.
+of the maps plus a last dimension of `M` observations. Voxels with a NaN parameter (e.g. a
+map's background) give NaN data.
 
 ```julia
 m = T2Decay(TE = 0.01:0.01:0.32)
 y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50)                      # one voxel
 Y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, n = 10_000)          # Monte Carlo
-data = simulate(m, phantom(labelshapes((64, 64)), tissues); snr = 50)    # a phantom
+data = simulate(m, (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64)); snr = 50)  # maps
 ```
 """
 function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,

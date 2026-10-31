@@ -2378,6 +2378,31 @@ CLI / Python / MATLAB, GPU, other model-specific and neighbour starting values, 
 weights, other data layouts, more models. (Precompilation is back: a workload, see Performance
 notes.)
 
+## The prerelease
+
+The first version to share is a prerelease, not a 1.0: its interface may still change. Its
+scope (decided 2026-10-31):
+
+- **In:** fitting (the model interface, the solver, datasets on threads, `refit`); `crlb` (the
+  sandwich and Eq. 3, sweeps, fits side by side, general noise); `montecarlo`, with crlb's
+  prediction alongside; protocol design (`scenarios`, `ProtocolDesign`, `optimize_protocol`);
+  the simulation they need (`simulate`, the noise model, `TISSUES` and `nominal`, `compare`); the
+  diagnostics already built (`cond`, `cor`, `leakage`).
+- **Trimmed, for later:** digital phantoms (`phantom(labels, tissues)`, `labelshapes(dims)`):
+  set aside, in git at d901143 (src/sim/phantom.jl and its test), to come back with the
+  phantom work of item 2 (smooth variation, partial volume, B1, brain-like label images).
+  `compare` stays: it judges any dataset fit, and its `labels` is any integer map.
+- **To add before it:** fit statistics on `FitResult` (item 3: `rss`, `dof`, the residual SD,
+  `stderror`, `vcov`, `cor`, AIC/BIC, parameters on a bound); models: NODDI and SMT (item 7),
+  and the pulsed qMT models of Yarnykh and of Ramani (item 6), which bring the bound pool's
+  saturation (the pulse models, item 6) with them.
+- **Then the release basics:** a license, CI running the tests, a version number, the
+  repository's name (the package is `EQUIP`, the repository `voxelfit.jl`; registration needs
+  `EQUIP.jl`), the precompile workload extended to crlb, montecarlo and a design (a first
+  `ProtocolDesign` compiled for 8.8 s), an example script per part, a shorter README.
+- **Kept exported:** crlb's pieces (`noisefree`, `bias`, `hessian`, `biasgradient`,
+  `sandwich`, `biasedcrlb`), asked for at the REPL; unexporting them is open.
+
 ## Roadmap
 
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,

@@ -93,7 +93,7 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes)
     name = nameof(M)
     truth = _complete(name, own, θ)           # checked: every parameter, model order, ties kept
     any(values(map(_hasmap, truth))) && throw(ArgumentError("a scenario is one voxel's truth: " *
-        "give numbers, not maps. For maps (a phantom), simulate and fit them, then `compare`"))
+        "give numbers, not maps. For maps, simulate and fit them, then `compare`"))
     θt = _resolve_ties(map(_tie, truth))      # the true values, ties followed
 
     # The fit from the truth, parameter by parameter: estimated as the model estimates them, or

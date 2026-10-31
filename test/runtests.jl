@@ -810,7 +810,7 @@ end
         @test occursin("19 of 20 voxels (mask)", s) && occursin("medians", s)
     end
 
-    @testset "simulation: simulate, tissue presets, phantoms, compare" begin
+    @testset "simulation: simulate, tissue presets, maps, compare" begin
         te = collect(0.01:0.01:0.32)
         m = T2Decay(TE = te)
         θ = (S0 = 1000.0, T2 = 0.08)
@@ -849,11 +849,12 @@ end
         r16 = fit(m16, signal(m16, t16); kmf = Free())
         @test r16.params.PSR ≈ 0.12 rtol = 1e-6
         @test r16.params.kmf ≈ 10.0 rtol = 1e-6
-        # a phantom, end to end: simulate, fit, compare
-        labels = labelshapes((24, 20))
+        # maps, end to end: simulate, fit, compare by label (a label image made by hand: 0 the
+        # background, then three tissues; each parameter a map, NaN in the background)
+        labels = [j <= 2 ? 0 : 1 + (i - 1) * 3 ÷ 24 for i in 1:24, j in 1:20]
         @test sort(unique(labels)) == [0, 1, 2, 3]
-        tm = phantom(labels, [1 => nominal(m, :GM; S0 = 1000.0), 2 => nominal(m, :WM; S0 = 1000.0),
-                              3 => nominal(m, :blood; S0 = 1000.0)])
+        ts = [nominal(m, :GM; S0 = 1000.0), nominal(m, :WM; S0 = 1000.0), nominal(m, :blood; S0 = 1000.0)]
+        tm = NamedTuple{keys(ts[1])}(Tuple([l == 0 ? NaN : Float64(ts[l][n]) for l in labels] for n in keys(ts[1])))
         @test isnan(tm.T2[1, 1]) && all(==(0.069), tm.T2[labels .== 2])
         data = simulate(m, tm; snr = 100, rng = MersenneTwister(4))
         @test all(isnan, data[1, 1, :])                                      # background

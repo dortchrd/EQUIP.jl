@@ -1,6 +1,6 @@
 # =================================================================================================
 # compare: the errors of a dataset fit (bias, SD, RMSE) against the truth it was simulated from,
-# e.g. a phantom's maps: what montecarlo measures for one voxel, measured over maps and labels
+# e.g. simulated maps: what montecarlo measures for one voxel, measured over maps and labels
 # =================================================================================================
 
 """
@@ -32,7 +32,7 @@ end
 
 Bias, SD, RMSE (absolute and relative) and % converged of a dataset fit, for every free
 parameter that `truth` gives (numbers, maps or ties, as for [`simulate`](@ref)). Over all fitted
-voxels, and per label when `labels` (an integer map, e.g. a phantom's) is given; `mask`
+voxels, and per label when `labels` (an integer map: tissue labels, a segmentation) is given; `mask`
 restricts the voxels further. Speed is not measured here (see the benchmarks in `bench/`).
 """
 function compare(res::FitResult, truth::NamedTuple; labels = nothing, mask = nothing)

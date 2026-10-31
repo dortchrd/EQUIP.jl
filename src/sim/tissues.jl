@@ -71,7 +71,7 @@ end
 `m` is a model, or a model's type when no acquisition is at hand: `nominal(QMTSIR, :SIR_WM_I)`.
 
 Every parameter of model `m` with a value: the ground truth for [`signal`](@ref),
-[`simulate`](@ref) and [`phantom`](@ref), from the model, the literature or your own values. For
+[`simulate`](@ref), from the model, the literature or your own values. For
 each parameter, the value comes from, in order:
 
 1. the keywords: `nominal(m; PSR = 0.15)`, `nominal(m, :WM; M0 = 1000.0, Sf = -0.95)`;

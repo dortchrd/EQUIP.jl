@@ -52,7 +52,7 @@ export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # rel
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis                                               # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
-export simulate, TISSUES, tissue, nominal, phantom, labelshapes, compare, Comparison  # simulation
+export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
 export sandwich, biasedcrlb
@@ -79,7 +79,6 @@ include("fit/dataset.jl")              # every voxel of a dataset, on threads: f
 
 # sim: from true values to data (uses models only)
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
-include("sim/phantom.jl")              # phantom: parameter maps from a label image; labelshapes
 include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
 
@@ -89,7 +88,7 @@ include("errors/scenario.jl")          # Scenario: a truth and the fit judged ag
 include("errors/derivatives.jl")       # crlb's pieces: CRLBCache, the sums, the formulas
 include("errors/crlb.jl")              # crlb: bias, SD and RMSE without noisy fits; the kernel
 include("errors/montecarlo.jl")        # montecarlo: the same measured, with crlb alongside
-include("errors/compare.jl")           # compare: the same measured on a dataset (a phantom)
+include("errors/compare.jl")           # compare: the same measured on a dataset (maps)
 include("errors/diagnostics.jl")       # cond, cor, leakage: where the errors come from
 include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise levels and truths
 

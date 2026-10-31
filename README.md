@@ -335,7 +335,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
 
 ## Simulation
 
-Simulated data, phantoms and published tissue values, for Monte Carlo studies, testing a
+Simulated data and published tissue values, for Monte Carlo studies, testing a
 protocol, or checking a model before scanning:
 
 ```julia
@@ -347,11 +347,9 @@ res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased be
 compare(res, t)                               # bias, SD, RMSE, % converged
 
 m = T2Decay(TE = 0.01:0.01:0.32)
-labels = labelshapes((64, 64))                # synthetic shapes: labels 0 (background) to 3
-maps = phantom(labels, [1 => nominal(m, :GM; S0 = 1000.0), 2 => nominal(m, :WM; S0 = 1000.0),
-                        3 => nominal(m, :blood; S0 = 1000.0)])
-res = fit(m, simulate(m, maps; snr = 100); mask = labels .> 0)
-compare(res, maps; labels)                    # per tissue
+maps = (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64))   # any maps
+res = fit(m, simulate(m, maps; snr = 100))
+compare(res, maps)                            # labels = an integer map, for each tissue
 ```
 
 Four functions give a model's parameters in different forms:
@@ -413,8 +411,6 @@ Parameters:
   where needed; the scale parameter is 1 unless given, and a parameter the model fixes takes
   its default (`defaults(m)`), shown in the result. Free values that are not tissue properties
   (an inversion efficiency `Sf`) must be given.
-- `phantom(labels, tissues)`: parameter maps from a label image (NaN in the background);
-  `labelshapes(dims)`: a 2-D or 3-D image of nested ellipses and a small disc.
 - `compare(res, truth; labels, mask)`: per parameter, overall and per label: bias, relative
   bias, SD, RMSE, relative RMSE, median relative error and % converged. `c.rows` is a table.
 - `SIR_5POINT`, `SIR_4POINT`: the optimized schemes of Dortch et al., MRM 2018, Table 2;
@@ -652,13 +648,13 @@ src/
                           (FitResult), starts.jl (each voxel's starting point), cache.jl
                           (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
                           a dataset, threaded; refit)
-  sim/                    from true values to data: tissues.jl (TISSUES, nominal), phantom.jl,
+  sim/                    from true values to data: tissues.jl (TISSUES, nominal),
                           noise.jl (snr, σ or Σ; noisecovariance), simulate.jl
   errors/                 a fit's errors against the truth (bias, SD, RMSE): scenario.jl
                           (Scenario: a truth and the fit judged against it), derivatives.jl
                           (crlb's pieces: CRLBCache, the sums, the formulas), crlb.jl (the
                           kernel, crlb, crlb!), montecarlo.jl, compare.jl (a dataset fit, e.g.
-                          a phantom's), diagnostics.jl (cond, cor, leakage), sweep.jl
+                          simulated maps), diagnostics.jl (cond, cor, leakage), sweep.jl
   design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
 ```
 
@@ -669,7 +665,9 @@ src/
 Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
 `main` branches.
 
-- **sim/** (started): phantoms with smooth variation, partial volume, a B1 field and lesions;
+- **sim/**: digital phantoms (`phantom(labels, tissues)` and `labelshapes(dims)` were built,
+  and set aside for the prerelease: in git at d901143, src/sim/phantom.jl), with smooth
+  variation, partial volume, a B1 field and lesions;
   brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
 - **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
   (starting values, bounds, accuracy vs SNR), with recorded results

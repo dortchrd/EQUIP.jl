@@ -25,7 +25,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`); levmar.jl is the solver,
   result.jl the `FitResult`
 - src/sim/, from true values to data (uses models only): `nominal` and tissue presets
-  (`TISSUES`), `phantom`, noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
+  (`TISSUES`), noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
   `simulate` and crlb; `noisecovariance`), `simulate`
 - src/errors/, a fit's errors against the truth (bias, SD, RMSE): scenario.jl, the `Scenario` (a truth and the fit judged against it, built
   from the truth with fit's keywords: what crlb and montecarlo take; `crlb(m, θ; kmf = 12.5)`
@@ -35,7 +35,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `informationmatrix`, ...); crlb.jl, the kernel `_crlb!` (their composition), `crlb!` and
   `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3);
   montecarlo.jl, `montecarlo` (the same measured by simulating and fitting, with `crlb`
-  alongside); compare.jl, `compare` (the same measured on a dataset fit, e.g. a phantom's);
+  alongside); compare.jl, `compare` (the same measured on a dataset fit, e.g. simulated maps);
   diagnostics.jl, `cond`, `cor` and `leakage` (where the errors come from: dθ̂/dc of each
   fixed parameter, from a joint cache with the fixed numbers seeded too); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
