@@ -130,7 +130,8 @@ function setup(model::MRIModel, ::Type{T} = Float64; params...) where {T}
     end
 
     # 2. Apply the keywords, one parameter each (`_apply_roles`, above).
-    roles = _apply_roles(model, roles, params, n -> ArgumentError(
+    roles = _apply_roles(model, roles, params, n -> n === :noise ? _noise_refused("fit") :
+        ArgumentError(
         n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
         n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
         "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *

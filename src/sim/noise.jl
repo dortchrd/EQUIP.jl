@@ -94,3 +94,22 @@ function _checked_kind(noise)
         throw(ArgumentError("`noise` must be :rician or :gaussian, got $(repr(noise))"))
     return noise
 end
+
+# Where the distribution is given: where data are made (`simulate`, `montecarlo`), and nowhere
+# else. The fit is least squares and crlb is first order in the noise, so both assume Gaussian
+# noise whatever the data's; a scenario is the truth and the fit judged against it, not the data.
+# Given to any of them anyway (keywords copied from a montecarlo call, say), `noise` is refused
+# with this error, which says where the distribution matters instead.
+function _noise_refused(fname)
+    why = fname == "fit" ?
+        "The fit is least squares, which assumes Gaussian noise; with magnitude data at low SNR " *
+        "the Rician floor biases it, which `montecarlo(m, θ; noise = :rician, ...)` measures " *
+        "(a Rician likelihood is on the roadmap)." :
+        fname == "Scenario" ?
+        "A scenario is the truth and the fit judged against it; the noise belongs to the data: " *
+        "give it to `montecarlo(m, s; noise = :rician, ...)` or `simulate`." :
+        "crlb and what is built on it are first order in the noise, so they assume Gaussian " *
+        "noise, as the least-squares fit does; the Rician floor of magnitude images is what " *
+        "`montecarlo(m, θ; noise = :rician, ...)` measures, with crlb alongside."
+    return ArgumentError("`noise`: $fname takes no noise distribution. " * why)
+end

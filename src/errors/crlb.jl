@@ -171,7 +171,10 @@ function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = not
     return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, cov, vary, simulate_with)
 end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
-              Σ = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing)
+              Σ = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
+              noise = nothing)
+    # `noise` is taken only to say why it is refused: crlb assumes Gaussian noise.
+    noise === nothing || throw(_noise_refused("crlb"))
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     _check_simulate_with(simulate_with)

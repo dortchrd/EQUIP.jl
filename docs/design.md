@@ -488,8 +488,12 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   no such option, so they got Rician noise silently whatever the data. How the images were made
   is something only the user knows, so the user says it, and every script shows it. (Changed
   2026-10; calls that relied on the default now pass `noise = :rician`, and give the same data
-  draw for draw.) For magnitude inversion recovery, adding complex noise to the signed signal
-  and taking the magnitude depends only on |S|, so Rician noise on the model's |S| is exact.
+  draw for draw.) It is given only where data are made: `fit` (least squares), `crlb` (first
+  order in the noise), its pieces, `ProtocolDesign` and `Scenario` all assume or need no
+  distribution, and refuse a `noise` keyword with an error that says why, rather than a
+  generic "not a parameter". For magnitude inversion recovery, adding complex noise to the
+  signed signal and taking the magnitude depends only on |S|, so Rician noise on the model's
+  |S| is exact.
 - **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM

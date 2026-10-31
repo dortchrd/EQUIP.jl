@@ -110,8 +110,11 @@ end
 function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
                         acquisition = nothing, scantime = nothing, constraints = nothing,
                         shared = (), weights::NamedTuple = (;), budget = nothing,
-                        aggregate = maximum, cov::Symbol = :sandwich, vary = nothing)
-    # `vary` is taken only to say where its meaning went: elsewhere it changes true values.
+                        aggregate = maximum, cov::Symbol = :sandwich, vary = nothing,
+                        noise = nothing)
+    # `noise` is taken only to say why it is refused (the objective is crlb's: Gaussian noise),
+    # `vary` only to say where its meaning went: elsewhere it changes true values.
+    noise === nothing || throw(_noise_refused("ProtocolDesign"))
     vary === nothing || throw(ArgumentError("`vary` changes true parameter values (crlb, " *
         "montecarlo, scenarios); the acquisition to optimize is `acquisition = (TI = (0.01, " *
         "10.0), TD = (0.01, 10.0))`, each field with its bounds"))

@@ -109,9 +109,10 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes)
     # value, `starts = :model`).
     given = ()                                # the parameters given a start here
     for (n, x) in pairs(changes)
-        haskey(roles, n) || throw(ArgumentError(n in _OPTIONS ?
-            "`$n` is an option of the fit, not a parameter's role: give it to montecarlo" :
-            "`$n` is not a parameter of $name; the parameters are $(join(keys(own), ", "))"))
+        haskey(roles, n) || throw(n === :noise ? _noise_refused("Scenario") :
+            ArgumentError(n in _OPTIONS ?
+                "`$n` is an option of the fit, not a parameter's role: give it to montecarlo" :
+                "`$n` is not a parameter of $name; the parameters are $(join(keys(own), ", "))"))
         _hasmap(x) && throw(ArgumentError("`$n`: a scenario is one voxel: give numbers, not maps"))
         x isa Free && x.start === :scale && _check_scale(name, own, n)
         r = if x isa Free && roles[n] isa Fixed

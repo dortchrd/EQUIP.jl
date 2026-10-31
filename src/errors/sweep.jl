@@ -353,7 +353,8 @@ end
 # set's settings as the sweep's. Here rather than with crlb and montecarlo: a method for a
 # `Sweep` of scenarios needs `Sweep` defined, which this file does after them.
 function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
-              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing)
+              cov::Symbol = :sandwich, vary = (;), simulate_with = nothing, noise = nothing)
+    noise === nothing || throw(_noise_refused("crlb"))     # crlb assumes Gaussian noise
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     caches = [_CRLBCache(m, sc, cov) for sc in set.results]          # one per scenario, once

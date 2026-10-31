@@ -731,6 +731,7 @@ function _fitsettings(fname, m::MRIModel, settings, own)
             "truth; `starts` is for montecarlo's fits"))
         k in _OPTIONS && throw(ArgumentError("`$k`: the noise-free fit sets its own options; " *
             "give only the parameters' settings"))
+        k === :noise && !(k in names) && throw(_noise_refused(fname))
         k in names || throw(ArgumentError("`$k` is neither a parameter of " *
             "$(nameof(typeof(m))) ($(join(names, ", "))) nor an option of $fname" *
             (isempty(own) ? "" : " ($(join(own, ", ")))")))

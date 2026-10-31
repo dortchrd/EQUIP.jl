@@ -1113,6 +1113,13 @@ end
         @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f)"
         # Mistakes
         @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ)))
+        # `noise` is for where data are made: crlb (Gaussian, first order), its pieces, the fit
+        # (least squares) and a scenario refuse it, saying why
+        @test occursin("crlb takes no noise distribution", msg(() -> crlb(m4, θ; noise = :rician, snr = 200)))
+        @test occursin("assume Gaussian noise", msg(() -> crlb(m4, Scenario(m4, θ); noise = :gaussian, snr = 200)))
+        @test occursin("jacobian takes no noise", msg(() -> jacobian(m4, θ; noise = :rician)))
+        @test occursin("Scenario takes no noise", msg(() -> Scenario(m4, θ; noise = :rician)))
+        @test occursin("fit takes no noise", msg(() -> fit(m4, signal(m4, θ); noise = :rician)))
         @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ; snr = 200, σ = 0.01)))
         @test occursin("`σ` has 3 values", msg(() -> crlb(m4, θ; σ = [1, 2, 3])))
         @test occursin("`cov` must be", msg(() -> crlb(m4, θ; snr = 200, cov = :eq3)))
@@ -1809,6 +1816,8 @@ end
         @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1)).sd
         @test occursin("SIR_lesion", sprint(show, MIME"text/plain"(), c)) && !occursin(":SIR_lesion", sprint(show, MIME"text/plain"(), c))
         @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = :kmf => [5.0, 10.0])))
+        @test occursin("crlb takes no noise", msg(() -> crlb(mm, two; snr = 200, noise = :rician)))
+        @test occursin("Scenario takes no noise", msg(() -> scenarios(QMTSIR, [:SIR_WM_I]; noise = :rician)))
         @test occursin("not a set", msg(() -> montecarlo(mm, two; noise = :rician, snr = 200, n = 10, simulate_with = mm => nominal(mm))))
     end
 
@@ -1872,6 +1881,7 @@ end
         # mistakes
         @test occursin("give `scantime", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = space)))
         @test occursin("the acquisition to optimize is `acquisition", msg(() -> ProtocolDesign(m4, s4; snr = 200, vary = space, scantime = st)))
+        @test occursin("ProtocolDesign takes no noise", msg(() -> ProtocolDesign(m4, s4; snr = 200, noise = :rician, acquisition = space, scantime = st)))
         @test occursin("give `acquisition`", msg(() -> ProtocolDesign(m4, s4; snr = 200, scantime = st)))
         @test occursin("has no field `TR`", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (TR = (0.1, 1.0),), scantime = st)))
         @test occursin("not a per-observation field", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (magnitude = (0, 1),), scantime = st)))
