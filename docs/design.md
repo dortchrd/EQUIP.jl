@@ -525,6 +525,24 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   scenario, the kernel's per-observation path; the objective still allocates nothing.
   Correlation between voxels (parallel imaging, k-space filtering) is not modelled: each voxel
   is fitted alone, so it changes no voxel's bias or SD, only ROI averages.
+- **`simulate` allocates only the data** (2026-10). It called `signal(m, p)` for every voxel,
+  which checked the whole truth again (`resolve`: names, missing values, roles, ties) and made
+  a new vector: 2.8 KB and 8.7 µs a copy for the 4-point SIR, more than nine-tenths of a
+  montecarlo's time (10 000 copies on 4 threads: 91 ms, of which simulate 86 ms; now 7.5 ms, of
+  which simulate 2.0 ms). Now the truth is checked once (`_complete`, `resolve`'s checks) and kept in the
+  model's order with ties as `_Tie`s; each voxel reads its numbers and follows its ties by
+  `map`s over named tuples (unrolled by the compiler, no allocation), and `signal!` writes into
+  one buffer of `signal`'s element type (`_signaltype`, shared). Correlated noise: `randn!` into
+  one buffer and `mul!` into two, in place of `L * randn(rng, M)`. The loop is behind a function
+  barrier (`_simulate!`), so it is compiled for the truth's and the options' types. The random
+  numbers are drawn in the same order, so the data are the same bit for bit: checked on 85 cases
+  (ten models, each with snr Rician and Gaussian, σ per observation, Σ Rician and Gaussian,
+  averages combined as magnitudes and in complex, one voxel; maps with a NaN background, a tie
+  by name and by function, Σ on maps; a montecarlo's estimates). Measured, a copy, one thread:
+  4-point SIR 8.71 → 0.21 µs (2800 → 0 bytes beyond the data), T2 decay with 32 echoes 1.41 →
+  1.29 µs (384 → 0), the same with a full Σ 2.13 → 1.17 µs (1664 → 0), ADC with magnitude
+  averaging over 7 b-values 1.07 → 0.48 µs (368 → 0). (The T2 cases are the random numbers and
+  exponentials themselves.) Still one thread, so that the data stay the same draw for draw.
 - **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
@@ -1787,7 +1805,8 @@ What the first version does, and why:
   `simulate` draws correlated noise as L·z (Σ = LLᵀ), for Rician noise in each channel; one σ
   given as a vector gives the same data, draw for draw (tested). `mc.σ` is now one SD per
   observation (it was a number).
-- Measured (4 threads): 10 000 copies of the 4-point scheme in 0.23 s. Against crlb, WM I with
+- Measured (4 threads): 10 000 copies of the 4-point scheme in 0.23 s (7.5 ms since
+  `simulate` allocates only the data, 2026-10). Against crlb, WM I with
   kmf fixed at 12.5, Rician noise, SNR 200, 10 000 copies: SD/crlb 1.004, 0.994, 0.996, 0.997
   (PSR, R1f, Sf, M0f; ± 0.007), PSR bias −14.2% measured, −14.1% predicted. T2Decay, Gaussian:
   0.995 and 0.990 (± 0.007). One caution, seen in testing: within one sample the parameters'

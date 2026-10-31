@@ -11,7 +11,8 @@
 #   1. fit!: one voxel, every built-in model (µs, bytes)
 #   2. fit: a dataset of 100,000 voxels on threads (voxels per second)
 #   3. crlb!: one prediction (µs, bytes), and a sweep (µs a setting)
-#   4. montecarlo: 10,000 noisy copies, fitted on threads
+#   4. simulate (one thread, µs a copy and bytes beyond the data) and montecarlo: 10,000 noisy
+#      copies, fitted on threads
 #   5. a protocol design: one evaluation of Eq. 5 (µs, bytes), and a search
 #   6. fit statistics on a dataset, scenarios, leakage (where the commit has them)
 #
@@ -84,7 +85,14 @@ t = best(() -> crlb(m4, θwm; snr = 200, kmf = 12.5, vary = :kmf => 5.0:0.5:20.0
 row("crlb sweep over 31 true kmf, 4-point", @sprintf("%6.2f µs a setting", 1e6t))
 
 # -------------------------------------------------------------------------------------------------
-println("\n4. montecarlo: 10,000 noisy copies (Rician, SNR 200), fitted on threads")
+println("\n4. simulate (one thread) and montecarlo: 10,000 noisy copies (Rician, SNR 200), fitted on threads")
+for (label, m, θ) in (("simulate, 4-point SIR", m4, nominal(m4, :SIR_WM_I)),
+                      ("simulate, T2 decay, 32 echoes", T2Decay(TE = 0.01:0.01:0.32), (S0 = 1000.0, T2 = 0.08)))
+    sim(n) = simulate(m, θ; noise = :rician, snr = 200, n, rng = MersenneTwister(1))
+    local t = best(() -> sim(10_000), 1, 5) / 10_000
+    local a = (@allocated(sim(20_000)) - @allocated(sim(10_000))) / 10_000 - 8 * length(signal(m, θ))
+    row(label, @sprintf("%6.2f µs a copy, %d bytes beyond the data", 1e6t, round(Int, a)))
+end
 for (label, m, kw) in (("4-point, kmf assumed 12.5", m4, (kmf = 12.5,)),
                        ("5-point, kmf free", QMTSIR(; SIR_5POINT...), (kmf = Free(),)))
     local t = best(() -> montecarlo(m, nominal(m, :SIR_WM_I); noise = :rician, snr = 200, n = 10_000, kw...), 1, 3)

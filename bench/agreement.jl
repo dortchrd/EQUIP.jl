@@ -22,8 +22,8 @@
 #
 # So: section 1 (Gaussian, near linear) should agree everywhere; section 2 (Dortch et al.,
 # MRM 2018, Fig. 1: Rician, SNR 200) should agree, as the paper found; section 3 shows the
-# agreement ending as the SNR falls. n = 10,000 copies per case (the paper's); about a minute
-# with 4 threads.
+# agreement ending as the SNR falls. n = 10,000 copies per case (the paper's); about 25 s with
+# 4 threads, most of it compiling.
 # =================================================================================================
 
 using EQUIP, Printf, Random

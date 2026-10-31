@@ -570,11 +570,15 @@ signal(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)))  #
 function signal(m::MRIModel, p::NamedTuple)
     q = resolve(m, p)
     n = nobs(m)                                    # also checks the acquisition's lengths
-    # Element type of the output: wide enough for every parameter and acquisition value
-    # (e.g. Float64; or a dual number if someone differentiates through `signal`).
+    return signal!(Vector{_signaltype(m, q)}(undef, n), m, q)
+end
+
+# Element type of the signal for values q (resolved: numbers): wide enough for every parameter
+# and acquisition value (e.g. Float64; or a dual number if someone differentiates through
+# `signal`). Shared with `simulate`, which writes into one buffer of this type.
+function _signaltype(m::MRIModel, q::NamedTuple)
     vectors = filter(x -> x isa AbstractVector, _fields(m))
-    T = float(promote_type(map(typeof, values(q))..., map(eltype, vectors)...))
-    return signal!(Vector{T}(undef, n), m, q)
+    return float(promote_type(map(typeof, values(q))..., map(eltype, vectors)...))
 end
 
 # -------------------------------------------------------------------------------------------------
