@@ -171,7 +171,7 @@ end
         # nothing is filled in silently: a missing value is an error that lists every one missing
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         @test_throws ArgumentError signal(m, θfree)                          # fixed ones missing
-        @test_throws ArgumentError simulate(m, θfree; snr = 100)
+        @test_throws ArgumentError simulate(m, θfree; noise = :rician, snr = 100)
         @test occursin("missing: kmf, R1m, Sm, Mzf_td0, Mzm_td0", msg(() -> signal(m, θfree)))
         @test occursin("start from `nominal(m)`", msg(() -> signal(m, θfree)))
         @test occursin("nominal(m; kmf = ...)", msg(() -> signal(m, θfree)))
@@ -180,7 +180,7 @@ end
         @test_throws DimensionMismatch signal(QMTSIR(TI = [0.1, 1.0], TD = [1.0, 2.0, 3.0]), everything)
         # roles are not values: passing parameters(m), or a Fixed(...), is a clear error
         @test occursin("is a role", msg(() -> signal(m, parameters(m))))
-        @test occursin("is a role", msg(() -> simulate(m, parameters(m); snr = 100)))
+        @test occursin("is a role", msg(() -> simulate(m, parameters(m); noise = :rician, snr = 100)))
         @test occursin("write `kmf = 10.0`", msg(() -> signal(m, merge(everything, (kmf = Fixed(10.0),)))))
         # truth gives every value, the defaults included, so it simulates as it is
         t = nominal(m, :SIR_WM_II)
@@ -207,7 +207,7 @@ end
         @test resolve(m, nominal(m; R1m = q -> 0.8 * q.R1f)).R1m ≈ 0.8
         # signal = signal! on resolved values; simulate takes nominal(m)
         @test signal(m, nominal(m)) == signal!(zeros(3), m, resolve(m, nominal(m)))
-        @test size(simulate(m, nominal(m); snr = 100, n = 2)) == (2, 3)
+        @test size(simulate(m, nominal(m); noise = :rician, snr = 100, n = 2)) == (2, 3)
         # no number to take: must be given, and the error says why
         te = collect(0.01:0.01:0.32)
         @test occursin("`T2` (it starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
@@ -856,7 +856,7 @@ end
         # crlb's at the fit's values and the fit's assumption
         m4 = QMTSIR(; SIR_4POINT...)
         θ4 = nominal(m4, :SIR_WM_I)
-        r4 = fit(m4, simulate(m4, θ4; snr = 200, rng = MersenneTwister(3)))
+        r4 = fit(m4, simulate(m4, θ4; noise = :rician, snr = 200, rng = MersenneTwister(3)))
         @test dof_residual(r4) == 0 && isnan(residualsd(r4)) && all(isnan, values(stderror(r4)))
         s4 = stderror(r4; σ = 0.005)
         c4 = crlb(m4, merge(θ4, r4.params, (kmf = 12.5,)); σ = 0.005)
@@ -905,19 +905,23 @@ end
         m = T2Decay(TE = te)
         θ = (S0 = 1000.0, T2 = 0.08)
         # shapes: one voxel, n copies; the same seed gives the same data
-        @test size(simulate(m, θ; snr = 50)) == (32,)
-        @test size(simulate(m, θ; snr = 50, n = 7)) == (7, 32)
-        @test simulate(m, θ; snr = 50, rng = MersenneTwister(1)) == simulate(m, θ; snr = 50, rng = MersenneTwister(1))
+        @test size(simulate(m, θ; noise = :rician, snr = 50)) == (32,)
+        @test size(simulate(m, θ; noise = :rician, snr = 50, n = 7)) == (7, 32)
+        @test simulate(m, θ; noise = :rician, snr = 50, rng = MersenneTwister(1)) == simulate(m, θ; noise = :rician, snr = 50, rng = MersenneTwister(1))
         # snr is relative to the scale parameter (here σ = 1000/50 = 20); Gaussian SD; Rician floor
         Y = simulate(m, θ; snr = 50, n = 20_000, noise = :gaussian, rng = MersenneTwister(2))
         @test std(Y[:, 1]) ≈ 20 rtol = 0.03
         @test mean(Y[:, 1]) ≈ signal(m, θ)[1] rtol = 0.003
-        Yr = simulate(m, (S0 = 1000.0, T2 = 1e-4); σ = 20, n = 20_000, rng = MersenneTwister(3))
+        Yr = simulate(m, (S0 = 1000.0, T2 = 1e-4); noise = :rician, σ = 20, n = 20_000, rng = MersenneTwister(3))
         @test mean(Yr[:, end]) ≈ 20 * sqrt(π / 2) rtol = 0.02              # Rayleigh: no signal left
-        @test EQUIP._default_noise(T1IR(TI = [0.1], magnitude = false)) == :gaussian
-        @test EQUIP._default_noise(T1IR(TI = [0.1])) == :rician
+        # the noise's distribution is the user's choice: no default, whatever the model's options
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        @test occursin("give the noise's distribution", msg(() -> simulate(m, θ; snr = 50)))
+        @test occursin("give the noise's distribution",
+                       msg(() -> simulate(T1IR(TI = [0.1], magnitude = false), (M0 = 1.0, Sf = -1.0, T1 = 1.0); snr = 50)))
+        @test occursin("must be :rician or :gaussian", msg(() -> simulate(m, θ; snr = 50, noise = :poisson)))
         @test_throws ArgumentError simulate(m, θ)                            # no noise level
-        @test_throws ArgumentError simulate(m, θ; snr = 50, σ = 1.0)         # both
+        @test_throws ArgumentError simulate(m, θ; noise = :rician, snr = 50, σ = 1.0)         # both
         # tissue presets and truth
         @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
         @test tissue(:CSF) == (T1 = 4.124, T2 = 1.75)
@@ -946,7 +950,7 @@ end
         ts = [nominal(m, :GM; S0 = 1000.0), nominal(m, :WM; S0 = 1000.0), nominal(m, :blood; S0 = 1000.0)]
         tm = NamedTuple{keys(ts[1])}(Tuple([l == 0 ? NaN : Float64(ts[l][n]) for l in labels] for n in keys(ts[1])))
         @test isnan(tm.T2[1, 1]) && all(==(0.069), tm.T2[labels .== 2])
-        data = simulate(m, tm; snr = 100, rng = MersenneTwister(4))
+        data = simulate(m, tm; noise = :rician, snr = 100, rng = MersenneTwister(4))
         @test all(isnan, data[1, 1, :])                                      # background
         res = fit(m, data; mask = labels .> 0)
         c = compare(res, tm; labels)
@@ -959,7 +963,7 @@ end
         for (mm, kw, lo, hi) in ((QMTSIR(; SIR_5POINT...), (kmf = Free(),), 4.95, 5.2),
                                  (QMTSIR(; SIR_4POINT...), (;), 4.65, 4.85))
             t = nominal(mm, :SIR_lesion)
-            r = compare(fit(mm, simulate(mm, t; snr = 200, n = 2000, rng = MersenneTwister(5)); kw...), t)
+            r = compare(fit(mm, simulate(mm, t; noise = :rician, snr = 200, n = 2000, rng = MersenneTwister(5)); kw...), t)
             psr = only(filter(x -> x.parameter == :PSR, r.rows))
             @test lo < 100 * psr.mean < hi
             @test psr.converged == 1
@@ -1032,7 +1036,7 @@ end
         @test sqrt.(diag(D * inv(Jt' * Jt) * D')) ./ 200 ≈ collect(values(b3.sd)) rtol = 1e-5
         # Monte Carlo: least squares follows the sandwich (Eq. 3 is 5 standard errors lower for
         # PSR here, 12 with 20 000 fits), and centers on θ̂, not on the truth
-        Y = simulate(m16, θ16; snr = 200, n = 4000, rng = MersenneTwister(7))
+        Y = simulate(m16, θ16; noise = :gaussian, snr = 200, n = 4000, rng = MersenneTwister(7))
         res = fit(m16, Y)
         x = res.params.PSR[isconverged(res)]
         @test length(x) == 4000
@@ -1163,11 +1167,13 @@ end
         Rm, Rp = cor(mq), cor(mq.crlb)
         @test Rm ≈ vcov(mq) ./ (sqrt.(diag(vcov(mq))) * sqrt.(diag(vcov(mq)))') rtol = 1e-12
         @test all(abs.(Rm - Rp) .< 4 .* (1 .- Rp .^ 2) ./ sqrt(4000) .+ 1e-12)
-        # the noise as simulate's default (Rician for magnitude data); the fit's changes and
-        # options (precision) as for `fit`
-        @test montecarlo(m4, θ; snr = 200, n = 50).noise === :rician
-        @test montecarlo(QMTSIR(; SIR_4POINT..., magnitude = false), θ; snr = 200, n = 50).noise === :gaussian
-        m32 = montecarlo(m4, θ; snr = 200, n = 200, kmf = 5.0, precision = Float32)
+        # the noise, the user's choice (no default, checked before anything runs); the fit's
+        # changes and options (precision) as for `fit`
+        @test montecarlo(m4, θ; noise = :rician, snr = 200, n = 50).noise === :rician
+        @test montecarlo(m4, θ; noise = :gaussian, snr = 200, n = 50).noise === :gaussian
+        @test occursin("give the noise's distribution", msg(() -> montecarlo(m4, θ; snr = 200, n = 50)))
+        @test occursin("must be :rician or :gaussian", msg(() -> montecarlo(m4, θ; noise = :magnitude, snr = 200, n = 50)))
+        m32 = montecarlo(m4, θ; noise = :rician, snr = 200, n = 200, kmf = 5.0, precision = Float32)
         @test eltype(m32.result.params.PSR) == Float32 && m32.crlb.bias.PSR == 0
         # display
         s = sprint(show, MIME"text/plain"(), mq)
@@ -1176,12 +1182,12 @@ end
         @test occursin(r"\n  parameter +true +mean +rel bias +crlb +SD +crlb +SD/crlb +rel RMSE +crlb\n", s)
         @test repr(mq) == "MonteCarloResult(QMTSIR: PSR, R1f, Sf, M0f; n = 4000)"
         # mistakes
-        @test occursin("at least 2", msg(() -> montecarlo(mt, θt; σ = 10.0, n = 1)))
-        @test occursin("one voxel", msg(() -> montecarlo(mt, (S0 = fill(1000.0, 3), T2 = 0.08); σ = 10.0)))
-        @test montecarlo(mt, θt; σ = fill(10.0, 32), n = 50).σ == fill(10.0, 32)   # σ per observation
-        @test occursin("`snr`, `σ` or `Σ`", msg(() -> montecarlo(mt, θt)))
-        @test occursin("mask", msg(() -> montecarlo(mt, θt; σ = 10.0, mask = trues(2))))
-        @test occursin("missing: T2", msg(() -> montecarlo(mt, (S0 = 1000.0,); σ = 10.0)))
+        @test occursin("at least 2", msg(() -> montecarlo(mt, θt; noise = :rician, σ = 10.0, n = 1)))
+        @test occursin("one voxel", msg(() -> montecarlo(mt, (S0 = fill(1000.0, 3), T2 = 0.08); noise = :rician, σ = 10.0)))
+        @test montecarlo(mt, θt; noise = :rician, σ = fill(10.0, 32), n = 50).σ == fill(10.0, 32)   # σ per observation
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> montecarlo(mt, θt; noise = :rician)))
+        @test occursin("mask", msg(() -> montecarlo(mt, θt; noise = :rician, σ = 10.0, mask = trues(2))))
+        @test occursin("missing: T2", msg(() -> montecarlo(mt, (S0 = 1000.0,); noise = :rician, σ = 10.0)))
     end
 
     @testset "sweeps: crlb and montecarlo over noise levels and true values" begin
@@ -1222,14 +1228,14 @@ end
         @test occursin("as keywords, as for `fit`", msg(() -> crlb(m4, θ; snr = 200, fit = (kmf = 5.0,))))
         @test occursin("side by side as scenarios", msg(() -> crlb(m4, θ; snr = 200, fits = (a = (;),))))
         @test occursin("neither a parameter of QMTSIR", msg(() -> crlb(m4, θ; snr = 200, kfm = 5.0)))
-        @test occursin("nor an option of montecarlo", msg(() -> montecarlo(m4, θ; snr = 200, kfm = 5.0)))
+        @test occursin("nor an option of montecarlo", msg(() -> montecarlo(m4, θ; noise = :rician, snr = 200, kfm = 5.0)))
         @test occursin("nor an option of jacobian", msg(() -> jacobian(m4, θ; snr = 200)))
         # montecarlo sweeps: each setting is the one-case run from the same seed, and every
         # setting sees the same noise, so adding a setting changes no other result
-        a = montecarlo(m4, θ; snr = [100, 200], n = 500, rng = MersenneTwister(1))
-        b = montecarlo(m4, θ; snr = [100, 200, 400], n = 500, rng = MersenneTwister(1))
+        a = montecarlo(m4, θ; noise = :rician, snr = [100, 200], n = 500, rng = MersenneTwister(1))
+        b = montecarlo(m4, θ; noise = :rician, snr = [100, 200, 400], n = 500, rng = MersenneTwister(1))
         @test a[1].sd == b[1].sd && a[2].sd == b[2].sd
-        @test a[2].sd == montecarlo(m4, θ; snr = 200, n = 500, rng = MersenneTwister(1)).sd
+        @test a[2].sd == montecarlo(m4, θ; noise = :rician, snr = 200, n = 500, rng = MersenneTwister(1)).sd
         @test a[1].crlb.sd == crlb(m4, θ; snr = 100).sd
         # the bias curve measured matches crlb's (Gaussian noise; within 4 standard errors)
         v = montecarlo(m4, θ; snr = 200, n = 2000, noise = :gaussian, kmf = 12.5,
@@ -1251,7 +1257,7 @@ end
         # mistakes
         @test occursin("not a parameter", msg(() -> crlb(m4, θ; snr = 200, vary = :kfm => [1.0])))
         @test occursin("vector or a range", msg(() -> crlb(m4, θ; snr = 200, vary = :kmf => 5.0)))
-        @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; snr = 200, vary = :kmf => Float64[])))
+        @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; noise = :rician, snr = 200, vary = :kmf => Float64[])))
     end
 
     @testset "scenarios side by side, and data from another model" begin
@@ -1268,9 +1274,9 @@ end
         @test t.settings[1:2] == [(snr = 100, fit = :fixed), (snr = 100, fit = :free)]
         # montecarlo: the same noisy copies fitted each way (a paired comparison): each equals
         # the run with that one scenario and the same generator
-        v = montecarlo(m5, fs; snr = 200, n = 300, rng = MersenneTwister(1))
-        @test v[2].sd == montecarlo(m5, θ; snr = 200, n = 300, kmf = Free(), rng = MersenneTwister(1)).sd
-        @test v[1].sd == montecarlo(m5, θ; snr = 200, n = 300, kmf = 12.5, rng = MersenneTwister(1)).sd
+        v = montecarlo(m5, fs; noise = :rician, snr = 200, n = 300, rng = MersenneTwister(1))
+        @test v[2].sd == montecarlo(m5, θ; noise = :rician, snr = 200, n = 300, kmf = Free(), rng = MersenneTwister(1)).sd
+        @test v[1].sd == montecarlo(m5, θ; noise = :rician, snr = 200, n = 300, kmf = 12.5, rng = MersenneTwister(1)).sd
         sv = sprint(show, MIME"text/plain"(), v)
         @test occursin("fixed in fit `fixed`: kmf = 12.5 (true 5.0)", sv) && occursin("fixed in fit `free`: R1m = :R1f", sv)
         @test occursin(r"\n  fixed +PSR ", sv) && occursin(r"\n  free +PSR ", sv)
@@ -1291,7 +1297,7 @@ end
                         rng = MersenneTwister(2))
         @test abs(mc.mean.T2 - c.fit.T2) < 4 * mc.se_mean.T2
         @test abs(mc.sd.T2 - c.sd.T2) < 4 * mc.se_sd.T2
-        @test montecarlo(mt, ref; snr = 100, n = 50, simulate_with = mb => θb).noise === :rician
+        @test montecarlo(mt, ref; noise = :rician, snr = 100, n = 50, simulate_with = mb => θb).noise === :rician
         # vary changes the data's truth; the reference stays
         w = crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :fshort => [0.1, 0.3])
         @test w[1].fit.T2 > w[2].fit.T2 && w[1].truth == ref && w[2].data.second.fshort == 0.3
@@ -1343,8 +1349,8 @@ end
         Y = simulate(mt, (S0 = 0.0, T2 = 0.08); σ = σv, n = 40_000, noise = :gaussian, rng = MersenneTwister(3))
         @test std(Y[:, 1]) ≈ 5 rtol = 0.03
         @test std(Y[:, end]) ≈ 20 rtol = 0.03
-        @test simulate(mt, θ; σ = fill(10.0, 32), n = 3, rng = MersenneTwister(4)) ==
-              simulate(mt, θ; σ = 10.0, n = 3, rng = MersenneTwister(4))   # draw for draw
+        @test simulate(mt, θ; noise = :rician, σ = fill(10.0, 32), n = 3, rng = MersenneTwister(4)) ==
+              simulate(mt, θ; noise = :rician, σ = 10.0, n = 3, rng = MersenneTwister(4))   # draw for draw
         # informationmatrix: the Fisher (expected) and observed information. Nothing fixed wrong:
         # its inverse is the CRLB; an exact fit: the two agree; more points and kmf wrong: they
         # differ, and the sandwich is inv(I_obs) I inv(I_obs)
@@ -1380,8 +1386,8 @@ end
         @test occursin("positive definite", msg(() -> crlb(mt, θ; Σ = -Matrix(1.0I, 32, 32))))
         @test occursin("symmetric", msg(() -> crlb(mt, θ; Σ = Σ + triu(ones(32, 32), 1))))
         @test occursin("give `Σ`", msg(() -> crlb(mt, θ; σ = Σ)))
-        @test occursin("`snr`, `σ` or `Σ`", msg(() -> simulate(mt, θ; snr = 10, Σ)))
-        @test occursin("`σ` has 3 values", msg(() -> simulate(mt, θ; σ = [1.0, 2.0, 3.0])))
+        @test occursin("`snr`, `σ` or `Σ`", msg(() -> simulate(mt, θ; noise = :rician, snr = 10, Σ)))
+        @test occursin("`σ` has 3 values", msg(() -> simulate(mt, θ; noise = :rician, σ = [1.0, 2.0, 3.0])))
     end
 
     @testset "crlb's pieces: jacobian, hessian, informationmatrix, biasgradient, sandwich, biasedcrlb" begin
@@ -1457,7 +1463,7 @@ end
         @test ∇h[3, :] == [0.0, 0.0, -1.0, 0.0] && all(isfinite, ∇h)
         @test all(isnan, biasgradient(m4, θ; kmf = Free()))
         # the FitResult forms are for one voxel; mistakes
-        Y = simulate(m4, θ; snr = 200, n = 3, rng = MersenneTwister(1))
+        Y = simulate(m4, θ; noise = :rician, snr = 200, n = 3, rng = MersenneTwister(1))
         @test occursin("one-voxel", msg(() -> jacobian(fit(m4, Y))))
         @test occursin(":implicit or :unrolled", msg(() -> biasgradient(m4, θ; method = :fd)))
         @test occursin("`y` has 3 values", msg(() -> hessian(m4, θ, [1.0, 2.0, 3.0])))
@@ -1595,20 +1601,20 @@ end
         @test informationmatrix(m4, s; snr = 200) == informationmatrix(m4, θ; snr = 200)
         @test hessian(m4, s, signal(m4, θ)) == hessian(m4, θ, signal(m4, θ))
         # montecarlo: the fits start where the scenario says; the keyword form is the same
-        mc = montecarlo(m4, s; snr = 200, n = 200, rng = MersenneTwister(1))
-        @test mc.sd == montecarlo(m4, θ; snr = 200, n = 200, kmf = 12.5, rng = MersenneTwister(1)).sd
+        mc = montecarlo(m4, s; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1))
+        @test mc.sd == montecarlo(m4, θ; noise = :rician, snr = 200, n = 200, kmf = 12.5, rng = MersenneTwister(1)).sd
         @test mc.result.settings.PSR == s.roles.PSR && mc.crlb.sd == c.sd
-        mm = montecarlo(m4, θ; snr = 200, n = 200, kmf = 12.5, starts = :model, rng = MersenneTwister(1))
+        mm = montecarlo(m4, θ; noise = :rician, snr = 200, n = 200, kmf = 12.5, starts = :model, rng = MersenneTwister(1))
         @test mm.result.settings.M0f.start === :scale && mm.result.settings.PSR.start == own.PSR.start
         # in a sweep over true values the starts from the truth follow it; the fixed values stay
-        v = montecarlo(m4, s; snr = 200, n = 50, vary = :PSR => [0.1, 0.15], rng = MersenneTwister(2))
+        v = montecarlo(m4, s; noise = :rician, snr = 200, n = 50, vary = :PSR => [0.1, 0.15], rng = MersenneTwister(2))
         @test [r.result.settings.PSR.start for r in v] == [0.1, 0.15]
         @test [r.result.settings.kmf for r in v] == [Fixed(12.5), Fixed(12.5)]
         # a start that depends on the protocol: kept as a function, computed for each protocol
         ti = [0.05, 0.1, 0.3, 0.6, 1.2, 2.4]
         sir = Scenario(T1IR, (M0 = 1000.0, Sf = -0.95, T1 = 1.0); starts = :model)
         @test sir.roles.T1.start isa Function
-        r1 = montecarlo(T1IR(TI = ti), sir; σ = 10.0, n = 50, rng = MersenneTwister(3))
+        r1 = montecarlo(T1IR(TI = ti), sir; noise = :rician, σ = 10.0, n = 50, rng = MersenneTwister(3))
         @test r1.result.settings.T1.start.values == parameters(T1IR(TI = ti)).T1.start.values
         # a model with its own `parameters(m)` method: from a model, not its type
         ds = Scenario(DataStartTest([0.01, 0.02, 0.04]), (S0 = 1.0, T2 = 0.05, c = 1.0))
@@ -1799,11 +1805,11 @@ end
         c2 = crlb(mm, two; snr = [100, 200], cov = :biased)
         @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.78)
         @test c2[8].sd == crlb(mm, two[2]; snr = 200, cov = :biased).sd
-        mc = montecarlo(mm, two; snr = 200, n = 200, rng = MersenneTwister(1))
-        @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; snr = 200, n = 200, rng = MersenneTwister(1)).sd
+        mc = montecarlo(mm, two; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1))
+        @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1)).sd
         @test occursin("SIR_lesion", sprint(show, MIME"text/plain"(), c)) && !occursin(":SIR_lesion", sprint(show, MIME"text/plain"(), c))
         @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = :kmf => [5.0, 10.0])))
-        @test occursin("not a set", msg(() -> montecarlo(mm, two; snr = 200, n = 10, simulate_with = mm => nominal(mm))))
+        @test occursin("not a set", msg(() -> montecarlo(mm, two; noise = :rician, snr = 200, n = 10, simulate_with = mm => nominal(mm))))
     end
 
     @testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin
@@ -1893,8 +1899,8 @@ end
         dm = DataStartTest([0.01, 0.02])
         @test parameters(dm; c = 2.0).c.value == 2.0 && parameters(dm; c = 2.0).T2 == parameters(dm).T2
         # passed whole, after the data or the truth: the same as the keywords
-        y = simulate(m, θ; snr = 200, rng = MersenneTwister(1))
-        Y = simulate(m, θ; snr = 200, n = 20, rng = MersenneTwister(2))
+        y = simulate(m, θ; noise = :rician, snr = 200, rng = MersenneTwister(1))
+        Y = simulate(m, θ; noise = :rician, snr = 200, n = 20, rng = MersenneTwister(2))
         kw = (kmf = 10.0, Sm = 0.9)
         @test fit(m, y, roles).params == fit(m, y; kw...).params
         @test isequal(fit(m, Y, roles).params, fit(m, Y; kw...).params)

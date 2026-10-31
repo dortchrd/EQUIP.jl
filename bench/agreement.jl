@@ -74,13 +74,13 @@ section(stdout, "1. Unbiased, nearly linear: crlb's SD is the bound the fit reac
 #    (kmf assumed 12.5 s⁻¹: biased by the assumption), the four tissues of Table 1, Rician noise,
 #    SNR 200 at thermal equilibrium.
 m5, m4 = QMTSIR(; SIR_5POINT...), QMTSIR(; SIR_4POINT...)
-five = montecarlo(m5, scenarios(QMTSIR, tissues; kmf = Free()); snr = 200, n = N, rng)
-four = montecarlo(m4, scenarios(QMTSIR, tissues; kmf = 12.5); snr = 200, n = N, rng)
+five = montecarlo(m5, scenarios(QMTSIR, tissues; kmf = Free()); noise = :rician, snr = 200, n = N, rng)
+four = montecarlo(m4, scenarios(QMTSIR, tissues; kmf = 12.5); noise = :rician, snr = 200, n = N, rng)
 section(stdout, "2. Dortch et al. 2018, Fig. 1: SIR at SNR 200, Rician (the paper: they agree)",
         [[("5-point, kmf fitted, $(st.tissue)", r) for (st, r) in zip(five.settings, five.results)];
          [("4-point, kmf assumed 12.5, $(st.tissue)", r) for (st, r) in zip(four.settings, four.results)]])
 
 # 3. Where first order ends: the 4-point scheme in WM I as the SNR falls, Rician noise.
-low = montecarlo(m4, nominal(m4, :SIR_WM_I); kmf = 12.5, snr = [25, 50, 100, 200, 400], n = N, rng)
+low = montecarlo(m4, nominal(m4, :SIR_WM_I); noise = :rician, kmf = 12.5, snr = [25, 50, 100, 200, 400], n = N, rng)
 section(stdout, "3. Where first order ends: 4-point, WM I, kmf assumed 12.5, Rician, SNR 25 to 400",
         [("SNR $(st.snr)", r) for (st, r) in zip(low.settings, low.results)])

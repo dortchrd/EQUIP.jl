@@ -12,7 +12,7 @@
 #                then the changes given, by `fit`'s rules (a value fixes; `Free(...)` estimates;
 #                a start or a bound given wins)
 #       wrong    the fixed values that differ from the truth's: the source of any bias
-#   crlb(m, s; snr = 200), montecarlo(m, s; snr = 200)        the scenario under protocol m
+#   crlb(m, s; snr = 200), montecarlo(m, s; noise = :rician, snr = 200)        the scenario under protocol m
 #
 # Why an object: crlb and montecarlo answer "how well does this fit recover this truth?". Built
 # from the truth, the fit is unbiased unless a change makes it wrong: `kmf = 12.5` against a true
@@ -62,7 +62,7 @@ truth follow each setting's truth; the fixed values stay (the fit does not chang
 s = Scenario(QMTSIR, θ; kmf = 12.5)                    # the fit assumes 12.5: s.wrong.kmf
 crlb(QMTSIR(; SIR_4POINT...), s; snr = 200)            # under the 4-point protocol
 crlb(QMTSIR(; SIR_5POINT...), Scenario(QMTSIR, θ; kmf = Free()); snr = 200)
-montecarlo(QMTSIR(; SIR_4POINT...), Scenario(QMTSIR, θ; kmf = 12.5, starts = :model); snr = 200)
+montecarlo(QMTSIR(; SIR_4POINT...), Scenario(QMTSIR, θ; kmf = 12.5, starts = :model); noise = :rician, snr = 200)
 ```
 """
 struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple}

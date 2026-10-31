@@ -108,26 +108,26 @@ function makecase(name::Symbol; n = NVOX)
     if name === :t2
         m = T2Decay(TE = collect(0.01:0.01:0.32))
         truth = (S0 = uniform(rng, (0.8, 1.2), n), T2 = uniform(rng, stanisz(:T2), n))
-        Y = simulate(m, truth; snr = 100, rng)
+        Y = simulate(m, truth; noise = :rician, snr = 100, rng)
         return (; name, title = "T2 decay, 32 echoes, T2 27-275 ms, SNR 100", m, Y, truth,
                 roles = (;), starts = nothing, order! = nothing)
     elseif name === :t1mfa
         m = T1MFA(FA = [2.0, 5, 10, 15, 20, 30], TR = 0.015)
         truth = (M0 = uniform(rng, (0.8, 1.2), n), T1 = uniform(rng, stanisz(:T1), n), B1 = 1.0)
-        Y = simulate(m, truth; snr = 1000, rng)
+        Y = simulate(m, truth; noise = :rician, snr = 1000, rng)
         return (; name, title = "T1 variable flip angle, 6 angles, T1 0.81-1.93 s, σ = M0/1000", m, Y,
                 truth, roles = (;), starts = nothing, order! = nothing)
     elseif name === :t1ir
         m = T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2])
         truth = (M0 = uniform(rng, (0.8, 1.2), n), Sf = uniform(rng, (-1.0, -0.8), n),
                  T1 = uniform(rng, stanisz(:T1), n))
-        Y = simulate(m, truth; snr = 100, rng)
+        Y = simulate(m, truth; noise = :rician, snr = 100, rng)
         return (; name, title = "T1 inversion recovery, 7 TIs, magnitude, T1 0.81-1.93 s, SNR 100", m,
                 Y, truth, roles = (;), starts = nothing, order! = nothing)
     elseif name in (:sir4_range, :sir4_poorstart)
         m = QMTSIR(; SIR_4POINT...)
         truth = sirtruth(rng, n)
-        Y = simulate(m, truth; snr = 200, rng)
+        Y = simulate(m, truth; noise = :rician, snr = 200, rng)
         poor = name === :sir4_poorstart
         title = poor ? "4-point SIR, tissue range, SNR 200, poor random starts" :
                        "4-point SIR, tissue range, SNR 200"
@@ -136,13 +136,13 @@ function makecase(name::Symbol; n = NVOX)
         snr = name === :sir16_kmf ? 200 : 50
         m = QMTSIR(; SIR_16POINT...)
         truth = sirtruth(rng, n)
-        Y = simulate(m, truth; snr, rng)
+        Y = simulate(m, truth; noise = :rician, snr, rng)
         return (; name, title = "16-point SIR, kmf estimated, tissue range, SNR $snr", m, Y, truth,
                 roles = (kmf = Free(),), starts = nothing, order! = nothing)
     elseif name === :sir4_lowpsr
         m = QMTSIR(; SIR_4POINT...)
         truth = sirtruth(rng, n; psr = (0.005, 0.05))
-        Y = simulate(m, truth; snr = 50, rng)
+        Y = simulate(m, truth; noise = :rician, snr = 50, rng)
         return (; name, title = "4-point SIR, small PSR (0.005-0.05), SNR 50", m, Y, truth,
                 roles = (;), starts = nothing, order! = nothing)
     elseif name in (:biexp, :biexp_snr100)
@@ -150,7 +150,7 @@ function makecase(name::Symbol; n = NVOX)
         m = T2BiexpDecay(TE = collect(0.01:0.01:0.32))
         truth = (S0 = uniform(rng, (0.8, 1.2), n), fshort = uniform(rng, (0.05, 0.30), n),
                  T2short = uniform(rng, (0.010, 0.030), n), T2long = uniform(rng, (0.060, 0.120), n))
-        Y = simulate(m, truth; snr, rng)
+        Y = simulate(m, truth; noise = :rician, snr, rng)
         return (; name, title = "biexponential T2, 32 echoes, myelin-water-like values, SNR $snr",
                 m, Y, truth, roles = (;), starts = nothing, order! = biexp_order!)
     end

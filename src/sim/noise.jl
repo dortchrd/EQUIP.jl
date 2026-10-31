@@ -81,5 +81,16 @@ function _noisefactor(Σ::AbstractMatrix, M)
 end
 _noisefactor(Σ, M) = throw(ArgumentError("`Σ` is the noise covariance matrix, $M×$M"))
 
-# Magnitude images get Rician noise; models fitted to signed data (magnitude = false) Gaussian.
-_default_noise(m) = hasproperty(m, :magnitude) && !m.magnitude ? :gaussian : :rician
+# The noise's distribution: the user's choice, with no default. It is decided by how the images
+# were made, which the model does not know: magnitude images have Rician noise,
+# |S + σ(n₁ + i·n₂)|; real-valued data (phase-corrected, the real channel) Gaussian, S + σn, the
+# noise crlb assumes. (It was inferred from the model's `magnitude` option, Rician unless
+# `magnitude = false`; but that option says how the signal is computed, not how the data were
+# reconstructed, and most models have no such option.)
+function _checked_kind(noise)
+    noise === nothing && throw(ArgumentError("give the noise's distribution: `noise = :rician` " *
+        "(magnitude images) or `noise = :gaussian` (real-valued data; the noise crlb assumes)"))
+    noise in (:rician, :gaussian) ||
+        throw(ArgumentError("`noise` must be :rician or :gaussian, got $(repr(noise))"))
+    return noise
+end

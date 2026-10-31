@@ -46,7 +46,7 @@ using PrecompileTools: @setup_workload, @compile_workload
             res = fit(m, Y)
             fit(m, Y; mask = [true, false])                  # with a mask
             fit(m, reshape(Y, 2, 1, 1, :))                   # 4-D data (X×Y×Z×observations)
-            simulate(m, merge(defaults(m), θ); snr = 50, n = 2)
+            simulate(m, merge(defaults(m), θ); noise = :rician, snr = 50, n = 2)
             show(IOBuffer(), MIME"text/plain"(), res)        # the summary the REPL prints
         end
         # Common variations: QMTSIR with kmf estimated, T1MFA with a B1 map.

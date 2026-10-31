@@ -527,7 +527,7 @@ plus the free parameters' starts) or `nominal(m, tissue)`. Or merge them into yo
 the free parameters (later values win):
 
 ```julia
-simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); snr = 200)
+simulate(m, merge(defaults(m), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1.0)); noise = :rician, snr = 200)
 ```
 """
 defaults(m::_ModelOrType) = (; (n => r.value for (n, r) in pairs(_roles(m)) if r isa Fixed)...)

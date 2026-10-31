@@ -378,13 +378,13 @@ protocol, or checking a model before scanning:
 m = QMTSIR(; SIR_4POINT...)                   # the 4-point scheme of Dortch et al., MRM 2018
 t = nominal(m, :SIR_lesion)                   # Table 1 values (PSR, R1f, Sf, M0f = 1, kmf = 20,
                                               # Sm), and the model's defaults for the rest
-Y = simulate(m, t; snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
+Y = simulate(m, t; noise = :rician, snr = 200, n = 10_000)     # Rician noise, SNR at thermal equilibrium
 res = fit(m, Y)                               # kmf fixed at 12.5: PSR biased below 5%
 compare(res, t)                               # bias, SD, RMSE, % converged
 
 m = T2Decay(TE = 0.01:0.01:0.32)
 maps = (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64))   # any maps
-res = fit(m, simulate(m, maps; snr = 100))
+res = fit(m, simulate(m, maps; noise = :rician, snr = 100))
 compare(res, maps)                            # labels = an integer map, for each tissue
 ```
 
@@ -435,8 +435,11 @@ Parameters:
   ties into numbers (for calling `signal!` yourself). `snr` is
   relative to the model's scale parameter (M0, S0, M0f: σ = scale/snr, "SNR at thermal
   equilibrium"), so it does not depend on the protocol; `σ` sets the noise directly, in signal
-  units. Rician noise by default; Gaussian for models fitted to signed data
-  (`magnitude = false`). Pass `rng = MersenneTwister(seed)` for repeatable data.
+  units. `noise` is always given, as it follows from how the images were made, which the model
+  does not know: `:rician` for magnitude images, `:gaussian` for real-valued data
+  (phase-corrected, a real channel; the noise crlb assumes). A model's `magnitude` option says how
+  the signal is computed, not how the data were reconstructed, so it does not choose the noise.
+  Pass `rng = MersenneTwister(seed)` for repeatable data.
 - `TISSUES`, `tissue(name)`: T1 and T2 at 3 T from Stanisz et al., MRM 2005 (in vitro, 37 °C:
   `:WM`, `:GM`, `:blood`, `:liver`, `:muscle`, ...); `:CSF` (T1 = 4.124 s, the mean of three
   in vivo inversion recovery studies reviewed by Bojorquez et al., MRI 2017; T2 = 1.75 s, a
@@ -468,7 +471,7 @@ c = crlb(m, s; snr = 200)                     # biased
 c.bias.PSR, c.sd.PSR, c.relrmse.PSR           # by quantity, then parameter
 crlb(m, θ; snr = 200, kmf = 12.5)            # the same, the scenario made inside
 crlb(m, θ; snr = 200)                         # kmf held at its true value: unbiased
-mc = montecarlo(m, s; snr = 200)              # 10 000 noisy copies, Rician noise
+mc = montecarlo(m, s; noise = :rician, snr = 200)              # 10 000 noisy copies, Rician noise
 mc.sd.PSR / mc.crlb.sd.PSR, mc.se_sd.PSR      # measured against predicted, ± standard error
 ```
 ```
@@ -506,7 +509,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `truth`, `roles` (every parameter's role in the fit), `starts`, `wrong`. The same scenario is
   judged under any protocol (`crlb(QMTSIR(; SIR_5POINT...), s; snr = 200)`), and `s.roles` fits
   real data the same way: `fit(m, data, s.roles)`. `crlb(m, θ; changes...)` and
-  `montecarlo(m, θ; changes...)` make one inside.
+  `montecarlo(m, θ; noise, changes...)` make one inside.
 - **Starts:** `starts = :truth` (the default): every estimated parameter starts at its true
   value; `starts = :model`: the model's own rules (`:scale`, `BestOf`, `:data`), as `fit` starts
   a real fit, so montecarlo measures the starting rules too; a start given wins. crlb's

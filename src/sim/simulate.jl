@@ -22,8 +22,9 @@ takes).
     observation (independent noise, e.g. different bandwidths or numbers of averages);
   - `Σ`: the covariance matrix of the noise between observations (correlated noise), the same
     in every voxel. For Rician noise, the real and imaginary channels each have covariance Σ.
-- `noise`: `:rician` (magnitude images: |S + σ·(n₁ + i·n₂)|), or `:gaussian` (S + σ·n, for
-  signed data). The default is `:gaussian` for a model with `magnitude = false`, else `:rician`.
+- `noise`: the distribution, always given: `:rician` (magnitude images: |S + σ·(n₁ + i·n₂)|)
+  or `:gaussian` (S + σ·n: real-valued data, e.g. phase-corrected; the noise crlb assumes). It
+  follows from how the images were reconstructed, which the model does not know.
 - `n`: number of noisy copies when no value in `truth` is a map (Monte Carlo).
 - `rng`: the random number generator, e.g. `MersenneTwister(1)` for repeatable data.
 
@@ -33,19 +34,20 @@ map's background) give NaN data.
 
 ```julia
 m = T2Decay(TE = 0.01:0.01:0.32)
-y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50)                      # one voxel
-Y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, n = 10_000)          # Monte Carlo
-data = simulate(m, (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64)); snr = 50)  # maps
+y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, noise = :rician)                # one voxel
+Y = simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, noise = :rician, n = 10_000)    # Monte Carlo
+maps = (S0 = fill(1000.0, 64, 64), T2 = 0.04 .+ 0.08 .* rand(64, 64))
+data = simulate(m, maps; snr = 50, noise = :gaussian)                                # real data
 ```
 """
 function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-                  noise::Symbol = _default_noise(m), n::Union{Nothing,Integer} = nothing,
+                  noise = nothing, n::Union{Nothing,Integer} = nothing,
                   rng::AbstractRNG = Random.default_rng())
     # The noise level, checked (sim/noise.jl): the scale parameter `snr` is relative to, and
     # Σ's Cholesky factor, Σ = LLᵀ (correlated noise is L·z).
     M = nobs(m)
     scale, L = _checked_noise(m, M, snr, σ, Σ)
-    noise in (:rician, :gaussian) || throw(ArgumentError("`noise` must be :rician or :gaussian"))
+    noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
 
     # The voxels: the size of the maps, or n copies, or one voxel.
     maps = filter(x -> x isa AbstractArray, Tuple(values(truth)))

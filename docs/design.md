@@ -480,10 +480,16 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   measured signal can be far below the scale (MFA at low flip angles, SIR schemes that never
   reach full recovery), so image SNR and this SNR differ. `σ` gives the noise directly (e.g.
   from an image background); an SNR relative to the measured signal can be added if needed.
-- **Rician noise by default** (|S + σ·(n₁ + i·n₂)|), Gaussian for models fitted to signed data
-  (`magnitude = false`). For magnitude inversion recovery, adding complex noise to the signed
-  signal and taking the magnitude depends only on |S|, so Rician noise on the model's |S| is
-  exact.
+- **The noise's distribution is the user's choice, with no default** (`noise = :rician`,
+  |S + σ·(n₁ + i·n₂)|, or `:gaussian`, S + σ·n), in `simulate` and `montecarlo` (one scenario
+  or a set), checked before anything runs. It was Rician unless the model had
+  `magnitude = false`, but that inference was wrong twice over: `magnitude` says how the signal
+  is computed, not how the images were reconstructed, and most models (T2 decay, VFA, ...) have
+  no such option, so they got Rician noise silently whatever the data. How the images were made
+  is something only the user knows, so the user says it, and every script shows it. (Changed
+  2026-10; calls that relied on the default now pass `noise = :rician`, and give the same data
+  draw for draw.) For magnitude inversion recovery, adding complex noise to the signed signal
+  and taking the magnitude depends only on |S|, so Rician noise on the model's |S| is exact.
 - **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
@@ -1739,8 +1745,9 @@ What the first version does, and why:
   converged or not, as `compare`; `mc.converged` gives the fraction; `mc.result` (the
   `FitResult`) keeps every estimate, so no `keep` keyword.
 - The fit's settings as keywords, as in `crlb`, but options pass through too (`precision`, `solver`: they change
-  the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: Rician for
-  magnitude data, Gaussian for signed; `MersenneTwister(seed)` for repeatable data. The noise as
+  the fit being measured); crlb gets the roles alone. `noise` and `rng` as `simulate`: `noise`
+  always given (`:rician` for magnitude images, `:gaussian` for real-valued data);
+  `MersenneTwister(seed)` for repeatable data. The noise as
   `crlb`: `snr`, `σ` a number or one per observation, or a full `Σ`;
   `simulate` draws correlated noise as L·z (Σ = LLᵀ), for Rician noise in each channel; one σ
   given as a vector gives the same data, draw for draw (tested). `mc.σ` is now one SD per

@@ -86,8 +86,9 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
   number, or one SD per observation) or `Σ` (the noise covariance matrix).
 - `n`: the number of noisy copies, fitted as one dataset on Julia's threads (start Julia with
   `-t auto`).
-- `noise`: `:rician` (the default for magnitude data) or `:gaussian` (the default when the
-  data's model is for signed data, `magnitude = false`); crlb assumes Gaussian noise.
+- `noise`: `:rician` (magnitude images) or `:gaussian` (real-valued data), always given: the
+  distribution follows from how the images were reconstructed, which the model does not know.
+  crlb assumes Gaussian noise.
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
   One number is drawn from it, the seed of the noise.
 - `solver`, `precision`: the fits' options, as for `fit`.
@@ -111,12 +112,12 @@ says how many converged, and `mc.result` holds every estimate and status.
 ```julia
 m = QMTSIR(; SIR_4POINT...)
 θ = nominal(m, :SIR_WM_I)                                   # kmf = 5 in this tissue
-mc = montecarlo(m, θ; snr = 200, kmf = 12.5)                # the fit assumes kmf = 12.5
+mc = montecarlo(m, θ; noise = :rician, snr = 200, kmf = 12.5)   # the fit assumes kmf = 12.5
 mc.bias.PSR, mc.sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR          # measured, and against the CRLB
-montecarlo(m, θ; snr = 200, starts = :model, rng = MersenneTwister(1))   # fit's own starts
-montecarlo(m, nominal(m, :SIR_WM_II); snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # Fig. 2B
+montecarlo(m, θ; noise = :rician, snr = 200, starts = :model, rng = MersenneTwister(1))   # fit's own starts
+montecarlo(m, nominal(m, :SIR_WM_II); noise = :rician, snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # Fig. 2B
 m5 = QMTSIR(; SIR_5POINT...)
-montecarlo(m5, (fixed = Scenario(m5, θ), free = Scenario(m5, θ; kmf = Free())); snr = 200)
+montecarlo(m5, (fixed = Scenario(m5, θ), free = Scenario(m5, θ; kmf = Free())); noise = :rician, snr = 200)
 ```
 """
 function montecarlo(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
@@ -140,8 +141,7 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
     _check_simulate_with(simulate_with)
-    # The noise: as `simulate` would add it to the data's model (Rician for magnitude data).
-    noise = something(noise, _default_noise(_datamodel(m, simulate_with)))
+    noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
     seed = rand(rng, UInt64)                 # the noise's seed: one draw, for every setting
     options = (; solver, precision)          # the fits' options, as for `fit`
     fits = s isa Scenario ? (;) : s          # side by side: one more axis, by name

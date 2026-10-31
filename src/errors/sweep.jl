@@ -369,7 +369,7 @@ function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = not
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
-    noise = something(noise, _default_noise(m))
+    noise = _checked_kind(noise)             # :rician or :gaussian, given (no default)
     seed = rand(rng, UInt64)                 # one seed for every setting (common random numbers)
     options = (; solver, precision)
     levels = snr isa AbstractVector ? collect(snr) : [snr]

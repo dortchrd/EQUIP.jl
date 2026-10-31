@@ -52,7 +52,7 @@ cases = (("T1IR, 7 TIs", T1IR(TI = ti), (M0 = 1000.0, Sf = -0.95, T1 = 0.9)),
          ("QMTSIR 16-point (kmf free)", QMTSIR(; SIR_16POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
 for (label, m, θ) in cases
     kw = label == "QMTSIR 16-point (kmf free)" ? (kmf = Free(),) : (;)
-    y = simulate(m, merge(defaults(m), θ); snr = 50, rng = MersenneTwister(1))
+    y = simulate(m, merge(defaults(m), θ); noise = :rician, snr = 50, rng = MersenneTwister(1))
     c = init(m; kw...)
     local t = best(() -> fit!(c, y), 2000)
     a = (fit!(c, y); @allocated fit!(c, y))
@@ -62,7 +62,7 @@ end
 # -------------------------------------------------------------------------------------------------
 println("\n2. fit: a dataset of 100,000 voxels on ", Threads.nthreads(), " threads (SNR 50)")
 for (label, m, θ) in (cases[5], cases[1], cases[10])
-    Y = simulate(m, merge(defaults(m), θ); snr = 50, n = 100_000, rng = MersenneTwister(2))
+    Y = simulate(m, merge(defaults(m), θ); noise = :rician, snr = 50, n = 100_000, rng = MersenneTwister(2))
     local t = best(() -> fit(m, Y), 1, 3)
     row(label, @sprintf("%6.0f ms, %5.2f M voxels/s", 1e3t, 100_000 / t / 1e6))
 end
@@ -87,7 +87,7 @@ row("crlb sweep over 31 true kmf, 4-point", @sprintf("%6.2f µs a setting", 1e6t
 println("\n4. montecarlo: 10,000 noisy copies (Rician, SNR 200), fitted on threads")
 for (label, m, kw) in (("4-point, kmf assumed 12.5", m4, (kmf = 12.5,)),
                        ("5-point, kmf free", QMTSIR(; SIR_5POINT...), (kmf = Free(),)))
-    local t = best(() -> montecarlo(m, nominal(m, :SIR_WM_I); snr = 200, n = 10_000, kw...), 1, 3)
+    local t = best(() -> montecarlo(m, nominal(m, :SIR_WM_I); noise = :rician, snr = 200, n = 10_000, kw...), 1, 3)
     row(label, @sprintf("%6.0f ms", 1e3t))
 end
 
@@ -122,7 +122,7 @@ row("optimize_protocol, $(Threads.nthreads()) starts on threads", @sprintf("%6.1
 println("\n6. newer functions (skipped where this commit does not have them)")
 if isdefined(EQUIP, :residualsd)
     m = T2Decay(TE = te)
-    res = fit(m, simulate(m, (S0 = 1000.0, T2 = 0.08); snr = 50, n = 100_000, rng = MersenneTwister(3)))
+    res = fit(m, simulate(m, (S0 = 1000.0, T2 = 0.08); noise = :rician, snr = 50, n = 100_000, rng = MersenneTwister(3)))
     t = best(() -> stderror(res), 1, 3)
     row("stderror of a 100,000-voxel T2 fit", @sprintf("%6.0f ms", 1e3t))
 end

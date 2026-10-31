@@ -37,7 +37,7 @@ println("Protocol: TI = ", m.TI, " s, TD = ", m.TD, " s")
 println("Truth ($TISSUE): ", θ)
 
 # --- The dataset: NSIM × 4 (one row per simulated voxel, one column per TI/TD pair) -------------
-Y = simulate(m, θ; snr = SNR, n = NSIM, rng = MersenneTwister(SEED))
+Y = simulate(m, θ; noise = :rician, snr = SNR, n = NSIM, rng = MersenneTwister(SEED))
 
 # --- Fit 1: as designed, kmf fixed at QMTSIR's default (12.5 s⁻¹) --------------------------------
 res = fit(m, Y)
