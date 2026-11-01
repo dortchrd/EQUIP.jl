@@ -2,7 +2,7 @@
 # Data in, maps out: NIfTI files (NIfTI.jl) with their BIDS JSON sidecars, and values from text
 # files. (MATLAB .mat files come next, with MAT.jl.)
 #
-#   data, info = loaddata(paths)          the data, observations last, and `info`: the geometry,
+#   data, info = loaddata(paths; precision)   the data, observations last, and `info`: the geometry,
 #                                         to write maps back, and the acquisition values found
 #   loadmap(path, info)                   one image of the data's size: a mask, a B1 map, ...
 #   readvalues(path)                      numbers from a text file (an FSL .bval, a list of TIs)
@@ -14,12 +14,14 @@
 # =================================================================================================
 
 """
-    loaddata(paths) -> (data, info)
+    loaddata(paths; precision = Float64) -> (data, info)
 
 The data in one NIfTI file (`.nii` or `.nii.gz`, 4-D: the observations along the 4th
 dimension) or in several (one per observation, 3-D, or 4-D each, stacked along the 4th dimension
-in the order given), as a `Float64` array with the observations last, the files' intensity
-scaling (`scl_slope`, `scl_inter`) applied. Several files must have the same size and geometry.
+in the order given), as an array with the observations last, the files' intensity scaling
+(`scl_slope`, `scl_inter`) applied. Several files must have the same size and geometry.
+`precision = Float32` keeps the data in half the memory (each value scaled in Float64, then
+rounded: the same as `Float32.(loaddata(paths)[1])`), for a fit in Float32.
 
 `info` holds what writing maps back needs (`header`, the first file's; `spatial`, the size of
 one image) and the acquisition values found beside the files, one per observation, by the
@@ -30,12 +32,13 @@ model's field names (`info.found`, e.g. `(TE = [...],)`):
   value given for a 4-D file holds for each of its volumes; a key some files lack is left out.
 - An FSL `.bval` file beside a single file (dcm2niix writes them for diffusion): `b` (s/mm²).
 """
-loaddata(path::AbstractString) = loaddata([path])
-function loaddata(paths::AbstractVector{<:AbstractString})
+loaddata(path::AbstractString; kwargs...) = loaddata([path]; kwargs...)
+function loaddata(paths::AbstractVector{<:AbstractString};
+                  precision::Type{<:AbstractFloat} = Float64)
     isempty(paths) && throw(ArgumentError("no data files given"))
     foreach(_check_nifti, paths)
     vols = [niread(p) for p in paths]
-    arrays = [_scaled(v) for v in vols]
+    arrays = [_scaled(v, precision) for v in vols]
     for (p, a) in zip(paths, arrays)
         ndims(a) in (3, 4) || throw(ArgumentError("$p: a 3-D image or a 4-D series is expected, " *
                                                   "this file has $(ndims(a)) dimensions"))
@@ -62,11 +65,13 @@ function _check_nifti(p)
 end
 
 # The image values with the file's intensity scaling applied (a slope of 0 means none, as the
-# NIfTI standard says), as Float64.
-function _scaled(v)
+# NIfTI standard says), in precision T: each value scaled in Float64, then stored (the broadcast
+# is fused, so no Float64 copy of the data is made on the way).
+function _scaled(v, ::Type{T} = Float64) where {T}
     s, b = Float64(v.header.scl_slope), Float64(v.header.scl_inter)
-    raw = Float64.(v.raw)
-    return s == 0 || (s == 1 && b == 0) ? raw : raw .* s .+ b
+    out = similar(v.raw, T)
+    s == 0 || (s == 1 && b == 0) ? (out .= v.raw) : (out .= v.raw .* s .+ b)
+    return out
 end
 
 # The same voxel size and position (both affines, within rounding).

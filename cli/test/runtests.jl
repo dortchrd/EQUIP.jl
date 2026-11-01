@@ -39,6 +39,10 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         d2, i2 = loaddata(files)
         @test size(d2) == (6, 5, 2, 8) && maximum(abs.(d2 .- Y)) <= 0.25
         @test i2.found.TE ≈ te
+        # Float32: half the memory, the same values rounded (scaled in Float64 first)
+        d32, _ = loaddata(files; precision = Float32)
+        @test eltype(d32) == Float32 && d32 == Float32.(d2)
+        @test loaddata(path("t2.nii.gz"); precision = Float32)[1] == Float32.(data)
         # Diffusion: an FSL .bval file beside the data
         niwrite(path("dwi.nii"), NIVolume(Float32.(Y[:, :, :, 1:4]); geometry...))
         write(path("dwi.bval"), "0 500 1000 2000\n")
