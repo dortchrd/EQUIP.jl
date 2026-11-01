@@ -2503,6 +2503,131 @@ maps are later.
   montecarlo (20 000 copies) SD/crlb 0.99 ± 0.005. Leakage against central differences of the
   weighted noise-free fit: 3e-11; ∇b implicit against unrolled: 5e-10. 50 tests.
 
+## The command line and the data reader: the plan (2026-11-01)
+
+For the prerelease: one command per part of the package, and a data reader, so that someone
+who does not write Julia can fit maps, predict and measure errors, and design a protocol.
+Replaces items 9 and 10 of the roadmap for the release's scope; what they hold beyond it (more
+formats, the `--init` prep step, a server, Python and MATLAB) stays there, for later.
+
+### Decided with the owner
+
+- **One command, `equip`, with a subcommand per part**: `equip fit`, `equip crlb`,
+  `equip montecarlo`, `equip design`.
+- **Flags first.** Every setting is a flag, so a quick command needs no file. (A file per run,
+  first proposed, was too much for a quick command.)
+- **A config file only when wanted, and it is the command line itself**: `--config run.cnf`
+  reads a plain text file with one command-line argument per line and `#` comments, exactly
+  what one would type (FSL's `--config=` files, e.g. topup's `.cnf`); flags given alongside
+  override it. `--save run.cnf` writes the file a command amounts to, so a quick command becomes
+  a record to rerun or edit. One syntax to learn, typed or saved.
+- **Why not TOML, JSON, YAML or XML** (first proposed: TOML). What the neuroimaging tools do:
+  FSL, MRtrix3 and ANTs take everything as flags; FSL's config files are the flags, one per
+  line; MRtrix3's one config file holds global preferences as `Key: value` lines; fMRIPrep
+  writes its settings to TOML as a record of a run, not as something users write; BIDS keeps
+  metadata in JSON sidecars and tables in TSV. JSON has no comments and is strict about quotes
+  and commas (good for files programs write, poor for files people annotate); XML is too
+  verbose to write by hand; TOML and YAML are one more syntax, unfamiliar in imaging.
+- **JSON and TSV where imaging tools read them**: acquisition values read from BIDS JSON
+  sidecars; a JSON sidecar written next to each map (the model, acquisition, settings, package
+  version: how the map was made); crlb and montecarlo tables as TSV (Excel, MATLAB, Python, R).
+
+### The commands
+
+```bash
+equip fit T2Decay t2.nii.gz                                       # TE from the BIDS sidecar
+equip fit QMTSIR sir.nii.gz --TI 0.01,0.05,0.056,0.277,0.843 --TD 3.27,4.489,1.652,2.922,0.01 --kmf 12.5
+equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --mask brain.nii.gz --Sm sm_map.nii.gz
+equip fit ADCDecay dwi.nii.gz --b @dwi.bval --weights @nex.txt
+equip crlb QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I --snr 200 --kmf 12.5
+equip montecarlo QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I --snr 200 --noise rician --kmf 12.5
+equip design QMTSIR --protocol SIR_4POINT --tissues SIR_WM_I,SIR_GM,SIR_lesion --snr 200 \
+    --kmf 12.5 --acquisition TI=0.01:10,TD=0.01:10 --readout 0.3
+equip fit QMTSIR --help                                           # this model's fields and parameters
+```
+
+- **The model**: the first argument, a built-in model's name (a user's own model is used from
+  Julia). `equip <part> <model> --help` lists its acquisition fields and parameters with their
+  defaults, generated from the model (`parameters(m)`, its fields), so it never goes stale.
+- **Acquisition fields**: a flag named after the field (`--TI`, `--TD`, `--TE`, `--b`, `--FA`),
+  its values as a comma list, a range `start:step:stop` (`--TE 0.01:0.01:0.32`), or `@file`
+  (one value per line, or whitespace-separated: an FSL `.bval` file as it is); or a named
+  protocol (`--protocol SIR_4POINT`). Priority: flags, then a config file, then sidecars.
+- **Parameters**: a flag named after the parameter, by `fit`'s rules: `--kmf 12.5` fixes it,
+  `--Sm map.nii.gz` fixes it to a map, `--R1m R1f` ties it, `--kmf free` estimates it,
+  `--R1f free,start=0.8,lower=0` with a start or bounds.
+- **Options**: `--mask`, `--precision`, `--weights`, `--out` (a prefix), `--stderror` (also
+  write standard-error maps); threads by Julia's `-t` (or `JULIA_NUM_THREADS`).
+- **crlb, montecarlo, design**: the truth by `--tissue`/`--tissues` (the presets) or
+  `--truth PSR=0.1,R1f=1.0,...`; the noise by `--snr` or `--sigma`, `--averages`; montecarlo's
+  `--noise` (required, as in Julia), `--averaging`, `-n`, `--seed`; `--vary Sm=0.78,0.88` (true
+  values); `--cov`.
+- **design**: the acquisition to optimize with its bounds (`--acquisition`), the scan time by a
+  rule (`--readout 0.3`: Σ(TI + TD + readout), the SIR-FSE case) or a Julia expression of the
+  protocol's fields (`--scantime "sum(TI .+ TD .+ 0.3)"`, run as given: a local tool, the
+  user's own command), `--budget`, `--weights PSR=1,R1f=0`, `--aggregate`.
+
+### What each writes
+
+- **fit**: one NIfTI map per parameter in the input's geometry (intensity scaling reset;
+  BIDS-derivative names where they exist: `T1map`, `R1map`, `T2map`, `M0map`, `S0map`, ...),
+  status and SSE maps, standard errors with `--stderror`; a JSON sidecar beside each.
+- **crlb, montecarlo**: the table (`rows`) as TSV, and the summary printed as at the REPL.
+- **design**: the optimized protocol printed and written as a config file (its acquisition
+  flags), so `equip fit --config optimized.cnf` fits with it; its Eq. 5 value against the
+  starting protocol's.
+
+### The data reader
+
+`data, info = loaddata(paths)`: the data with the observations last, and `info` (the
+geometry, to write maps back, and the acquisition values found). For the release:
+
+- **NIfTI** (`.nii`, `.nii.gz`; NIfTI.jl): one 4-D file, or several 3-D files (one per echo,
+  flip angle or inversion time) stacked along the last dimension in the order given; the
+  scaling (`scl_slope`, `scl_inter`) applied.
+- **BIDS JSON sidecars**: `EchoTime`, `RepetitionTime`, `FlipAngle`, `InversionTime` (s,
+  degrees) into the model's fields, for files from `dcm2niix` (so DICOM from any scanner,
+  converted first). Checked: the number of values against the data's last dimension; values
+  given as flags win, and a disagreement with a sidecar is reported.
+- **Text files** for values: `@file` (above).
+- **Writing**: `savemaps(prefix, res; like = info)`.
+- **Later** (item 9): MATLAB `.mat`, Philips PAR/REC, DICOM read directly, NumPy, ISMRMRD.
+
+### Where it lives, and start-up
+
+- **A companion package in the same repository** (e.g. `cli/`, with its own Project.toml as
+  `bench/` has): EQUIP plus NIfTI.jl, a JSON package and ArgParse.jl (which reads arguments
+  from a file). The core keeps no file-format dependencies. Installed as a Julia app, an
+  `equip` command (Pkg apps, Julia ≥ 1.12; the core's compat stays 1.11), or run as
+  `julia --project=cli -m EQUIPCLI fit ...`.
+- **Start-up**: a call is a new Julia process: about 1 s to start Julia and load EQUIP (item
+  10, measured), then the work, as long as nothing compiles. So the precompile workload covers
+  each subcommand with each built-in model and the options the flags offer, and a test runs
+  each in a fresh process with `--trace-compile` and fails if anything compiled.
+
+### Tests
+
+Each subcommand on small synthetic NIfTI files written by the tests, against the Julia API's
+results (the same numbers); the flags' parsing (lists, ranges, `@file`, roles); `--save` then
+`--config` gives the same run; sidecar values read, and overridden by flags; errors that name
+the model's fields and parameters (an unknown flag, a wrong count of values, a map of the wrong
+size).
+
+### Order of work
+
+The reader and writer; `equip fit`; `equip crlb`; `equip montecarlo`; `equip design`;
+`--config` and `--save`; the workload and the no-compile test; the README's command-line
+section.
+
+### Still to decide
+
+1. Formats beyond NIfTI and BIDS sidecars for the release: MATLAB `.mat`? Philips PAR/REC?
+2. Units on the command line: seconds only, as in the package (proposed), or also `ms`
+   (`--TI 10,50,56ms`), as scanner protocols are written.
+3. The bounds' syntax for `design` (`TI=0.01:10` reads as a range with two numbers).
+4. The companion package's name, and how it is installed.
+5. Python and MATLAB: after the release, as thin wrappers (proposed).
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
@@ -2531,7 +2656,9 @@ scope (decided 2026-10-31):
   `compare` stays: it judges any dataset fit, and its `labels` is any integer map.
 - **To add before it:** fit statistics on `FitResult` (item 3; done, `stats-proto`); models: NODDI and SMT (item 7),
   and the pulsed qMT models of Yarnykh and of Ramani (item 6), which bring the bound pool's
-  saturation (the pulse models, item 6) with them.
+  saturation (the pulse models, item 6) with them; a command line for each of the four parts
+  and a data reader (decided 2026-11-01: "The command line and the data reader: the plan",
+  below).
 - **Then the release basics:** a license, CI running the tests, a version number, the
   repository's name (the package is `EQUIP`, the repository `voxelfit.jl`; registration needs
   `EQUIP.jl`), the precompile workload extended to crlb, montecarlo and a design (a first
@@ -2985,7 +3112,8 @@ scope (decided 2026-10-31):
      checked against bounds; a public name for `_allparams` (done: `resolve`), for loops calling
      `signal!`; in "Writing a model", that a model whose
      type parameters cannot be rebuilt from its fields needs a precision-conversion method.
-9. **Data I/O**: make getting data in and maps out as easy as possible. An `io/` layer
+9. **Data I/O** (the release's part: "The command line and the data reader: the plan", above):
+   make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
    file-format package, so the core never depends on file formats.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
@@ -3023,7 +3151,9 @@ scope (decided 2026-10-31):
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
 10. **Front ends: command line, Python, MATLAB**, built on the `io/` layer (item 9): data files
-   and a protocol file in, map files out.
+   and a protocol file in, map files out. (The release's command line: flags first, a config
+   file of flags; "The command line and the data reader: the plan", above. The TOML protocol
+   file below was superseded by it.)
    - **Why start-up needs a design.** Every command-line call is a new Julia process, and so is
      every new Python or MATLAB session, so whatever is not already compiled compiles again
      each time. Measured (4-point SIR, default roles, 4 threads), a fresh process that loads
