@@ -3,7 +3,7 @@
 # built, so that a command starts compiled (each `equip` call is a new Julia process; without
 # this, `equip fit T2Decay t2.nii.gz` spent 17 s compiling, against 0.8 s to load). It writes a
 # small dataset for each built-in model (2×2×1 voxels, noise-free from `_TRUTHS`) and fits it
-# through `main`, exactly as the command does: reading NIfTI files and a BIDS sidecar, the flags,
+# through `equip`, exactly as the command does: reading NIfTI files and a BIDS sidecar, the flags,
 # a mask, writing the maps and their sidecars, `--save`, `--help`, and a mistake's message.
 # =================================================================================================
 
@@ -38,12 +38,12 @@ const _TRUTHS = (
     @compile_workload begin
         for (name, M) in pairs(MODELS)
             flags = _EXAMPLES[name]
-            m = buildmodel(M, parseargs(flags), (;); warn = quiet)
+            m = buildmodel(M, parseargs(flags), Dict{Symbol,Vector{Float64}}(); warn = quiet)
             s = signal(m, merge(defaults(m), _TRUTHS[name]))
             data = Float32.(reshape(repeat(s', 4), 2, 2, 1, :) .* reshape([1.0, 0.9, 1.1, 0.95], 2, 2, 1, 1))
             f = joinpath(dir, "$name.nii.gz")
             niwrite(f, NIVolume(data))
-            main(["fit", String(name), f, flags..., "--out", joinpath(dir, "$(name)_")]; io = quiet, err = quiet)
+            equip(["fit", String(name), f, flags..., "--out", joinpath(dir, "$(name)_")]; io = quiet, err = quiet)
         end
         # A sidecar's EchoTime, a mask, the statistics' maps, --save and --config, --help, a mistake
         te = collect(0.01:0.01:0.32)
@@ -53,11 +53,28 @@ const _TRUTHS = (
         open(io -> JSON.json(io, Dict("EchoTime" => te)), joinpath(dir, "t2.json"), "w")
         niwrite(joinpath(dir, "mask.nii.gz"), NIVolume(UInt8[1 1; 1 0;;;]))
         cnf = joinpath(dir, "t2.cnf")
-        main(["fit", "T2Decay", f, "--mask", joinpath(dir, "mask.nii.gz"), "--stderror",
+        equip(["fit", "T2Decay", f, "--mask", joinpath(dir, "mask.nii.gz"), "--stderror",
               "--save", cnf, "--out", joinpath(dir, "t2_")]; io = quiet, err = quiet)
-        main(["fit", "--config", cnf, "--T2", "free,start=0.05"]; io = quiet, err = quiet)
-        main(["fit", "QMTSIR", "--help"]; io = quiet, err = quiet)
-        main(["fit", "T2Decay", f, "--nonsense", "1"]; io = quiet, err = quiet)
-        main(["--help"]; io = quiet, err = quiet)
+        equip(["fit", "--config", cnf, "--T2", "free,start=0.05"]; io = quiet, err = quiet)
+        equip(["fit", "QMTSIR", "--help"]; io = quiet, err = quiet)
+        equip(["fit", "T2Decay", f, "--nonsense", "1"]; io = quiet, err = quiet)
+        equip(["--help"]; io = quiet, err = quiet)
     end
 end
+# The entry point as the command calls it, writing to the real stdout and stderr: a file, a pipe
+# or a terminal; and a few of Base's methods the commands reach by dynamic dispatch.
+precompile(main, (Vector{String},))
+precompile(_run, (Vector{String}, IO, IO))
+precompile(_flush, (IOBuffer, IO, IOBuffer, IO))
+for S in (IOStream, Base.PipeEndpoint, Base.TTY)
+    precompile(write, (S, Vector{UInt8}))
+    precompile(flush, (S,))
+end
+precompile(in, (String, Set{String}))
+precompile(in, (Symbol, Tuple{Symbol}))
+precompile(size, (Array{Float64,4},))
+precompile(size, (Array{Float64,4}, Int))
+precompile(size, (Array{Float32,4},))
+precompile(size, (Array{Float32,4}, Int))
+precompile(size, (Array{FitStatus,3},))
+precompile(getindex, (JSON.Object{String,Any}, String))

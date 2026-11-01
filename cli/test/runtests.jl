@@ -26,7 +26,7 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         data, info = loaddata(path("t2.nii.gz"))
         @test size(data) == (6, 5, 2, 8) && eltype(data) == Float64
         @test data ≈ Float32.(Y)
-        @test info.spatial == (6, 5, 2) && info.found.TE ≈ te && info.found.TR == fill(2.0, 8)
+        @test info.spatial == (6, 5, 2) && info.found[:TE] ≈ te && info.found[:TR] == fill(2.0, 8)
         @test !haskey(info.found, :TI)
         # One 3-D file per echo (as dcm2niix writes a multi-echo series), each with its sidecar,
         # stacked in the order given; the intensity scaling applied
@@ -38,7 +38,7 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         end
         d2, i2 = loaddata(files)
         @test size(d2) == (6, 5, 2, 8) && maximum(abs.(d2 .- Y)) <= 0.25
-        @test i2.found.TE ≈ te
+        @test i2.found[:TE] ≈ te
         # Float32: half the memory, the same values rounded (scaled in Float64 first)
         d32, _ = loaddata(files; precision = Float32)
         @test eltype(d32) == Float32 && d32 == Float32.(d2)
@@ -46,7 +46,7 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         # Diffusion: an FSL .bval file beside the data
         niwrite(path("dwi.nii"), NIVolume(Float32.(Y[:, :, :, 1:4]); geometry...))
         write(path("dwi.bval"), "0 500 1000 2000\n")
-        @test loaddata(path("dwi.nii"))[2].found.b == [0.0, 500, 1000, 2000]
+        @test loaddata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
         # Mistakes
         niwrite(path("other.nii"), NIVolume(Float32.(Y[:, :, :, 1]); voxel_size = (1.0f0, 1.0f0, 1.0f0)))
         niwrite(path("small.nii"), NIVolume(zeros(Float32, 4, 4, 2); geometry...))
@@ -75,7 +75,7 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
     @testset "savemaps: the maps in the data's geometry, with sidecars" begin
         data, info = loaddata(path("t2.nii.gz"))
         mask = loadmap(path("mask.nii.gz"), info) .> 0
-        res = fit(T2Decay(TE = info.found.TE), data; mask)
+        res = fit(T2Decay(TE = info.found[:TE]), data; mask)
         files = savemaps(joinpath(tmp, "out", "sub-01_"), res, info; stderror = true,
                          sidecar = Dict("Model" => "T2Decay"))
         @test basename.(files) == ["sub-01_S0map.nii.gz", "sub-01_T2map.nii.gz", "sub-01_status.nii.gz",
@@ -95,7 +95,7 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
     end
 
     @testset "equip fit: the same maps as the Julia API's fit" begin
-        run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.main(collect(String, args); io = o, err = e);
+        run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.equip(collect(String, args); io = o, err = e);
                         (code = c, out = String(take!(o)), err = String(take!(e))))
         readmap(f) = niread(f).raw
         out(name) = joinpath(tmp, "cli", name)

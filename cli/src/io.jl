@@ -14,6 +14,22 @@
 # =================================================================================================
 
 """
+    DataInfo
+
+What [`loaddata`](@ref) returns beside the data: `files`, `header` (the first file's NIfTI
+header: the geometry maps are written with), `spatial` (the size of one image) and `found` (the
+acquisition values found beside the files, by the model's field names: `found[:TE]`). One
+concrete type whatever was found, so the functions that take it are compiled once (a named
+tuple of the values found would be a new type for each set of names, and compile them again).
+"""
+struct DataInfo
+    files::Vector{String}
+    header::NIfTI.NIfTIHeader
+    spatial::NTuple{3,Int}
+    found::Dict{Symbol,Vector{Float64}}
+end
+
+"""
     loaddata(paths; precision = Float64) -> (data, info)
 
 The data in one NIfTI file (`.nii` or `.nii.gz`, 4-D: the observations along the 4th
@@ -23,9 +39,9 @@ in the order given), as an array with the observations last, the files' intensit
 `precision = Float32` keeps the data in half the memory (each value scaled in Float64, then
 rounded: the same as `Float32.(loaddata(paths)[1])`), for a fit in Float32.
 
-`info` holds what writing maps back needs (`header`, the first file's; `spatial`, the size of
-one image) and the acquisition values found beside the files, one per observation, by the
-model's field names (`info.found`, e.g. `(TE = [...],)`):
+`info` (a [`DataInfo`](@ref)) holds what writing maps back needs (`header`, the first file's;
+`spatial`, the size of one image) and the acquisition values found beside the files, one per
+observation, by the model's field names (`info.found[:TE]`):
 
 - BIDS JSON sidecars (`name.json` beside `name.nii.gz`, as dcm2niix writes them): `EchoTime` →
   `TE`, `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees). A
@@ -55,7 +71,7 @@ function loaddata(paths::AbstractVector{<:AbstractString};
     size(data, 4) >= 2 || throw(ArgumentError("one image is one observation: give a 4-D file, " *
                                               "or one 3-D file per observation"))
     found = _found(paths, [size(reshape(a, spatial..., :), 4) for a in arrays])
-    return data, (; files = collect(paths), header = vols[1].header, spatial, found)
+    return data, DataInfo(collect(paths), vols[1].header, spatial, found)
 end
 
 _isnifti(p) = endswith(p, ".nii") || endswith(p, ".nii.gz")
@@ -89,7 +105,7 @@ const _BIDS = (EchoTime = :TE, InversionTime = :TI, RepetitionTime = :TR, FlipAn
 
 # The acquisition values beside the files: one per observation, by field name.
 function _found(paths, counts)
-    found = Pair{Symbol,Vector{Float64}}[]
+    found = Dict{Symbol,Vector{Float64}}()
     cars = [_sidecar(p) for p in paths]
     for (key, field) in pairs(_BIDS)
         all(c -> c !== nothing && haskey(c, String(key)), cars) || continue
@@ -100,7 +116,7 @@ function _found(paths, counts)
             v isa AbstractVector && length(v) == n ? append!(vals, Float64.(v)) :
             throw(ArgumentError("$(_sidecarpath(p)): $key has $(length(v)) values for $n images"))
         end
-        push!(found, field => vals)
+        found[field] = vals
     end
     if length(paths) == 1
         bval = _bvalpath(paths[1])
@@ -108,10 +124,10 @@ function _found(paths, counts)
             b = readvalues(bval)
             length(b) == counts[1] || throw(ArgumentError("$bval has $(length(b)) b-values; " *
                                                           "$(paths[1]) has $(counts[1]) images"))
-            push!(found, :b => b)
+            found[:b] = b
         end
     end
-    return (; found...)
+    return found
 end
 
 _stem(p) = endswith(p, ".nii.gz") ? p[1:end-7] : endswith(p, ".nii") ? p[1:end-4] : p
@@ -125,7 +141,7 @@ _sidecar(p) = isfile(_sidecarpath(p)) ? JSON.parsefile(_sidecarpath(p)) : nothin
 One image with the data's size and geometry (`info` from [`loaddata`](@ref)): a mask, or a map
 for a fixed parameter (B1, Sm, ...). A 4-D file with one volume is taken as 3-D.
 """
-function loadmap(path::AbstractString, info)
+function loadmap(path::AbstractString, info::DataInfo)
     _check_nifti(path)
     v = niread(path)
     a = _scaled(v)
@@ -177,8 +193,13 @@ integer: 0 not fitted, ...) and its SSE, and with `stderror = true` each paramet
 error (`T1map_SE`). Beside each, a JSON sidecar with `sidecar`'s entries (how the map was made).
 Values are Float32, NaN outside the mask. Returns the files written.
 """
-function savemaps(prefix::AbstractString, res::FitResult, info; stderror::Bool = false,
-                  sidecar = Dict{String,Any}())
+savemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
+         sidecar = Dict{String,Any}()) = _savemaps(String(prefix), res, info, stderror, sidecar)
+# Compiled once for any FitResult (`@nospecialize`): a result's type records the fit's settings
+# (which flags were given, a mask or not), so each combination would compile this again (0.55 s
+# a command); reading its fields dynamically costs microseconds.
+function _savemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo, stderror::Bool,
+                   sidecar)
     dir = dirname(prefix)
     isempty(dir) || mkpath(dir)
     size(res.status) == info.spatial || throw(DimensionMismatch("the fit's maps are " *

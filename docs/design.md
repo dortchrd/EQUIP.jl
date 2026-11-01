@@ -2681,9 +2681,21 @@ section.
   sidecar, a mask, `--stderror`, `--save`/`--config`, `--help` and a mistake: 2.7 s a command.
   The commands write into IOBuffers that `main` copies to `stdout` and `stderr` at the end, so
   they are compiled once, for IOBuffer, whatever `stdout` is (a terminal, a file or a pipe each
-  compiled the command again): 1.7 s a command, 11 small methods still compiled (Julia's own
-  among them). Building EQUIPCLI takes about 45 s, once per change. (Warnings print when the
-  command ends, with the rest.) Still to do: the no-compile test.
+  compiled the command again): 1.7 s a command. Then three more causes, found with
+  `--trace-compile-timing`: (1) `loaddata`'s `info` was a named tuple whose names were the
+  acquisition values found, so a dataset with a sidecar was a new type and `savemaps` compiled
+  again (549 ms): now a struct, `DataInfo`, with the values in a Dict; (2) `savemaps` and the
+  commands' runner are `@nospecialize`d on the result and the streams (a `FitResult`'s type
+  records the flags given, a mask or not: each combination compiled them again); (3) `julia -m`
+  calls `main(ARGS)`, which dispatched to the keyword method meant for Julia callers, compiled
+  for the real streams' types: the entry point is now `main` alone, and Julia callers use
+  `equip(args; io, err)`. Now 0.95 s a command: 0.2 s to start Julia, about 0.65 s to load
+  EQUIP, JSON, NIfTI and EQUIPCLI (their precompiled code), about 40 ms of small Base methods
+  still compiled, and the work itself 2 ms (60 voxels; in a running session the whole command
+  is 2.1 ms). Building EQUIPCLI takes about 35–45 s, once per change. (Warnings print when the
+  command ends, with the rest.) Below 0.95 s needs the loading gone: a system image
+  (PackageCompiler), or a server for many calls in a row (roadmap item 10). Still to do: the
+  no-compile test.
 
 ### Still to decide
 

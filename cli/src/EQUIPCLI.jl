@@ -9,7 +9,7 @@
 #   models.jl   the models offered, built from the flags and the files; --help
 #   fit.jl      equip fit
 # Run as `julia -t auto --project=cli -m EQUIPCLI fit ...` (cli/bin/equip does that), or from
-# Julia: `EQUIPCLI.main(["fit", "T2Decay", "t2.nii.gz"])`.
+# Julia: `EQUIPCLI.equip(["fit", "T2Decay", "t2.nii.gz"])`.
 # =================================================================================================
 
 module EQUIPCLI
@@ -17,10 +17,11 @@ module EQUIPCLI
 using EQUIP
 import JSON
 import Dates
+import NIfTI
 using NIfTI: niread, niwrite, NIVolume
 using PrecompileTools: @setup_workload, @compile_workload
 
-export loaddata, loadmap, readvalues, savemaps
+export loaddata, loadmap, readvalues, savemaps, DataInfo
 
 include("io.jl")
 include("args.jl")
@@ -42,19 +43,22 @@ writes the command's flags to one. Times in seconds.
 """
 
 """
-    main(args; io = stdout, err = stderr) -> exit code
+    equip(args; io = stdout, err = stderr) -> exit code
 
-The `equip` command: `main(["fit", "T2Decay", "t2.nii.gz"])`. Mistakes in the command (an
-unknown flag, a missing value, data that do not match the model) print a message to `err` and
-return 1; anything else is an error in EQUIP, shown in full.
+The `equip` command, from Julia: `equip(["fit", "T2Decay", "t2.nii.gz"])`. Mistakes in the
+command (an unknown flag, a missing value, data that do not match the model) print a message to
+`err` and return 1; anything else is an error in EQUIP, shown in full.
 """
-function main(args::AbstractVector{<:AbstractString}; io::IO = stdout, err::IO = stderr)
-    # The commands write into buffers, copied to `io` and `err` at the end: then they are
-    # compiled once, for IOBuffer, in the precompile workload, whatever `stdout` is (a terminal,
-    # a file, a pipe: each a type of its own, and each would compile the command again).
+equip(args::AbstractVector{<:AbstractString}; io::IO = stdout, err::IO = stderr) =
+    _run(String.(args), io, err)
+# The commands write into buffers, copied to `io` and `err` at the end: then they are compiled
+# once, for IOBuffer, in the precompile workload, whatever `stdout` is (a terminal, a file, a
+# pipe: each a type of its own, and each would compile the command again); `@nospecialize` keeps
+# this function itself compiled once for any of them.
+function _run(args::Vector{String}, @nospecialize(io::IO), @nospecialize(err::IO))
     out, msg = IOBuffer(), IOBuffer()
     code = try
-        _main(String.(args), out, msg)
+        _main(args, out, msg)
     catch e
         e isa ArgumentError || e isa DimensionMismatch || (_flush(out, io, msg, err); rethrow())
         println(msg, "equip: ", e.msg)
@@ -63,7 +67,10 @@ function main(args::AbstractVector{<:AbstractString}; io::IO = stdout, err::IO =
     _flush(out, io, msg, err)
     return code
 end
-_flush(out, io, msg, err) = (write(io, take!(out)); write(err, take!(msg)); flush(io); flush(err))
+function _flush(out::IOBuffer, @nospecialize(io::IO), msg::IOBuffer, @nospecialize(err::IO))
+    write(io, take!(out)); write(err, take!(msg)); flush(io); flush(err)
+    return nothing
+end
 
 function _main(args::Vector{String}, io::IOBuffer, err::IOBuffer)
     isempty(args) && (print(io, USAGE); return 0)
@@ -76,8 +83,10 @@ function _main(args::Vector{String}, io::IOBuffer, err::IOBuffer)
     throw(ArgumentError("unknown command `$cmd`; `equip --help` lists them"))
 end
 
-# The entry point for `julia -m EQUIPCLI ...`: its return value is the process's exit code.
-(@main)(args) = main(args)
+# The entry point for `julia -m EQUIPCLI ...` (Julia calls `main(ARGS)`): its return value is
+# the process's exit code. Straight to `_run`, compiled once for any stream, so nothing is
+# compiled again for the types the real stdout and stderr have (a terminal, a file, a pipe).
+(@main)(args) = _run(String.(args), stdout, stderr)
 
 include("precompile.jl")            # last: it runs `main`
 
