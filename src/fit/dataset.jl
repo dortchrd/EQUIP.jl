@@ -125,7 +125,32 @@ function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
     return params, sse, iterations, status
 end
 
-function _fit_chunk!(params, sse, iterations, status, cache, Y, voxels)
+# One chunk of voxels, on one task. Float32 (and Float16) fits flush subnormal numbers to zero
+# while the chunk runs (the CPU's FTZ/DAZ mode, `set_zero_subnormals`; restored after): numbers
+# below the type's smallest normal value (1.2e-38 in Float32) take a slow path in the CPU, tens
+# of times slower per operation, and they arise in real models: in the 5-point SIR scheme,
+# exp(-R1⁺·TD) at TD = 4.489 s is 6.8e-33, and its products with the amplitudes' derivatives are
+# 4e-40. Measured (fit! per voxel, Float64 → Float32 → Float32 flushing): 5-point SIR, lesion,
+# kmf free 8.27 → 11.79 → 7.40 µs; 16-point, lesion 18.3 → 22.8 → 17.3 µs; every case at least as
+# fast as Float64 when flushing. Values that small cannot change a Float32 fit (they are 1e-31 of
+# the terms they are added to). Once per chunk, not per voxel: switching the mode costs about
+# 15 ns, but around a single `fit!` it made a Float32 loop 9% slower. Float64 fits are left as
+# they are (their smallest normal is 2.2e-308). The mode belongs to the thread running the
+# task, and a chunk never yields, so no other task runs on that thread before it is restored.
+function _fit_chunk!(params, sse, iterations, status, cache::FitCache{M,S,T}, Y,
+                     voxels) where {M,S,T}
+    T === Float32 || T === Float16 ||
+        return _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
+    old = get_zero_subnormals()
+    set_zero_subnormals(true)
+    try
+        _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
+    finally
+        set_zero_subnormals(old)
+    end
+    return nothing
+end
+function _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
     for v in voxels
         r = _fit_voxel(cache, cache.spec, view(Y, v, :), v)
         # Store each free parameter in its map: `map` walks the two named tuples (maps and

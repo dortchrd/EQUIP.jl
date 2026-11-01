@@ -6,7 +6,7 @@
 # =================================================================================================
 
 """
-    simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng) -> data
+    simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng, precision) -> data
 
 Noisy data for model `m`, with the observations along the last dimension (the layout `fit`
 takes).
@@ -35,6 +35,10 @@ takes).
   falls with √NEX but whose floor does not).
 - `n`: number of noisy copies when no value in `truth` is a map (Monte Carlo).
 - `rng`: the random number generator, e.g. `MersenneTwister(1)` for repeatable data.
+- `precision`: the data's number type, `Float64` (the default) or `Float32` (half the memory,
+  for large simulated datasets). The signal and noise are computed in Float64 either way and
+  then stored, so the same seed gives the same data, rounded: `simulate(...; precision =
+  Float32) == Float32.(simulate(...))`. A fit converts the data to its own precision anyway.
 
 The result is a vector (one voxel), an `n × M` matrix (`n` copies), or an array with the size
 of the maps plus a last dimension of `M` observations. Voxels with a NaN parameter (e.g. a
@@ -53,7 +57,8 @@ simulate(md, (S0 = 1.0, ADC = 8e-4); snr = 20, averages = [1, 2, 4, 8], noise = 
 """
 function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
                   noise = nothing, averages = nothing, averaging = nothing,
-                  n::Union{Nothing,Integer} = nothing, rng::AbstractRNG = Random.default_rng())
+                  n::Union{Nothing,Integer} = nothing, rng::AbstractRNG = Random.default_rng(),
+                  precision::Type{<:AbstractFloat} = Float64)
     # The noise level, checked (sim/noise.jl): the scale parameter `snr` is relative to, and
     # Σ's Cholesky factor, Σ = LLᵀ (correlated noise is L·z).
     M = nobs(m)
@@ -74,7 +79,7 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, σ = nothing, �
     isempty(maps) || n === nothing ||
         throw(ArgumentError("`n` is for numbers only: with maps, the maps give the voxels"))
 
-    out = Array{Float64}(undef, sz..., M)
+    out = Array{precision}(undef, sz..., M)          # computed in Float64, stored in `precision`
     Y = reshape(out, :, M)                           # a view: row v = voxel v's observations
     isempty(Y) && return out
     _simulate!(Y, m, q, scale === nothing ? nothing : Val(scale), snr, σ, L, noise, averaging,

@@ -543,7 +543,41 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   1.29 µs (384 → 0), the same with a full Σ 2.13 → 1.17 µs (1664 → 0), ADC with magnitude
   averaging over 7 b-values 1.07 → 0.48 µs (368 → 0). (The T2 cases are the random numbers and
   exponentials themselves.) Still one thread, so that the data stay the same draw for draw.
-- **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
+- **Precision: a choice where the data are large, Float64 where the numbers are delicate**
+  (2026-11-01). `fit`, `init`, `refit` and montecarlo's fits take `precision = Float32`; every
+  input (data, maps of fixed values, starts, weights, the acquisition) is converted once, as it
+  enters the cache, so the solver runs in one type (checked: the cache's buffers, duals and
+  weights all Float32 with Float64 inputs; the same estimates from Float64 data and from the
+  same data rounded to Float32; 0 bytes per voxel). `simulate` takes `precision` for its output
+  only (computed in Float64 and rounded, so the same seed gives the same data, rounded), and the
+  data reader will too, for memory: a 256×256×100 dataset with 32 echoes is 1.7 GB in Float64.
+  crlb, leakage, the design's objective and the fit statistics stay in Float64: one voxel each,
+  second derivatives and inverses whose error grows with the condition number (large for the
+  biexponential and qMT), and microseconds each, so Float32 would buy nothing.
+  Measured (4 threads; one voxel's `fit!`, then 100 000 voxels): Float32 is faster for most
+  models, VFA 1.53× and 1.45×, 4-point SIR 1.34× and 1.54×, 16-point SIR 1.34× and 1.24×, T1IR
+  1.12× and 1.26×, the biexponential 0.95× and 1.25×; T2 and ADC 1.28–1.39× per voxel but the
+  same on a dataset. (The first README's "about 1.6×" was for the code before Phase 1.)
+- **Float32 dataset fits flush subnormal numbers to zero** (2026-11-01). Some SIR fits were
+  slower in Float32 than in Float64: 5-point with kmf free in the lesion 0.70×, 16-point 0.76×
+  (50k voxels, 4 threads). Not more solver work (fewer evaluations in Float32: 8.1 against 9.9 a
+  voxel in the 5-point case), but slower evaluations, all in the observations with a long TD:
+  one observation at a time, TI = 0.050 s, TD = 4.489 s took 181.5 ns in Float32 against 77.6 ns
+  in Float64, every other one 86–96 ns. There exp(-R1⁺·TD) is 6.8e-33 (still normal), but its
+  products with the amplitudes' derivatives are 4.3e-40, below Float32's smallest normal number
+  (1.2e-38): subnormal, which the CPU handles on a slow path, tens of times slower per
+  operation. With the CPU's flush-to-zero mode (`set_zero_subnormals(true)`) that observation
+  took 86.6 ns, and every Float32 fit was at least as fast as the Float64 one. So the dataset
+  loop sets the mode for each chunk of a Float32 (or Float16) fit and restores it after
+  (`_fit_chunk!`, fit/dataset.jl): once per chunk, because switching costs about 15 ns, and
+  around each single `fit!` it made a Float32 loop 9% slower (so `fit!` is left as it is).
+  Float64 fits are untouched (their smallest normal is 2.2e-308). Measured, 50k voxels, 4
+  threads, Float32 before → after (and against Float64 after): 5-point lesion 136.9 → 76.8 ms
+  (1.21×), 16-point lesion 359.9 → 224.4 ms (1.10×), 5-point WM I with kmf 12.5 60.7 → 45.8 ms
+  (1.19×), 4-point 39.8 → 29.4 ms (1.03×), T2 1.43×, biexponential 1.12×. Results: the 91-entry
+  snapshot (Float32 fits of every bench case and model included) identical, bit for bit; the
+  flushed values are about 1e-31 of the terms they are added to.
+- **Tissue presets are published values with their source**- **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
   2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). CSF (Stanisz has none): T1 =
