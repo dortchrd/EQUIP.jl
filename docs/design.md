@@ -3312,6 +3312,30 @@ scope (decided 2026-10-31):
        could call EQUIP as its fitting engine this way.
    - **Order**: workload coverage and the no-compile test; the command line with `--init`;
      Python; MATLAB.
+   - **Faster start-up for the release's command line, later (decided 2026-11-01: a lean
+     command line first).** Measured with `equip fit` (T2, 60 voxels): 0.95 s a command, of
+     which 0.2 s starts Julia, about 0.65 s loads EQUIP, JSON, NIfTI and EQUIPCLI (their
+     precompiled code), about 40 ms compiles small Base methods, and 2 ms is the work (the whole
+     command in a running session: 2.1 ms). Below 0.95 s the loading has to go:
+     - *A system image* (PackageCompiler.jl, `create_sysimage` with EQUIPCLI and its workload):
+       expected about 0.2–0.3 s a command, no process left running; a build of several minutes,
+       a few hundred MB, rebuilt after each update. To measure first.
+     - *A service* (a server and a thin client): one Julia process, started by the first command
+       (or `equip server start`), keeps EQUIP loaded and waits on a local socket; `equip`
+       becomes a small client (bash's `/dev/tcp`, no Julia) that sends the arguments and the
+       working directory, prints what comes back and exits with its code. Milliseconds a call,
+       and what compiles (a case outside the workload) compiles once for the server's life.
+       Requests one at a time (a fit uses every thread); paths resolved against the client's
+       directory; the server stops after an idle time and restarts when EQUIP is updated (the
+       client checks the version); the client runs the command itself if the server is down. A
+       server that runs commands must be reachable by its user alone: a socket file only they
+       can open, or a random token kept in a private file. DaemonMode.jl does this for Julia
+       scripts, but its client is Julia (0.2–0.3 s a call). The way for scripts calling `equip`
+       per subject, and for MATLAB and Python (item 10's point 4).
+     - *`juliac`* (Julia ≥ 1.12, experimental): a small binary, tens of ms to start, but it needs
+       code without dynamic dispatch (the command line picks the model by name at run time).
+     - *`--init`* (point 3 above): for cases outside the workload, which today compile at the
+       first call of each process.
 11. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
    - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
      allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
