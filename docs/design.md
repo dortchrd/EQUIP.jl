@@ -3357,6 +3357,47 @@ scope (decided 2026-10-31):
        code without dynamic dispatch (the command line picks the model by name at run time).
      - *`--init`* (point 3 above): for cases outside the workload, which today compile at the
        first call of each process.
+   - **Calling EQUIP from Python and MATLAB (2026-11-01, after the command line).**
+     - *Python, in the same process*: `juliacall` (PythonCall.jl) starts Julia inside Python
+       (`from juliacall import Main as jl; jl.seval("using EQUIP")`): 1–2 s once a session,
+       then each call costs only its work, so a notebook stays fast. NumPy arrays pass to Julia
+       without a copy and Julia's come back as NumPy arrays, but the two store arrays in
+       opposite orders (row- and column-major): a (x, y, z, observations) image arrives with its
+       dimensions reversed, so a thin wrapper puts the observations last, with one copy at most
+       (`np.asfortranarray`). Julia's threads are set before the import (an environment
+       variable). Not measured here yet (needs `juliacall` and its Julia packages installed).
+     - *MATLAB, through a Julia server*: loading Julia into MATLAB's process (a MEX file and
+       Julia's C embedding) is fragile: both bring their own LLVM, BLAS and C++ runtime, and
+       their own handling of signals and threads. So a Julia process started once a MATLAB
+       session keeps EQUIP loaded, and each call passes the arguments and the data (a `.mat`
+       file in a temporary folder) and reads the results back: milliseconds plus the transfer,
+       small next to a fit. MATDaemon.jl (`jlcall`) does this, and DECAES.jl's MATLAB interface
+       uses it; it is how qMRLab could use EQUIP as its fitting engine. The same server as the
+       command line's service (above), so one piece of work serves both. Possible but untested:
+       MATLAB → Python (MATLAB runs Python in-process) → `juliacall`, with more copies and one
+       more layer to go wrong.
+   - **A one-line installer, for people without Julia (2026-11-01).** In order of effort:
+     1. *A script that installs Julia and then EQUIP*: `curl -fsSL
+        https://github.com/dortchrd/EQUIP.jl/releases/latest/download/install.sh | sh` (and a
+        PowerShell one-liner for Windows): installs Julia with juliaup if it is missing
+        (non-interactively), installs EQUIPCLI as a Julia app (`equip` on the PATH, Julia ≥ 1.12),
+        runs `equip --help`. About 40 lines; the first install precompiles for a few minutes,
+        Julia is about 500 MB, and a command starts in 1–2 s, as now. Possible for the first
+        release.
+     2. *Prebuilt bundles, no Julia needed*: PackageCompiler's `create_app` (an `equip`
+        executable with its own Julia runtime and EQUIP compiled in), built by CI for each
+        platform (Linux x86_64, macOS Intel and Apple silicon, Windows) at each release and
+        attached to it; the same `curl … | sh` picks the archive for the system and unpacks it to
+        `~/.equip`. No Julia to install and nothing to precompile, and it is the system image's
+        start-up too (about 0.2–0.3 s a command, expected). Archives of about 250–400 MB; no
+        custom models (those are written in Julia).
+     3. *A container* (Docker, and Apptainer/Singularity on clusters), as fMRIPrep, QSIPrep and
+        MRtrix offer: straightforward once the bundle exists.
+     First, either way: where the packages come from (registered in General, EQUIPCLI from the
+     repository's `cli/` folder, or installed from GitHub directly; the CLI's `[sources]` path
+     to EQUIP then points at the repository), and a short, readable script served over HTTPS
+     with checksums for what it downloads. Proposed: (1) for the first release, then (2), with
+     the container alongside.
 11. **Solver backends** (LsqFit, SciML), **and problems too large for static arrays.**
    - **Why.** EQUIP's own solver is narrow on purpose: static arrays and dual numbers, no
      allocation, for millions of tiny problems (3.5–19× faster than LsqFit on the same problems,
