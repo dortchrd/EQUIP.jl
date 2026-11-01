@@ -57,6 +57,30 @@ const _TRUTHS = (
               "--save", cnf, "--out", joinpath(dir, "t2_")]; io = quiet, err = quiet)
         equip(["fit", "--config", cnf, "--T2", "free,start=0.05"]; io = quiet, err = quiet)
         equip(["fit", "QMTSIR", "--help"]; io = quiet, err = quiet)
+        # crlb, montecarlo and design: the SIR schemes and T2 decay (each model's crlb compiles
+        # its second derivatives, so the others compile at their first use, a few seconds)
+        tsv, cnf2 = joinpath(dir, "t.tsv"), joinpath(dir, "d.cnf")
+        sir = ["QMTSIR", "--protocol", "SIR_4POINT", "--snr", "200", "--kmf", "12.5"]
+        equip(["crlb"; sir; "--tissue"; "SIR_WM_I"]; io = quiet, err = quiet)
+        equip(["crlb"; sir; "--tissue"; "SIR_WM_I,SIR_lesion"; "--out"; tsv]; io = quiet, err = quiet)
+        equip(["crlb", "QMTSIR", "--protocol", "SIR_5POINT", "--tissue", "SIR_WM_I,SIR_lesion",
+               "--snr", "100,200", "--kmf", "free", "--cov", "biased", "--out", tsv]; io = quiet, err = quiet)
+        equip(["crlb", "T2Decay", "--TE", "0.01:0.01:0.32", "--truth", "S0=1000,T2=0.08", "--sigma", "10",
+               "--vary", "T2=0.04:0.04:0.12", "--out", tsv]; io = quiet, err = quiet)
+        equip(["crlb", "T2Decay", "--TE", "0.01:0.01:0.32", "--truth", "S0=1000,T2=0.08", "--sigma", "10"];
+              io = quiet, err = quiet)
+        equip(["montecarlo"; sir; "--tissue"; "SIR_WM_I"; "--noise"; "rician"; "--n"; "20"; "--seed"; "1"];
+              io = quiet, err = quiet)
+        equip(["montecarlo"; sir; "--tissue"; "SIR_WM_I,SIR_lesion"; "--noise"; "rician"; "--n"; "20";
+               "--seed"; "1"; "--out"; tsv]; io = quiet, err = quiet)
+        equip(["montecarlo", "T2Decay", "--TE", "0.01:0.01:0.32", "--truth", "S0=1000,T2=0.08", "--sigma",
+               "10", "--noise", "gaussian", "--n", "20", "--seed", "1"]; io = quiet, err = quiet)
+        equip(["design"; sir; "--tissue"; "SIR_WM_I,SIR_lesion"; "--acquisition"; "TI=0.01..10,TD=0.01..10";
+               "--readout"; "0.3"; "--starts"; "1"; "--generations"; "2"; "--seed"; "1"; "--out"; cnf2];
+              io = quiet, err = quiet)
+        equip(["crlb", "QMTSIR", "--help"]; io = quiet, err = quiet)
+        equip(["montecarlo", "QMTSIR", "--protocol", "SIR_4POINT", "--tissue", "SIR_WM_I", "--snr", "200"];
+              io = quiet, err = quiet)
         equip(["fit", "T2Decay", f, "--nonsense", "1"]; io = quiet, err = quiet)
         equip(["--help"]; io = quiet, err = quiet)
     end

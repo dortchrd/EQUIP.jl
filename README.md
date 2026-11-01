@@ -696,6 +696,43 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   Table 2 optima (4-point 0.2433, 5-point 1.6020) in seconds; docs/design.md has the
   comparison with simulated annealing and a genetic algorithm.
 
+## Command line
+
+The four parts as one command, `equip`, for work without writing Julia: NIfTI data in, NIfTI
+maps out, tables as TSV. A companion package in `cli/` (EQUIP itself depends on no file
+format). Once: `julia --project=cli -e 'using Pkg; Pkg.instantiate()'` (a few minutes, the
+first time); then `cli/bin/equip` (put `cli/bin` on your `PATH`).
+
+```bash
+equip fit T2Decay t2.nii.gz                                   # TE from the BIDS sidecar
+equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf free,start=10 --mask brain.nii.gz
+equip fit ADCDecay dwi.nii.gz --b @dwi.bval --weights @nex.txt --stderror --out res/sub-01_
+equip crlb QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_GM,SIR_lesion --snr 100,200 --kmf 12.5 --out crlb.tsv
+equip montecarlo QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I --snr 200 --noise rician --kmf 12.5 --seed 1
+equip design QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_WM_II,SIR_GM,SIR_lesion --snr 200 \
+    --kmf 12.5 --acquisition TI=0.01..10,TD=0.01..10 --readout 0.3 --out sir4.cnf
+equip fit --config sir4.cnf sir4_data.nii.gz                   # fit data acquired with it
+equip fit QMTSIR --help                                        # a model's flags
+```
+
+- Flags are named after the model's fields (`--TI`, `--TE`, `--b`: a comma list,
+  `start:step:stop`, or `@file`, one value per line or an FSL `.bval`) and parameters, by
+  `fit`'s rules: `--kmf 12.5` fixes, `--kmf free,start=10,lower=0` estimates, `--R1m R1f` ties,
+  `--Sm map.nii.gz` fixes to a map. A value given wins over the data's sidecar (with a warning
+  if they differ). Times in seconds.
+- `--save run.cnf` writes the command as a file of flags, one per line (FSL's style), the
+  acquisition used included; `--config run.cnf` reads one, and flags after it win.
+- The truth for `crlb`, `montecarlo` and `design`: `--tissue` (several: one scenario each) and
+  `--truth NAME=value,...`; `--vary NAME=values` for true values swept or boxed. `--noise` is
+  always given for `montecarlo`. `design` takes its bounds as `NAME=lower..upper`, the scan time
+  as `--readout` (SIR-FSE) or `--scantime "sum(TI .+ TD .+ 0.3)"`, Eq. 5's weights as
+  `--weights PSR=1,R1f=0`; `--out` writes the protocol it finds as a config file.
+- A command starts in about 1–2 s (Julia starting and loading EQUIP; the work itself is
+  milliseconds for crlb and small datasets). A case outside the precompiled ones (another
+  model's crlb, a new combination of sweep axes) compiles once in that call, a few seconds.
+  Faster start-up (a system image, a resident service) is on the roadmap.
+- MATLAB `.mat` input is next.
+
 ## How it works
 
 ```

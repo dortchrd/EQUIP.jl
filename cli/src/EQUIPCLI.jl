@@ -8,6 +8,8 @@
 #   args.jl     the command line's words: flags, config files of flags, values, roles
 #   models.jl   the models offered, built from the flags and the files; --help
 #   fit.jl      equip fit
+#   errors.jl   equip crlb, equip montecarlo
+#   design.jl   equip design
 # Run as `julia -t auto --project=cli -m EQUIPCLI fit ...` (cli/bin/equip does that), or from
 # Julia: `EQUIPCLI.equip(["fit", "T2Decay", "t2.nii.gz"])`.
 # =================================================================================================
@@ -20,22 +22,26 @@ import Dates
 import NIfTI
 using NIfTI: niread, niwrite, NIVolume
 using PrecompileTools: @setup_workload, @compile_workload
+using Random: Xoshiro
 
-export loaddata, loadmap, readvalues, savemaps, DataInfo
+export loaddata, loadmap, readvalues, savemaps, DataInfo, writetable
 
 include("io.jl")
 include("args.jl")
 include("models.jl")
 include("fit.jl")
+include("errors.jl")
+include("design.jl")
 
 const USAGE = """
 equip: EQUIP from the command line
 
   equip fit MODEL DATA... [flags]       fit maps: NIfTI data in, NIfTI maps out
-  equip fit MODEL --help                 the model's acquisition fields and parameters
+  equip crlb MODEL [flags]               a fit's bias, SD and RMSE, predicted (Cramér–Rao)
+  equip montecarlo MODEL [flags]         the same, measured by simulating and fitting
+  equip design MODEL [flags]             a protocol optimized for a set of scenarios
+  equip COMMAND MODEL --help             the flags: the model's fields and parameters
   equip models                           the models
-
-  crlb, montecarlo and design: next.
 
 Flags are named after the model's fields (--TI, --TE, --b) and parameters (--kmf 12.5,
 --R1f free); --config FILE reads flags from a file (one per line, # comments), --save FILE
@@ -78,8 +84,9 @@ function _main(args::Vector{String}, io::IOBuffer, err::IOBuffer)
     cmd in ("-h", "--help", "help") && (print(io, USAGE); return 0)
     cmd == "models" && (println(io, join(keys(MODELS), "\n")); return 0)
     cmd == "fit" && return cmd_fit(rest; io, err)
-    cmd in ("crlb", "montecarlo", "design") &&
-        throw(ArgumentError("`equip $cmd` is not built yet; `equip fit` is"))
+    cmd == "crlb" && return cmd_crlb(rest; io, err)
+    cmd == "montecarlo" && return cmd_montecarlo(rest; io, err)
+    cmd == "design" && return cmd_design(rest; io, err)
     throw(ArgumentError("unknown command `$cmd`; `equip --help` lists them"))
 end
 

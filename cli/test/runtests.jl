@@ -1,5 +1,6 @@
 # Tests of EQUIPCLI: julia --project=cli -e 'using Pkg; Pkg.test()'
 using EQUIPCLI, EQUIP, Test, Random
+using Random: Xoshiro
 import JSON
 using NIfTI: NIVolume, niwrite, niread
 
@@ -17,6 +18,17 @@ Y = simulate(m, (S0 = S0map, T2 = T2map); snr = 200, noise = :gaussian, rng = Me
 geometry = (voxel_size = (2.0f0, 2.0f0, 3.0f0),
             orientation = Float32[2 0 0 -10; 0 2 0 -20; 0 0 3 5])
 writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
+
+# Run a command in this process: its exit code and what it printed.
+run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.equip(collect(String, args); io = o, err = e);
+                (code = c, out = String(take!(o)), err = String(take!(e))))
+bad(args...) = (r = run(args...); r.code == 1 ? r.err : "exit $(r.code): $(r.err)")
+readmap2(f) = niread(f).raw
+# A TSV table: its header and rows, as strings.
+function table(f)
+    lines = split.(readlines(f), '\t')
+    return [Dict(zip(lines[1], l)) for l in lines[2:end]]
+end
 
 @testset "EQUIPCLI" begin
     @testset "loaddata: NIfTI files and their BIDS sidecars" begin
@@ -95,8 +107,6 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
     end
 
     @testset "equip fit: the same maps as the Julia API's fit" begin
-        run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.equip(collect(String, args); io = o, err = e);
-                        (code = c, out = String(take!(o)), err = String(take!(e))))
         readmap(f) = niread(f).raw
         out(name) = joinpath(tmp, "cli", name)
         data, info = loaddata(path("t2.nii.gz"))
@@ -145,7 +155,6 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
         @test occursin("T2Decay", run("models").out) && occursin("equip fit MODEL DATA", run().out)
         # mistakes: a message naming what to do, exit code 1, nothing written
-        bad(args...) = (r = run(args...); r.code == 1 ? r.err : "exit $(r.code)")
         @test occursin("`--kmf` is not a flag of `equip fit T2Decay`", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
         @test occursin("--S0, --T2", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
         @test occursin("QMTSIR needs `TI`", bad("fit", "QMTSIR", path("t2.nii.gz")))
@@ -157,6 +166,84 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         @test occursin("`--out` needs a value", bad("fit", "T2Decay", path("t2.nii.gz"), "--out"))
         @test occursin("give the data", bad("fit", "T2Decay"))
         @test occursin("unknown command `fitt`", bad("fitt"))
-        @test occursin("not built yet", bad("crlb", "QMTSIR"))
+    end
+
+    @testset "equip crlb, montecarlo, design: the Julia API's results" begin
+        m4, m5 = QMTSIR(; SIR_4POINT...), QMTSIR(; SIR_5POINT...)
+        tsv = path("t.tsv")
+        sir = ("QMTSIR", "--protocol", "SIR_4POINT", "--snr", "200", "--kmf", "12.5")
+        # crlb, one tissue: the table's numbers are crlb's, in full precision
+        r = run("crlb", sir..., "--tissue", "SIR_WM_I", "--out", tsv)
+        c = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200, kmf = 12.5)
+        @test r.code == 0 && occursin("crlb for QMTSIR", r.out) && occursin("wrote", r.out)
+        t = table(tsv)
+        @test length(t) == 4 && [x["parameter"] for x in t] == ["PSR", "R1f", "Sf", "M0f"]
+        @test parse(Float64, t[1]["sd"]) == c.sd.PSR && parse(Float64, t[1]["bias"]) == c.bias.PSR
+        # several tissues and an SNR sweep: one row per setting and parameter, crlb's numbers
+        r = run("crlb", "QMTSIR", "--protocol", "SIR_4POINT", "--tissue", "SIR_WM_I,SIR_GM,SIR_lesion",
+                "--snr", "100,200", "--kmf", "12.5", "--out", tsv)
+        t = table(tsv)
+        @test r.code == 0 && length(t) == 3 * 2 * 4
+        cs = crlb(m4, scenarios(QMTSIR, [:SIR_WM_I, :SIR_GM, :SIR_lesion]; kmf = 12.5); snr = [100, 200])
+        @test [parse(Float64, x["sd"]) for x in t] == [x.sd for x in cs.rows]
+        @test t[1]["snr"] == "100" && t[1]["tissue"] == "SIR_WM_I"
+        # a true value changed in every tissue: a column of its own
+        r = run("crlb", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--truth", "PSR=0.15", "--out", tsv)
+        t = table(tsv)
+        @test r.code == 0 && all(x -> x["PSR"] == "0.15", t) && t[1]["truth"] == "0.15"
+        # T2: --truth, --sigma, --vary; the 5-point scheme with kmf estimated, Eq. 3
+        @test run("crlb", "T2Decay", "--TE", "0.01:0.01:0.32", "--truth", "S0=1000,T2=0.08", "--sigma", "10",
+                  "--vary", "T2=0.04:0.04:0.12", "--out", tsv).code == 0
+        @test length(table(tsv)) == 3 * 2 && table(tsv)[2]["sd"] ==
+              repr(crlb(T2Decay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.04); σ = 10.0).sd.T2)
+        r = run("crlb", "QMTSIR", "--protocol", "SIR_5POINT", "--tissue", "SIR_WM_I", "--snr", "200",
+                "--kmf", "free", "--cov", "biased", "--out", tsv)
+        @test r.code == 0 && parse(Float64, table(tsv)[5]["sd"]) ==
+              crlb(m5, nominal(m5, :SIR_WM_I); snr = 200, kmf = Free(), cov = :biased).sd.kmf
+        # montecarlo: the same seed gives the same numbers as the Julia API
+        r = run("montecarlo", sir..., "--tissue", "SIR_WM_I", "--noise", "rician", "--n", "500", "--seed", "7", "--out", tsv)
+        mc = montecarlo(m4, nominal(m4, :SIR_WM_I); snr = 200, kmf = 12.5, noise = :rician, n = 500, rng = Xoshiro(7))
+        @test r.code == 0 && occursin("montecarlo for QMTSIR", r.out)
+        @test parse(Float64, table(tsv)[1]["sd"]) == mc.sd.PSR && parse(Float64, table(tsv)[1]["crlb_sd"]) == mc.crlb.sd.PSR
+        @test run("montecarlo", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--noise", "rician", "--n", "100",
+                  "--seed", "1", "--starts", "model", "--out", tsv).code == 0
+        @test length(table(tsv)) == 2 * 4
+        # design: the search with its seed, as the Julia API's; the protocol written as flags
+        cnf = path("design.cnf")
+        r = run("design", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--acquisition", "TI=0.01..10,TD=0.01..10",
+                "--readout", "0.3", "--starts", "1", "--generations", "20", "--seed", "3", "--out", cnf)
+        @test r.code == 0 && occursin("DesignResult for QMTSIR", r.out) && occursin("below the start's", r.out)
+        d = ProtocolDesign(m4, scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; kmf = 12.5); snr = 200,
+                           acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+        dr = optimize_protocol(d; starts = 1, generations = 20, rng = Xoshiro(3))
+        words = EQUIPCLI.configwords(cnf)
+        @test words[findfirst(==("--TI"), words) + 1] == join(repr.(Float64.(dr.rounded.TI)), ',')
+        @test words[findfirst(==("--TD"), words) + 1] == join(repr.(Float64.(dr.rounded.TD)), ',')
+        # the design's config file fits data acquired with it (the data given on the command line);
+        # data from another protocol are refused, with the counts
+        md = QMTSIR(; TI = dr.rounded.TI, TD = dr.rounded.TD)
+        Yd = simulate(md, map(x -> x isa Real ? fill(Float64(x), 3, 2, 1) : x, nominal(md, :SIR_WM_I));
+                      snr = 200, noise = :rician, rng = MersenneTwister(6))
+        niwrite(path("sir4.nii.gz"), NIVolume(Float32.(Yd); geometry...))
+        @test run("fit", "--config", cnf, path("sir4.nii.gz"), "--out", path("fromdesign_")).code == 0
+        @test readmap2(path("fromdesign_PSR.nii.gz")) ≈ Float32.(fit(md, loaddata(path("sir4.nii.gz"))[1]).params.PSR)
+        @test occursin("has 4 observations", bad("fit", "--config", cnf, path("sir.nii.gz")))
+        # --scantime and --constraint as expressions of the model's fields
+        @test run("design", sir..., "--tissue", "SIR_WM_I", "--acquisition", "TI=0.01..10,TD=0.01..10",
+                  "--scantime", "sum(TI .+ TD .+ 0.3)", "--constraint", "TI .+ TD .- 0.5",
+                  "--starts", "1", "--generations", "5", "--seed", "1").code == 0
+        # mistakes
+        @test occursin("give the noise level", bad("crlb", "QMTSIR", "--protocol", "SIR_4POINT", "--tissue", "SIR_WM_I"))
+        @test occursin("--noise rician", bad("montecarlo", sir..., "--tissue", "SIR_WM_I"))
+        @test occursin("give what to optimize", bad("design", sir..., "--tissue", "SIR_WM_I"))
+        @test occursin("NAME=lower..upper", bad("design", sir..., "--tissue", "SIR_WM_I", "--acquisition", "TI=0.01:10"))
+        @test occursin("give the scan time", bad("design", sir..., "--tissue", "SIR_WM_I", "--acquisition", "TI=0.01..10"))
+        @test occursin("not a Julia expression", bad("design", sir..., "--tissue", "SIR_WM_I",
+                                                    "--acquisition", "TI=0.01..10", "--scantime", "sum(TI"))
+        @test occursin("NAME=values", bad("crlb", sir..., "--tissue", "SIR_WM_I", "--vary", "kmf"))
+        @test occursin("`PSX` is not a parameter", bad("crlb", sir..., "--truth", "PSX=0.1"))
+        @test occursin("takes no files", bad("crlb", sir..., "data.nii.gz"))
+        @test occursin("T1IR: no value for `T1`", bad("crlb", "T1IR", "--TI", "0.1,0.5,1.0", "--snr", "100"))
+        @test occursin("--truth NAME=value", bad("crlb", "T1IR", "--TI", "0.1,0.5,1.0", "--snr", "100"))
     end
 end

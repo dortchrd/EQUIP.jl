@@ -2696,6 +2696,27 @@ section.
   command ends, with the rest.) Below 0.95 s needs the loading gone: a system image
   (PackageCompiler), or a server for many calls in a row (roadmap item 10). Still to do: the
   no-compile test.
+- **`equip crlb`, `equip montecarlo`, `equip design`** (`cli/src/errors.jl`, `design.jl`): the
+  truth by `--tissue` (several: `scenarios`, one per tissue) and `--truth NAME=value` (with
+  several tissues, a one-value axis of `vary`: the same change in each, and a column in the
+  table); the fit's flags as for `equip fit` (no maps); `--snr` (a list: a sweep) or `--sigma`,
+  `--averages`, `--vary NAME=values` (repeated for several), `--weights`; tables as TSV
+  (`--out`, the sweep's `rows`, full precision). montecarlo: `--noise` required, `--averaging`,
+  `--n`, `--seed` (an `Xoshiro`, the same numbers as the Julia API with that seed), `--starts`,
+  `--precision`. design: `--acquisition NAME=lower..upper` (decided: `..`, so a bound is not
+  read as a `start:step:stop` range; Julia's interval notation), `--shared`, the scan time by
+  `--readout` (Σ(TI + TD + readout)) or `--scantime`, a Julia expression of the model's fields,
+  made a function at run time (`invokelatest`), `--constraint` likewise; Eq. 5's weights as
+  `--weights PSR=1,R1f=0` (numbers are the fit's, per observation: told apart by the form, as in
+  Julia by the type); `--out` the rounded protocol as a config file of its acquisition flags
+  (`equip fit --config sir4.cnf data.nii.gz` fits with it; tested). On the 4-point scheme over
+  the four tissues the search returns the paper's protocol (Eq. 5 0.243314 rounded against
+  0.243395, 0.03% lower). The tissues go to `scenarios` as a list of names, not a named tuple
+  of truths by tissue (whose names would be its type: each set of tissues compiled again).
+  The workload covers the SIR schemes and T2 decay for these three (another model's crlb
+  compiles its second derivatives at its first use); EQUIPCLI's package image grew to 47 MB
+  and loading to about 1.2 s, so a command takes 1.4–2 s; a new combination of sweep axes still
+  compiles EQUIP's table code once (0.5 s). 90 tests.
 
 ### Still to decide
 
