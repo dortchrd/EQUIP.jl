@@ -2589,15 +2589,22 @@ geometry, to write maps back, and the acquisition values found). For the release
   degrees) into the model's fields, for files from `dcm2niix` (so DICOM from any scanner,
   converted first). Checked: the number of values against the data's last dimension; values
   given as flags win, and a disagreement with a sidecar is reported.
+- **MATLAB `.mat`** (MAT.jl; decided 2026-11-01): the data as a variable picked by name
+  (`data.mat:S`, or the only array in the file), observations last as for NIfTI; acquisition
+  values from a variable too (`--TI @protocol.mat:TI`). No geometry in a `.mat` file, so maps
+  are written to a `.mat` file (one variable per map), or to NIfTI with `--like ref.nii.gz`.
+  (Waiting for the session's network to allow Julia's package server, which MAT.jl comes
+  from; NIfTI.jl and a JSON package were installed already.)
 - **Text files** for values: `@file` (above).
 - **Writing**: `savemaps(prefix, res; like = info)`.
-- **Later** (item 9): MATLAB `.mat`, Philips PAR/REC, DICOM read directly, NumPy, ISMRMRD.
+- **Later** (item 9): Philips PAR/REC, DICOM read directly, NumPy, ISMRMRD.
 
 ### Where it lives, and start-up
 
 - **A companion package in the same repository** (e.g. `cli/`, with its own Project.toml as
-  `bench/` has): EQUIP plus NIfTI.jl, a JSON package and ArgParse.jl (which reads arguments
-  from a file). The core keeps no file-format dependencies. Installed as a Julia app, an
+  `bench/` has): EQUIP plus NIfTI.jl, JSON.jl and MAT.jl. The flags are parsed by its own
+  small parser, not ArgParse.jl: they depend on the model (its fields and parameters), which a
+  parser declared in advance does not fit, and one dependency less to load at each call. The core keeps no file-format dependencies. Installed as a Julia app, an
   `equip` command (Pkg apps, Julia ≥ 1.12; the core's compat stays 1.11), or run as
   `julia --project=cli -m EQUIPCLI fit ...`.
 - **Start-up**: a call is a new Julia process: about 1 s to start Julia and load EQUIP (item
@@ -2621,9 +2628,9 @@ section.
 
 ### Still to decide
 
-1. Formats beyond NIfTI and BIDS sidecars for the release: MATLAB `.mat`? Philips PAR/REC?
-2. Units on the command line: seconds only, as in the package (proposed), or also `ms`
-   (`--TI 10,50,56ms`), as scanner protocols are written.
+1. (Decided 2026-11-01: NIfTI with BIDS sidecars, and MATLAB `.mat`; PAR/REC and the rest
+   later.)
+2. (Decided 2026-11-01: seconds only, as in the package; sidecars converted on reading.)
 3. The bounds' syntax for `design` (`TI=0.01:10` reads as a range with two numbers).
 4. The companion package's name, and how it is installed.
 5. Python and MATLAB: after the release, as thin wrappers (proposed).
