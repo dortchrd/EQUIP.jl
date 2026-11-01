@@ -191,11 +191,12 @@ Four keywords are options rather than parameters, so no model has a parameter wi
 names:
 
 - `mask`: which voxels of a dataset to fit (true = fit);
-- `precision`: `Float64` (the default) or `Float32`: half the memory, and for most models faster
-  (measured, 4 threads, 100 000 voxels: 4-point SIR 1.5×, VFA 1.45×, 16-point SIR, T1 inversion
-  recovery and the biexponential 1.25×; T2 and ADC the same). Not always: the 5-point SIR with
-  kmf fixed at a wrong value is slower in Float32 (0.7×), an open question. The data can be any
-  number type: each voxel is converted to the fit's precision as it is fitted;
+- `precision`: `Float64` (the default) or `Float32`: half the memory, and on datasets faster,
+  1.0–1.5× by model (measured, 4 threads; e.g. 4-point SIR 1.5×, VFA 1.45×, T2 1.4×,
+  biexponential 1.1–1.25×). Float32 dataset fits flush subnormal numbers (below 1.2e-38) to zero,
+  which the CPU handles slowly and which long SIR delays produce; without that some SIR fits were
+  slower in Float32. The data can be any number type: each voxel is converted to the fit's
+  precision as it is fitted;
 - `solver`: the solver's settings, e.g. `solver = LM(maxiter = 50)`. `LM` takes `maxiter`
   (100), the tolerances `xtol`, `ftol`, `gtol` (defaults set by the precision) and the starting
   `damping` (1e-3). Most fits need none of them;

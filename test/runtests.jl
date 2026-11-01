@@ -29,6 +29,18 @@ end
 EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(start = 1.0))
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
+# A T2 decay that records whether subnormal numbers are flushed to zero while it is evaluated.
+const FLUSHED = Bool[]
+struct FlushProbe <: MRIModel
+    TE::Vector{Float64}
+end
+EQUIP.parameters(::FlushProbe) = (S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6))
+function EQUIP.signal!(out, m::FlushProbe, p)
+    push!(FLUSHED, get_zero_subnormals())
+    out .= p.S0 .* exp.(-m.TE ./ p.T2)
+    return out
+end
+
 # A model still being written, with no `parameters` method yet: it must still print.
 struct NoParametersYet <: MRIModel
     TE::Vector{Float64}
@@ -110,6 +122,26 @@ end
             @test (@allocated fit!(c, y)) == 0
             @inferred fit!(c, y)                    # the result's type is known when compiling
         end
+    end
+
+    @testset "Float32 dataset fits flush subnormal numbers to zero, and restore the mode" begin
+        mp = FlushProbe(collect(0.01:0.01:0.08))
+        Y = simulate(mp, (S0 = 1000.0, T2 = 0.05); σ = 5.0, noise = :gaussian, n = 40, rng = MersenneTwister(1))
+        was = get_zero_subnormals()
+        empty!(FLUSHED); fit(mp, Float32.(Y); precision = Float32)
+        @test !isempty(FLUSHED) && all(FLUSHED) && get_zero_subnormals() == was
+        empty!(FLUSHED); fit(mp, Y)
+        @test !isempty(FLUSHED) && !any(FLUSHED)                 # Float64: left as it is
+        empty!(FLUSHED); fit(mp, Float32.(Y[1, :]); precision = Float32)
+        @test !any(FLUSHED)                                      # one voxel: not switched per call
+        # in the 5-point SIR's lesion the derivatives reach 4e-40, subnormal in Float32 (1.2e-38):
+        # flushed, the fit agrees with Float64's to Float32's precision
+        m5 = QMTSIR(; SIR_5POINT...)
+        Yl = simulate(m5, nominal(m5, :SIR_lesion); snr = 200, noise = :rician, n = 50, rng = MersenneTwister(2))
+        r64, r32 = fit(m5, Yl; kmf = Free()), fit(m5, Float32.(Yl); kmf = Free(), precision = Float32)
+        ok = isconverged.(r64.status) .& isconverged.(r32.status)
+        @test count(ok) >= 45
+        @test maximum(abs.(r32.params.PSR[ok] .- r64.params.PSR[ok])) < 1e-3
     end
 
     @testset "models: keyword construction, single TD/TR, lengths, precision" begin
