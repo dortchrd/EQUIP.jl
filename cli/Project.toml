@@ -1,0 +1,25 @@
+name = "EQUIPCLI"
+uuid = "704150e9-3f2c-42b0-97f3-1070d4d8ebde"
+version = "0.1.0-DEV"
+authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
+
+[deps]
+EQUIP = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+NIfTI = "a3a9e032-41b5-5fc4-967a-a6b7a19844d3"
+
+[sources]
+EQUIP = {path = ".."}
+
+[compat]
+EQUIP = "0.3"
+JSON = "1"
+NIfTI = "0.6"
+julia = "1.11"
+
+[extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Random", "Test"]
