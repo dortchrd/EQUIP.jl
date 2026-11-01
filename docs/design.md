@@ -543,7 +543,26 @@ from true values to data. (`compare`, which judges a fit, moved to `src/errors/`
   1.29 µs (384 → 0), the same with a full Σ 2.13 → 1.17 µs (1664 → 0), ADC with magnitude
   averaging over 7 b-values 1.07 → 0.48 µs (368 → 0). (The T2 cases are the random numbers and
   exponentials themselves.) Still one thread, so that the data stay the same draw for draw.
-- **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
+- **Precision: a choice where the data are large, Float64 where the numbers are delicate**
+  (2026-11-01). `fit`, `init`, `refit` and montecarlo's fits take `precision = Float32`; every
+  input (data, maps of fixed values, starts, weights, the acquisition) is converted once, as it
+  enters the cache, so the solver runs in one type (checked: the cache's buffers, duals and
+  weights all Float32 with Float64 inputs; the same estimates from Float64 data and from the
+  same data rounded to Float32; 0 bytes per voxel). `simulate` takes `precision` for its output
+  only (computed in Float64 and rounded, so the same seed gives the same data, rounded), and the
+  data reader will too, for memory: a 256×256×100 dataset with 32 echoes is 1.7 GB in Float64.
+  crlb, leakage, the design's objective and the fit statistics stay in Float64: one voxel each,
+  second derivatives and inverses whose error grows with the condition number (large for the
+  biexponential and qMT), and microseconds each, so Float32 would buy nothing.
+  Measured (4 threads; one voxel's `fit!`, then 100 000 voxels): Float32 is faster for most
+  models, VFA 1.53× and 1.45×, 4-point SIR 1.34× and 1.54×, 16-point SIR 1.34× and 1.24×, T1IR
+  1.12× and 1.26×, the biexponential 0.95× and 1.25×; T2 and ADC 1.28–1.39× per voxel but the
+  same on a dataset. (The first README's "about 1.6×" was for the code before Phase 1.) One
+  exception, open: the 5-point SIR with kmf fixed at 12.5 is slower in Float32, 4.4 → 6.2 µs a
+  voxel, with fewer evaluations (8.1 against 9.9 a voxel), so each evaluation is slower: the
+  signal with dual numbers 381 against 243 ns (the 4-point: 240 against 292). Subnormal numbers
+  in the intermediates are part of it (flushing them to zero: 426 → 342 ns), not all.
+- **Tissue presets are published values with their source**- **Tissue presets are published values with their source**: Stanisz et al., MRM 2005;54:507,
   Table 1 (T1 and T2 at 3 T, 37 °C, in vitro: animal tissues and human blood; white matter is
   bovine corpus callosum, gray matter cortex, so in vivo values differ); Dortch et al., MRM
   2018, Table 1 (the four SIR classes, with Sm = 0.83, Sf = −1.0). CSF (Stanisz has none): T1 =

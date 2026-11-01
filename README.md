@@ -191,7 +191,11 @@ Four keywords are options rather than parameters, so no model has a parameter wi
 names:
 
 - `mask`: which voxels of a dataset to fit (true = fit);
-- `precision`: `Float64` (the default) or `Float32`;
+- `precision`: `Float64` (the default) or `Float32`: half the memory, and for most models faster
+  (measured, 4 threads, 100 000 voxels: 4-point SIR 1.5×, VFA 1.45×, 16-point SIR, T1 inversion
+  recovery and the biexponential 1.25×; T2 and ADC the same). Not always: the 5-point SIR with
+  kmf fixed at a wrong value is slower in Float32 (0.7×), an open question. The data can be any
+  number type: each voxel is converted to the fit's precision as it is fitted;
 - `solver`: the solver's settings, e.g. `solver = LM(maxiter = 50)`. `LM` takes `maxiter`
   (100), the tolerances `xtol`, `ftol`, `gtol` (defaults set by the precision) and the starting
   `damping` (1e-3). Most fits need none of them;
@@ -441,7 +445,7 @@ Parameters:
   Mzm_td0  fixed  0.0                        0.0
 ```
 
-- `simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng)` and `signal(m, truth)` (one voxel, no noise):
+- `simulate(m, truth; snr or σ or Σ, noise, averages, averaging, n, rng, precision)` and `signal(m, truth)` (one voxel, no noise):
   `truth` gives a value for every parameter, a number, a map or a tie (`R1m = :R1f`). Nothing
   is filled in silently, so the script shows everything the data were made with: `nominal(m,
   tissue)` gives every value for a tissue, `nominal(m; changes...)` every value from the model
@@ -453,7 +457,8 @@ Parameters:
   does not know: `:rician` for magnitude images, `:gaussian` for real-valued data
   (phase-corrected, a real channel; the noise crlb assumes). A model's `magnitude` option says how
   the signal is computed, not how the data were reconstructed, so it does not choose the noise.
-  Pass `rng = MersenneTwister(seed)` for repeatable data.
+  Pass `rng = MersenneTwister(seed)` for repeatable data, and `precision = Float32` for data in
+  half the memory (computed in Float64, then rounded: the same draws).
 - **Averages:** `averages = nex` (the number of averages of each observation, or one number
   for all) makes `snr` or `σ` one average's noise, and observation j's σ/√NEXⱼ. With Rician
   noise, `averaging` says how they were combined, always given: `:complex` (complex images

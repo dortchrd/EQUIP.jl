@@ -916,6 +916,13 @@ end
         @test size(simulate(m, θ; noise = :rician, snr = 50, n = 7)) == (7, 32)
         @test simulate(m, θ; noise = :rician, snr = 50, rng = MersenneTwister(1)) == simulate(m, θ; noise = :rician, snr = 50, rng = MersenneTwister(1))
         # snr is relative to the scale parameter (here σ = 1000/50 = 20); Gaussian SD; Rician floor
+        # Float32 data: the same draws, computed in Float64 and rounded; for maps and Σ too
+        @test simulate(m, θ; snr = 50, n = 7, noise = :rician, precision = Float32, rng = MersenneTwister(1)) ==
+              Float32.(simulate(m, θ; snr = 50, n = 7, noise = :rician, rng = MersenneTwister(1)))
+        @test eltype(simulate(m, (S0 = fill(1000.0, 3, 2), T2 = 0.08); σ = 5.0, noise = :gaussian, precision = Float32)) == Float32
+        Σ32 = [25.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
+        @test simulate(m, θ; Σ = Σ32, n = 5, noise = :rician, precision = Float32, rng = MersenneTwister(4)) ==
+              Float32.(simulate(m, θ; Σ = Σ32, n = 5, noise = :rician, rng = MersenneTwister(4)))
         Y = simulate(m, θ; snr = 50, n = 20_000, noise = :gaussian, rng = MersenneTwister(2))
         @test std(Y[:, 1]) ≈ 20 rtol = 0.03
         @test mean(Y[:, 1]) ≈ signal(m, θ)[1] rtol = 0.003
