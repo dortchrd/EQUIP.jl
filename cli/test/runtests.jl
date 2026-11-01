@@ -93,4 +93,70 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
         car = JSON.parsefile(replace(files[2], ".nii.gz" => ".json"))
         @test car["Map"] == "T2map" && car["Model"] == "T2Decay"
     end
+
+    @testset "equip fit: the same maps as the Julia API's fit" begin
+        run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.main(collect(String, args); io = o, err = e);
+                        (code = c, out = String(take!(o)), err = String(take!(e))))
+        readmap(f) = niread(f).raw
+        out(name) = joinpath(tmp, "cli", name)
+        data, info = loaddata(path("t2.nii.gz"))
+        mask = loadmap(path("mask.nii.gz"), info) .> 0
+        # T2 decay: TE from the sidecar, a mask
+        r = run("fit", "T2Decay", path("t2.nii.gz"), "--mask", path("mask.nii.gz"), "--out", out("a_"))
+        @test r.code == 0 && occursin("wrote 4 maps", r.out) && isempty(r.err)
+        res = fit(T2Decay(TE = te), data; mask)
+        @test readmap(out("a_T2map.nii.gz")) ≈ Float32.(res.params.T2) nans = true
+        car = JSON.parsefile(out("a_T2map.json"))
+        @test car["Model"] == "T2Decay" && car["Acquisition"]["TE"] ≈ te && car["Mask"] == path("mask.nii.gz")
+        # TE given (from a text file, a range): the same; differing from the sidecar, a warning
+        write(path("te.txt"), join(te, "\n"))
+        @test run("fit", "T2Decay", path("t2.nii.gz"), "--TE", "@" * path("te.txt"), "--out", out("b_")).code == 0
+        @test readmap(out("b_T2map.nii.gz")) ≈ Float32.(fit(T2Decay(TE = te), data).params.T2)
+        r = run("fit", "T2Decay", path("t2.nii.gz"), "--TE", "0.02:0.02:0.16", "--out", out("c_"))
+        @test r.code == 0 && occursin("--TE differs from the value in the data's sidecar", r.err)
+        # parameters' flags: fixed, freed with a start, weights, Float32, standard errors
+        r = run("fit", "T2Decay", path("t2.nii.gz"), "--S0", "1000", "--T2", "free,start=0.07,lower=0.01",
+                "--weights", "1,1,2,2,3,3,4,4", "--precision", "Float32", "--stderror", "--out", out("d_"))
+        @test r.code == 0 && occursin("wrote 4 maps", r.out) && isfile(out("d_T2map_SE.nii.gz"))
+        rd = fit(T2Decay(TE = te), Float32.(data); S0 = 1000.0, T2 = Free(start = 0.07, lower = 0.01),
+                 weights = [1, 1, 2, 2, 3, 3, 4, 4], precision = Float32)
+        @test readmap(out("d_T2map.nii.gz")) == rd.params.T2
+        # --save, then --config (and a flag after it wins): the same fit
+        cnf = path("run.cnf")
+        @test run("fit", "T2Decay", path("t2.nii.gz"), "--mask", path("mask.nii.gz"), "--save", cnf, "--out", out("e_")).code == 0
+        @test occursin("--TE 0.01,0.03", read(cnf, String)) && occursin("--model T2Decay", read(cnf, String))
+        @test run("fit", "--config", cnf, "--out", out("f_")).code == 0
+        @test isequal(readmap(out("f_T2map.nii.gz")), readmap(out("e_T2map.nii.gz")))
+        # qMT: a named protocol, kmf estimated with a start, the 5-point scheme
+        m5 = QMTSIR(; SIR_5POINT...)
+        θ = nominal(m5, :SIR_lesion)
+        Ys = simulate(m5, map(x -> x isa Real ? fill(Float64(x), 3, 2, 1) : x, θ); snr = 200, noise = :rician, rng = MersenneTwister(5))
+        niwrite(path("sir.nii.gz"), NIVolume(Float32.(Ys); geometry...))
+        @test run("fit", "QMTSIR", path("sir.nii.gz"), "--protocol", "SIR_5POINT", "--kmf", "free,start=10", "--out", out("g_")).code == 0
+        rs = fit(m5, loaddata(path("sir.nii.gz"))[1]; kmf = Free(start = 10.0))
+        @test readmap(out("g_kmf.nii.gz")) ≈ Float32.(rs.params.kmf)
+        @test readmap(out("g_PSR.nii.gz")) ≈ Float32.(rs.params.PSR)
+        # the same acquisition as flags
+        @test run("fit", "QMTSIR", path("sir.nii.gz"), "--TI", join(SIR_5POINT.TI, ','), "--TD", join(SIR_5POINT.TD, ','),
+                  "--kmf", "free,start=10", "--out", out("h_")).code == 0
+        @test readmap(out("h_PSR.nii.gz")) == readmap(out("g_PSR.nii.gz"))
+        # help and the model list
+        r = run("fit", "QMTSIR", "--help")
+        @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
+        @test occursin("T2Decay", run("models").out) && occursin("equip fit MODEL DATA", run().out)
+        # mistakes: a message naming what to do, exit code 1, nothing written
+        bad(args...) = (r = run(args...); r.code == 1 ? r.err : "exit $(r.code)")
+        @test occursin("`--kmf` is not a flag of `equip fit T2Decay`", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
+        @test occursin("--S0, --T2", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
+        @test occursin("QMTSIR needs `TI`", bad("fit", "QMTSIR", path("t2.nii.gz")))
+        @test occursin("has 5 observations", bad("fit", "QMTSIR", path("t2.nii.gz"), "--protocol", "SIR_5POINT"))
+        @test occursin("unknown model `T2decay`", bad("fit", "T2decay", path("t2.nii.gz")))
+        @test occursin("`--TE`: `abc` is not a number", bad("fit", "T2Decay", path("t2.nii.gz"), "--TE", "abc"))
+        @test occursin("a range is start:step:stop", bad("fit", "T2Decay", path("t2.nii.gz"), "--TE", "0.01:0.3"))
+        @test occursin("`--T2 fre`: give a number", bad("fit", "T2Decay", path("t2.nii.gz"), "--T2", "fre"))
+        @test occursin("`--out` needs a value", bad("fit", "T2Decay", path("t2.nii.gz"), "--out"))
+        @test occursin("give the data", bad("fit", "T2Decay"))
+        @test occursin("unknown command `fitt`", bad("fitt"))
+        @test occursin("not built yet", bad("crlb", "QMTSIR"))
+    end
 end

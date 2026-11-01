@@ -4,17 +4,21 @@ version = "0.1.0-DEV"
 authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
 
 [deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 EQUIP = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 NIfTI = "a3a9e032-41b5-5fc4-967a-a6b7a19844d3"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 
 [sources]
 EQUIP = {path = ".."}
 
 [compat]
+Dates = "1"
 EQUIP = "0.3"
 JSON = "1"
 NIfTI = "0.6"
+PrecompileTools = "1"
 julia = "1.11"
 
 [extras]

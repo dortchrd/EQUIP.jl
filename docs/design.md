@@ -2660,6 +2660,31 @@ The reader and writer; `equip fit`; `equip crlb`; `equip montecarlo`; `equip des
 `--config` and `--save`; the workload and the no-compile test; the README's command-line
 section.
 
+### Progress
+
+- **The reader and writer** (`cli/src/io.jl`, 2026-11-01): `loaddata` (one 4-D file or one per
+  observation; scaling applied; size and geometry checked; BIDS sidecars' EchoTime,
+  InversionTime, RepetitionTime, FlipAngle; an FSL `.bval` beside the data; `precision =
+  Float32` for half the memory), `loadmap`, `readvalues`, `savemaps` (the data's geometry, BIDS
+  names, status, SSE, standard errors, a JSON sidecar per map). MATLAB `.mat` waits for MAT.jl.
+- **`equip fit`** (`cli/src/args.jl`, `models.jl`, `fit.jl`): the flags as planned; `--model` and
+  `--data` as flags too, so a config file can hold a whole command; `--save` writes the
+  acquisition actually used (from flags, a protocol or the sidecars), so the file reruns the
+  fit without the sidecars; a flag that differs from a sidecar's value wins, with a warning;
+  `--help` lists the model's fields and parameters (generated from it), its examples in the
+  model's own names; mistakes end with a message naming what to give, and exit code 1. Run as
+  `cli/bin/equip` (`julia -t auto --project=cli -m EQUIPCLI`; the `@main` entry point). 59 tests,
+  each fit against the Julia API's (the same maps, bit for bit or to Float32 rounding).
+- **Start-up**: without a workload a command spent 17 s compiling (T2 decay, 60 voxels: 173
+  methods), against 0.8 s to start Julia and load the package. EQUIPCLI's workload
+  (`cli/src/precompile.jl`) runs `main` once per built-in model on a 2×2×1 dataset, plus a
+  sidecar, a mask, `--stderror`, `--save`/`--config`, `--help` and a mistake: 2.7 s a command.
+  The commands write into IOBuffers that `main` copies to `stdout` and `stderr` at the end, so
+  they are compiled once, for IOBuffer, whatever `stdout` is (a terminal, a file or a pipe each
+  compiled the command again): 1.7 s a command, 11 small methods still compiled (Julia's own
+  among them). Building EQUIPCLI takes about 45 s, once per change. (Warnings print when the
+  command ends, with the rest.) Still to do: the no-compile test.
+
 ### Still to decide
 
 1. (Decided 2026-11-01: NIfTI with BIDS sidecars, and MATLAB `.mat`; PAR/REC and the rest

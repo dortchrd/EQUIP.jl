@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The `equip` command: EQUIP from the command line (cli/src/EQUIPCLI.jl). Put this folder on
+# your PATH, or call it by its path. Julia's threads: all cores (override with JULIA_NUM_THREADS).
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec julia --startup-file=no --threads="${JULIA_NUM_THREADS:-auto}" --project="$here/.." -m EQUIPCLI "$@"
