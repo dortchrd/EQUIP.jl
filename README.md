@@ -36,7 +36,9 @@ Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 Complete examples, Monte Carlo tests of the 4-point SIR scheme at SNR 200 (Dortch et al. 2018),
 saved as CSV files: `examples/sir_wm_4point.jl` (white matter) and `examples/sir_4point_range.jl`
 (tissue values over the range of the paper's tissue classes), e.g.
-`julia -t auto --project=. examples/sir_4point_range.jl`. `bench/solvers.jl` compares EQUIP with
+`julia -t auto --project=. examples/sir_4point_range.jl`. `examples/one_free_parameter.jl`: models
+with several parameters and one fitted, made with `@mrimodel` or by fixing the others in the
+call (to numbers or maps), with crlb's precision and `leakage` (what a wrong fixed value does). `bench/solvers.jl` compares EQUIP with
 LsqFit, NonlinearSolve (SciML) and FastLevenbergMarquardt on test cases from easy to hard
 (`bench/cases.jl`: T2 decay, variable flip angle and inversion recovery T1, the same 4-point data,
 poor starts, 16-point SIR with kmf estimated, low SNR, a small PSR, a biexponential), each run
