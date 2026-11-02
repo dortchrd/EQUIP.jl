@@ -10,6 +10,7 @@
 #   fit.jl      equip fit
 #   errors.jl   equip crlb, equip montecarlo
 #   design.jl   equip design
+#   info.jl     equip info: a data file's header and sidecar, readable and searchable
 # Run as `julia -t auto --project=cli -m EQUIPCLI fit ...` (cli/bin/equip does that), or from
 # Julia: `EQUIPCLI.equip(["fit", "T2Decay", "t2.nii.gz"])`.
 # =================================================================================================
@@ -18,7 +19,7 @@ module EQUIPCLI
 
 using EQUIP
 import MRImages
-using MRImages: filestem, writesidecar
+using MRImages: filestem, writesidecar, findmeta, headerinfo
 import Dates
 using PrecompileTools: @setup_workload, @compile_workload
 using Random: Xoshiro
@@ -29,6 +30,7 @@ include("models.jl")
 include("fit.jl")
 include("errors.jl")
 include("design.jl")
+include("info.jl")
 
 const USAGE = """
 equip: EQUIP from the command line
@@ -37,6 +39,7 @@ equip: EQUIP from the command line
   equip crlb MODEL [flags]               a fit's bias, SD and RMSE, predicted (Cramér–Rao)
   equip montecarlo MODEL [flags]         the same, measured by simulating and fitting
   equip design MODEL [flags]             a protocol optimized for a set of scenarios
+  equip info FILE... [--find PATTERN]    a data file's header and sidecar (what EQUIP reads)
   equip COMMAND MODEL --help             the flags: the model's fields and parameters
   equip models                           the models
 
@@ -85,6 +88,7 @@ function _main(args::Vector{String}, io::IOBuffer, err::IOBuffer)
     cmd == "crlb" && return cmd_crlb(rest; io, err)
     cmd == "montecarlo" && return cmd_montecarlo(rest; io, err)
     cmd == "design" && return cmd_design(rest; io, err)
+    cmd == "info" && return cmd_info(rest; io, err)
     throw(ArgumentError("unknown command `$cmd`; `equip --help` lists them"))
 end
 

@@ -2631,7 +2631,8 @@ geometry, to write maps back, and the acquisition values found). For the release
   from; NIfTI.jl and a JSON package were installed already.)
 - **Text files** for values: `@file` (above).
 - **Writing**: `savemaps(prefix, res; like = info)`.
-- **Later** (item 9): Philips PAR/REC, DICOM read directly, NumPy, ISMRMRD.
+- **Later** (item 9): NumPy, ISMRMRD. (DICOM and Philips PAR/REC: converted with dcm2niix,
+  decided 2026-11-02: "DICOM through dcm2niix", below.)
 
 ### Where it lives, and start-up
 
@@ -2721,6 +2722,12 @@ section.
   files", below): `cli/src/io.jl` became EQUIP's `src/io/` on a package of its own for the
   files; MATLAB `.mat` data, maps and values (`file.mat:NAME`), MAT loaded only by a command
   that names one; `--like` for NIfTI maps of MATLAB data. 105 tests.
+- **`equip info FILE... [--find PATTERN]`** (2026-11-02, `cli/src/info.jl`): a NIfTI file's
+  header (readable: size, voxel size, axes, affine, sform/qform, storage and scaling; the header
+  alone is read), its sidecar's entries, the `.bval`/`.bvec` beside it, and what EQUIP reads
+  for the models' fields (or why it cannot: a count that does not fit the volumes); `--find`
+  lists only the entries whose names match; a MATLAB file's variables with their sizes. 1.2 s,
+  as any command (in the workload). 124 tests.
 
 ### Still to decide
 
@@ -2785,8 +2792,9 @@ characters, all capitals) passes AutoMerge's length and capitalization checks: t
   floating type: `precision`), `header` (the NIfTI header, or `nothing` for a MATLAB array),
   `meta` (the sidecar as a `Dict{String,Any}`), `path`. As nibabel's images are not arrays:
   what an operation returns is never in doubt (an array, without the geometry), and showing
-  one prints a summary. The header stays NIfTI's for now (a format-neutral geometry type when a
-  second format with geometry comes: DICOM, PAR/REC).
+  one prints a summary. The header stays NIfTI's (DICOM and PAR/REC come as NIfTI, through
+  dcm2niix: below; a format-neutral geometry type only if a format with geometry is ever read
+  directly).
 - **Names**: `readimage`/`writeimage` (not `load`/`save`, which are FileIO's and would clash).
 - **Writing** (`writeimage`): the values as they are (no intensity scaling: the scaling was
   applied on reading), in their element type, true/false as UInt8 (NIfTI's 1-bit type is read
@@ -2854,12 +2862,43 @@ with the Julia API's (exactly, or within the rounding of maps written as Float32
 MRImages 86; EQUIP 1840 (46 new: `io`); the command line 105 (15 new: MATLAB data, values and
 maps, MAT loaded only when named, `--like`).
 
+### DICOM through dcm2niix (decided 2026-11-02)
+
+MRImages reads no DICOM and no PAR/REC: they are converted first with dcm2niix (Rorden), and
+the NIfTI file and its BIDS JSON sidecar are the input. Raised by the owner: reading DICOM
+"just seems like an enormous task ... all the rules", against converting with dcm2niix or
+offering NIfTI only. Why:
+
+- **The rules are the work, and dcm2niix has them.** Siemens keeps values in private CSA
+  headers and packs slices in mosaics; Philips has its own intensity scaling; each vendor
+  stores diffusion directions its own way; enhanced (multi-frame) DICOM differs from classic.
+  dcm2niix has met these for years, across scanners and software versions, and the BIDS tools
+  (HeuDiConv, dcm2bids) are built on it. A reader of our own would repeat that, and lag it. It
+  also reads Philips PAR/REC and XML/REC, so that reader goes too.
+- **Its sidecar is the data dictionary.** What the DICOM headers hold, in BIDS names and units
+  (EchoTime and RepetitionTime in s, FlipAngle in degrees, InversionTime, Manufacturer,
+  SeriesDescription, ...), the vendors' differences resolved. MRImages keeps every entry as it
+  is (`img.meta`, nested objects too) and every NIfTI header field (`img.header`), so nothing
+  is lost; `findmeta(img, "echo")` searches the entries by name, `headerinfo` shows the header
+  readable, and `equip info FILE [--find PATTERN]` does both from the command line (with the
+  files beside it and what EQUIP reads from them). EQUIP's own rules stay five: EchoTime →
+  `TE`, InversionTime → `TI`, RepetitionTime → `TR`, FlipAngle → `FA`, a `.bval` → `b`.
+- **No reader removes the flags.** Values a sequence keeps in no standard field (SIR's TD, MT
+  pulses, a custom sequence's own settings) come from flags or a config file, whatever reads
+  the headers.
+- **Later, perhaps**: `equip convert dicomdir/ out/`, running dcm2niix if it is installed (pip,
+  conda, Homebrew; FSL and MRIcroGL include it), with a message saying how to get it if not.
+  There is no Julia package of dcm2niix in the General registry (checked, 2026-11-02); one built
+  with BinaryBuilder (Yggdrasil; dcm2niix is BSD-licensed C++) would install it with EQUIP.
+  Not for the release: the documentation says to convert with dcm2niix first.
+
 ### Next
 
 - MRImages in a repository of its own, registered before EQUIP (EQUIP's registration needs
-  it); a format-neutral geometry type when a second format with geometry comes.
-- More formats (DICOM through DICOM.jl, PAR/REC and XML/REC, MGH, NumPy), orientation handling
-  (to a standard orientation and back), memory-mapped reading of large files.
+  it).
+- DICOM and PAR/REC through dcm2niix (above): perhaps `equip convert`, or dcm2niix as a Julia
+  binary package. Other formats when asked for (MGH, NumPy); orientation handling (to a
+  standard orientation and back), memory-mapped reading of large files.
 - The command line's no-compile test (still to do from the plan), now with a `.mat` command.
 
 ## Scope so far
@@ -3349,9 +3388,10 @@ scope (decided 2026-10-31):
 9. **Data I/O** (the release's part: "The command line and the data reader: the plan", above;
    started 2026-11-02: "MRImages: MRI images in and out of files", above, which replaced "the
    core never depends on file formats" with EQUIP depending on MRImages and MAT as an
-   extension): make getting data in and maps out as easy as possible. An `io/` layer
-   (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
-   file-format package.
+   extension; DICOM and PAR/REC through dcm2niix, decided 2026-11-02: "DICOM through
+   dcm2niix", above): make getting data in and maps out as easy as possible. An `io/` layer
+   (dispatch on file type, protocol handling) plus one package extension per file-format
+   package.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
      last, plus `info`: the geometry needed to write maps back, and any acquisition values found
      (TE, TR, FA, TI, ...).
@@ -3362,8 +3402,8 @@ scope (decided 2026-10-31):
      | BIDS JSON sidecars | JSON3.jl | EchoTime, RepetitionTimeExcitation, FlipAngle, InversionTime (s, deg); qMRI file collections (`_echo-`, `_flip-`, `_inv-`, `_mt-` entities) stacked into one array |
      | MATLAB .mat | MAT.jl | pick the variable by name |
      | NumPy .npy / .npz | NPZ.jl | C order: reverse dimensions, or observations first |
-     | DICOM | DICOM.jl | one series; TE/TR/FA/TI tags (ms → s); sort by instance/echo number |
-     | Philips PAR/REC, XML/REC | own reader (text/XML + raw binary; DECAES has one to learn from, check its license) | per-slice scaling; TE/TR/FA/TI in the header |
+     | DICOM | dcm2niix (converted first, to NIfTI with a sidecar) | decided 2026-11-02: no DICOM reader of our own |
+     | Philips PAR/REC, XML/REC | dcm2niix (converted first) | as DICOM |
      | ISMRMRD | MRIFiles.jl / HDF5.jl | image datasets; raw k-space must be reconstructed first (e.g. MRIReco.jl) |
 
    - Several files (one per echo, flip angle or inversion time): a list or pattern, stacked
@@ -3379,8 +3419,8 @@ scope (decided 2026-10-31):
      - The model is built with its keyword constructor, e.g. `QMTSIR(; TI, TD)`, so this works
        for every model, user-defined ones included. Missing fields raise an error that names
        them and says where they were looked for.
-     - Units: converted to seconds and degrees on reading (DICOM and PAR/REC store ms, BIDS
-       uses s). Warn when values look like the wrong unit (e.g. TE > 10 s). The number of
+     - Units: seconds and degrees, as BIDS sidecars hold them (dcm2niix converts DICOM's and
+       PAR/REC's ms). Warn when values look like the wrong unit (e.g. TE > 10 s). The number of
        observations must match the data's last dimension.
    - Writing: `savemaps(prefix, res; like = info)` writes one file per map in the input's format
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist

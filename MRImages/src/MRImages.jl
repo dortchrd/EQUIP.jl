@@ -12,7 +12,8 @@ formats' details themselves.
 - [`MRImage`](@ref)`(data, like)`: new values (a map) in another image's geometry.
 - [`affine`](@ref), [`voxelsize`](@ref), [`hasgeometry`](@ref), [`samegeometry`](@ref): the
   geometry.
-- [`readsidecar`](@ref), [`writesidecar`](@ref): BIDS JSON sidecars.
+- [`readsidecar`](@ref), [`writesidecar`](@ref): BIDS JSON sidecars; [`findmeta`](@ref)
+  searches one by name; [`headerinfo`](@ref) shows the NIfTI header, readable.
 - [`readvalues`](@ref) (numbers from a text file: an FSL `.bval`, a list of TIs; or from a
   `.mat` variable), [`readbvec`](@ref) (FSL `.bvec`).
 - [`readmat`](@ref), [`writemat`](@ref): a MATLAB file's variables (after `using MAT`).
@@ -32,6 +33,7 @@ export MRImage, readimage, writeimage
 export affine, voxelsize, hasgeometry, samegeometry
 export readsidecar, writesidecar, sidecarpath, filestem
 export readvalues, readbvec
+export findmeta, headerinfo
 export readmat, writemat
 
 include("paths.jl")          # what a path names: its format, its stem, a .mat file's variable
@@ -41,6 +43,7 @@ include("sidecar.jl")        # BIDS JSON sidecars
 include("mat.jl")            # MATLAB files, through the MAT extension
 include("values.jl")         # numbers from text files: lists of values, .bval, .bvec
 include("readwrite.jl")      # readimage and writeimage: each format by the path's extension
+include("info.jl")           # findmeta, headerinfo: what is known about an image, readable
 include("precompile.jl")     # compiled once, when the package is installed
 
 end

@@ -700,7 +700,10 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
 
 `using EQUIP` reads and writes NIfTI files with their BIDS sidecars, through
 [MRImages](MRImages/) (in this repository: MRI images in and out of files, like Python's
-nibabel, for any package to use). MATLAB `.mat` files work after `using MAT`.
+nibabel, for any package to use). MATLAB `.mat` files work after `using MAT`. DICOM (and
+Philips PAR/REC): convert it first with [dcm2niix](https://github.com/rordenlab/dcm2niix)
+(`dcm2niix -b y -z y -o out/ dicomdir/`), which writes the NIfTI file and its sidecar, the
+DICOM headers' values in BIDS names and units.
 
 ```julia
 data, info = loaddata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
@@ -726,7 +729,10 @@ savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map,
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is).
   `writetable(path, rows)`: crlb's and montecarlo's rows as TSV.
 - Any image: `img = readimage(path)` gives `img.data`, `img.header` (the geometry), `img.meta`
-  (the sidecar); `writeimage(path, MRImage(values, img))` writes values in its geometry.
+  (the sidecar, every entry as it is); `writeimage(path, MRImage(values, img))` writes values
+  in its geometry. `findmeta(img, "echo")` finds the sidecar's entries by name (any case,
+  nested too), `headerinfo(img)` shows the header readable; from the command line,
+  `equip info file.nii.gz [--find echo]`.
 
 ## Command line
 
@@ -745,6 +751,7 @@ equip design QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_WM_II,SIR_GM,SIR
 equip fit --config sir4.cnf sir4_data.nii.gz                   # fit data acquired with it
 equip fit QMTSIR --help                                        # a model's flags
 equip fit T2Decay data.mat:S --TE @data.mat:TE --mask data.mat:mask   # MATLAB in, maps.mat out
+equip info sub-01_T2w.nii.gz --find echo                       # the header and the sidecar
 ```
 
 - Flags are named after the model's fields (`--TI`, `--TE`, `--b`: a comma list,
@@ -851,9 +858,11 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   observation (its keywords become the parameters and their default roles), a template
   generator for models that will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a
   "Coming from LsqFit, lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
-- **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB): more
-  formats in MRImages (.npy/.npz, DICOM, PAR/REC and XML/REC, MGH, ISMRMRD images), orientation
-  handling and memory-mapped reading, and MRImages in a repository of its own. Acquisition values
+- **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB):
+  DICOM and PAR/REC through dcm2niix, not read directly (perhaps an `equip convert` running it,
+  or dcm2niix installed with EQUIP as a Julia binary package); other formats when asked for
+  (.npy/.npz, MGH, ISMRMRD images); orientation handling and memory-mapped reading; MRImages in
+  a repository of its own. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings

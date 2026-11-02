@@ -207,6 +207,43 @@ end
                        "--TE", "@" * path("t2.mat:TE"), "--mask", path("t2_4d.mat:S")))
     end
 
+    @testset "equip info: the header, the sidecar, what EQUIP reads; --find; .mat" begin
+        writejson(path("info.json"), Dict("EchoTime" => te, "RepetitionTime" => 2.0,
+                                          "Manufacturer" => "Siemens", "SeriesDescription" => "ME-SE",
+                                          "Coil" => Dict("EchoSpacing" => 0.02)))
+        niwrite(path("info.nii.gz"), NIVolume(Float32.(Y); geometry...))
+        r = run("info", path("info.nii.gz"))
+        @test r.code == 0 && isempty(r.err)
+        @test occursin("6×5×2×8", r.out) && occursin("2×2×3 mm", r.out) && occursin("R, A, S", r.out)
+        @test occursin("sidecar info.json (5 entries)", r.out) && occursin("Siemens", r.out)
+        @test occursin(r"TE \(from EchoTime\)\s+\[0.01, 0.03, 0.05, 0.07, 0.09, …\]  \(8 values\)", r.out)
+        @test occursin(r"TR \(from RepetitionTime\)\s+\[2.0, 2.0", r.out)
+        @test occursin("{…}  (1 entries: --find to list them)", r.out)
+        # --find: only the matching entries, nested too
+        r = run("info", path("info.nii.gz"), "--find", "echo")
+        @test r.code == 0 && occursin("Coil.EchoSpacing", r.out) && occursin("EchoTime", r.out)
+        @test !occursin("Manufacturer", r.out) && !occursin("voxel size", r.out)
+        @test occursin("no entry of info.json matches `flip`", run("info", path("info.nii.gz"), "--find", "flip").out)
+        # no sidecar; a .bval beside the data; several files
+        r = run("info", path("dwi.nii"), path("mask.nii.gz"))
+        @test r.code == 0 && occursin("beside it: dwi.bval", r.out) && occursin("b (from dwi.bval)", r.out)
+        @test occursin("no sidecar (mask.json)", r.out)
+        # a sidecar that does not fit the data: said, not an error
+        writejson(path("bad.json"), Dict("EchoTime" => [0.01, 0.02]))
+        niwrite(path("bad.nii"), NIVolume(Float32.(Y); geometry...))
+        @test occursin("EQUIP cannot use these values", run("info", path("bad.nii")).out)
+        # MATLAB files: the variables, their sizes and types
+        r = run("info", path("t2.mat"))
+        @test r.code == 0 && occursin(r"S\s+60×8 Float64", r.out) && occursin("TE", r.out)
+        @test occursin(r"TE\s+1×8 Float64", run("info", path("t2.mat:TE")).out)
+        # mistakes
+        @test occursin("give a file", bad("info"))
+        @test occursin("no such file", bad("info", path("none.nii.gz")))
+        @test occursin("convert it with dcm2niix", bad("info", path("t2.json")))
+        @test occursin("`--TE` is not a flag of `equip info`", bad("info", path("info.nii.gz"), "--TE", "1"))
+        @test occursin("dcm2niix", run("info", "--help").out)
+    end
+
     @testset "equip crlb, montecarlo, design: the Julia API's results" begin
         m4, m5 = QMTSIR(; SIR_4POINT...), QMTSIR(; SIR_5POINT...)
         tsv = path("t.tsv")

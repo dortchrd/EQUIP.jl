@@ -57,6 +57,8 @@ const _TRUTHS = (
               "--save", cnf, "--out", joinpath(dir, "t2_")]; io = quiet, err = quiet)
         equip(["fit", "--config", cnf, "--T2", "free,start=0.05"]; io = quiet, err = quiet)
         equip(["fit", "QMTSIR", "--help"]; io = quiet, err = quiet)
+        equip(["info", f]; io = quiet, err = quiet)
+        equip(["info", f, joinpath(dir, "mask.nii.gz"), "--find", "echo"]; io = quiet, err = quiet)
         # crlb, montecarlo and design: the SIR schemes and T2 decay (each model's crlb compiles
         # its second derivatives, so the others compile at their first use, a few seconds)
         tsv, cnf2 = joinpath(dir, "t.tsv"), joinpath(dir, "d.cnf")

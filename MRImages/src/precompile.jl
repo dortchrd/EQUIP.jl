@@ -18,6 +18,7 @@
             samegeometry(img, readimage(joinpath(dir, "map" * ext)))
             affine(img), voxelsize(img)
             sprint(show, MIME"text/plain"(), img)
+            findmeta(img, "echo"), findmeta(img, r"^Echo"), headerinfo(img), headerinfo(p)
         end
         v = joinpath(dir, "values.txt")
         write(v, "0.01 0.02\n0.03\n")

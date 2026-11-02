@@ -149,6 +149,37 @@ end
     @test_throws ArgumentError readbvec(tmp("odd.bvec"))
 end
 
+@testset "findmeta, headerinfo" begin
+    raw = reshape(Int16.(1:2*3*4*5), 2, 3, 4, 5)
+    p = niftifile("info.nii.gz", raw; slope = 0.5f0, inter = 10.0f0)
+    write(sidecarpath(p), """{"EchoTime": 0.012, "EchoTrainLength": 8, "RepetitionTime": 3.2,
+                             "FlipAngle": 90, "Coil": {"EchoSpacing": 0.006, "Name": "head"}}""")
+    img = readimage(p)
+    # by a string anywhere in the name, any case; nested entries by their path; sorted
+    @test findmeta(img, "echo") == ["Coil.EchoSpacing" => 0.006, "EchoTime" => 0.012,
+                                    "EchoTrainLength" => 8]
+    @test first.(findmeta(img, "TIME")) == ["EchoTime", "RepetitionTime"]
+    @test first.(findmeta(img, r"^Echo")) == ["Coil.EchoSpacing", "EchoTime", "EchoTrainLength"]
+    @test first.(findmeta(img, r"^Echo(?!Spacing)")) == ["EchoTime", "EchoTrainLength"]
+    @test findmeta(img, "coil") == ["Coil" => Dict("EchoSpacing" => 0.006, "Name" => "head")]
+    @test isempty(findmeta(img, "nothing"))
+    @test findmeta(img.meta, "flip") == ["FlipAngle" => 90]
+    # the header, readable; the same from the path alone
+    h = Dict(headerinfo(img))
+    @test h["size"] == "2×3×4×5" && h["voxel size"] == "2×2×3 mm"
+    @test startswith(h["axes"], "R, A, S")
+    @test h["affine"] == "2 0 0 -10; 0 2 0 -20; 0 0 3 5"
+    @test h["stored as"] == "Int16, value = 0.5 × stored + 10"
+    @test occursin("scanner", h["sform, qform"]) && h["format"] == "NIfTI-1"
+    @test headerinfo(p) == headerinfo(img)
+    # flipped axes: L, P, I
+    q = niftifile("flipped.nii", rand(Float32, 2, 2, 2); orientation = Float32[-2 0 0 0; 0 -2 0 0; 0 0 -3 0])
+    @test startswith(Dict(headerinfo(q))["axes"], "L, P, I")
+    @test Dict(headerinfo(q))["stored as"] == "Float32, no scaling"
+    @test Dict(headerinfo(MRImage(rand(3, 4))))["geometry"] == "none (an array from a MATLAB file)"
+    @test_throws ArgumentError headerinfo(tmp("none.nii"))
+end
+
 @testset "MATLAB files need MAT" begin
     # before `using MAT`: a message that says how
     @test !MRImages._matloaded()

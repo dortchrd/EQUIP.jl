@@ -61,8 +61,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - MRImages/: a package of its own (in this repository for now): MRI images in and out of files,
   like nibabel (`MRImage`, `readimage`, `writeimage`, BIDS sidecars, `.bval`/`.bvec`; MATLAB
   through an extension, ext/MRImagesMATExt.jl, loaded with MAT)
-- cli/: the `equip` command (package EQUIPCLI, cli/bin/equip): a subcommand per part; MAT
-  loaded only when a command names a .mat file
+- cli/: the `equip` command (package EQUIPCLI, cli/bin/equip): a subcommand per part, and
+  `equip info` (a file's header and sidecar); MAT loaded only when a command names a .mat file.
+  DICOM is converted with dcm2niix, not read (docs/design.md)
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

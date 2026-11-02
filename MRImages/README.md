@@ -30,15 +30,21 @@ writemat("maps.mat", Dict("T2" => T2values))
 | `MRImage(data, like)` | values in another image's geometry (the scaling and display range reset) |
 | `affine`, `voxelsize`, `hasgeometry`, `samegeometry` | the geometry |
 | `readsidecar`, `writesidecar`, `sidecarpath`, `filestem` | BIDS JSON sidecars and companion files |
+| `findmeta(img, "echo")`, `headerinfo(img)` | the sidecar's entries found by name (any case, nested too); the header, readable |
 | `readvalues`, `readbvec` | numbers from text files (lists, FSL `.bval`), `.bvec` directions; a `.mat` variable |
 | `readmat`, `writemat` | a MATLAB file's variables (after `using MAT`) |
 
 - `MRImage` is not an array: `img.data` is. What an operation on the values returns is then
   plain (an array, without the geometry), and showing an image prints a summary.
 - Nothing is converted: BIDS sidecars are read as they are (seconds and degrees).
+- DICOM and Philips PAR/REC are not read directly: convert them with
+  [dcm2niix](https://github.com/rordenlab/dcm2niix) (`dcm2niix -b y -z y -o out/ dicomdir/`).
+  It knows the vendors' rules, and its sidecar holds the DICOM headers' values in BIDS names
+  and units: the image's data dictionary, kept whole in `img.meta`.
 - MATLAB files are written as v7.3 (MAT.jl), which MATLAB's `load` reads.
 
 Tests: `julia --project=MRImages -e 'using Pkg; Pkg.test()'`.
 
-Next: more formats (DICOM through DICOM.jl, PAR/REC, MGH, NumPy), orientation handling
-(reorienting to a standard orientation and back), memory-mapped reading of large files.
+Next: perhaps running dcm2niix from Julia (or installing it as a Julia binary package); other
+formats when asked for (MGH, NumPy); orientation handling (reorienting to a standard orientation
+and back); memory-mapped reading of large files.
