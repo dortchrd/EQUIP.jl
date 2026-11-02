@@ -187,7 +187,8 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     M = nameof(typeof(model))
     start(n) = roles[n].start
     for n in F
-        start(n) === nothing && throw(ArgumentError("`$n` has no starting value in parameters($M)"))
+        start(n) === nothing && throw(ArgumentError("`$n` has no starting value: give one in " *
+            "the call, `$n = Free(start = ...)`, or in the model's parameters ($M)"))
     end
     #    `:scale`: at most one, the model's own (checked in step 2).
     count(n -> start(n) === :scale, F) <= 1 || throw(ArgumentError("only one parameter can start as :scale"))

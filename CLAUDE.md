@@ -26,7 +26,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
-  `parameters`, `signal!`, `datastart`); src/models/*/: the built-in models
+  `parameters`, `signal!`, `datastart`); src/models/macro.jl: `@mrimodel` (a model from a
+  function of one observation); src/models/*/: the built-in models
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
   `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the

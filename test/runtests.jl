@@ -50,6 +50,58 @@ struct NoParametersYet <: MRIModel
     n::Int
 end
 
+# Models made with @mrimodel, with the equations of built-in models written per observation, to
+# compare their fits (they must be the same, bit for bit), and models for its other features.
+"""T2 decay with an offset, made with @mrimodel: the same as T2DecayOffset."""
+@mrimodel MacroT2Offset(TE; S0 = Free(start = :scale, lower = 0),
+                            T2 = Free(start = mean(TE), lower = 1e-6),
+                            C = Free(start = 0.0)) =
+    S0 * exp(-(1 / T2) * TE) + C
+
+# T1MFA's equation; TR may be one number for every flip angle.
+@mrimodel function MacroMFA(FA, TR; M0 = Free(start = :scale, lower = 0),
+                            T1 = Free(start = 1.0, lower = 1e-6), B1 = 1.0)
+    R1 = 1 / T1
+    sinα, cosα = sincos(B1 * deg2rad(FA))
+    E1 = exp(-R1 * TR)
+    M0 * sinα * (1 - E1) / (1 - cosα * E1)
+end
+
+# QMTSIR's equation, per observation (the built-in computes the rates once per voxel); the same
+# roles: kmf, Sm and the TD start values fixed, R1m tied to R1f by naming it.
+@mrimodel function MacroSIR(TI, TD, magnitude = true;
+                            PSR = Free(start = 0.1, lower = 0, upper = 1),
+                            R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+                            Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+                            M0f = Free(start = :scale, lower = 0),
+                            kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+    kfm = kmf * PSR
+    ΔR1 = sqrt((R1f - R1m + kfm - kmf)^2 + 4 * kfm * kmf)
+    R1⁺ = (R1f + R1m + kfm + kmf + ΔR1) / 2
+    R1⁻ = R1⁺ - ΔR1
+    invΔR1 = 1 / ΔR1
+    bf_td⁺ = ((Mzf_td0 - 1) * (R1f - R1⁻) + (Mzf_td0 - Mzm_td0) * kfm) * invΔR1
+    bf_td⁻ = (Mzf_td0 - 1) - bf_td⁺
+    bm_td⁺ = ((Mzm_td0 - 1) * (R1m - R1⁻) + (Mzm_td0 - Mzf_td0) * kmf) * invΔR1
+    bm_td⁻ = (Mzm_td0 - 1) - bm_td⁺
+    E_td⁺, E_td⁻ = exp(-R1⁺ * TD), exp(-R1⁻ * TD)
+    E_ti⁺, E_ti⁻ = exp(-R1⁺ * TI), exp(-R1⁻ * TI)
+    Mzf_td = bf_td⁺ * E_td⁺ + bf_td⁻ * E_td⁻ + 1
+    Mzm_td = bm_td⁺ * E_td⁺ + bm_td⁻ * E_td⁻ + 1
+    Mzf_inv = Sf * Mzf_td
+    Mzm_inv = Sm * Mzm_td
+    bf_ti⁺ = ((Mzf_inv - 1) * (R1f - R1⁻) + (Mzf_inv - Mzm_inv) * kfm) * invΔR1
+    bf_ti⁻ = (Mzf_inv - 1) - bf_ti⁺
+    Mzf_ti = bf_ti⁺ * E_ti⁺ + bf_ti⁻ * E_ti⁻ + 1
+    s = M0f * Mzf_ti
+    return magnitude ? abs(s) : s
+end
+
+# A tie by a formula of another parameter, and a free parameter with no start (given in the call).
+@mrimodel TieFormula(t; A = Free(start = :scale), k1 = Free(start = 1.0), k2 = 0.5 * k1) =
+    A * (exp(-k1 * t) + exp(-k2 * t))
+@mrimodel NoStart(t; A = Free(start = :scale), k) = A * exp(-k * t)
+
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
@@ -2305,6 +2357,88 @@ end
         f = writetable(path("tables/t.tsv"), rows)
         @test readlines(f) == ["name\tPSR\tn", "WM\t0.1\t3", "GM\t0.05\t4"]
         @test_throws ArgumentError writetable(path("e.tsv"), [])
+    end
+
+    @testset "@mrimodel: a model from a function of one observation" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        mmerr(ex) = try macroexpand(@__MODULE__, ex); "" catch e; sprint(showerror, e isa LoadError ? e.error : e) end
+        rng = MersenneTwister(11)
+        # The pieces: the type, its acquisition, the roles (a start from the acquisition, a value
+        # fixed, a tie by name, a tie by formula), the docstring
+        te = collect(0.01:0.01:0.32)
+        m = MacroT2Offset(TE = te)
+        @test m isa MRIModel && m.TE === te && nobs(m) == 32
+        @test keys(parameters(MacroT2Offset)) == (:S0, :T2, :C)
+        @test parameters(m).T2.start == mean(te)                  # Free(start = mean(TE))
+        @test parameters(MacroSIR) == parameters(QMTSIR)          # kmf = 12.5, R1m = R1f, ...
+        @test parameters(TieFormula).k2 isa Fixed{<:Function}
+        @test occursin("made with @mrimodel", string(@doc MacroT2Offset))
+        @test MacroSIR(TI = TI5, TD = TD5).magnitude && !MacroSIR(TI = TI5, TD = TD5, magnitude = false).magnitude
+        @test resolve(TieFormula(t = [1.0]), (A = 1.0, k1 = 2.0, k2 = 0.5 * 2.0)) == (A = 1.0, k1 = 2.0, k2 = 1.0)
+
+        # The same fits as the built-in models, bit for bit (the same equation, per observation),
+        # in both precisions
+        mb = T2DecayOffset(TE = te)
+        θ = (S0 = fill(1000.0, 4, 3), T2 = collect(reshape(range(0.04, 0.12; length = 12), 4, 3)), C = fill(20.0, 4, 3))
+        Y = simulate(mb, θ; snr = 100, noise = :rician, rng)
+        @test signal(m, (S0 = 1000.0, T2 = 0.08, C = 20.0)) == signal(mb, (S0 = 1000.0, T2 = 0.08, C = 20.0))
+        for T in (Float64, Float32)
+            a, b = fit(m, T.(Y); precision = T), fit(mb, T.(Y); precision = T)
+            @test isequal(a.params, b.params) && a.iterations == b.iterations && eltype(a.params.T2) == T
+        end
+        fa = [2.0, 5, 10, 15, 20, 30]
+        mm, mt = MacroMFA(FA = fa, TR = 0.015), T1MFA(FA = fa, TR = 0.015)    # one TR for all
+        Ym = simulate(mt, (M0 = fill(1000.0, 5), T1 = collect(range(0.6, 1.8; length = 5)), B1 = 1.0); snr = 200,
+                      noise = :gaussian, rng)
+        for T in (Float64, Float32)
+            @test isequal(fit(mm, T.(Ym); precision = T).params, fit(mt, T.(Ym); precision = T).params)
+        end
+        @test isequal(fit(mm, Ym; B1 = 0.9).params, fit(mt, Ym; B1 = 0.9).params)
+        ms, mq = MacroSIR(TI = TI5, TD = TD5), QMTSIR(TI = TI5, TD = TD5)
+        θs = map(x -> x isa Real ? fill(Float64(x), 3, 2) : x, nominal(mq, :SIR_lesion))
+        Ys = simulate(mq, θs; snr = 200, noise = :rician, rng)
+        for T in (Float64, Float32)
+            a, b = fit(ms, T.(Ys); precision = T), fit(mq, T.(Ys); precision = T)
+            @test isequal(a.params, b.params) && a.iterations == b.iterations
+        end
+        @test isequal(fit(ms, Ys; kmf = Free(start = 10.0)).params, fit(mq, Ys; kmf = Free(start = 10.0)).params)
+        # crlb and montecarlo take it as any model
+        c1, c2 = crlb(ms, nominal(mq, :SIR_WM_I); snr = 200), crlb(mq, nominal(mq, :SIR_WM_I); snr = 200)
+        @test all(k -> isapprox(c1.sd[k], c2.sd[k]; rtol = 1e-10), keys(c2.sd))
+
+        # No allocation per fit
+        c = init(ms)
+        y = Ys[1, 1, :]
+        fit!(c, y)
+        @test (@allocated fit!(c, y)) == 0
+
+        # A tie by formula; a free parameter with no start: given in the call
+        mt2 = TieFormula(t = collect(0.1:0.1:2.0))
+        yt = signal(mt2, (A = 2.0, k1 = 1.5, k2 = 0.75))
+        @test fit(mt2, yt).params.k1 ≈ 1.5
+        mn = NoStart(t = collect(0.1:0.1:2.0))
+        yn = signal(mn, (A = 2.0, k = 1.5))
+        @test occursin("`k` has no starting value: give one in the call, `k = Free(start = ...)`",
+                       msg(() -> fit(mn, yn)))
+        @test fit(mn, yn; k = Free(start = 1.0)).params.k ≈ 1.5
+
+        # Lengths checked once against the output
+        @test occursin("MacroSIR: `TD` has 4 values for 5 observations",
+                       msg(() -> signal!(zeros(5), MacroSIR(TI = TI5, TD = TD5[1:4]), resolve(mq, nominal(mq)))))
+
+        # Mistakes, said while the macro expands
+        @test occursin("no acquisition", mmerr(:(@mrimodel A1(; S0) = S0)))
+        @test occursin("no parameters", mmerr(:(@mrimodel A2(t) = t)))
+        @test occursin("`t` is used twice", mmerr(:(@mrimodel A3(t; t) = t)))
+        @test occursin("no types", mmerr(:(@mrimodel A4(t::Vector; S0) = S0 * t)))
+        @test occursin("no types", mmerr(:(@mrimodel A5(t; S0::Float64) = S0 * t)))
+        @test occursin("acquisition comes before the options", mmerr(:(@mrimodel A6(t, mag = true, u; S0) = S0)))
+        @test occursin("cannot depend on another parameter", mmerr(:(@mrimodel A7(t; a = 1.0, b = Free(start = 2a)) = a * b)))
+        @test occursin("only the start may use the acquisition", mmerr(:(@mrimodel A8(t; a = Free(lower = minimum(t))) = a)))
+        @test occursin("cannot depend on the acquisition", mmerr(:(@mrimodel A9(t; a = maximum(t)) = a)))
+        @test occursin("tied to itself", mmerr(:(@mrimodel A10(t; a = a) = a)))
+        @test occursin("write a function definition", mmerr(:(@mrimodel A11)))
+        @test occursin("where", mmerr(:(@mrimodel A12(t; a) where {T} = a)))
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

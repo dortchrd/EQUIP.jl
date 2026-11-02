@@ -3350,6 +3350,39 @@ scope (decided 2026-10-31):
        Turing.jl exports.
      - Tests: macro-made versions give the same fits as `T2DecayOffset` and `QMTSIR`;
        docstrings; zero allocations per fit.
+     - **Built** (2026-11-02, branch `mrimodel-proto`, src/models/macro.jl), as planned, with
+       these decisions:
+       - **Ties written as Julia writes keyword defaults**: a default that names another
+         parameter is a tie (`R1m = R1f` → `Fixed(:R1f)`), a formula of others a tie by function
+         (`R1m = 0.8 * R1f` → `Fixed(p -> 0.8 * p.R1f)`), since Julia's keyword defaults may
+         use earlier keywords already. `Fixed(...)` written out passes through.
+       - **An acquisition argument may be one number for every observation** (a single TR, as
+         T1MFA and QMTSIR allow by a method of their own): the generated loop reads a vector's
+         element or the number (`_obs`), and checks each vector's length against the output
+         once (`_checkobs`, then `@inbounds`). The conversion to the fit's precision converts
+         such numbers too (`_with_precision` for the type; the default converts vectors only).
+       - **The body becomes a method of `EQUIP._obsignal`**, dispatched on the model, its
+         arguments the acquisition, the options and the parameters by name, `@inline`d into
+         the loop; `signal!` reads the parameters once by name (`p.S0`). No name is added to
+         the user's module but the type. Escaped as a whole, EQUIP's own functions written as
+         `EQUIP.f` (the module object itself), so it works whatever the caller imported.
+       - **Mistakes are said while the macro expands**, with what to write instead: no
+         acquisition or no parameters, a name used twice, types on arguments (they come from
+         the values), options before the acquisition, a start or bound that depends on another
+         parameter, a bound or fixed value that depends on the acquisition (only a start can),
+         a tie to itself, `where` clauses. A free parameter with no start fails at the fit,
+         now for any model with "give one in the call, `k = Free(start = ...)`".
+       - **Measured**: `T2DecayOffset`, `T1MFA` (one TR) and `QMTSIR` written with the macro
+         give the same fits as the built-ins, bit for bit, in Float64 and Float32, with the
+         same iterations; zero allocations per `fit!`. Speed (100,000 voxels, 4 threads, best
+         of 5): T2 with offset 128 ms against 125 ms (Float64), 112 against 105 ms (Float32);
+         SIR 5-point 135 against 148 ms (Float64), 129 against 128 ms (Float32): the same within
+         run-to-run noise. The SIR body recomputes the exchange rates at each observation, yet
+         its `signal!` takes 129 ns against the built-in's 134 ns: inlined, the rates do not
+         depend on the observation, and the compiler moves them out of the loop. So the
+         planned limit ("a whole-curve body: write `signal!` by hand") matters less than
+         expected; still, a body that loops or allocates per observation would not be helped.
+         35 tests.
    - **`newmodel(...)`**, a template generator: writes a commented model file (struct,
      `parameters`, `signal!` with a TODO, optional hooks, a test snippet) to edit, for models
      that will grow, and as the route from a custom model to a built-in one.

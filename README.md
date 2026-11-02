@@ -307,7 +307,45 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 
 ## Writing a model
 
-A model is a struct, a `parameters` method and a `signal!` method:
+### In one step: `@mrimodel`
+
+Put `@mrimodel` in front of an ordinary Julia function of one observation:
+
+```julia
+using EQUIP
+
+"""Stretched-exponential T2 decay."""
+@mrimodel StretchedDecay(TE; S0   = Free(start = :scale, lower = 0),
+                             T2   = Free(start = 0.05, lower = 1e-6),
+                             beta = Free(start = 0.9, lower = 0.1, upper = 1)) =
+    S0 * exp(-(TE / T2)^beta)
+
+m = StretchedDecay(TE = 0.01:0.01:0.32)
+res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: as any model
+```
+
+- **The name** becomes the model type; **the positional arguments** its acquisition, given by
+  name when the model is made, one value per observation or one number for every observation
+  (in the body, the observation's value); positional arguments **with a default** are options
+  (`magnitude = true`).
+- **The keywords** are the parameters, in order, their defaults the default roles: `Free(...)`
+  (its start may use the acquisition: `T2 = Free(start = mean(TE))`, `TE` the whole vector); a
+  number or `Fixed(...)` for fixed; another parameter's name for a tie (`R1m = R1f`), or a
+  formula of others (`R1m = 0.8 * R1f`); no default for a free parameter whose start is given
+  in the call (`fit(m, data; T2 = Free(start = 0.05))`).
+- **The body**, any number of lines (`@mrimodel function Name(...) ... end`), is the signal of
+  one observation. The macro writes the struct, its keyword constructor, `parameters` and a
+  `signal!` that calls the body for each observation; `@macroexpand` shows the code. A fit
+  allocates nothing and runs as fast as the hand-written models: `QMTSIR` written this way, per
+  observation, gives the same fits bit for bit, at the same speed (the compiler moves the work
+  that does not depend on the observation out of the loop).
+- A docstring before `@mrimodel` documents the model; hooks are added afterwards as ordinary
+  methods (`EQUIP.datastart(m::StretchedDecay, y, p) = ...`).
+
+### By hand
+
+For a model that will grow, or one whose signal is more than a function of one observation, a
+model is a struct, a `parameters` method and a `signal!` method:
 
 ```julia
 using EQUIP
@@ -854,10 +892,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   amplitude, propagated), and the full two-pool equations through the sequence without
   approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
 - Diffusion microstructure: SMT (spherical mean technique) and NODDI
-- Custom models in one step: `@mrimodel` in front of an ordinary signal function of one
-  observation (its keywords become the parameters and their default roles), a template
-  generator for models that will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a
-  "Coming from LsqFit, lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
+- Custom models (started: `@mrimodel`, "Writing a model"): a template generator for models that
+  will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a "Coming from LsqFit,
+  lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
 - **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB):
   DICOM and PAR/REC through dcm2niix, not read directly (perhaps an `equip convert` running it,
   or dcm2niix installed with EQUIP as a Julia binary package); other formats when asked for
