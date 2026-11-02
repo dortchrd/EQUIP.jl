@@ -341,6 +341,11 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
   that does not depend on the observation out of the loop).
 - A docstring before `@mrimodel` documents the model; hooks are added afterwards as ordinary
   methods (`EQUIP.datastart(m::StretchedDecay, y, p) = ...`).
+- When the model outgrows the one-line form, `newmodel(StretchedDecay)` writes it out as a file
+  of plain code (the hand-written form below, the body as the signal of one observation, the
+  roles as written, the docstring kept), to edit and `include`: the same fits.
+  `newmodel(:Name; acquisition = [:TE], parameters = [:S0, :T2])` writes a blank one, with
+  TODOs.
 
 ### By hand
 
@@ -892,9 +897,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   amplitude, propagated), and the full two-pool equations through the sequence without
   approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
 - Diffusion microstructure: SMT (spherical mean technique) and NODDI
-- Custom models (started: `@mrimodel`, "Writing a model"): a template generator for models that
-  will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a "Coming from LsqFit,
-  lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
+- Custom models (started: `@mrimodel` and `newmodel`, "Writing a model"): `fit(m, y, p0)` and
+  `coef` for LsqFit users, and a "Coming from LsqFit, lsqcurvefit or qMRLab" page; a
+  `SimVary`-style sensitivity sweep
 - **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB):
   DICOM and PAR/REC through dcm2niix, not read directly (perhaps an `equip convert` running it,
   or dcm2niix installed with EQUIP as a Julia binary package); other formats when asked for

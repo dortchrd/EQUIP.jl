@@ -50,7 +50,7 @@ using MRImages: MRImage, readimage, writeimage, readvalues, samegeometry, filest
 export MRIModel, Free, Fixed, BestOf, parameters, defaults                  # model interface
 export resolve, signal!, signal, nobs                                       # values and signals
 export datastart, relabel                                                   # optional hooks
-export @mrimodel                                                            # a model in one step
+export @mrimodel, newmodel                                                  # a model in one step; a file
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
 export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit statistics
@@ -76,6 +76,7 @@ export MRImage, readimage, writeimage, readvalues                           # (f
 # models: the interface every model implements, and the built-in models
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
 include("models/macro.jl")             # @mrimodel: a model from a function of one observation
+include("models/template.jl")          # newmodel: a model file to edit, blank or from @mrimodel
 include("models/builtin.jl")           # the built-in models, by area (relaxometry, diffusion, qmt)
 
 # fit: from a model and data to fitted parameters

@@ -3386,6 +3386,26 @@ scope (decided 2026-10-31):
    - **`newmodel(...)`**, a template generator: writes a commented model file (struct,
      `parameters`, `signal!` with a TODO, optional hooks, a test snippet) to edit, for models
      that will grow, and as the route from a custom model to a built-in one.
+     - **Built** (2026-11-02, branch `newmodel-proto`, src/models/template.jl), with the
+       `@mrimodel` variant proposed with it: `newmodel(M)` for a model made with the macro
+       writes the code the macro generates as plain, readable Julia, so a model can start as
+       one line and grow. The macro keeps its definition for that (`_mrimodel_source(::Type)`,
+       the expression itself), and the file is written from it: the roles as written
+       (`m -> mean(m.TE)`, `Fixed(:R1f)`, `Fixed(p -> 0.8 * p.R1f)`, as text: Julia prints
+       anonymous functions as `(m->begin ... end)`), the body as a function of one observation
+       of its own (`_name(...)`, called in the loop: a body may `return`, so it cannot be
+       pasted into the loop), `c ? a : b` and `a, b = x, y` written back as typed (Julia
+       prints them as an if-block and with parentheses), the docstring kept. Blank:
+       `newmodel(:Name; acquisition, parameters, options)`, parameters as names or roles, the
+       signal a TODO returning zero. Every file has the house layout (header block,
+       docstring, struct, `parameters`, signal of one observation, `signal!`, the hooks and a
+       first check commented out). An existing file is kept unless `force = true`.
+       - The written file uses vector fields, as the built-ins (`@kwdef`, `eachindex(out,
+         ...)`); a model whose acquisition was one number for every observation gets, as a
+         comment, the one-line method that allows it (T1MFA's).
+       - Tests: the written `MacroSIR` and `MacroT2Offset` files, `include`d into a module of
+         their own, give the same fits as the built-ins, bit for bit; a blank file loads and
+         runs; 19 tests.
    - **The LsqFit bridge**: `fit(m, y, p0::AbstractVector)` (starts in parameter order, as in
      `curve_fit(model, x, y, p0)`) and `coef(res)`, StatsAPI's name; with item 3's `stderror`,
      `vcov`, `dof` and `rss`, comparison code is identical for LsqFit's and EQUIP's results. A

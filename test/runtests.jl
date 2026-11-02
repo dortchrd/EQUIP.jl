@@ -2441,6 +2441,63 @@ end
         @test occursin("where", mmerr(:(@mrimodel A12(t; a) where {T} = a)))
     end
 
+    @testset "newmodel: a model file, blank or from an @mrimodel definition" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        dir = mktempdir()
+        rng = MersenneTwister(12)
+        # A file loaded into a module of its own (as a user's `include`), its model found by name
+        # (through `invokelatest`: the names are newer than this code).
+        function load(file)
+            mod = Module()
+            Core.eval(mod, :(using EQUIP, Statistics))
+            Base.include(mod, file)
+            return mod
+        end
+        # From @mrimodel: the code written out, loaded, gives the same fits as the macro's model
+        # and the built-in one
+        f = newmodel(MacroSIR; file = joinpath(dir, "sir.jl"))
+        @test f == joinpath(dir, "sir.jl") && occursin("@inline function _macrosir(TI, TD, magnitude, PSR", read(f, String))
+        @test occursin("R1m     = Fixed(:R1f)", read(f, String)) && occursin("return magnitude ? abs(s) : s", read(f, String))
+        mod = load(f)
+        mw = Base.invokelatest(Base.invokelatest(getproperty, mod, :MacroSIR); TI = TI5, TD = TD5)
+        mq = QMTSIR(TI = TI5, TD = TD5)
+        Ys = simulate(mq, map(x -> x isa Real ? fill(Float64(x), 3, 2) : x, nominal(mq, :SIR_lesion));
+                      snr = 200, noise = :rician, rng)
+        @test isequal(Base.invokelatest(fit, mw, Ys).params, fit(mq, Ys).params)
+        @test Base.invokelatest(parameters, mw) == parameters(mq)
+        f = newmodel(MacroT2Offset; file = joinpath(dir, "t2.jl"))
+        txt = read(f, String)
+        @test occursin("T2 = Free(start = m -> mean(m.TE), lower = 1.0e-6)", txt)
+        @test occursin("made with @mrimodel", txt)                  # its docstring kept
+        mw = Base.invokelatest(Base.invokelatest(getproperty, load(f), :MacroT2Offset); TE = collect(0.01:0.01:0.32))
+        Yt = simulate(T2DecayOffset(TE = mw.TE), (S0 = fill(1000.0, 4), T2 = [0.05, 0.07, 0.09, 0.11],
+                      C = fill(10.0, 4)); snr = 100, noise = :gaussian, rng)
+        @test isequal(Base.invokelatest(fit, mw, Yt).params, fit(T2DecayOffset(TE = mw.TE), Yt).params)
+        @test occursin("MacroMFA(FA, TR::Real)", read(newmodel(MacroMFA; file = joinpath(dir, "mfa.jl")), String))
+
+        # A blank model: it loads, its roles are there, its signal is a TODO (zeros)
+        f = newmodel(:BlankIR; acquisition = [:TI, :TD], parameters = [:M0, :T1],
+                     options = (magnitude = true,), file = joinpath(dir, "sub", "blank.jl"))
+        mod = load(f)
+        mb = Base.invokelatest(Base.invokelatest(getproperty, mod, :BlankIR); TI = [0.1, 1.0], TD = [2.0, 2.0])
+        @test mb.magnitude === true && Base.invokelatest(nobs, mb) == 2
+        @test keys(Base.invokelatest(parameters, mb)) == (:M0, :T1)
+        @test Base.invokelatest(signal, mb, (M0 = 1.0, T1 = 1.0)) == [0.0, 0.0]
+        f = newmodel(:Roles; acquisition = [:TE], file = joinpath(dir, "roles.jl"),
+                     parameters = (S0 = Free(start = :scale, lower = 0), T2 = Free(start = m -> mean(m.TE)), C = Fixed(0.0)))
+        txt = read(f, String)
+        @test occursin("S0 = Free(start = :scale, lower = 0.0),", txt) && occursin("T2 = Free(start = m -> TODO)", txt)
+        @test keys(Base.invokelatest(parameters, Base.invokelatest(getproperty, load(f), :Roles))) == (:S0, :T2, :C)   # (the type: the TODO start is not called)
+
+        # Mistakes
+        @test occursin("exists", msg(() -> newmodel(:Roles; acquisition = [:TE], parameters = [:S0], file = f)))
+        @test newmodel(:Roles; acquisition = [:TE], parameters = [:S0], file = f, force = true) == f
+        @test occursin("was not made with @mrimodel", msg(() -> newmodel(T2Decay)))
+        @test occursin("`t` is used twice", msg(() -> newmodel(:X; acquisition = [:t], parameters = [:t], file = joinpath(dir, "x.jl"))))
+        @test occursin("give the acquisition", msg(() -> newmodel(:X; acquisition = Symbol[], parameters = [:a], file = joinpath(dir, "x.jl"))))
+        @test occursin("not a Julia name", msg(() -> newmodel("my model"; acquisition = [:t], parameters = [:a])))
+    end
+
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin
         @test nameof(parentmodule(fit)) == :StatsAPI
         @test nameof(parentmodule(fit!)) == :StatsAPI

@@ -23,7 +23,8 @@
 # or number works), a keyword constructor, `parameters` for the type, the body as a function of
 # one observation (`_obsignal`), `signal!` calling it in a loop (the lengths checked once, then
 # `@inbounds`: as fast as a hand-written loop, no allocation), and the conversion to the fit's
-# precision. A docstring before `@mrimodel` documents the type. Hooks (`datastart`, `relabel`)
+# precision; and the definition, kept for `newmodel` (template.jl), which writes it out as plain
+# code. A docstring before `@mrimodel` documents the type. Hooks (`datastart`, `relabel`)
 # are ordinary methods added afterwards. A signal that shares work across observations (QMTSIR's
 # rates, computed once per voxel) is written by hand, as the built-in models are.
 # =================================================================================================
@@ -234,6 +235,8 @@ function _mrimodel(ex)
     conv = [i <= nacq ? :($E._acq_precision(getfield($m, $(QuoteNode(f))), $T)) :
                         :(getfield($m, $(QuoteNode(f)))) for (i, f) in enumerate(fields)]
     precdef = :($E._with_precision($m::$name, ::Type{$T}) where {$T} = $name($(conv...)))
+    # The definition itself, kept: `newmodel(Name)` writes it out as plain code (template.jl).
+    srcdef = :($E._mrimodel_source(::Type{<:$name}) = $(QuoteNode(ex)))
     return quote
         Base.@__doc__ $structdef
         $kwcons
@@ -241,6 +244,7 @@ function _mrimodel(ex)
         $obsdef
         $sigdef
         $precdef
+        $srcdef
         $name
     end
 end
