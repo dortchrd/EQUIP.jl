@@ -2941,6 +2941,12 @@ scope (decided 2026-10-31):
 
 ## Roadmap
 
+**Priorities** (decided with the owner): first the prerelease ("The prerelease", above); then
+**Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02), because magnitude data
+at low SNR are the common case where least squares is wrong, and every part of EQUIP (fit, the
+statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. The other
+items keep their numbers; the numbers are not an order.
+
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
    `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
    summary display. Still to add, with the uncertainty work (3): JᵀJ for a single voxel,
@@ -3671,7 +3677,7 @@ scope (decided 2026-10-31):
      voxel dispatches to the right method at no run-time cost. Derivatives may need chunked
      dual numbers (`ForwardDiff.JacobianConfig`) at that size. The model interface does not
      change.
-12. **Later**: GPU, Rician-likelihood fitting, more models:
+12. **Later**: GPU, more models (Rician-likelihood fitting moved to item 13, a priority):
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
@@ -3776,3 +3782,51 @@ scope (decided 2026-10-31):
        models, 1 of 2000 biexponential voxels affected); check the hard models before changing.
      - Limits: one seed, two biexponential truths, one SNR, solver time only.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
+
+13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02).
+   Magnitude images have Rician noise (Gudbjartsson & Patz, Magn Reson Med 1995): at low SNR
+   the magnitude of a small signal sits on a floor of about σ√(π/2), and least squares, which
+   assumes Gaussian noise, fits that floor as signal.
+   - **Measured** (2026-11-02, `ADCDecay`, true ADC 1.5×10⁻³ mm²/s, b 0–3000 s/mm², SNR 15,
+     Rician, 20,000 voxels): least squares gives a median ADC of 1.36×10⁻³ (−9%); a constant
+     offset fitted with it (`S0·exp(−b·ADC) + C`, made with `@mrimodel`) over-corrects, 1.70×10⁻³
+     (+13%), with an SD 1.6× larger (2.9 against 1.9×10⁻⁴, predicted by crlb and measured; ADC
+     and C correlated at 0.75): the floor depends on the signal (σ√(π/2) where it is near zero,
+     about 0 where it is high), so no constant removes it. `T2DecayOffset`'s docstring says the
+     same.
+   - **What it changes**: `fit` minimizes the negative log-likelihood instead of the sum of
+     squares, per voxel, Σⱼ [ (yⱼ² + Aⱼ²)/(2σⱼ²) − log I₀(yⱼAⱼ/σⱼ²) ] + terms without θ, where
+     Aⱼ = signal(θ) ≥ 0 (the magnitude model) and I₀ the modified Bessel function; computed as
+     log I₀(z) = log besselix(0, z) + z (the scaled function: no overflow at high SNR, where the
+     likelihood tends to the Gaussian one). Maximum likelihood for Rician data: Sijbers et al.,
+     IEEE Trans Med Imaging 1998; for T1 and T2 fitting, Karlsen et al., Magn Reson Med 1999.
+   - **σ** must be known (a noise region, the background, or `montecarlo`'s own), or fitted as
+     one more parameter per voxel (often poorly determined with few observations; for later).
+     Per observation, σ/√NEX with averages (complex averaging; magnitude averaging is not Rician,
+     item 3's averages). Several coils with sum of squares give a noncentral χ distribution
+     (Constantinides et al., Magn Reson Med 1997): the same structure, for later.
+   - **Two steps, the cheap one first**:
+     1. *The expected magnitude* as the model: fit E[|y|] = σ√(π/2)·L₁/₂(−A²/(2σ²)) (the Rician
+        mean, a Laguerre function, through Bessel functions) by least squares, a model wrapper
+        around any model. It keeps the LM solver, crlb, montecarlo and design unchanged, and
+        removes most of the bias in the mean (the expected-value correction; compare Koay &
+        Basser, J Magn Reson 2006, for the signal-correction approach). Needs the Bessel
+        functions of dual numbers (SpecialFunctions.jl with ForwardDiff's rules: check).
+     2. *Maximum likelihood*: the likelihood above, minimized by a Newton or trust-region step
+        with ForwardDiff's Hessian (P is small: the Hessian is cheap), or by Fisher scoring
+        (the Rician Fisher information per observation, a function of A/σ alone: tabulated
+        once), which keeps an LM-like structure. Item 3's iteratively reweighted least squares
+        is a third route, on weighted fits.
+   - **crlb and the statistics**: the Fisher information for Rician noise, Σⱼ JⱼJⱼᵀ·F(Aⱼ/σ)/σ²
+     with F → 1 at high SNR (Gaussian) and smaller at low SNR, so crlb predicts the precision
+     Rician data allow (today: "not modelled by crlb"); `stderror`, `loglikelihood`, AIC/BIC
+     from the Rician likelihood for such fits; `montecarlo` measures it as for any fit.
+   - **Interface**, to decide: a keyword of `fit` naming the likelihood (`fit(m, y; σ,
+     likelihood = :rician)`), with σ a number or a map. `fit` refuses `noise` today (decided:
+     the noise's distribution is the user's choice in `simulate` and `montecarlo`, and least
+     squares has no other); with this item the fit gets a choice of its own, kept separate from
+     `simulate`'s `noise` (data simulated one way can be fitted another, as `simulate_with`
+     allows).
+   - **Tests**: montecarlo at SNR 5–50 for T2, ADC and SIR (bias against least squares, SD
+     against the Rician crlb); the likelihood against Gaussian least squares at high SNR (the
+     same fits); the expected magnitude against a simulated mean.

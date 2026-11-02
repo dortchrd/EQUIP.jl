@@ -867,6 +867,13 @@ src/
 Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
 `main` branches.
 
+- **Priority, after the prerelease: Rician-likelihood fitting.** Magnitude data at low SNR are
+  Rician, and least squares fits the noise floor as signal: at SNR 15, a true ADC of
+  1.5×10⁻³ mm²/s comes out 9% low, and a constant offset (`+ C`) overcorrects to 13% high, since
+  the floor depends on the signal. First the expected magnitude as the model (least squares on
+  E[|y|], any model, crlb and montecarlo unchanged), then maximum likelihood, with crlb from the
+  Rician Fisher information (docs/design.md, roadmap item 13).
+
 - **sim/**: digital phantoms (`phantom(labels, tissues)` and `labelshapes(dims)` were built,
   and set aside for the prerelease: in git at d901143, src/sim/phantom.jl), with smooth
   variation, partial volume, a B1 field and lesions;
