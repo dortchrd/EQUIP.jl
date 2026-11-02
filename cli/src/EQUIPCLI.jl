@@ -1,11 +1,11 @@
 # =================================================================================================
 # EQUIPCLI: EQUIP from the command line, and its data files
 #
-# A companion package, so that EQUIP itself depends on no file format. The `equip` command, a
-# subcommand per part of EQUIP (docs/design.md, "The command line and the data reader: the
-# plan"):
-#   io.jl       data in (NIfTI with BIDS sidecars; text files of values), maps out
+# The `equip` command, a subcommand per part of EQUIP (docs/design.md, "The command line and the
+# data reader: the plan"). The data are read and the maps written by EQUIP (`loaddata`,
+# `savemaps`, on MRImages); here, the command line:
 #   args.jl     the command line's words: flags, config files of flags, values, roles
+#   mat.jl      MATLAB files: MAT.jl loaded when a command names one
 #   models.jl   the models offered, built from the flags and the files; --help
 #   fit.jl      equip fit
 #   errors.jl   equip crlb, equip montecarlo
@@ -17,17 +17,14 @@
 module EQUIPCLI
 
 using EQUIP
-import JSON
+import MRImages
+using MRImages: filestem, writesidecar
 import Dates
-import NIfTI
-using NIfTI: niread, niwrite, NIVolume
 using PrecompileTools: @setup_workload, @compile_workload
 using Random: Xoshiro
 
-export loaddata, loadmap, readvalues, savemaps, DataInfo, writetable
-
-include("io.jl")
 include("args.jl")
+include("mat.jl")
 include("models.jl")
 include("fit.jl")
 include("errors.jl")
@@ -36,7 +33,7 @@ include("design.jl")
 const USAGE = """
 equip: EQUIP from the command line
 
-  equip fit MODEL DATA... [flags]       fit maps: NIfTI data in, NIfTI maps out
+  equip fit MODEL DATA... [flags]       fit maps: NIfTI (or MATLAB) data in, maps out
   equip crlb MODEL [flags]               a fit's bias, SD and RMSE, predicted (Cramér–Rao)
   equip montecarlo MODEL [flags]         the same, measured by simulating and fitting
   equip design MODEL [flags]             a protocol optimized for a set of scenarios
@@ -45,7 +42,8 @@ equip: EQUIP from the command line
 
 Flags are named after the model's fields (--TI, --TE, --b) and parameters (--kmf 12.5,
 --R1f free); --config FILE reads flags from a file (one per line, # comments), --save FILE
-writes the command's flags to one. Times in seconds.
+writes the command's flags to one. Times in seconds. MATLAB files as file.mat:NAME (the
+variable NAME), for data, maps and values (--TE @protocol.mat:TE).
 """
 
 """

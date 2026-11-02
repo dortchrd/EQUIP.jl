@@ -1,0 +1,29 @@
+name = "MRImages"
+uuid = "889fd23c-731f-445e-b8b3-e0c26d28f9b5"
+version = "0.1.0-DEV"
+authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
+
+[deps]
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+NIfTI = "a3a9e032-41b5-5fc4-967a-a6b7a19844d3"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+
+[weakdeps]
+MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
+
+[extensions]
+MRImagesMATExt = "MAT"
+
+[compat]
+JSON = "1"
+MAT = "0.12"
+NIfTI = "0.6"
+PrecompileTools = "1"
+julia = "1.11"
+
+[extras]
+MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["MAT", "Test"]

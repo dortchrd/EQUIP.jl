@@ -7,7 +7,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 
 ## Commands
 
-- Tests: `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (test/runtests.jl, about 1000 tests)
+- Tests: `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (test/runtests.jl, about 1800 tests);
+  the command line's: `julia --project=cli -e 'using Pkg; Pkg.test()'`; MRImages':
+  `julia --project=MRImages -e 'using Pkg; Pkg.test()'`
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
@@ -51,6 +53,14 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
   search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;
   the result rounded to the ms by a search of its own)
+- src/io/: data files in, maps out, on MRImages: data.jl (`loaddata`, `loadmap`, `DataInfo`:
+  files stacked into observations, sidecar keys to model fields), maps.jl (`savemaps`: BIDS
+  names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`)
+- MRImages/: a package of its own (in this repository for now): MRI images in and out of files,
+  like nibabel (`MRImage`, `readimage`, `writeimage`, BIDS sidecars, `.bval`/`.bvec`; MATLAB
+  through an extension, ext/MRImagesMATExt.jl, loaded with MAT)
+- cli/: the `equip` command (package EQUIPCLI, cli/bin/equip): a subcommand per part; MAT
+  loaded only when a command names a .mat file
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 

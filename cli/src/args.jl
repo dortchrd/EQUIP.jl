@@ -49,8 +49,9 @@ function parseargs(words::AbstractVector{<:AbstractString})
             i += 1
         end
     end
-    # 2. Flags and positional words.
+    # 2. Flags and positional words (and MAT loaded, if a word names a MATLAB file).
     all = [front; rest]
+    _loadmat(all)
     positional, flags = String[], Pair{String,String}[]
     i = 1
     while i <= length(all)
@@ -128,8 +129,8 @@ end
 
 The numbers a flag gives: a comma list (`0.01,0.05,0.056`), ranges as `start:step:stop`
 (`0.01:0.01:0.32`, mixed with lists too), or `@file`, a text file of numbers
-([`readvalues`](@ref): one per line, or separated by spaces, an FSL `.bval` as it is). `what`
-names the flag in errors.
+([`readvalues`](@ref): one per line, or separated by spaces, an FSL `.bval` as it is), or a
+MATLAB file's variable (`@protocol.mat:TE`). `what` names the flag in errors.
 """
 function numbers(s::AbstractString, what)
     startswith(s, "@") && return readvalues(s[2:end])
@@ -161,8 +162,9 @@ end
 
 A parameter's flag, by `fit`'s rules: a number fixes it (`--kmf 12.5`); `free` estimates it,
 with a start or bounds if given (`--R1f free,start=0.8,lower=0`); another parameter's name ties
-it (`--R1m R1f`); a NIfTI file is a map of fixed values (`--Sm sm.nii.gz`, checked against the
-data: `info` from `loaddata`; `nothing` where there are no data, so no maps).
+it (`--R1m R1f`); a NIfTI file or a MATLAB array is a map of fixed values (`--Sm sm.nii.gz`,
+`--B1 maps.mat:B1`, checked against the data: `info` from `loaddata`; `nothing` where there are
+no data, so no maps).
 """
 function role(name, s::AbstractString, params, info)
     t = strip(s)
@@ -179,12 +181,12 @@ function role(name, s::AbstractString, params, info)
     x = tryparse(Float64, t)
     x === nothing || return x
     Symbol(t) in params && return Symbol(t)
-    if _isnifti(t)
+    if MRImages._isnifti(t) || MRImages._ismat(t)
         info === nothing && throw(ArgumentError("`--$name $s`: a map needs data (maps are for " *
                                                 "`equip fit`); give a number"))
         return loadmap(t, info)
     end
     throw(ArgumentError("`--$name $s`: give a number (fixed), `free` (estimated; " *
         "`free,start=0.8,lower=0`), another parameter's name (a tie: `--R1m R1f`), or a map " *
-        "(.nii, .nii.gz)"))
+        "(.nii, .nii.gz, or file.mat:NAME)"))
 end

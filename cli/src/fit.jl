@@ -5,13 +5,14 @@
 #   equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf 12.5 --mask brain.nii.gz
 #   equip fit ADCDecay dwi.nii.gz --weights @nex.txt --out results/sub-01_
 #
-# The data are read (io.jl), the model built from the flags and the files (models.jl), the
-# parameters' flags turned into `fit`'s keywords (args.jl), and the maps written in the data's
-# geometry with a sidecar recording how they were made.
+# The data are read (EQUIP's `loaddata`), the model built from the flags and the files
+# (models.jl), the parameters' flags turned into `fit`'s keywords (args.jl), and the maps written
+# in the data's geometry with a sidecar recording how they were made (EQUIP's `savemaps`): NIfTI
+# for NIfTI data, one .mat file for MATLAB data (or NIfTI in another image's geometry: --like).
 # =================================================================================================
 
 const _FIT_OPTIONS = ["model", "data", "protocol", "mask", "weights", "precision", "out",
-                      "stderror", "save", "help"]
+                      "like", "stderror", "save", "help"]
 
 function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
@@ -26,13 +27,15 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     if has(a, "help")
         modelhelp(io, M, "fit")
         println(io, "\nOptions: --mask FILE, --weights VALUES, --precision Float32, --out PREFIX, " *
-                    "--stderror, --config FILE, --save FILE")
+                    "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --config FILE, " *
+                    "--save FILE")
         return 0
     end
     _check_flags(a, M, _FIT_OPTIONS, "fit")
     files = has(a, "data") ? String.(split(value(a, "data"), ',')) : pos
     isempty(files) && throw(ArgumentError("give the data: `equip fit $model DATA.nii.gz` " *
-                                          "(one 4-D file, or one file per observation)"))
+                                          "(one 4-D file, or one file per observation; or " *
+                                          "data.mat:NAME)"))
 
     precision = _precision(value(a, "precision", "Float64"))
     data, info = loaddata(files; precision)
@@ -44,7 +47,8 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     roles = (; (Symbol(n) => role(n, v, pnames, info) for (n, v) in lastflags(a) if Symbol(n) in pnames)...)
     mask = has(a, "mask") ? loadmap(value(a, "mask"), info) .> 0 : nothing
     weights = has(a, "weights") ? numbers(value(a, "weights"), "weights") : nothing
-    prefix = value(a, "out", _stem(files[1]) * "_")
+    like = has(a, "like") ? readimage(value(a, "like")) : nothing
+    prefix = value(a, "out", filestem(files[1]) * "_")
 
     # The command as a config file, before fitting: a record even if the fit is stopped.
     if has(a, "save")
@@ -57,17 +61,21 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     end
 
     res = fit(m, data; mask, precision, weights, roles...)
+    # The sidecar: what savemaps records (the model, its acquisition, the fit's settings), and
+    # the command's own: the flags as typed, the files.
     car = Dict{String,Any}(
-        "Model" => model,
-        "Acquisition" => Dict(String(k) => getfield(m, k) for k in fieldnames(M)),
         "Fit" => Dict(n => v for (n, v) in lastflags(a) if Symbol(n) in pnames),
         "Data" => files, "Mask" => value(a, "mask", nothing), "Weights" => weights,
         "Precision" => string(precision),
         "Command" => "equip fit " * join(words, " "),
         "Software" => "EQUIP $(pkgversion(EQUIP)) (EQUIPCLI $(pkgversion(@__MODULE__)))")
-    written = savemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car)
+    written = savemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like)
     show(io, MIME"text/plain"(), res)
-    println(io, "\n\nwrote ", length(written), " maps: ", join(basename.(written), ", "))
+    if length(written) == 1 && MRImages._ismat(written[1])
+        println(io, "\n\nwrote the maps to ", basename(written[1]))
+    else
+        println(io, "\n\nwrote ", length(written), " maps: ", join(basename.(written), ", "))
+    end
     println(io, "in ", abspath(dirname(written[1])))
     return 0
 end

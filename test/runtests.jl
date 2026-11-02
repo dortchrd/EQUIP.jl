@@ -6,6 +6,9 @@ using LinearAlgebra
 using Random
 using Statistics: mean, std, cov, median
 using Test
+import NIfTI, JSON                  # io tests: NIfTI files with a chosen geometry; sidecars
+using MAT                           # io tests: MATLAB files (MRImages' extension)
+using EQUIP.MRImages: samegeometry, readmat, writemat
 
 # A model for testing `datastart`: T2 starts at 0.05·c, from the fixed parameter c (as DESPOT1
 # needs the voxel's B1), and at NaN when c < 0, which must make that voxel's fit fail.
@@ -2184,6 +2187,124 @@ end
         # mistakes
         @test occursin("`kfm` is not a parameter of QMTSIR", msg(() -> parameters(m; kfm = 1.0)))
         @test occursin("role", msg(() -> crlb(m, roles; snr = 200)))   # roles where the truth goes
+    end
+
+    @testset "io: loaddata, loadmap, savemaps, writetable (NIfTI and MATLAB files)" begin
+        dir = mktempdir()
+        path(name) = joinpath(dir, name)
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
+        # A small T2 dataset: 6×5×2 voxels, 8 echoes, written as a scanner pipeline would, with a
+        # geometry that is not the default (2 × 2 × 3 mm voxels, an offset)
+        te = collect(0.01:0.02:0.15)
+        T2map = collect(reshape(range(0.04, 0.12; length = 60), 6, 5, 2))
+        m = T2Decay(TE = te)
+        Y = simulate(m, (S0 = fill(1000.0, 6, 5, 2), T2 = T2map); snr = 200, noise = :gaussian,
+                     rng = MersenneTwister(1))
+        geometry = (voxel_size = (2.0f0, 2.0f0, 3.0f0),
+                    orientation = Float32[2 0 0 -10; 0 2 0 -20; 0 0 3 5])
+        niwrite(p, a) = NIfTI.niwrite(p, NIfTI.NIVolume(a; geometry...))
+
+        # One 4-D file, its sidecar giving one EchoTime per volume
+        niwrite(path("t2.nii.gz"), Float32.(Y))
+        writejson(path("t2.json"), Dict("EchoTime" => te, "RepetitionTime" => 2.0))
+        data, info = loaddata(path("t2.nii.gz"))
+        @test size(data) == (6, 5, 2, 8) && eltype(data) == Float64 && data == Float32.(Y)
+        @test info.spatial == (6, 5, 2) && info.shape == [6, 5, 2]
+        @test info.found[:TE] ≈ te && info.found[:TR] == fill(2.0, 8) && !haskey(info.found, :TI)
+        @test info.header !== nothing && info.files == [path("t2.nii.gz")]
+        # One 3-D file per echo (as dcm2niix writes a multi-echo series), each with its
+        # sidecar, stacked in the order given; the intensity scaling applied
+        files = [path("echo$k.nii") for k in 1:8]
+        for k in 1:8
+            raw = round.(Int16, Y[:, :, :, k] ./ 0.5)
+            NIfTI.niwrite(files[k], NIfTI.NIVolume(raw; geometry..., scl_slope = 0.5f0))
+            writejson(path("echo$k.json"), Dict("EchoTime" => te[k]))
+        end
+        d2, i2 = loaddata(files)
+        @test size(d2) == (6, 5, 2, 8) && maximum(abs.(d2 .- Y)) <= 0.25 && i2.found[:TE] ≈ te
+        # Float32: half the memory, the same values rounded (scaled in Float64 first)
+        d32, _ = loaddata(files; precision = Float32)
+        @test eltype(d32) == Float32 && d32 == Float32.(d2)
+        # Diffusion: an FSL .bval file beside the data
+        niwrite(path("dwi.nii"), Float32.(Y[:, :, :, 1:4]))
+        write(path("dwi.bval"), "0 500 1000 2000\n")
+        @test loaddata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
+        # Mistakes
+        NIfTI.niwrite(path("other.nii"), NIfTI.NIVolume(Float32.(Y[:, :, :, 1])))
+        niwrite(path("small.nii"), zeros(Float32, 4, 4, 2))
+        @test occursin("different geometry", msg(() -> loaddata([files[1], path("other.nii")])))
+        @test occursin("same size", msg(() -> loaddata([files[1], path("small.nii")])))
+        @test occursin("one image is one observation", msg(() -> loaddata(files[1])))
+        @test occursin("give NIfTI files", msg(() -> loaddata(path("t2.json"))))
+        @test occursin("no such file", msg(() -> loaddata(path("missing.nii.gz"))))
+        writejson(path("echo1.json"), Dict("EchoTime" => [0.01, 0.02]))
+        @test occursin("EchoTime has 2 values for 1 images", msg(() -> loaddata(files)))
+
+        # loadmap: a mask in the data's geometry; mistakes named
+        mask = T2map .> 0.06
+        niwrite(path("mask.nii.gz"), UInt8.(mask))
+        @test loadmap(path("mask.nii.gz"), info) == mask
+        @test occursin("different geometry", msg(() -> loadmap(path("other.nii"), info)))
+        @test occursin("the data are 6×5×2", msg(() -> loadmap(path("small.nii"), info)))
+        @test readvalues === EQUIP.MRImages.readvalues        # re-exported
+
+        # savemaps: the maps in the data's geometry, with sidecars recording how they were made
+        res = fit(T2Decay(TE = info.found[:TE]), data; mask, T2 = Free(start = 0.07))
+        written = savemaps(path("out/sub-01_"), res, info; stderror = true,
+                           sidecar = Dict("Data" => "t2.nii.gz"))
+        @test basename.(written) == ["sub-01_S0map.nii.gz", "sub-01_T2map.nii.gz",
+                                     "sub-01_status.nii.gz", "sub-01_SSE.nii.gz",
+                                     "sub-01_S0map_SE.nii.gz", "sub-01_T2map_SE.nii.gz"]
+        t2 = readimage(written[2])
+        @test size(t2) == (6, 5, 2) && eltype(NIfTI.niread(written[2]).raw) == Float32
+        @test isequal(t2.data, Float64.(Float32.(res.params.T2)))
+        @test all(isnan, t2.data[.!mask]) && maximum(abs.(t2.data[mask] .- T2map[mask])) < 0.01
+        @test samegeometry(t2, readimage(path("t2.nii.gz")))
+        @test t2.header.scl_slope == 1 && t2.header.scl_inter == 0
+        @test readimage(written[3]).data == Int.(res.status)
+        @test t2.meta["Map"] == "T2map" && t2.meta["Model"] == "T2Decay" &&
+              t2.meta["Acquisition"]["TE"] ≈ te && t2.meta["Data"] == "t2.nii.gz"
+        @test t2.meta["Fit"]["T2"] == "Free(start = 0.07)" && t2.meta["Fit"]["precision"] == "Float64"
+        @test startswith(t2.meta["Software"], "EQUIP ")
+        @test occursin("one voxel's", msg(() -> savemaps(path("x_"), fit(m, Y[1, 1, 1, :]), info)))
+        @test occursin("the data were 6×5×2", msg(() -> savemaps(path("x_"), fit(m, Y[1:2, :, :, :]), info)))
+
+        # MATLAB files: the data as an array, observations last; maps back in its own shape
+        S = reshape(Y, 60, 8)                                  # voxels already masked: nvoxels×N
+        writemat(path("data.mat"), Dict("S" => S, "TE" => collect(te'), "mask" => Float64.(vec(mask)),
+                                        "TEcolumn" => reshape(te, 8, 1), "five" => rand(2, 2, 2, 2, 2)))
+        dm, im = loaddata(path("data.mat:S"))
+        @test size(dm) == (60, 1, 1, 8) && vec(dm[:, 1, 1, 3]) == S[:, 3]
+        @test im.header === nothing && im.spatial == (60, 1, 1) && im.shape == [60]
+        @test isempty(im.found) && readvalues(path("data.mat:TE")) == te
+        mm = loadmap(path("data.mat:mask"), im) .> 0
+        @test size(mm) == (60, 1, 1) && vec(mm) == vec(mask)
+        rm_ = fit(m, dm; mask = mm)
+        @test isequal(vec(rm_.params.T2), vec(fit(m, S; mask = vec(mask)).params.T2))
+        out = savemaps(path("mat/sub-01_"), rm_, im)               # :mat, the default for .mat data
+        @test out == [path("mat/sub-01_maps.mat")] && isfile(path("mat/sub-01_maps.json"))
+        back = readmat(out[1])
+        @test Set(keys(back)) == Set(["S0map", "T2map", "status", "SSE"])
+        @test size(back["T2map"]) == (60,) && isequal(back["T2map"], Float32.(vec(rm_.params.T2)))
+        @test JSON.parsefile(path("mat/sub-01_maps.json"))["Maps"] == ["S0map", "T2map", "status", "SSE"]
+        # 4-D, as NIfTI; maps to NIfTI in another image's geometry
+        writemat(path("data4.mat"), Dict("S" => Y))
+        d4, i4 = loaddata(path("data4.mat"))                     # one variable: no name needed
+        @test d4 == Y && i4.shape == [6, 5, 2]
+        r4 = fit(m, d4)
+        f4 = savemaps(path("nii/x_"), r4, i4; like = readimage(path("t2.nii.gz")))
+        @test samegeometry(readimage(f4[2]), readimage(path("t2.nii.gz")))
+        @test occursin("observations along the last", msg(() -> loaddata(path("data.mat:five"))))
+        @test occursin("has one observation", msg(() -> loaddata(path("data.mat:TEcolumn"))))
+        @test occursin("give one", msg(() -> loaddata([path("data.mat:S"), path("data.mat:S")])))
+        @test occursin("the data's images are 60", msg(() -> loadmap(path("data4.mat:S"), im)))
+
+        # writetable: rows as TSV
+        rows = [(name = "WM", PSR = 0.1, n = 3), (name = "GM", PSR = 0.05, n = 4)]
+        f = writetable(path("tables/t.tsv"), rows)
+        @test readlines(f) == ["name\tPSR\tn", "WM\t0.1\t3", "GM\t0.05\t4"]
+        @test_throws ArgumentError writetable(path("e.tsv"), [])
     end
 
     @testset "fit, fit! and nobs are StatsAPI's functions (no clash with StatsBase etc.)" begin

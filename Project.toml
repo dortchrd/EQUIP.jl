@@ -7,16 +7,21 @@ authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
 CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MRImages = "889fd23c-731f-445e-b8b3-e0c26d28f9b5"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
+[sources]
+MRImages = {path = "MRImages"}
+
 [compat]
 CommonSolve = "0.2"
 ForwardDiff = "0.10, 1"
 LinearAlgebra = "1"
+MRImages = "0.1"
 PrecompileTools = "1"
 Random = "1"
 StaticArrays = "1.5"

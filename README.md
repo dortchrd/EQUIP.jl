@@ -696,11 +696,42 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   Table 2 optima (4-point 0.2433, 5-point 1.6020) in seconds; docs/design.md has the
   comparison with simulated annealing and a genetic algorithm.
 
+## Data files
+
+`using EQUIP` reads and writes NIfTI files with their BIDS sidecars, through
+[MRImages](MRImages/) (in this repository: MRI images in and out of files, like Python's
+nibabel, for any package to use). MATLAB `.mat` files work after `using MAT`.
+
+```julia
+data, info = loaddata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
+mask = loadmap("brain.nii.gz", info) .> 0          # checked against the data's size and geometry
+res = fit(T2Decay(TE = info.found[:TE]), data; mask)
+savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map, status, SSE, ...
+```
+
+- `loaddata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
+  given; their size and geometry checked), the intensity scaling applied; `precision = Float32`
+  for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
+  `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), and `b`
+  from an FSL `.bval` beside the data. Nothing is converted: seconds and degrees, as in BIDS.
+- MATLAB: `loaddata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
+  observations along the last dimension after up to three spatial ones (`nx×ny×nz×N`,
+  `nx×ny×N`, or `nvoxels×N` for voxels already masked); `loadmap("data.mat:mask", info)`;
+  `readvalues("protocol.mat:TI")`. `savemaps` then writes one `.mat` file, a variable per map
+  in the data's own shape (or NIfTI in another image's geometry: `like = readimage(ref)`).
+- `savemaps(prefix, res, info)`: one NIfTI file per map in the data's geometry, with BIDS
+  names where they exist (`T1map`, `R1map`, `T2map`, `S0map`, ...), the status and SSE maps,
+  and with `stderror = true` the standard errors; beside each a JSON sidecar recording how it
+  was made (the model, its acquisition, each parameter's role, the precision, EQUIP's version).
+- `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is).
+  `writetable(path, rows)`: crlb's and montecarlo's rows as TSV.
+- Any image: `img = readimage(path)` gives `img.data`, `img.header` (the geometry), `img.meta`
+  (the sidecar); `writeimage(path, MRImage(values, img))` writes values in its geometry.
+
 ## Command line
 
-The four parts as one command, `equip`, for work without writing Julia: NIfTI data in, NIfTI
-maps out, tables as TSV. A companion package in `cli/` (EQUIP itself depends on no file
-format). Once: `julia --project=cli -e 'using Pkg; Pkg.instantiate()'` (a few minutes, the
+The four parts as one command, `equip`, for work without writing Julia: NIfTI (or MATLAB) data
+in, maps out, tables as TSV. A companion package in `cli/`. Once: `julia --project=cli -e 'using Pkg; Pkg.instantiate()'` (a few minutes, the
 first time); then `cli/bin/equip` (put `cli/bin` on your `PATH`).
 
 ```bash
@@ -713,6 +744,7 @@ equip design QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_WM_II,SIR_GM,SIR
     --kmf 12.5 --acquisition TI=0.01..10,TD=0.01..10 --readout 0.3 --out sir4.cnf
 equip fit --config sir4.cnf sir4_data.nii.gz                   # fit data acquired with it
 equip fit QMTSIR --help                                        # a model's flags
+equip fit T2Decay data.mat:S --TE @data.mat:TE --mask data.mat:mask   # MATLAB in, maps.mat out
 ```
 
 - Flags are named after the model's fields (`--TI`, `--TE`, `--b`: a comma list,
@@ -731,7 +763,9 @@ equip fit QMTSIR --help                                        # a model's flags
   milliseconds for crlb and small datasets). A case outside the precompiled ones (another
   model's crlb, a new combination of sweep axes) compiles once in that call, a few seconds.
   Faster start-up (a system image, a resident service) is on the roadmap.
-- MATLAB `.mat` input is next.
+- MATLAB files as `file.mat:NAME` wherever a file goes (the data, `--mask`, a map, `@file`
+  values); the maps are then written to one `PREFIX_maps.mat`, or as NIfTI with
+  `--like ref.nii.gz`. MAT is loaded only by a command that names a `.mat` file (about 0.4 s).
 
 ## How it works
 
@@ -817,8 +851,9 @@ Deferred on purpose. Earlier implementations of some of these exist on the `api-
   observation (its keywords become the parameters and their default roles), a template
   generator for models that will grow, `fit(m, y, p0)` and `coef` for LsqFit users, and a
   "Coming from LsqFit, lsqcurvefit or qMRLab" page; a `SimVary`-style sensitivity sweep
-- **io/**: read data as easily as possible (NIfTI, BIDS JSON sidecars, MAT, .npy/.npz, DICOM,
-  PAR/REC and XML/REC, ISMRMRD images), one package extension per format. Acquisition values
+- **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB): more
+  formats in MRImages (.npy/.npz, DICOM, PAR/REC and XML/REC, MGH, ISMRMRD images), orientation
+  handling and memory-mapped reading, and MRImages in a repository of its own. Acquisition values
   missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
   (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
   geometry, with BIDS-derivative names and a JSON record of the fit settings

@@ -65,7 +65,7 @@ end
         @test occursin("different geometry", msg(() -> loaddata([files[1], path("other.nii")])))
         @test occursin("same size", msg(() -> loaddata([files[1], path("small.nii")])))
         @test occursin("one image is one observation", msg(() -> loaddata(files[1])))
-        @test occursin("only NIfTI", msg(() -> loaddata(path("t2.json"))))
+        @test occursin("give NIfTI files", msg(() -> loaddata(path("t2.json"))))
         @test occursin("no such file", msg(() -> loaddata(path("missing.nii.gz"))))
         writejson(path("echo1.json"), Dict("EchoTime" => [0.01, 0.02]))
         @test occursin("EchoTime has 2 values for 1 images", msg(() -> loaddata(files)))
@@ -166,6 +166,45 @@ end
         @test occursin("`--out` needs a value", bad("fit", "T2Decay", path("t2.nii.gz"), "--out"))
         @test occursin("give the data", bad("fit", "T2Decay"))
         @test occursin("unknown command `fitt`", bad("fitt"))
+    end
+
+    @testset "equip fit with MATLAB files: MAT loaded when named, maps back as .mat" begin
+        out(name) = joinpath(tmp, "mat", name)
+        MRI = EQUIP.MRImages
+        # MAT is loaded by the first command that names a .mat file, not before
+        @test !MRI._matloaded()
+        @test run("fit", "T2Decay", path("t2.nii.gz"), "--out", out("n_")).code == 0
+        @test !MRI._matloaded()
+        @test occursin("no such file", bad("fit", "T2Decay", path("none.mat:S"), "--TE", "0.01,0.02"))
+        @test MRI._matloaded()
+        # voxels already masked, nvoxels×N, as MATLAB users often keep them; TE and the mask in
+        # the same file
+        mask = T2map .> 0.06
+        MRI.writemat(path("t2.mat"), Dict("S" => reshape(Y, 60, 8), "TE" => collect(te'),
+                                          "mask" => Float64.(vec(mask)), "B" => fill(1000.0, 60)))
+        r = run("fit", "T2Decay", path("t2.mat:S"), "--TE", "@" * path("t2.mat:TE"),
+                "--mask", path("t2.mat:mask"), "--out", out("a_"))
+        @test r.code == 0 && occursin("wrote the maps to a_maps.mat", r.out)
+        res = fit(T2Decay(TE = te), reshape(Y, 60, 8); mask = vec(mask))
+        maps = MRI.readmat(out("a_maps.mat"))
+        @test size(maps["T2map"]) == (60,) && isequal(maps["T2map"], Float32.(res.params.T2))
+        car = JSON.parsefile(out("a_maps.json"))
+        @test car["Maps"] == ["S0map", "T2map", "status", "SSE"] && car["Model"] == "T2Decay"
+        @test car["Data"] == [path("t2.mat:S")] && car["Acquisition"]["TE"] ≈ te
+        # a fixed parameter's map from the file; NIfTI maps in another image's geometry (--like)
+        r = run("fit", "T2Decay", path("t2.mat:S"), "--TE", "@" * path("t2.mat:TE"),
+                "--S0", path("t2.mat:B"), "--out", out("b_"))
+        @test r.code == 0 && size(MRI.readmat(out("b_maps.mat"))["T2map"]) == (60,)
+        MRI.writemat(path("t2_4d.mat"), Dict("S" => Y))
+        r = run("fit", "T2Decay", path("t2_4d.mat"), "--TE", join(te, ','),
+                "--like", path("t2.nii.gz"), "--out", out("c_"))
+        @test r.code == 0 && occursin("wrote 4 maps", r.out)
+        @test readmap2(out("c_T2map.nii.gz")) == Float32.(fit(T2Decay(TE = te), Y).params.T2)
+        @test MRI.samegeometry(readimage(out("c_T2map.nii.gz")), readimage(path("t2.nii.gz")))
+        # mistakes
+        @test occursin("name the one to read", bad("fit", "T2Decay", path("t2.mat"), "--TE", "0.01"))
+        @test occursin("the data's images are 60", bad("fit", "T2Decay", path("t2.mat:S"),
+                       "--TE", "@" * path("t2.mat:TE"), "--mask", path("t2_4d.mat:S")))
     end
 
     @testset "equip crlb, montecarlo, design: the Julia API's results" begin
