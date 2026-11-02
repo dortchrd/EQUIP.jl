@@ -2717,6 +2717,10 @@ section.
   compiles its second derivatives at its first use); EQUIPCLI's package image grew to 47 MB
   and loading to about 1.2 s, so a command takes 1.4–2 s; a new combination of sweep axes still
   compiles EQUIP's table code once (0.5 s). 90 tests.
+- **The reader moved into EQUIP, on MRImages** (2026-11-02, "MRImages: MRI images in and out of
+  files", below): `cli/src/io.jl` became EQUIP's `src/io/` on a package of its own for the
+  files; MATLAB `.mat` data, maps and values (`file.mat:NAME`), MAT loaded only by a command
+  that names one; `--like` for NIfTI maps of MATLAB data. 105 tests.
 
 ### Still to decide
 
@@ -2724,8 +2728,139 @@ section.
    later.)
 2. (Decided 2026-11-01: seconds only, as in the package; sidecars converted on reading.)
 3. The bounds' syntax for `design` (`TI=0.01:10` reads as a range with two numbers).
-4. The companion package's name, and how it is installed.
+4. The companion package's name, and how it is installed. (The data reader is no longer in it:
+   EQUIP's `src/io/`, on MRImages, 2026-11-02.)
 5. Python and MATLAB: after the release, as thin wrappers (proposed).
+
+## MRImages: MRI images in and out of files (2026-11-02, branch `mrimages-proto`)
+
+### Why a package of its own
+
+Julia has pieces and nothing unified like Python's nibabel: NIfTI.jl (NIfTI only), DICOM.jl,
+MAT.jl, MRIFiles.jl (raw k-space formats, not images; the name is taken), MriResearchTools.jl
+(NIfTI helpers for phase and QSM), and readers inside analysis packages (DECAES has its own
+PAR/REC reader). So every analysis package writes the same reading code again. nibabel's value
+is that one library owns the image model (the values, the geometry, the header, the metadata)
+and the formats, and nilearn, dipy and fMRIPrep build on it. Proposed by the owner while the
+reader was being moved into EQUIP ("part of me thinks we need to build a separate i/o package
+for mri..like nibabel for julia"); agreed.
+
+**The split.** The reader written for the command line was two layers:
+
+- **Generic, in MRImages** (knows nothing about EQUIP): read an image (its values with the
+  scaling applied, its geometry, its sidecar); write values in another image's geometry; BIDS
+  sidecars; `.bval`, `.bvec` and text files of values; MATLAB files through an extension.
+- **EQUIP's, in `src/io/`**: stacking files into observations, sidecar keys to the models'
+  field names (`EchoTime` → `TE`), a fit's maps written with BIDS names and the fit's provenance,
+  tables as TSV.
+
+Small for the release (NIfTI, BIDS sidecars, `.bval`/`.bvec`, MATLAB); a nibabel-scale package
+(many formats, orientation handling, lazy loading) is a project in its own right and does not
+block EQUIP. In this repository for now (as `cli/` is: `MRImages/`, its own Project.toml and
+tests), moved to its own repository later (perhaps under JuliaNeuroscience). Since the boundary
+is drawn now, moving it will not change EQUIP's interface.
+
+**The name** (decided 2026-11-02, the owner's choice of the candidates): `MRImages`. The owner's
+first, a joke, was MENT (EQUIP + MENT): General's AutoMerge refuses names shorter than 5
+characters (`_AUTOMERGE_NEW_PACKAGE_MINIMUM_NAME_LENGTH = 5`, read in AutoMerge.jl's source),
+so it would need a manual merge. MRImages reads plainly outside the field (the naming
+guidelines' first rule), is plural for the type it provides (`MRImage`, as `DataFrames`
+provides `DataFrame`), is not limited to the brain (spinal cord, muscle), and is distinct from
+`MRIFiles` (raw data). Checked free in the General registry (the local copy of 2026-10-14),
+with `NeuroImageIO`, `MRIFormats` and `MRIImages`. `NeuroImages` was avoided: `Neuroimaging`
+(an EEG package) is taken, and the similarity check could refuse it. EQUIP itself (5
+characters, all capitals) passes AutoMerge's length and capitalization checks: the latter is
+`^[A-Z][A-Za-z0-9]*?$`, which allows capitals only (its message says otherwise).
+
+### Decisions
+
+- **EQUIP depends on MRImages; MAT is an extension** (decided 2026-11-02 with the owner, the
+  option "EQUIP; MAT as extension"): `using EQUIP` reads and writes NIfTI with sidecars
+  (NIfTI.jl and JSON.jl, measured +0.18 s of loading); `.mat` works after `using MAT`, so only
+  those who read MATLAB files pay its 0.43 s (it brings HDF5). This replaces the earlier rule
+  "the core never depends on file formats" (item 9): fitting data is the main use, and without
+  a reader EQUIP could not do it. EQUIP re-exports `MRImage`, `readimage`, `writeimage` and
+  `readvalues`, so one `using EQUIP` is enough to fit files.
+- **`MRImage` is a struct, not an AbstractArray**: `data` (an Array, the scaling applied, in a
+  floating type: `precision`), `header` (the NIfTI header, or `nothing` for a MATLAB array),
+  `meta` (the sidecar as a `Dict{String,Any}`), `path`. As nibabel's images are not arrays:
+  what an operation returns is never in doubt (an array, without the geometry), and showing
+  one prints a summary. The header stays NIfTI's for now (a format-neutral geometry type when a
+  second format with geometry comes: DICOM, PAR/REC).
+- **Names**: `readimage`/`writeimage` (not `load`/`save`, which are FileIO's and would clash).
+- **Writing** (`writeimage`): the values as they are (no intensity scaling: the scaling was
+  applied on reading), in their element type, true/false as UInt8 (NIfTI's 1-bit type is read
+  by few tools); the image's `meta` as the sidecar. `MRImage(values, like)` takes `like`'s
+  geometry and resets what describes the values (scaling, display range, intent; `descrip`).
+- **MATLAB data** (`file.mat:NAME`, or `file.mat` holding one variable): observations along the
+  last dimension, after up to three spatial ones (`nx×ny×nz×N`, `nx×ny×N`, `nvoxels×N`);
+  `loaddata` reshapes to 4-D (`nvoxels×1×1×N`), so fits and maps are the same code (and the
+  same compiled code) as for NIfTI, and `savemaps` writes the maps back in the array's own
+  shape, one `.mat` file (`PREFIX_maps.mat`, a variable per map) with a JSON sidecar; NIfTI
+  maps in another image's geometry with `like`. MATLAB has no geometry, so a NIfTI map given
+  with MATLAB data is checked for its size only. Written as v7.3 (MAT.jl writes v4 or v7.3;
+  MATLAB's `load` reads both). Acquisition values from a variable: `readvalues("p.mat:TI")`.
+- **The extension** adds three methods (`_matnames`, `_matread`, `_matwrite`); MRImages' public
+  functions check that it is loaded (`Base.get_extension`) and say how otherwise ("`using
+  MAT`"), and call it through `invokelatest`, so it works when MAT is loaded while a program
+  runs. Not loaded automatically by MRImages (as FileIO would): `using MAT` is the user's
+  choice, as decided.
+- **The command line loads MAT only when a command names a `.mat` file** (any word, after
+  `--config` files are expanded: `Base.require` of MAT's package id, MAT in EQUIPCLI's
+  dependencies). EQUIPCLI no longer depends on NIfTI.jl or JSON.jl directly.
+- **`savemaps` records how the maps were made by itself**: the model, its acquisition (the
+  model's fields), each parameter's role as written (`Free(start = 0.07)`, a number, "a map"),
+  the precision, the weights, EQUIP's version; the caller's `sidecar` entries are added and win
+  (the command line adds the command, the data files, the flags as typed).
+
+### Measured
+
+Three runs each, nothing else running:
+
+| | before (`cli-proto`) | after |
+|---|---|---|
+| Julia's start | 0.19–0.24 s | 0.17–0.19 s |
+| `using EQUIP` (its workload compiled) | 0.69–0.78 s | 0.76–0.78 s |
+| `using MRImages` alone | | 0.43 s |
+| `using EQUIPCLI` | 1.15–1.22 s | 1.16–1.24 s |
+| `equip fit T2Decay t2.nii.gz` (60 voxels, TE from the sidecar) | 1.20–1.36 s | 1.26–1.37 s |
+| `equip crlb QMTSIR ... --tissue SIR_WM_I` | 1.23–1.40 s | 1.16–1.28 s |
+| `equip models` | 1.16–1.40 s | 1.17–1.28 s |
+| `equip fit T2Decay t2.mat:S --TE @t2.mat:TE` | | 2.0–2.06 s |
+
+So EQUIP loads about 0.04 s slower (NIfTI.jl and JSON.jl), and the commands are unchanged
+within run-to-run noise.
+
+**MATLAB commands, 11 s → 2.0 s.** At first a `.mat` command took 10.5–11 s: MAT.jl compiles
+its reading code on first use (the first `matread` of a session: 6.9 s). A precompile workload
+in MRImages' extension (writing and reading a small file of each kind of variable) brought it to
+3.8–4.2 s, and no further: the extension's code was compiled again ("recompile" in
+`--trace-compile`: 1.7 s for `_matnames` alone), because StaticArrays invalidates it. The first
+`readmat` with nothing loaded first: 7 ms; with Statistics and LinearAlgebra, CommonSolve or
+StatsAPI loaded first: 6–10 ms; with StaticArrays: 1.72 s; ForwardDiff (which loads it): 2.18 s;
+EQUIP: 2.33 s. StaticArrays is loaded in every EQUIP session, so EQUIP has an extension of its
+own, `EQUIPMATExt` (triggers MAT and MRImages), holding only a precompile workload (loaddata,
+loadmap, a fit, savemaps and readvalues on a small `.mat` file), compiled with StaticArrays
+loaded: its code stays valid. Its triggers include MRImages because Julia lets an extension load
+another while it is built only if the other's triggers are a strict subset of its own
+(Base.loading, `loadable_exts`), and the workload reads through MRImages' extension. Now: 2.0 s,
+which is 1.2 s as any command, 0.66 s loading MAT (HDF5) and the two extensions, and 0.16 s
+still compiled (small Base methods). In a Julia session (`using EQUIP, MAT`), the first `readmat`
+takes 6 ms, the first `loaddata` of a `.mat` file 24 ms, the first `savemaps` to `.mat` 0.25 s.
+
+**Results unchanged**: no code of fitting, crlb, montecarlo or design changed (`src/EQUIP.jl`
+gained includes and exports only), and the command line's tests compare its maps and tables
+with the Julia API's (exactly, or within the rounding of maps written as Float32). Tests:
+MRImages 86; EQUIP 1840 (46 new: `io`); the command line 105 (15 new: MATLAB data, values and
+maps, MAT loaded only when named, `--like`).
+
+### Next
+
+- MRImages in a repository of its own, registered before EQUIP (EQUIP's registration needs
+  it); a format-neutral geometry type when a second format with geometry comes.
+- More formats (DICOM through DICOM.jl, PAR/REC and XML/REC, MGH, NumPy), orientation handling
+  (to a standard orientation and back), memory-mapped reading of large files.
+- The command line's no-compile test (still to do from the plan), now with a `.mat` command.
 
 ## Scope so far
 
@@ -3211,10 +3346,12 @@ scope (decided 2026-10-31):
      checked against bounds; a public name for `_allparams` (done: `resolve`), for loops calling
      `signal!`; in "Writing a model", that a model whose
      type parameters cannot be rebuilt from its fields needs a precision-conversion method.
-9. **Data I/O** (the release's part: "The command line and the data reader: the plan", above):
-   make getting data in and maps out as easy as possible. An `io/` layer
+9. **Data I/O** (the release's part: "The command line and the data reader: the plan", above;
+   started 2026-11-02: "MRImages: MRI images in and out of files", above, which replaced "the
+   core never depends on file formats" with EQUIP depending on MRImages and MAT as an
+   extension): make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling, the PAR/REC reader) plus one package extension per
-   file-format package, so the core never depends on file formats.
+   file-format package.
    - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
      last, plus `info`: the geometry needed to write maps back, and any acquisition values found
      (TE, TR, FA, TI, ...).

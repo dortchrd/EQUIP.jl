@@ -14,6 +14,12 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
+[weakdeps]
+MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
+
+[extensions]
+EQUIPMATExt = ["MAT", "MRImages"]
+
 [sources]
 MRImages = {path = "MRImages"}
 
@@ -21,6 +27,7 @@ MRImages = {path = "MRImages"}
 CommonSolve = "0.2"
 ForwardDiff = "0.10, 1"
 LinearAlgebra = "1"
+MAT = "0.12"
 MRImages = "0.1"
 PrecompileTools = "1"
 Random = "1"

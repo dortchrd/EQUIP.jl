@@ -55,7 +55,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   the result rounded to the ms by a search of its own)
 - src/io/: data files in, maps out, on MRImages: data.jl (`loaddata`, `loadmap`, `DataInfo`:
   files stacked into observations, sidecar keys to model fields), maps.jl (`savemaps`: BIDS
-  names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`)
+  names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`);
+  ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
+  invalidates MRImages' own, docs/design.md)
 - MRImages/: a package of its own (in this repository for now): MRI images in and out of files,
   like nibabel (`MRImage`, `readimage`, `writeimage`, BIDS sidecars, `.bval`/`.bvec`; MATLAB
   through an extension, ext/MRImagesMATExt.jl, loaded with MAT)
