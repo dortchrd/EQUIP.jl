@@ -3009,6 +3009,30 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      averages complex): RMSE of v_ax 0.162 for 120 directions × 1 average (the floor: bias 0.16),
      0.105 (60 × 2), 0.069 (30 × 4), 0.058 (20 × 6), 0.074 (12 × 10: the orientational SD grows),
      0.218 (6 × 20). Placeholder values; the lab's own come next (steps 3 and 4).
+   - **Floor corrections compared** (2026-11-03; the pipeline above: SMT, b = 0, 1000, 2500,
+     4000 s/mm², 4/30/30/30 directions, v 0.6, D 2e-3, one fibre population in a random
+     orientation, 2000 voxels, σ known). Bias, SD and RMSE of v_ax at SNR 20 per image, then 10:
+     | Method | SNR 20 | SNR 10 |
+     |---|---|---|
+     | least squares, no correction | +0.154, 0.056, 0.164 | +0.321, 0.079, 0.330 |
+     | Karlsen inversion of each shell mean, then least squares | +0.125, 0.058, 0.138 | +0.227, 0.097, 0.247 |
+     | Karlsen inversion of each direction, then the mean (Kaden's `--rician`) | +0.045, 0.060, 0.075 | +0.118, 0.105, 0.158 |
+     | E\|y\| of the shell mean as the model (`RicianMean`) | +0.124, 0.058, 0.137 | +0.223, 0.097, 0.243 |
+     | E\|y\| of each direction as the model (`RicianSphericalMean`) | −0.001, 0.044, 0.044 | −0.000, 0.080, 0.080 |
+
+     The Karlsen inversion (Magn Reson Med 1999;41:614, Eq. 4: the A whose E|y| is the measured
+     value, 0 below the floor σ√(π/2); the owner's `corrRicianBias.m`, and Kaden's
+     `ricedebias`, a Chebyshev fit of the same inverse, applied to every volume before the
+     spherical mean, Kaden et al., Magn Reson Med 2016;75:1752) is exact for the mean of an ROI
+     whose pixels share one A. A shell's spherical mean is not one: its directions have
+     different A, and E|y| is convex in A, so inverting the mean removes only the floor of the
+     mean (the same as fitting `RicianMean`: 0.125 against 0.124). Inverting each direction is
+     better but is the inverse of a single noisy value, biased at low SNR (below the floor it
+     clips to 0, above it is not). Modelling E|y| direction by direction inside the fit
+     (`RicianSphericalMean`) has no bias and the smallest SD, but assumes the directional
+     profile, one fibre population: right for a coherent nerve, not invariant to dispersion or
+     crossings as SMT itself is. Devan 2020 fitted their Rician simulations with Kaden's code
+     and does not say it used `--rician`.
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
    checked against the full Monte Carlo.
