@@ -33,13 +33,17 @@ EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(st
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
 # A T2 decay that records whether subnormal numbers are flushed to zero while it is evaluated.
+# Dataset fits call it from several threads at once, so the record is kept under a lock (pushing
+# to one vector from several threads is a data race: Julia 1.13 stops it with an error).
 const FLUSHED = Bool[]
+const FLUSHED_LOCK = ReentrantLock()
 struct FlushProbe <: MRIModel
     TE::Vector{Float64}
 end
 EQUIP.parameters(::FlushProbe) = (S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6))
 function EQUIP.signal!(out, m::FlushProbe, p)
-    push!(FLUSHED, get_zero_subnormals())
+    flushed = get_zero_subnormals()                       # this thread's mode, read before the lock
+    lock(() -> push!(FLUSHED, flushed), FLUSHED_LOCK)
     out .= p.S0 .* exp.(-m.TE ./ p.T2)
     return out
 end
