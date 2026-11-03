@@ -3263,8 +3263,9 @@ scope (decided 2026-10-31):
 **Priorities** (decided with the owner): first the prerelease ("The prerelease", above); then
 **Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02), because magnitude data
 at low SNR are the common case where least squares is wrong, and every part of EQUIP (fit, the
-statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. The other
-items keep their numbers; the numbers are not an order.
+statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. After
+those, **a protocol design from a number of points** (item 14, 2026-11-03). The other items
+keep their numbers; the numbers are not an order.
 
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
    `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
@@ -4264,3 +4265,42 @@ items keep their numbers; the numbers are not an order.
    - **Tests**: montecarlo at SNR 5–50 for T2, ADC and SIR (bias against least squares, SD
      against the Rician crlb); the likelihood against Gaussian least squares at high SNR (the
      same fits); the expected magnitude against a simulated mean.
+14. **A protocol design from a number of points** (after the prerelease and Rician-likelihood
+   fitting, decided 2026-11-03). `ProtocolDesign(m, scenarios; ...)` takes a protocol, a model
+   with its acquisition, and uses it four ways: the number of points N (a type parameter: every
+   protocol's varied fields are `SVector{N}`); the fields that are not varied (`magnitude =
+   false`, a TR not searched), which every protocol evaluated keeps; a model to build the fits'
+   caches from; and a start, `x0 = _x(d, d.model)`, one member of the first start's initial
+   population (the search keeps its best member, so it ends no worse than x0) and evaluated once
+   at construction (`d(m)`: a mistake in `scantime` or `constraints` shows there). Only the
+   start needs real values, and asking for one is odd when the search covers the whole box of
+   bounds. In the Table 2 example, `QMTSIR(; SIR_4POINT..., magnitude = false)`, the protocol
+   given is the paper's answer, 1 member in 640 (8 starts, a population of 80), and 7 of the 8
+   starts reached the optimum within 1% from random populations without it.
+   - **Interface** (proposed; the keyword names to decide): the model's type and a number of
+     points.
+     ```julia
+     d = ProtocolDesign(QMTSIR, ss; points = 4,
+                        acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
+                        others = (magnitude = false,),         # the fields not varied
+                        snr = 200, scantime = m -> sum(m.TI .+ m.TD .+ 0.3),
+                        constraints = m -> m.TI .+ m.TD .- 0.5)
+     optimize_protocol(d)                                       # every start random
+     optimize_protocol(d; start = QMTSIR(; SIR_4POINT..., magnitude = false))  # never worse than this
+     ```
+     The template is built inside: the varied fields at their bounds' midpoints, the others from
+     `others` or the model's defaults; a field with neither is an error that names it. The
+     starting protocol moves to `optimize_protocol`, because it belongs to the search, not to
+     the objective. `ProtocolDesign(m, ss; ...)` stays: it is how a given protocol is scored
+     (`d(m)`, e.g. a published scheme).
+   - **The number of points as a question of its own**: with `points` a number, `points = 3:8`
+     compares designs of different lengths. Eq. 5 is a precision per unit scan time (× T), so
+     extra points pay for their time; with a `budget`, the designs are compared at one scan time.
+   - **To check**: models whose constructors are not keyword ones (positional arguments,
+     `@mrimodel` options), and protocols that are not one vector per point: in a multi-shell
+     diffusion design the points are shells, with b and TE per shell continuous and the
+     directions and averages per shell integers (the nerve SMT search, branch `nerve-smt`, step
+     4, which this would serve).
+   - **Tests**: the same optimum as from a given protocol (Table 2, the four tissues); the
+     template's errors; the result from `start = m` no worse than `d(m)`; `ProtocolDesign(m, ...)`
+     unchanged (the same objective values and search results, seeded).
