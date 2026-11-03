@@ -3739,7 +3739,7 @@ items keep their numbers; the numbers are not an order.
           freeing `fiso` SMTFreeWater, freeing De⊥ SMT without tortuosity (as Microstructure.jl's
           SMT guide fits it), each in the call. To check: the speed and compile time of a model
           with nine parameters, most of them fixed, against the three small types.
-       3. **Fractions for constrained diffusivities** (De⊥ = κ·De∥, κ in [0, 1]): box bounds,
+       3. **Fractions for constrained diffusivities** (De⊥ = r·De∥, r in [0, 1]): box bounds,
           which EQUIP's solver takes, instead of an inequality between two parameters.
      - What not to take: mutable structs that hold the values, and links by field-path strings
          (neither type-stable nor dual-number friendly: EQUIP keeps values in named tuples and
