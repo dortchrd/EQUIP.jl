@@ -2364,7 +2364,7 @@ end
         @test_throws ArgumentError writetable(path("e.tsv"), [])
     end
 
-    @testset "SMT: the spherical mean technique (Kaden 2016; Devan et al., MRI 2020)" begin
+    @testset "SMT and its variants: the spherical mean technique (Kaden 2016; Devan et al., MRI 2020)" begin
         rng = MersenneTwister(21)
         # The stick's spherical mean, √π·erf(x)/(2x): its series near 0 and erf beyond, the same
         # (values and derivatives) on both sides of the switch; and against the mean over
@@ -2434,6 +2434,43 @@ end
         @test sphericalmean(data, bvals; tol = 10)[3] == [3, 2, 1, 2]          # 1010 more than 10 above 995
         @test sphericalmean(collect(1.0:4.0), [0, 0, 1000, 1000])[1] == [1.5, 3.5]
         @test_throws DimensionMismatch sphericalmean(data, bvals[1:7])
+
+        # SMTFreeWater: SMT when fiso = 0, free diffusion when 1. SMTT2: SMT times exp(−TE/T2)
+        # when the T2s are equal; at one TE with different T2s, SMT's fraction is T2-weighted
+        # (0.664 here, the T2-weighted signal fraction 0.625, the volume fraction 0.45)
+        bs = [0.0, 500, 1000, 2000, 3000, 4500]
+        t3 = (S0 = 1.0, vax = 0.45, Dax = 1.8e-3)
+        @test signal(SMTFreeWater(b = bs), (; t3..., fiso = 0.0, Diso = 3e-3)) ≈ signal(SMT(b = bs), t3)
+        @test signal(SMTFreeWater(b = bs), (; t3..., fiso = 1.0, Diso = 3e-3)) ≈ exp.(-bs .* 3e-3)
+        bt, tt = repeat([0.0, 1000, 2500, 4500], 4), repeat([0.06, 0.1, 0.15, 0.2]; inner = 4)
+        mt = SMTT2(b = bt, TE = tt)
+        @test signal(mt, (; t3..., T2ax = 0.07, T2ex = 0.07)) ≈ signal(SMT(b = bt), t3) .* exp.(-tt ./ 0.07)
+        m1 = SMTT2(b = [0.0, 1000, 2500, 4000], TE = fill(0.08, 4))
+        y1 = signal(m1, (; t3..., T2ax = 0.09, T2ex = 0.05))
+        @test fit(SMT(b = m1.b), y1).params.vax ≈ 0.6642 atol = 1e-3
+        # Fits at SNR 500 per shell mean: as precise as crlb says, and their bias small next to
+        # it (both variants; the bias of a nonlinear fit from the noise itself, measured at up to
+        # 10% of the SD with 20,000 copies: crlb's `bias` is that of wrong fixed values, 0 here)
+        for (mv, tv) in ((SMTFreeWater(b = bs), (; t3..., fiso = 0.2, Diso = 3e-3)),
+                         (mt, (; t3..., T2ax = 0.09, T2ex = 0.05)))
+            Yv = simulate(mv, tv; snr = 500, noise = :gaussian, n = 2000, rng)
+            rv, cv = fit(mv, Yv), crlb(mv, tv; snr = 500)
+            @test all(isconverged, rv.status)
+            for k in keys(rv.params)
+                k === :S0 && continue
+                @test abs(mean(rv.params[k]) - tv[k]) < 0.2 * cv.sd[k]
+                @test std(rv.params[k]) ≈ cv.sd[k] rtol = 0.1
+            end
+        end
+        # sphericalmean with echo times: one shell per (TE, b), by TE then b
+        tes = [0.08, 0.08, 0.08, 0.08, 0.12, 0.12, 0.1205, 0.12]
+        bv = [0, 1000, 1005, 0, 0, 1000, 990, 2000]
+        sm = sphericalmean(collect(1.0:8.0), bv; TE = tes)
+        @test isapprox(sm.TE, [0.08, 0.08, 0.12, 0.12, 0.12]; atol = 1e-3)   # (a shell's mean TE)
+        @test sm.b ≈ [0, 1002.5, 0, 995, 2000]
+        @test sm.directions == [2, 2, 1, 2, 1] && sm.means ≈ [2.5, 2.5, 5, 6.5, 8]
+        @test sphericalmean(collect(1.0:8.0), bv).TE === nothing
+        @test_throws DimensionMismatch sphericalmean(collect(1.0:8.0), bv; TE = tes[1:7])
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

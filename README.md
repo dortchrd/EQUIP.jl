@@ -306,6 +306,8 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
 | | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
+| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
+| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 
 ## Writing a model

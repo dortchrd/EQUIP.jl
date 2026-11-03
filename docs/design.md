@@ -3343,10 +3343,33 @@ items keep their numbers; the numbers are not an order.
        - **Fits** from the default starts (Gaussian, SNR 20, 5000 voxels per tissue, protocols
          A and D): all converged, mean v_ax and D_ax within 0.006 and 0.05e-3 of the truth,
          SDs within 5% of crlb's. 51 tests.
+       - **Variants** (2026-11-03, asked by the owner: free water, and compartment T2s, an area of
+         the lab's research): `SMTFreeWater(b)`, a third, isotropic compartment,
+         S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] (NODDI's; Diso fixed at 3e-3 mm²/s), `vax` the
+         fraction of the tissue without the free water (Devan's "relative" fraction); and
+         `SMTT2(b, TE)`, a T2 per compartment, S0·[v_ax·e^(−TE/T2ax)·S̄_ax + (1 − v_ax)·
+         e^(−TE/T2ex)·S̄_ex], for shells at several echo times (Veraart et al., NeuroImage 2018,
+         TEdDI; McKinnon & Jensen, Magn Reson Med 2019), `vax` the volume fraction (and the one
+         the tortuosity limit uses). `sphericalmean(data, b; TE)` groups by echo time, then
+         b-value, and returns a named tuple `(means, b, directions, TE)`.
+         - At one TE, SMT's fraction is T2-weighted, and not exactly the T2-weighted signal
+           fraction (the tortuosity limit uses it too): v_ax 0.45, T2 90 ms in and 50 ms out, TE
+           80 ms: SMT 0.664, the T2-weighted fraction 0.625.
+         - Both need protocols made for them. Free water (v_ax 0.45, D_ax 1.8e-3, f_iso 0.2;
+           b 0–4500 s/mm², 6 shells; SNR 50 per shell mean): crlb SD 0.10 in v_ax and 0.29 in
+           f_iso; at SNR 500, 0.010 and 0.029 (b = 100–300 added: f_iso 0.21, 0.021). T2s (T2
+           90 and 50 ms; 3 TEs, 70–130 ms, × 4 b-values; SNR 50): SD 0.48 in v_ax and 47% in
+           T2ax, and without an upper bound 14% of the fits wandered to T2s of hundreds of
+           seconds (now bounded at 1 s); 4 TEs, 60–200 ms: 0.31 and 27%; at SNR 500: 0.03–0.05,
+           3–5%. At SNR 500 both fit without bias (at most 10% of the SD, the nonlinear bias
+           from the noise itself, measured with 20,000 copies) and with crlb's SDs (within 2%).
+           A per-shell-mean SNR is the per-direction SNR × √directions: 20 × √30 ≈ 110.
        - Not yet: the command line (`equip fit SMT` needs the spherical mean as a step, from the
-         `.bval`), Rician noise in the fits (item 13), a free-water compartment (Devan's main
-         confound: v_ax falls and D_ax rises with free water), the single-compartment
-         microscopic tensor (Kaden et al., MRM 2016).
+         `.bval`), Rician noise in the fits and in crlb (item 13; Devan's Appendix gives the
+         Rician Fisher information, the factor R(S, σ), which would close the black-hole gap
+         above), the single-compartment microscopic tensor (Kaden et al., MRM 2016), and the
+         number of directions a shell needs (Schilling et al., Magn Reson Imaging 2022: the
+         orientational sampling error of a finite direction set, besides the noise).
    - **NODDI** (Zhang et al., NeuroImage 2012): intra-neurite sticks with Watson orientation
      dispersion, an anisotropic extra-neurite compartment with tortuosity, isotropic CSF.
      - Needs the gradient direction of each observation: an acquisition field of 3-vectors
