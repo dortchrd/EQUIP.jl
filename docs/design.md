@@ -3220,6 +3220,103 @@ Novikov et al., NeuroImage 2018; Coelho et al., NeuroImage 2022) give v_ax, or i
 - The registration floor: the SNR needed, and of which image (the weakest direction, or the
   shell's mean).
 
+## Building blocks: one signal per family, parts switched on and off (2026-11-03, branch `blocks-proto`)
+
+The owner's request, after reading Microstructure.jl (roadmap item 7): a model family as one
+function made of building blocks, where parts are turned on and off, rather than a type per
+variant, "unless you're paying a huge computational price: it's cleaner from a maintenance and
+code perspective". Tried on two families: the T2 decays (six models) and SMT (three).
+
+### Decisions
+
+1. **Blocks** (src/models/blocks.jl): `_relax(t, R)` = exp(−t·R) (R = 0: none); the diffusion
+   compartments `_stick`, `_zeppelin`, `_ball`, each in two views chosen by dispatch on the last
+   argument, a cosine t (one gradient direction) or `_SphericalMean()` (the average over
+   directions); the zeppelin is a stick with D∥ − D⊥ times exp(−b·D⊥), so both views follow from
+   the stick's. `_sphmean` moved there from smt.jl; `_optobs` reads an acquisition field a model
+   may not have (SMT's TE: `false`, Julia's strong zero, without it).
+2. **A part switched off is a role**: `Fixed(value; free = Free(...))`, fixed at a value that
+   removes it (an offset 0, a fraction 0, a T2 of Inf), with the role it takes when a call
+   switches it on: `fit(m, y; C = Free())` takes the template's start and bounds (the call's own
+   win). A complete set of values does not need it (`simulate`, `signal`, `nominal`, a
+   scenario's truth fill it in at its value); a real parameter such as T1MFA's B1 is still
+   required, as decided for strict values. Two predicates (models/interface.jl): `_switchable`,
+   a Fixed with such a role (filled in), and `_isoff`, switchable at a value that removes the
+   part, 0 or Inf: shown as `off` in the model's display, and left out of `leakage` (a relative
+   error of 0 or Inf means nothing; fix one in the call, `C = 0.0`, to include it). SMTFreeWater's
+   `Diso` = 3e-3 is switchable but not off: leakage keeps it. A scenario keeps the role when freed
+   (`base(r::Fixed, ...)` in errors/scenario.jl). A direct `signal!` call needs complete values,
+   the parts off included (`resolve(m, θ)` first), as documented; the CLI lists the parts off
+   among a model's flags (`--C`, `--fshort`, ...).
+3. **One family, small named types.** `AbstractT2Decay` (T2Decay, T2DecayOffset, T2BiexpDecay),
+   `AbstractR2Decay` (the rate forms) and `AbstractSMT` (SMT, SMTFreeWater, SMTT2): one
+   `signal!` per family (T2's time form converts to rates and calls the rate kernel, as before),
+   one table of parameters (`_t2_parts`, `_r2_parts`, `_smt_parts`), and each named model a
+   struct whose `parameters` change a few roles. Kept as types, rather than one type with a
+   preset type parameter or presets as named tuples of roles: the generic code that rebuilds a
+   model from its fields (`_with_precision`, `ProtocolDesign`), `Scenario`, `parameters(T)` and
+   the display names then work unchanged, and `T2DecayOffset(TE = ...)` stays what users write.
+4. **Order kept**: each table lists the parameters so that every named model's free parameters
+   keep the order they had (S0, fshort, T2short, T2, C), so its fits are unchanged to the bit.
+5. **Names**: the bi-exponential's long component is `T2` (`R2`), as the mono-exponential's
+   (it was `T2long`, `R2long`); 50 uses in tests, bench, precompile workloads, README.
+6. **Infinite fixed numbers are allowed** (a T2 of Inf). The per-voxel check now depends on where
+   a fixed value comes from: a map's value must be finite (NaN or Inf marks a bad voxel, as
+   before), a number must not be NaN.
+7. **Off parts are skipped**: a part whose weight is a plain number at exactly zero (`_skip(x::
+   AbstractFloat)`) is not computed, and a relaxation with rate 0 is 1 without an exp. A dual
+   number is never skipped, at zero too: it is being differentiated (a free parameter, or crlb's
+   and leakage's seeded fixed values). Tested: ∂S/∂fshort at fshort = 0 is S0·(e_short − e_main).
+8. **SMT's parts**: free water `fiso` (with `Diso`), a T2 per compartment (`T2ax`, `T2ex`,
+   `T2iso`, Inf: no T2 weighting; `TE` an optional field of every SMT model), and the
+   extra-axonal diffusivities as ties, `Dexpar = :Dax` and `Dexperp = p -> (1 − p.vax)·p.Dax`
+   (Kaden's assumptions), released in a call (`Dexperp = Free()`: SMT without the tortuosity
+   limit, as Microstructure.jl's SMT guide fits it). orientation.jl's three `_profile`s are one,
+   the same tissue function in the directional view; `Union{SMT,SMTFreeWater,SMTT2}` is
+   `AbstractSMT`. New combinations come free: two T2 components with an offset; SMT with free
+   water and compartment T2s together.
+
+### Measured
+
+- **Results** (bench snapshot of every built-in model, both precisions, 300 voxels at SNR 100,
+  starts and fits; scratch scripts snapshot.jl and compare.jl): the T2 family **bit-identical**
+  to before in Float64 and Float32 (starts, values, SSE, iterations, statuses), the models not
+  refactored too. The SMT family differs at rounding level, from one source: the zeppelin's
+  anisotropy is now D∥ex − D⊥ex = D_ax − (1 − v)·D_ax, not v·D_ax. Float64: at most 4e-12
+  (relative) for SMT and SMTFreeWater, 2.7e-4 for SMTT2, whose fit at SNR 100 is poorly
+  determined (S0's SD 4800) and amplifies rounding; Float32: single voxels move (SMTT2 v_ax by up
+  to 0.13), with the same convergence counts and the same means and SDs to every digit shown.
+- **Speed** (4 threads, 20,000 voxels, best of 3 runs alternated between the old code and the
+  new, µs per voxel):
+
+  | model | before | after | ratio |
+  |---|---|---|---|
+  | T2Decay | 0.40 | 0.44 | 1.10 |
+  | R2Decay | 0.49 | 0.56 | 1.14 |
+  | T2DecayOffset | 1.04 | 1.13 | 1.09 |
+  | R2DecayOffset | 0.81 | 0.95 | 1.17 |
+  | T2BiexpDecay | 4.79 | 4.98 | 1.04 |
+  | R2BiexpDecay | 6.34 | 6.42 | 1.01 |
+  | SMT | 0.61 | 0.59 | 0.97 |
+  | SMTFreeWater | 1.20 | 1.08 | 0.90 |
+  | SMTT2 | 5.06 | 4.61 | 0.91 |
+
+  The mono-exponentials pay 4–17% (0.04–0.14 µs per voxel, 0.1 s for a million voxels): the
+  extra fixed parameters carried through the fit. Before skipping (decision 7), the off parts
+  cost more: T2Decay's signal 2.4× and its fits +45%, SMT's signal 2× and fits +12%. The signal
+  timings alone vary ±30% between runs on this machine; only the alternated fit timings are
+  comparable.
+
+### Not done yet
+
+- The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
+  blocks and could be one family with switchable inversion efficiency and delay terms; ADCDecay
+  is T2Decay's equation in b; QMTSIR stays as it is.
+- A third T2 component (e.g. CSF, for myelin water imaging's three pools): one more part.
+- From the same SMT tissue function: a Watson-dispersed directional model and SMI's rotational
+  invariants (roadmap item 7, Microstructure.jl notes).
+- `newmodel` writes roles as text; an off part is written as its value without the template.
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
@@ -3264,8 +3361,9 @@ scope (decided 2026-10-31):
 **Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02), because magnitude data
 at low SNR are the common case where least squares is wrong, and every part of EQUIP (fit, the
 statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. After
-those, **a protocol design from a number of points** (item 14, 2026-11-03). The other items
-keep their numbers; the numbers are not an order.
+those, **a protocol design from a number of points** (item 14, 2026-11-03). Bayesian
+estimation (item 15) is recorded, not a priority. The other items keep their numbers; the
+numbers are not an order.
 
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
    `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
@@ -3664,7 +3762,8 @@ keep their numbers; the numbers are not an order.
          A and D): all converged, mean v_ax and D_ax within 0.006 and 0.05e-3 of the truth,
          SDs within 5% of crlb's. 51 tests.
        - **Variants** (2026-11-03, asked by the owner: free water, and compartment T2s, an area of
-         the lab's research): `SMTFreeWater(b)`, a third, isotropic compartment,
+         the lab's research; since "Building blocks", below, parts of one SMT equation, switched
+         on in a call): `SMTFreeWater(b)`, a third, isotropic compartment,
          S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] (NODDI's; Diso fixed at 3e-3 mm²/s), `vax` the
          fraction of the tissue without the free water (Devan's "relative" fraction); and
          `SMTT2(b, TE)`, a T2 per compartment, S0·[v_ax·e^(−TE/T2ax)·S̄_ax + (1 − v_ax)·
@@ -4304,3 +4403,23 @@ keep their numbers; the numbers are not an order.
    - **Tests**: the same optimum as from a given protocol (Table 2, the four tissues); the
      template's errors; the result from `start = m` no worse than `d(m)`; `ProtocolDesign(m, ...)`
      unchanged (the same objective values and search results, seeded).
+15. **Bayesian estimation: priors, their bound, sampling** (discussed 2026-11-03, after reading
+   Microstructure.jl's estimators; not a priority yet). Microstructure.jl fits by random-walk
+   Metropolis–Hastings per voxel (box priors, Gaussian or Rician likelihood, σ sampled too; the
+   posterior mean after burn-in, 0.24 s per voxel on 8 threads, about three days for a million
+   voxels, against 1–20 µs per voxel for EQUIP's fits), or by a network trained on signals
+   simulated from priors (uncertainty from dropout at test time). At high SNR the posterior is
+   close to Gaussian with covariance (JᵀJ/σ²)⁻¹, what `stderror` and crlb give; a sampler adds
+   information only where it is not: low SNR, bounds, degenerate models (the bi-exponential,
+   SMI's two branches, NODDI), where it shows the branches instead of landing on one. In order:
+   1. **Priors in the solver (MAP)**: a Gaussian prior is one more residual per parameter,
+      (θ − μ)/τ, appended to the least-squares problem: the LM solver and its speed unchanged.
+   2. **The prior in crlb**: its precision added to the Fisher information, the Bayesian
+      (van Trees) bound. Then crlb says, before any fit, how much of an estimate the data
+      determine and how much the prior does: the question for SMI in disorganized nerve (the
+      nerve SMT section), which a sampler's or a network's user cannot easily see.
+   3. **Sampling as an extension**: NUTS (AdvancedHMC.jl or Turing.jl, a weak dependency) with
+      EQUIP's exact ForwardDiff gradients, far more efficient than a random walk; for regions of
+      interest and validation, not whole volumes.
+   Networks trained on simulations stay out of scope (`simulate` and `scenarios` make the
+   training sets for anyone who wants one).
