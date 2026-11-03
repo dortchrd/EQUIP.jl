@@ -3118,10 +3118,91 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
        single coherent nerve. Next to test, on the same pipeline.
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
-   checked against the full Monte Carlo.
+   checked against the full Monte Carlo. For each kind of data: magnitude images (the
+   scanner's averages complex or magnitude; the floor correction the pipeline uses) or
+   phase-corrected real images ("Real-valued data", below).
 4. The search: N_dirs and N_avg enumerated, b and TE optimized (`optimize_protocol`), under the
    budget and the SNR floor, worst case over the nerve scenarios; one TE (SMT) against two
    (SMTT2), by the RMSE of the volume fraction.
+
+### Real-valued data: removing the floor at its source (2026-11-03)
+
+Every correction of magnitude data in step 2 pays somewhere: an assumed ODF, many SH
+coefficients, or one noisy value at a time. The floor itself goes away if each image is
+phase-corrected and its real part kept (Eichner et al., NeuroImage 2015): Gaussian noise with
+zero mean, negative values allowed. Then every average is linear (the scanner's repeats, the
+spherical mean, SH coefficients), least squares is unbiased with no σ needed for a correction,
+and SMT's independence of the ODF holds at any SNR. The other limits stay: the model's own
+assumptions (tortuosity, D_ax = De∥, exchange, the degeneracy without them). The lab has nerve
+DTI averaged on the scanner both as complex data and as magnitudes (repeats, not directions).
+
+- **Directions are no harder than repeats.** Each image's phase is removed from that image before
+  any average, so phases need not agree between directions or between repeats. The phase from
+  eddy currents (smooth: linear terms and a B0 offset that change with the gradient direction)
+  and from motion during the diffusion encoding (random from shot to shot) is absorbed by a
+  smooth phase estimated from each image; no calibration per direction is needed, and motion
+  phase could not be calibrated anyway. The geometric part of eddy currents (shifts, shears)
+  needs registration, as for magnitude data.
+- **What it needs**:
+  1. A complex coil combination (SENSE-type, or adaptive with coil sensitivities), exported as
+     complex or magnitude and phase images, or raw data with an own reconstruction. A sum of
+     squares discards the phase (and its noise is noncentral χ, not Rician).
+  2. A phase estimate per image, a low-pass filtered phase. Its error δφ lowers the real part to
+     A·cos δφ, about A·exp(−σ_φ²/2) for small Gaussian errors: a small downward bias, largest
+     where the phase changes fast (edges, vessels, pulsation) and at low SNR, where the
+     smoothed phase is itself noisy. The filter's width trades the two. Partial Fourier
+     reconstruction handles the phase too, and has to be taken into account.
+  3. A pipeline that keeps negative values: the phase correction in each image's own space, the
+     real part, then distortion and motion correction (linear interpolation keeps the noise
+     Gaussian, correlated in space). Any step that clips negatives brings the floor back.
+- **A check, and σ, from the imaginary part**: after the correction it should be noise alone
+  (mean 0, SD σ). Structure in it is signal lost from the real part; its SD is σ, without
+  MP-PCA or a background region.
+- **The lab's data measure the floor**: complex averaging already removed the shot-to-shot phase
+  of the repeats (the floor lowered by about √NEX, 3 for 10 averages), but each direction is
+  still a magnitude image. The complex and the magnitude averages of the same nerve data,
+  compared at the highest b in the directions along the nerve (the lowest signal), give the
+  floor's bias in the lab's own data: whether all of this matters there.
+- **What it changes in the design**: without the floor, a number of images gives the same noise
+  in the spherical mean however it is split between directions and averages; more directions
+  then only lower the orientational sampling error. The averages are set by the registration
+  floor (each image registrable, step 3), no longer by the Rician floor: 120 directions × 1
+  average, the worst of step 2's split with magnitude data, becomes the best if its images can
+  be registered.
+- **In EQUIP**: Gaussian noise on each direction, with `sphericalmeannoise`'s noise and
+  orientation terms and no floor (a real-data option to add: today it applies the floor
+  direction by direction); the phase errors, if they matter, a multiplicative bias per
+  direction, exp(−σ_φ²/2), through `simulate_with`, with σ_φ from the filter and the image's SNR.
+
+### SMT or SMI in disorganized nerve (2026-11-03, discussed with the owner)
+
+The question: in a neuroma, with axons in every direction, can SMI (Standard Model Imaging:
+Novikov et al., NeuroImage 2018; Coelho et al., NeuroImage 2022) give v_ax, or is SMT needed?
+
+- Both fit the same Standard Model (sticks, a zeppelin, optionally free water, convolved with
+  the ODF). SMT uses only the l = 0 rotational invariant (the spherical mean, independent of the
+  ODF) and makes v_ax identifiable from it by fixing the extra-axonal diffusivities (De∥ = D_ax,
+  tortuosity). SMI adds the l = 2 (and l = 4) invariants, S_l(b) = p_l·K_l(b), which give the
+  ODF's anisotropy p₂ and the equations that let D_a, De∥ and De⊥ be fitted separately (with
+  free water and, at several TEs, compartment T2s); its estimator is a regression trained on a
+  prior.
+- With an isotropic ODF, p₂ = 0: the l = 2 invariant is zero for any kernel, every direction's
+  signal is the spherical mean, and SMI has only the l = 0 data. Without SMT's constraints the
+  l = 0 data with linear encoding have two families of solutions (Jelescu et al., NeuroImage
+  2016); SMI's answer then comes from its prior. In a study of nerve against neuroma, SMI's
+  v_ax would be pinned partly by l = 2 data in one group and by the prior in the other: a group
+  difference could come from the information, not the tissue. SMT uses the same information in
+  both, valid as far as its constraints hold in both (fibrosis and disorganization are where
+  they may not; exchange breaks both).
+- What determines v_ax without l = 2: SMT's constraints; a second echo time (SMTT2: the
+  compartments' T2 contrast does not depend on orientation, so it adds l = 0 information where
+  l = 2 fails, a further reason for the TE question); planar or spherical b-tensor encoding,
+  if the scanner has it; a prior, knowingly.
+- The floor is mild in isotropic tissue (every direction at the spherical mean: the floor of the
+  mean is the mean of the floors), as the dispersion runs in step 2 show.
+- Tentative: v_ax from SMT or SMTT2, which treat both tissues alike; SMI's p₂ (from l = 2, no
+  kernel diffusivities needed) as the measure of disorganization. EQUIP can quantify it without
+  simulation: crlb of the l = 0 and l = 2 invariants as p₂ goes from nerve to neuroma (offered).
 
 ### Inputs needed from the lab
 
@@ -3131,6 +3212,9 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
   each b (gradient strength, δ, Δ, readout); the time per slice; the number of slices; today's
   protocol (b-values, directions, 10 averages) as the baseline.
 - How the scanner combines averages (complex or magnitude).
+- Whether the scanner can export complex (or magnitude and phase) images for diffusion EPI, and
+  its coil combination; the existing complex- and magnitude-averaged nerve DTI (to measure the
+  floor in the lab's data).
 - The nerve's fibre dispersion (ODI or Watson κ: NODDI, the l = 2 invariant, or published
   values), which decides the floor correction (step 2, "Robustness of the corrections").
 - The registration floor: the SNR needed, and of which image (the weakest direction, or the
@@ -3616,6 +3700,60 @@ items keep their numbers; the numbers are not an order.
      - The volume fractions are nearly linear, so variable projection applies in part
        (tortuosity ties the extra-neurite signal to the intra-neurite fraction); AMICO's
        linearization (Daducci et al., NeuroImage 2015) is the dictionary idea of item 4.
+   - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
+     github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
+     package for diffusion compartment models, estimated by MCMC or by neural networks trained
+     on simulated data. How it is built:
+     - Compartments are types (`Stick`, `Zeppelin`, `Iso`, `Cylinder` (Van Gelderen 1994),
+       `Sphere` (Neuman 1974), `Tensor`), each with its tissue values and a `t2` field, and a
+       signal for a `Protocol` (b, TE, Δ, δ, G, directions, and the SH order of each
+       measurement, all in SI units, converted from the text files' s/mm² and ms). A model is a
+       struct of compartments and fractions (`SANDI`, `ExCaliber`, `MTE_SMT`, `SMI`, ...);
+       `model_signals` sums fraction × compartment, then divides by the first (b = 0) signal.
+     - `t2 = 0` means no T2 weighting: the same compartments make the single-TE model and the
+       multi-TE one (MTE-SMT, MTE-NODDI: Gong et al., NeuroImage 2020), where the fractions
+       are no longer T2-weighted.
+     - Links between parameters are pairs of field paths (`"extra.dpara" => "axon.dpara"`);
+       a constrained diffusivity is a fraction of another (`dperp_frac` in [0, 1] for De⊥/De∥,
+       `p4_frac` for p₄/p₂), which keeps every bound a simple box.
+     - SMI's kernels (`Stick_kernel`, ...) give the l-th rotational invariant by projecting
+       the directional signal on P_l (200-node Gauss–Legendre on [0, 1]); the fODF enters as
+       p₂ (and p₄). `get_sh_order` picks a shell's SH order from its number of directions
+       (> 28 for order 6) and its b (order 4 up to b = 2500 s/mm², 6 up to 7000).
+       `correct_rician_bias` is √(S² − σ²) above σ, 0 below (NYU's SMI.m form). Spherical
+       means group the measurements by (b, TE, Δ, δ).
+     - The likelihood is a `Noisemodel` with a `logpdf`, Gaussian or Rician (Distributions'
+       `Rician`), with σ sampled as one more parameter in the MCMC.
+     - What EQUIP can take:
+       1. **Compartments as building blocks.** Small functions of one observation and the
+          cosine t between fibre and gradient (stick, zeppelin, ball, later cylinder and
+          sphere), each with its directional signal f(t), its spherical mean (closed form where
+          there is one), and its l-th Legendre projection. Today SMT, SMTFreeWater and SMTT2 are
+          three types with three `signal!`s and three `_profile`s, and orientation.jl takes
+          their `Union`; a model composed of compartments gives `_profile`, the rotational
+          invariants (an SMI model on observations (b, l)) and a Watson-dispersed directional
+          model (the nerve question, step 2) from one definition.
+       2. **Variants as roles, not types**, EQUIP's own idiom: one SMT with `T2ax = T2ex =
+          Fixed(Inf)` (exp(−TE/∞) = 1: no T2 weighting, and no sentinel 0), `fiso = Fixed(0)`,
+          De∥ tied to D_ax and De⊥ tied by the tortuosity formula. Freeing the T2s gives SMTT2,
+          freeing `fiso` SMTFreeWater, freeing De⊥ SMT without tortuosity (as Microstructure.jl's
+          SMT guide fits it), each in the call. To check: the speed and compile time of a model
+          with nine parameters, most of them fixed, against the three small types.
+       3. **Fractions for constrained diffusivities** (De⊥ = κ·De∥, κ in [0, 1]): box bounds,
+          which EQUIP's solver takes, instead of an inequality between two parameters.
+     - What not to take: mutable structs that hold the values, and links by field-path strings
+         (neither type-stable nor dual-number friendly: EQUIP keeps values in named tuples and
+         roles outside the model); dividing by the b = 0 signal (it puts that image's noise in
+         every value and drops it from the likelihood, which `logp_rician` does: EQUIP fits S0);
+         allocating vector code (the package needs no derivatives; EQUIP's fits do).
+     - Two cautions from our own runs: their SH order rule gives order 4 at b = 2500 s/mm², which
+       our coherent-fibre runs found biased (bench/floor_sh.jl); and an l = 2 rotational
+       invariant is a norm of 5 SH coefficients, so with noise it has a floor of its own (a
+       noncentral χ with 5 degrees of freedom): an SMI fit by least squares has to model it.
+     - Restricted compartments (`Cylinder`, `Sphere`) need Δ, δ and G per observation and a
+       decision on units (EQUIP: b in s/mm², D in mm²/s; radii and the gyromagnetic ratio favour
+       SI inside). Peripheral nerve axons are larger than the brain's, so axon diameter is a
+       candidate for crlb (their sensitivity criterion, z_α/(SNR·√n), is a rough version of it).
    - DTI, DKI with directions and IVIM stay under item 12.
 8. **Custom models, and coming from other fitters.** EQUIP's model interface (a struct,
    `parameters`, `signal!`) is short, but heavier than LsqFit's `model(x, p)` or MATLAB's
