@@ -19,6 +19,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   in the package's own environment: `julia -t auto --project=. bench/speed.jl` (about 1 minute)
 - Monte Carlo against crlb (bias and SD, z in Monte Carlo standard errors; T2, Dortch 2018
   Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
+- Rician floor corrections for SMT on the simulated spherical-mean pipeline (nerve-smt):
+  `julia -t auto --project=. bench/floor_corrections.jl` (about 45 s) and
+  `bench/floor_robustness.jl` (σ wrong, fibre dispersion; about 4 minutes)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
 - The first `using EQUIP` after a code change takes about 40 s (precompile workload,
   src/precompile.jl). While developing, switch it off with a `LocalPreferences.toml` (not

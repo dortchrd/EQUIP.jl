@@ -3047,6 +3047,42 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      Gaussian (many directions), so least squares suits it, but its mean carries the average of
      the directions' floors. A correction of each value works from one noisy value and cannot
      be unbiased near the floor; the model of the mean (`RicianSphericalMean`) can.
+   - **Robustness of the corrections** (2026-11-03, bench/floor_robustness.jl, the same pipeline;
+     v_ax bias / RMSE, truth 0.6). σ misestimated (each correction given f × the true σ, the same
+     data), one fibre direction:
+     | Method | SNR 20, f 0.8 | f 1.0 | f 1.2 | SNR 10, f 0.8 | f 1.0 | f 1.2 |
+     |---|---|---|---|---|---|---|
+     | no correction | +0.156 / 0.165 | +0.156 / 0.165 | +0.156 / 0.165 | +0.321 / 0.330 | +0.321 / 0.330 | +0.321 / 0.330 |
+     | exact inversion per direction | +0.082 / 0.101 | +0.047 / 0.076 | +0.013 / 0.059 | +0.184 / 0.209 | +0.119 / 0.159 | +0.055 / 0.119 |
+     | SMI.m | +0.099 / 0.115 | +0.072 / 0.094 | +0.044 / 0.074 | +0.217 / 0.237 | +0.168 / 0.195 | +0.116 / 0.155 |
+     | DESIGNER | +0.121 / 0.134 | +0.112 / 0.126 | +0.109 / 0.123 | +0.259 / 0.273 | +0.246 / 0.261 | +0.243 / 0.257 |
+     | E\|y\| per direction in the model | +0.035 / 0.058 | +0.000 / 0.044 | −0.034 / 0.053 | +0.075 / 0.112 | +0.001 / 0.080 | −0.076 / 0.106 |
+
+     Fibres dispersed about the voxel's orientation (100 fibres from a Watson distribution; ODI
+     0.04, 0.16, 0.50 for κ = 16, 4, 1), σ right:
+     | Method | SNR 20, ODI 0.04 | 0.16 | 0.50 | SNR 10, ODI 0.04 | 0.16 | 0.50 |
+     |---|---|---|---|---|---|---|
+     | no correction | +0.128 / 0.141 | +0.057 / 0.084 | +0.035 / 0.069 | +0.288 / 0.301 | +0.187 / 0.212 | +0.138 / 0.172 |
+     | exact inversion per direction | +0.031 / 0.067 | −0.008 / 0.062 | −0.005 / 0.060 | +0.086 / 0.139 | −0.013 / 0.118 | −0.059 / 0.131 |
+     | SMI.m | +0.053 / 0.079 | +0.005 / 0.062 | −0.001 / 0.059 | +0.135 / 0.170 | +0.035 / 0.119 | −0.010 / 0.115 |
+     | DESIGNER | +0.085 / 0.103 | +0.016 / 0.063 | −0.000 / 0.059 | +0.207 / 0.227 | +0.088 / 0.138 | +0.022 / 0.111 |
+     | E\|y\| per direction in the model | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
+
+     - σ: every correction's bias moves in proportion to σ's error; the model's by ∓0.017 for
+       ±10% at SNR 20 (∓0.037 at SNR 10), and it keeps the lowest RMSE across ±20%. The
+       per-direction corrections fall short at the right σ, so a σ too high helps them.
+     - Dispersion lowers the floor's bias for every method (no correction: 0.157 at ODI 0 to
+       0.035 at 0.50, SNR 20): with the fibres spread, fewer directions sit near zero signal.
+       The model, which assumes one fibre direction, then over-corrects (−0.023 at ODI 0.04,
+       −0.079 at 0.16), while the per-direction corrections become about right at ODI 0.16. The
+       crossover is between ODI 0.04 and 0.16: below it the model is best, above it the exact
+       inversion per direction or SMI.m. The floor is worst where the fibres are coherent, which
+       is where the model is right.
+     - Worst RMSE over all ten conditions: SNR 20, no correction 0.166, exact inversion 0.101,
+       SMI.m 0.115, DESIGNER 0.134, the model 0.105; SNR 10, 0.332, 0.209, 0.237, 0.273, 0.181.
+     - Open: the nerve's dispersion (an input from the lab). The model could carry it, a Watson
+       ODF in `_profile` with κ fixed from elsewhere (the spherical mean itself holds almost no
+       information about κ; the l = 2 rotational invariant, NODDI or the literature do).
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
    checked against the full Monte Carlo.
@@ -3062,6 +3098,8 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
   each b (gradient strength, δ, Δ, readout); the time per slice; the number of slices; today's
   protocol (b-values, directions, 10 averages) as the baseline.
 - How the scanner combines averages (complex or magnitude).
+- The nerve's fibre dispersion (ODI or Watson κ: NODDI, the l = 2 invariant, or published
+  values), which decides the floor correction (step 2, "Robustness of the corrections").
 - The registration floor: the SNR needed, and of which image (the weakest direction, or the
   shell's mean).
 
