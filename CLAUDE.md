@@ -31,7 +31,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
-  `parameters`, `signal!`, `datastart`); src/models/macro.jl: `@mrimodel` (a model from a
+  `parameters`, `signal!`, `datastart`; `Fixed(value; free = Free(...))`, a part of a model
+  switched off by default); src/models/blocks.jl: the building blocks (relaxation; stick,
+  zeppelin, ball in a direction or as spherical means), one signal per family with parts
+  switched on and off (the T2 decays, the SMT models); src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/orientation.jl: `directionset`, `orientationcovariance`,

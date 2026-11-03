@@ -88,9 +88,12 @@ _keep(new, default) = new === nothing ? default : new
 # Over a default Free: the new start and bounds where given, the default's elsewhere.
 _override(d::Free, x::Free, name) = Free(start = _keep(x.start, d.start),
                                          lower = _keep(x.lower, d.lower), upper = _keep(x.upper, d.upper))
+# A part switched off by default (`Fixed(0.0; free = Free(...))`), now switched on: the role it
+# declares for that, with the call's start and bounds where given.
+_override(d::Fixed, x::Free, name) = d.free === nothing ? _override_fixed(d, x, name) : _override(d.free, x, name)
 # A parameter fixed by default, now estimated: it starts at its fixed value unless given a start;
 # no bounds unless given.
-function _override(d::Fixed, x::Free, name)
+function _override_fixed(d::Fixed, x::Free, name)
     x.start !== nothing && return x
     d.value isa Real ||
         throw(ArgumentError("`$name` is fixed by default to $(repr(d.value)); give it a start: $name = Free(start = ...)"))

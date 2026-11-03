@@ -156,7 +156,7 @@ end
         @test occursin("T2Decay", run("models").out) && occursin("equip fit MODEL DATA", run().out)
         # mistakes: a message naming what to do, exit code 1, nothing written
         @test occursin("`--kmf` is not a flag of `equip fit T2Decay`", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
-        @test occursin("--S0, --T2", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
+        @test occursin("--S0, --fshort, --T2short, --T2, --C", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))   # the parts off too
         @test occursin("QMTSIR needs `TI`", bad("fit", "QMTSIR", path("t2.nii.gz")))
         @test occursin("has 5 observations", bad("fit", "QMTSIR", path("t2.nii.gz"), "--protocol", "SIR_5POINT"))
         @test occursin("unknown model `T2decay`", bad("fit", "T2decay", path("t2.nii.gz")))

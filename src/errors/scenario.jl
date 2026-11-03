@@ -105,7 +105,7 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, 
     # The fit from the truth, parameter by parameter: estimated as the model estimates them, or
     # held at the true value. `map` over named tuples with the same names in the same order
     # calls `base(own[n], truth[n], θt[n])` for each n, and Julia picks the method by the role.
-    base(r::Fixed, t, v) = Fixed(t)
+    base(r::Fixed, t, v) = Fixed(t, r.free)          # (a switchable part keeps its role when freed)
     base(r::Free, t, v) = starts === :truth ? Free(start = float(v), lower = r.lower, upper = r.upper) : r
     roles = map(base, own, truth, θt)
 

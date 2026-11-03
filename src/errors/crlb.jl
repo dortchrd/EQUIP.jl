@@ -167,7 +167,7 @@ crlb(QMTSIR(; SIR_5POINT...), θ; snr = 200, kmf = Free())   # kmf fitted: unbia
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
 crlb(m, θ; snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # the bias against the true kmf
 crlb(m, (assumed = s, exact = Scenario(m, θ)); snr = 200)   # side by side
-θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
+θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2 = 0.08)       # bi-exponential data,
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
      simulate_with = T2BiexpDecay(TE = te) => θb)
 ```

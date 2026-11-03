@@ -182,6 +182,7 @@ end
 
 """
     Fixed(value)
+    Fixed(value; free = Free(...))
 
 Role of a parameter that is not estimated. `value` is
 
@@ -191,10 +192,29 @@ Role of a parameter that is not estimated. `value` is
 - a tie given by a function of the other parameters: `Fixed(p -> 0.8 * p.R1f)`
 
 A tie may use free or fixed parameters (including per-voxel maps), but not another tie.
+
+`free`, in a model's [`parameters`](@ref): a part of the model that is switched off by default
+(an offset fixed at 0, a second component's fraction at 0, a compartment's T2 at `Inf`), and the
+role it takes when a fit switches it on with `Free()`, its start and bounds where the call leaves
+them out: `C = Fixed(0.0; free = Free(start = 0.0))`, then `fit(m, y; C = Free())`. A part
+switched off also needs no value where a complete set is asked for (`simulate`, `signal`,
+`nominal`, a scenario's truth): it is filled in at its value. See "Building blocks" in
+src/models/blocks.jl.
 """
 struct Fixed{T}
     value::T
+    free::Union{Nothing,Free}    # a part switched off: its role when switched on (else nothing)
 end
+Fixed(value; free::Union{Nothing,Free} = nothing) = Fixed(value, free)
+# `Fixed(12.5)` keeps working: the keyword method above, with `free = nothing`. The struct's own
+# two-argument constructor, `Fixed(value, free)`, is the one it calls.
+
+# A fixed parameter with a role for when it is freed (`Fixed(value; free = ...)`): filled in at its
+# value where a complete set leaves it out. It is a part switched off when that value removes the
+# part, 0 (a fraction, an offset, a rate) or Inf (a T2): shown as `off`, and left out of leakage
+# (a relative error of 0 or Inf has no meaning). SMTFreeWater's Diso = 3e-3 is switchable, not off.
+_switchable(r) = r isa Fixed && r.free !== nothing
+_isoff(r) = _switchable(r) && r.value isa Real && (iszero(r.value) || isinf(r.value))
 # `Fixed{T}` is a *parametric* type: T is the type of `value`, so `Fixed(12.5)` is a
 # `Fixed{Float64}`, `Fixed(b1map)` a `Fixed{Matrix{Float64}}`, `Fixed(:R1f)` a `Fixed{Symbol}`
 # and `Fixed(p -> 0.8 * p.R1f)` a `Fixed{var"#1#2"}` (every anonymous function has its own type).
@@ -347,7 +367,7 @@ Optional: for models whose parameters can describe the same signal in more than 
 swapping labels, choose the one to report. `θ` holds one voxel's fitted free parameters by name;
 return the same names, in the same order. Called once per voxel after the fit; the signal, and
 so the SSE, must not change. Example: the two components of [`T2BiexpDecay`](@ref) can swap,
-`(fshort, T2short, T2long)` ↔ `(1 - fshort, T2long, T2short)`, so it puts the shorter T2 first.
+`(fshort, T2short, T2)` ↔ `(1 - fshort, T2, T2short)`, so it puts the shorter T2 first.
 The default returns `θ` unchanged.
 """
 relabel(::MRIModel, θ) = θ
@@ -502,14 +522,15 @@ end
 function _complete(M::Symbol, roles::NamedTuple{K}, p::NamedTuple) where {K}
     _check_names("p", keys(p), K)
     _reject_roles(p)
-    if !all(n -> haskey(p, n), K)
-        missing = [n for n in K if !haskey(p, n)]
+    # A switchable parameter (`Fixed(0.0; free = ...)`, a part off) needs no value: filled in at its own.
+    if !all(n -> haskey(p, n) || _switchable(roles[n]), K)
+        missing = [n for n in K if !haskey(p, n) && !_switchable(roles[n])]
         throw(ArgumentError("$M needs a value for every parameter; missing: " *
             "$(join(missing, ", ")). For a complete set, start from `nominal(m)` (the model's " *
             "starting and fixed values) or `nominal(m, tissue)`, and change values by keyword: " *
             "`nominal(m; $(first(missing)) = ...)`"))
     end
-    q = NamedTuple{K}(map(n -> p[n], K))    # every parameter, in model order
+    q = NamedTuple{K}(map(n -> haskey(p, n) ? p[n] : roles[n].value, K))   # every parameter, in model order
     _check_ties(q)                       # e.g. R1m = :R1f must name a parameter that is not a tie
     return q
 end
@@ -652,7 +673,7 @@ function _print_parameters(io::IO, roles::NamedTuple, vals::NamedTuple, label)
     rows = [["name", "role", "start/value", "bounds", label]]
     for (n, r) in pairs(roles)
         v = vals[n]
-        push!(rows, [string(n), r isa Free ? "free" : "fixed", setting(r), bounds(r),
+        push!(rows, [string(n), r isa Free ? "free" : _isoff(r) ? "off" : "fixed", setting(r), bounds(r),
                      v === nothing ? "required" : cell(v)])
     end
     widths = [maximum(row -> textwidth(row[j]), rows) for j in 1:5]   # each column's width

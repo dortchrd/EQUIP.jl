@@ -825,4 +825,4 @@ end
 _check_simulate_with(::Nothing) = nothing
 _check_simulate_with(s) = s isa Pair{<:MRIModel,<:NamedTuple} || throw(ArgumentError(
     "`simulate_with = model => truth`: a model and every value of its parameters, e.g. " *
-    "`T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)`"))
+    "`T2BiexpDecay(TE = te) => (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2 = 0.08)`"))

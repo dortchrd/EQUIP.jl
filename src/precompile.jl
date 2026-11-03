@@ -32,8 +32,8 @@ using PrecompileTools: @setup_workload, @compile_workload
              (R2Decay(TE = te), (S0 = 1000.0, R2 = 12.5)),
              (T2DecayOffset(TE = te), (S0 = 1000.0, T2 = 0.08, C = 30.0)),
              (R2DecayOffset(TE = te), (S0 = 1000.0, R2 = 12.5, C = 30.0)),
-             (T2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)),
-             (R2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
+             (T2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2 = 0.08)),
+             (R2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2 = 12.5)),
              (ADCDecay(b = b), (S0 = 1000.0, ADC = 1e-3)),
              (ADCKurtosis(b = b), (S0 = 1000.0, ADC = 1e-3, K = 1.0)),
              (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))

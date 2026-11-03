@@ -287,7 +287,7 @@ so these models first try 30 values of T1 per voxel and start from the best one 
 in tests, at most 2 of 200 voxels failed for T1 from 0.05 to 4 s, against all 200 from a single
 start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(start = ...)`, skips it.
 
-| area | model | signal | free | fixed |
+| area | model | signal | free | fixed (and off: parts to switch on) |
 |---|---|---|---|---|
 | relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery, long TR: \|M0·[Sf·e^(−TI/T1) + 1 − e^(−TI/T1)]\|; Sf = inversion efficiency (−1 = perfect), as in T1IRTD | M0, Sf, T1 | |
 | | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | |
@@ -297,18 +297,38 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R1SR(TD = ...)` | the same with R1 = 1/T1 | M0, R1 | |
 | | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
 | | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 |
-| | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
-| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
-| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
-| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
-| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)]; the shorter T2 reported as T2short | S0, fshort, T2short, T2long | |
-| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
+| | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | off: C, fshort, T2short |
+| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | off: C, fshort, R2short |
+| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | off: fshort, T2short |
+| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | off: fshort, R2short |
+| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2)]; the shorter T2 reported as T2short (the long one is `T2`, `T2long` before 2026-11-03) | S0, fshort, T2short, T2 | off: C |
+| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2 = 1/T2 | S0, fshort, R2short, R2 | off: C |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
-| | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
-| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
-| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
+| | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1); `TE` optional | S0, vax, Dax (mm²/s) | Dexpar = Dax, Dexperp = (1 − vax)·Dax (ties); off: fiso (Diso = 3e-3), T2ax, T2ex, T2iso (Inf: no T2 weighting) |
+| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s; as `SMT` otherwise |
+| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | as `SMT` otherwise |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
+
+**Parts switched on and off.** The T2 decays are one equation,
+S0·[(1 − fshort)·exp(−TE/T2) + fshort·exp(−TE/T2short)] + C, and the SMT models one, with free
+water, a T2 per compartment and the extra-axonal diffusivities as parts. A part a model does not
+use is switched off by its value (C = 0, fshort = 0, a T2 of Inf), shown as `off` in the model's
+display, and switched on in a call, with its start and bounds from the model; a set of true
+values does not need it:
+
+```julia
+m = T2Decay(TE = te)
+fit(m, y; C = Free())                                     # T2DecayOffset's fit
+fit(m, y; fshort = Free(), T2short = Free(), C = Free())  # two components and an offset
+fit(SMT(b = b), means; fiso = Free())                     # SMTFreeWater's fit
+fit(SMT(b = b), means; Dexperp = Free())                  # without the tortuosity limit
+simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :rician)   # C, fshort, T2short: off
+```
+
+The named variants (`T2DecayOffset`, `T2BiexpDecay`, `SMTFreeWater`, `SMTT2`) differ only in
+what is on by default. A part that is off costs no accuracy (the same numbers, bit for bit) and
+little time (skipped when fixed at 0; fits 4–17% slower for the mono-exponentials, none for SMT).
 
 ## Writing a model
 
@@ -405,7 +425,9 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   written once, in the rate form; the time form converts and calls it:
   `signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`.
   Always time → rate: R2 = 0 (a flat curve) is a valid value, but 1/0 is not. Variations such as
-  an added offset are separate models with their own loop.
+  an added offset are parts of one equation, off by default: `C = Fixed(0.0; free = Free(start
+  = 0.0))` in `parameters`, written with the building blocks of src/models/blocks.jl
+  (relaxation; stick, zeppelin and ball, in a direction or averaged over directions).
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.
