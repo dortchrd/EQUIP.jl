@@ -40,6 +40,7 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
+using SpecialFunctions: erf               # SMT: the spherical mean of a stick (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
 using MRImages: MRImage, readimage, writeimage, readvalues, samegeometry, filestem, sidecarpath,
                 writesidecar, writemat
@@ -57,7 +58,7 @@ export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit
 export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
-export ADCDecay, ADCKurtosis                                               # diffusion models
+export ADCDecay, ADCKurtosis, SMT, SMT_PROTOCOLS, sphericalmean           # diffusion models
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep

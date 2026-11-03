@@ -3312,6 +3312,41 @@ items keep their numbers; the numbers are not an order.
      numbers (SpecialFunctions with ForwardDiff provides it). The averaging per shell is a
      preprocessing step (needs the gradient directions, from the I/O layer), or the user gives
      shell averages.
+     - **Built** (2026-11-03, branch `smt-proto`, src/models/diffusion/smt.jl), in the form of
+       Devan et al., Magn Reson Imaging 2020;74:56 (the owner's group: SMT for multiple
+       sclerosis): `SMT(b = ...)`, two compartments, sticks (D⊥,in = 0) and a zeppelin with the
+       same D_ax and the tortuosity limit D⊥,ex = (1 − v_ax)·D_ax; parameters `S0` (`:scale`),
+       `vax` (0 to 1), `Dax` (mm²/s, 0 to 3e-3), b in s/mm² as for `ADCDecay`.
+       `sphericalmean(data, b; tol = 100)` averages each shell (b-values within 100 s/mm²
+       merged, as in Devan) and returns the shells' b and numbers of directions, which are
+       crlb's and montecarlo's `averages` (a shell's mean has σ/√N) and the fit's `weights`.
+       `SMT_PROTOCOLS` holds Devan's Table 2 (A–E, b and directions), `TISSUES` its Table 1
+       (`SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH`, from Bagnato et al. 2019).
+       - **Numerics**: the stick's spherical mean √π·erf(x)/(2x) is computed from x² = b·D,
+         by its Taylor series below x² = 0.05 (6 terms, error < 2e-12; no 0/0 at b = 0 and no
+         square root, whose derivative is infinite at 0), `erf` above; the two agree in value
+         and derivative at the switch, and both against the direction average they stand for
+         (∫₀¹ exp(−x²u²) du, quadrature, 1e-9). Integer coefficients, π converted to the
+         argument's type: a Float32 fit stays in Float32. SpecialFunctions was loaded by
+         ForwardDiff already: no new loading cost.
+       - **Against Devan 2020, Fig. 1** (v_ax precision efficiency 1/√(N·CRLB/v_ax²) of the five
+         protocols in the four tissues): crlb on spherical means, with averages and weights
+         = directions, at SNR 20 per direction gives their figure: normal white matter within
+         1–5% for every protocol (A 0.90 against 0.90, B 1.00 against 1.00, C 1.10 against
+         1.10, D 0.86 against 0.865), NAWM and T2 lesions within 6%, black holes up to 13%
+         higher (protocols A and B). Their CRLB is of the directional signals, the worst case
+         over fibre arrangements (isotropic, where each direction's signal is the spherical
+         mean: the same Fisher information as ours), with the Rician factor R(S, σ), which lowers
+         the information most where the signal is lowest: the high-b shells of A and B, in the
+         tissue with the lowest v_ax. So the figure's SNR (not stated) is 20, the SNR of their
+         simulations, and the remaining difference is Rician (item 13).
+       - **Fits** from the default starts (Gaussian, SNR 20, 5000 voxels per tissue, protocols
+         A and D): all converged, mean v_ax and D_ax within 0.006 and 0.05e-3 of the truth,
+         SDs within 5% of crlb's. 51 tests.
+       - Not yet: the command line (`equip fit SMT` needs the spherical mean as a step, from the
+         `.bval`), Rician noise in the fits (item 13), a free-water compartment (Devan's main
+         confound: v_ax falls and D_ax rises with free water), the single-compartment
+         microscopic tensor (Kaden et al., MRM 2016).
    - **NODDI** (Zhang et al., NeuroImage 2012): intra-neurite sticks with Watson orientation
      dispersion, an anisotropic extra-neurite compartment with tortuosity, isotropic CSF.
      - Needs the gradient direction of each observation: an acquisition field of 3-vectors

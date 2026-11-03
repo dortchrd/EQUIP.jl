@@ -7,6 +7,7 @@ using Random
 using Statistics: mean, std, cov, median
 using Test
 import NIfTI, JSON                  # io tests: NIfTI files with a chosen geometry; sidecars
+import SpecialFunctions, ForwardDiff   # SMT: erf, and derivatives of the stick's spherical mean
 using MAT                           # io tests: MATLAB files (MRImages' extension)
 using EQUIP.MRImages: samegeometry, readmat, writemat
 
@@ -2361,6 +2362,78 @@ end
         f = writetable(path("tables/t.tsv"), rows)
         @test readlines(f) == ["name\tPSR\tn", "WM\t0.1\t3", "GM\t0.05\t4"]
         @test_throws ArgumentError writetable(path("e.tsv"), [])
+    end
+
+    @testset "SMT: the spherical mean technique (Kaden 2016; Devan et al., MRI 2020)" begin
+        rng = MersenneTwister(21)
+        # The stick's spherical mean, √π·erf(x)/(2x): its series near 0 and erf beyond, the same
+        # (values and derivatives) on both sides of the switch; and against the mean over
+        # directions it stands for, ∫₀¹ exp(−x²u²) du (u = cos ψ: uniform over the sphere)
+        f(x2) = sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
+        for x2 in (1e-3, 0.0499999, 0.0500001, 0.7, 12.0)
+            @test EQUIP._sphmean(x2) ≈ f(x2) rtol = 1e-11
+            @test ForwardDiff.derivative(EQUIP._sphmean, x2) ≈ ForwardDiff.derivative(f, x2) rtol = 1e-8
+        end
+        @test EQUIP._sphmean(0.0) == 1 && ForwardDiff.derivative(EQUIP._sphmean, 0.0) ≈ -1 / 3
+        u = range(0, 1; length = 200_001)                         # the trapezoid rule over cos ψ
+        trap(g) = (sum(g.(u)) - (g(0) + g(1)) / 2) * step(u)
+        b, D, Dperp = 2000.0, 2.0e-3, 0.7e-3
+        @test EQUIP._sphmean(b * D) ≈ trap(c -> exp(-b * D * c^2)) rtol = 1e-9                     # stick
+        @test exp(-b * Dperp) * EQUIP._sphmean(b * (D - Dperp)) ≈
+              trap(c -> exp(-b * (Dperp + (D - Dperp) * c^2))) rtol = 1e-9                      # zeppelin
+        # The model: S0 at b = 0; free diffusion when v_ax = 0 (D⊥ = D_ax); sticks alone when 1
+        m = SMT(b = [0.0, 1000.0, 3000.0])
+        @test signal(m, (S0 = 2.0, vax = 0.4, Dax = 2e-3))[1] == 2.0
+        @test signal(m, (S0 = 1.0, vax = 0.0, Dax = 2e-3)) ≈ exp.(-m.b .* 2e-3)
+        @test signal(m, (S0 = 1.0, vax = 1.0, Dax = 2e-3)) ≈ [1.0; f.(m.b[2:3] .* 2e-3)]
+        @test nominal(m, :SMT_cBH).vax == 0.241 && nominal(m, :SMT_NWM).Dax == 1.9e-3
+
+        # Devan 2020, Fig. 1: the vax precision efficiency 1/√(N·CRLB/vax²) of the five
+        # protocols, for an isotropic fibre arrangement (their worst case, where each direction's
+        # signal is the spherical mean). At SNR 20 per direction (their simulations' SNR; Fig. 1
+        # does not say), with the shells' means weighted by their directions, it is their figure:
+        # within 5% for normal white matter, 15% for the others. Theirs adds the Rician factor,
+        # which lowers the precision most where the signal is lowest (protocols A and B's
+        # b = 3790–4230 shells, in black holes, the lowest vax): ours is higher there.
+        fig1 = (SMT_NWM = (A = 0.90, B = 1.00, C = 1.10, D = 0.865, E = 0.84),     # read off the plot
+                SMT_NAWM = (A = 1.10, B = 1.06, C = 1.05, D = 0.83, E = 0.82),
+                SMT_cBH = (A = 0.90, B = 0.905, C = 0.825, D = 0.685, E = 0.68),
+                SMT_T2lesion = (A = 1.11, B = 1.06, C = 0.99, D = 0.79, E = 0.79))
+        for name in keys(fig1), P in keys(SMT_PROTOCOLS)
+            pr = SMT_PROTOCOLS[P]
+            ms = SMT(b = pr.b)
+            θ = nominal(ms, name)
+            c = crlb(ms, θ; snr = 20, averages = pr.directions, weights = pr.directions)
+            eff = θ.vax / (c.sd.vax * sqrt(sum(pr.directions)))
+            @test eff ≈ fig1[name][P] rtol = (name === :SMT_NWM ? 0.06 : 0.15)
+        end
+
+        # Fits from the default starts: unbiased, and as precise as crlb says (Gaussian, SNR 20,
+        # chronic black hole, protocol A), in both precisions
+        pr = SMT_PROTOCOLS.A
+        ms = SMT(b = pr.b)
+        θ = nominal(ms, :SMT_cBH)
+        Y = simulate(ms, θ; snr = 20, averages = pr.directions, noise = :gaussian, n = 2000, rng)
+        c = crlb(ms, θ; snr = 20, averages = pr.directions, weights = pr.directions)
+        for T in (Float64, Float32)
+            r = fit(ms, T.(Y); weights = pr.directions, precision = T)
+            @test all(isconverged, r.status) && eltype(r.params.vax) == T
+            @test abs(mean(r.params.vax) - θ.vax) < 4 * c.sd.vax / sqrt(2000)
+            @test std(r.params.vax) ≈ c.sd.vax rtol = 0.1
+            @test std(r.params.Dax) ≈ c.sd.Dax rtol = 0.1
+        end
+
+        # sphericalmean: the volumes of each shell averaged (b-values within 100 s/mm² merged),
+        # observations last, any shape; the shells' b and their numbers of volumes
+        bvals = [0, 1000, 5, 995, 3000, 1010, 2990, 0]
+        data = reshape(Float64.(1:2*3*8), 2, 3, 8)
+        means, shells, dirs = sphericalmean(data, bvals)
+        @test size(means) == (2, 3, 3) && dirs == [3, 3, 2]
+        @test shells ≈ [5 / 3, (995 + 1000 + 1010) / 3, 2995]
+        @test means[1, 1, :] ≈ [mean(data[1, 1, [1, 3, 8]]), mean(data[1, 1, [2, 4, 6]]), mean(data[1, 1, [5, 7]])]
+        @test sphericalmean(data, bvals; tol = 10)[3] == [3, 2, 1, 2]          # 1010 more than 10 above 995
+        @test sphericalmean(collect(1.0:4.0), [0, 0, 1000, 1000])[1] == [1.5, 3.5]
+        @test_throws DimensionMismatch sphericalmean(data, bvals[1:7])
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

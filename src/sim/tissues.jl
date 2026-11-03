@@ -27,6 +27,11 @@ SIR tissue classes at 3 T (Dortch et al., Magn Reson Med 2018;80:1824, Table 1),
 shared by all classes there (Sm = 0.83, Sf = −1.0; R1m = R1f, QMTSIR's default; M0f = 1 and
 SNR = 200 at thermal equilibrium): `SIR_WM_I`, `SIR_WM_II` (maximum and mean white matter),
 `SIR_GM`, `SIR_lesion` (RRMS lesion).
+
+SMT values in multiple sclerosis (Bagnato et al., Ann Clin Transl Neurol 2019, as summarized by
+Devan et al., Magn Reson Imaging 2020;74:56, Table 1; `vax` as a fraction, `Dax` in mm²/s):
+`SMT_NWM` (normal white matter, internal capsule), `SMT_NAWM` (normal-appearing white matter in
+MS), `SMT_T2lesion` (T2-hyperintense lesion), `SMT_cBH` (chronic black hole, T1-hypointense).
 """
 const TISSUES = (
     # Stanisz et al. 2005, Table 1, 3 T: T1 and T2 (s)
@@ -49,6 +54,11 @@ const TISSUES = (
     SIR_WM_II = (PSR = 0.12, kmf = 10.0, R1f = 1.0, Sf = -1.0, Sm = 0.83),
     SIR_GM = (PSR = 0.08, kmf = 15.0, R1f = 0.7, Sf = -1.0, Sm = 0.83),
     SIR_lesion = (PSR = 0.05, kmf = 20.0, R1f = 0.5, Sf = -1.0, Sm = 0.83),
+    # Devan et al. 2020, Table 1 (from Bagnato et al. 2019): v_ax (fraction), D_ax (μm²/ms → mm²/s)
+    SMT_NWM = (vax = 0.607, Dax = 1.9e-3),
+    SMT_NAWM = (vax = 0.450, Dax = 1.8e-3),
+    SMT_T2lesion = (vax = 0.365, Dax = 1.7e-3),
+    SMT_cBH = (vax = 0.241, Dax = 1.7e-3),
 )
 
 """
