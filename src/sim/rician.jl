@@ -26,10 +26,13 @@ each channel (Rician; Gudbjartsson & Patz, Magn Reson Med 1995):
     E|y| = σ·√(π/2)·L₁/₂(−A²/2σ²) = σ·√(π/2)·[(1 + ν)·I₀(ν/2) + ν·I₁(ν/2)]·e^(−ν/2),  ν = A²/2σ²
 
 (L₁/₂ a Laguerre function, I₀ and I₁ modified Bessel functions, computed scaled: no overflow at
-high SNR). σ√(π/2) at A = 0 (the noise floor), A + σ²/(2A) at high SNR. Differentiable in A (dual
-numbers), so it can be part of a signal model ([`RicianMean`](@ref)).
+high SNR). σ√(π/2) at A = 0 (the noise floor), A + σ²/(2A) at high SNR (above A/σ = 1000, its
+expansion A + σ²/(2A) + σ⁴/(8A³), exact there to rounding: the Bessel functions' argument would
+be out of their range). Differentiable in A (dual numbers), so it can be part of a signal model
+([`RicianMean`](@ref)).
 """
 function ricianmean(A, σ)
+    abs(A) > 1000σ && return abs(A) + σ^2 / (2abs(A)) + σ^4 / (8abs(A)^3)
     ν = A^2 / (2σ^2)
     return σ * sqrt(oftype(float(ν), π) / 2) * ((1 + ν) * besselix(0, ν / 2) + ν * besselix(1, ν / 2))
 end

@@ -30,6 +30,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `parameters`, `signal!`, `datastart`); src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
+  (src/models/diffusion/orientation.jl: `directionset`, `orientationcovariance`,
+  `sphericalmeannoise`, the spherical mean's pipeline errors for SMT)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
   `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the

@@ -2981,6 +2981,34 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      SNR 20 per direction, each direction its own magnitude image.
 2. The orientational covariance for a direction set (closed form above), and direction sets
    (electrostatic repulsion, Jones et al., Magn Reson Med 1999), tested against simulation.
+   **Done** (2026-11-03, src/models/diffusion/orientation.jl): `directionset(N)` (repulsion
+   between the directions and their opposites, from a Fibonacci spiral: deterministic; z ≥ 0;
+   second moment I/3 to 1e-9); `orientationcovariance(m, θ, sets; σ)` for the SMT models (each
+   model's directional signal `_profile`, its Legendre coefficients by 120-node Gauss–Legendre,
+   orders to 60); `RicianSphericalMean(m; σ)` and `sphericalmeannoise(m, θ; snr, directions,
+   averages, sets)`, crlb's keywords for the whole spherical-mean pipeline.
+   - Checked: the covariance against 20,000–50,000 random fibre orientations, cross-shell terms
+     too (1.135 against 1.163 ×10⁻⁶; diagonal within 1%), mean 0. Schilling 2022's minimal
+     directions at SNR = ∞ (v 0.6, λ 2 μm²/ms, 5%): 4, 7, 10, 16, 23, 28 at b = 1, 2, 3, 5, 8, 10
+     ms/μm², as their Fig. 4.
+   - **Found: the floor acts direction by direction.** A first comparison with the whole
+     pipeline simulated (one fibre population in a random orientation per voxel, a Rician image
+     per direction, the spherical mean, the SMT fit) matched the SD but not the bias: v_ax 0.156
+     simulated against 0.033 from the floor of the shell's mean signal (`riciannoise`). For one
+     aligned population the directions near the fibres have almost no signal at high b and sit
+     on the floor, and E|y| is convex in the signal, so the mean of magnitudes is above the
+     floor of the mean. With the floor applied to each direction's signal and averaged over the
+     angle (`RicianSphericalMean`), and the noise and orientation terms on the same footing
+     (`sphericalmeannoise`): bias 0.159 against 0.156 (30 directions, SNR 20), 0.172 against
+     0.158 (16–24 directions), 0.045 against 0.049 (8 directions, SNR 50); SD within 10–25%
+     (crlb is linear; simulated fits that reach D_ax's upper bound narrow the spread). With 6
+     directions the orientational SD (about 0.2) leaves the linear regime: the bias half the
+     simulated one. Candidates near that edge are for the Monte Carlo.
+   - **A first look at directions against averages** (SMT, b = 0, 1000, 2500, 4000 s/mm²; v 0.6,
+     D 2e-3; 120 acquisitions per diffusion shell; SNR 20 per acquisition; the scanner's
+     averages complex): RMSE of v_ax 0.162 for 120 directions × 1 average (the floor: bias 0.16),
+     0.105 (60 × 2), 0.069 (30 × 4), 0.058 (20 × 6), 0.074 (12 × 10: the orientational SD grows),
+     0.218 (6 × 20). Placeholder values; the lab's own come next (steps 3 and 4).
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
    checked against the full Monte Carlo.

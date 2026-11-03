@@ -3,6 +3,7 @@
 using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
+using StaticArrays: SVector
 using Random
 using Statistics: mean, std, var, cov, median
 using Test
@@ -2484,6 +2485,8 @@ end
         @test ricianmean(0.0, 2.0) ≈ 2 * sqrt(π / 2)
         @test ricianvar(0.0, 1.0) ≈ 2 - π / 2
         @test ricianmean(300.0, 1.0) ≈ 300 + 1 / 600 rtol = 1e-10
+        @test ricianmean(999.9, 1.0) ≈ 999.9 + 1 / (2 * 999.9) + 1 / (8 * 999.9^3) rtol = 1e-12  # (its switch)
+        @test ricianmean(1.0, 1e-6) ≈ 1.0                                        # (Bessel's range)
         @test ricianvar(999.0, 1.0) ≈ ricianvar(1001.0, 1.0) rtol = 1e-6          # across its switch
         @test ForwardDiff.derivative(a -> ricianmean(a, 1.0), 1.3) ≈
               (ricianmean(1.3 + 1e-6, 1.0) - ricianmean(1.3 - 1e-6, 1.0)) / 2e-6 rtol = 1e-6
@@ -2544,6 +2547,66 @@ end
         end
         # A bound: never below the Gaussian information's SD at the same σ
         @test ricianbound(m, θ; snr = 20).sd.vax >= crlb(m, θ; snr = 20, weights = ones(3)).sd.vax
+    end
+
+    @testset "Orientational sampling: directionset, orientationcovariance, sphericalmeannoise" begin
+        rng = MersenneTwister(41)
+        randdir() = normalize(SVector{3}(randn(rng, 3)))
+        m = SMT(b = [0.0, 1000, 2500, 4000])
+        θ = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
+        p = resolve(m, θ)
+        # Each model's directional signal averages, over the fibre–gradient angle, to its own signal
+        x, w = EQUIP._GL01
+        for (mm, tt) in ((m, θ), (SMTFreeWater(b = m.b), (; θ..., fiso = 0.2, Diso = 3e-3)),
+                         (SMTT2(b = [0.0, 2500, 2500], TE = [0.07, 0.07, 0.12]), (; θ..., T2ax = 0.09, T2ex = 0.05)))
+            pp = resolve(mm, tt)
+            @test [sum(w .* [EQUIP._profile(mm, pp, j, t) for t in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt)
+        end
+        # Direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
+        # moment I/3, which averages order 2 exactly)
+        G = directionset(30)
+        @test length(G) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, G) && G == directionset(30)
+        @test norm(sum(g * g' for g in G) / 30 - I / 3) < 1e-6
+        @test length(directionset(1)) == 1
+        # The covariance against simulation over fibre orientations, across shells too; b = 0: none
+        dirs = [1, 10, 20, 40]
+        sets = directionset.(dirs)
+        C = orientationcovariance(m, θ, sets)
+        ns = [randdir() for _ in 1:20_000]                   # one fibre orientation per voxel
+        E = [mean(EQUIP._profile(m, p, j, dot(n, g)) for g in sets[j]) - signal(m, θ)[j]
+             for n in ns, j in 1:4]
+        S = cov(E)
+        @test all(abs.(C[1, :]) .< 1e-15)                    # b = 0: no orientational error
+        @test all(abs.(mean(E; dims = 1)) .<= 4 .* sqrt.(diag(S))' ./ sqrt(20_000) .+ 1e-12)   # mean 0
+        @test diag(C)[2:4] ≈ diag(S)[2:4] rtol = 0.05
+        @test C[2, 3] ≈ S[2, 3] rtol = 0.1
+        # Schilling et al. 2022's minimal number of directions (relative SD ≤ 5%, no noise; their
+        # Fig. 4, SNR = Inf: about 6 at b = 1 ms/μm², about 30 at 10): 4 at b = 1000 s/mm², 10 at
+        # 3000, 28 at 10000, for evenly spread sets
+        nmin(b) = (mb = SMT(b = [b]); findfirst(N -> sqrt(orientationcovariance(mb, θ, [directionset(N; iterations = 500)])[1]) /
+                                                     signal(mb, θ)[1] <= 0.05, 1:100))
+        @test nmin(1000.0) <= 6 && nmin(3000.0) == 10 && 24 <= nmin(10000.0) <= 34
+
+        # The whole pipeline simulated (one fibre population in a random orientation per voxel, a
+        # Rician magnitude image per direction, the spherical mean, the SMT fit) against crlb with
+        # sphericalmeannoise: the floor acts direction by direction (bias 0.16 here, five times the
+        # 0.03 the floor of the mean gives); SD within 20% (crlb is linear, the fit is bounded)
+        d = [4, 30, 30, 30]
+        σ = 1 / 20
+        sets = directionset.(d)
+        ns = [randdir() for _ in 1:2000]
+        Y = [mean(abs(EQUIP._profile(m, p, j, dot(n, g)) + σ * (randn(rng) + im * randn(rng))) for g in sets[j])
+             for n in ns, j in 1:4]
+        r = fit(m, Y; weights = d)
+        c = crlb(m, θ; sphericalmeannoise(m, θ; snr = 20, directions = d, sets)..., weights = d)
+        @test mean(r.params.vax) - θ.vax ≈ c.bias.vax rtol = 0.1
+        @test mean(r.params.Dax) - θ.Dax ≈ c.bias.Dax rtol = 0.1
+        @test std(r.params.vax) ≈ c.sd.vax rtol = 0.2
+        @test crlb(m, θ; riciannoise(m, θ; snr = 20, averages = d, averaging = :magnitude)..., weights = d).bias.vax <
+              0.3 * c.bias.vax
+        # RicianSphericalMean: the SMT signal at high SNR; above the Rician mean of the spherical mean
+        @test signal(RicianSphericalMean(m; σ = 1e-6), θ) ≈ signal(m, θ) rtol = 1e-6
+        @test all(signal(RicianSphericalMean(m; σ), θ) .>= signal(RicianMean(m; σ), θ) .- 1e-12)  # (convex)
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

@@ -82,4 +82,5 @@ include("relaxometry/t2_biexp_decay.jl")  # T2BiexpDecay, R2BiexpDecay: two T2 c
 include("diffusion/adc_decay.jl")       # ADCDecay
 include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, one direction
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
+include("diffusion/orientation.jl")     # directionset, orientationcovariance: finite direction sets
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery
