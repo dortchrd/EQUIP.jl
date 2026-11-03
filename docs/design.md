@@ -3017,6 +3017,8 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      | least squares, no correction | +0.154, 0.056, 0.164 | +0.321, 0.079, 0.330 |
      | Karlsen inversion of each shell mean, then least squares | +0.125, 0.058, 0.138 | +0.227, 0.097, 0.247 |
      | Karlsen inversion of each direction, then the mean (Kaden's `--rician`) | +0.045, 0.060, 0.075 | +0.118, 0.105, 0.158 |
+     | √max(M² − σ², 0) of each direction, then the mean (NYU's SMI.m) | +0.071, 0.060, 0.093 | +0.167, 0.101, 0.195 |
+     | √\|M² − σ²\| of each direction, then the mean (NYU's DESIGNER v1 and v2) | +0.111, 0.057, 0.125 | +0.247, 0.088, 0.262 |
      | E\|y\| of the shell mean as the model (`RicianMean`) | +0.124, 0.058, 0.137 | +0.223, 0.097, 0.243 |
      | E\|y\| of each direction as the model (`RicianSphericalMean`) | −0.001, 0.044, 0.044 | −0.000, 0.080, 0.080 |
 
@@ -3033,6 +3035,18 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      profile, one fibre population: right for a coherent nerve, not invariant to dispersion or
      crossings as SMT itself is. Devan 2020 fitted their Rician simulations with Kaden's code
      and does not say it used `--rician`.
+
+     NYU's correction (SMI.m's `NoiseBias = 'Rician'`, DESIGNER's `-rician`, σ from MP-PCA, each
+     direction's image before the spherical harmonics) is the high-SNR form of Gudbjartsson &
+     Patz (Magn Reson Med 1995), E|y| ≈ √(A² + σ²): right far above the floor, short of the
+     exact inversion near it; DESIGNER's absolute value also turns a value below σ into
+     √(σ² − M²), up to σ, where the floor should give 0. DESIGNER-v2 points to the other cure,
+     denoising complex data (`-phase`, not to be combined with `-rician`), which removes the
+     floor at its source. The owner's view (2026-11-03), which these numbers bear out: the floor
+     is a property of each direction's image; after the spherical mean the noise is close to
+     Gaussian (many directions), so least squares suits it, but its mean carries the average of
+     the directions' floors. A correction of each value works from one noisy value and cannot
+     be unbiased near the floor; the model of the mean (`RicianSphericalMean`) can.
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
    checked against the full Monte Carlo.
