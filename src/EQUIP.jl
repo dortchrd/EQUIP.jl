@@ -40,7 +40,7 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
-using SpecialFunctions: erf               # SMT: the spherical mean of a stick (loaded by ForwardDiff anyway)
+using SpecialFunctions: erf, besselix    # SMT's stick; Rician noise (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
 using MRImages: MRImage, readimage, writeimage, readvalues, samegeometry, filestem, sidecarpath,
                 writesidecar, writemat
@@ -64,6 +64,7 @@ export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
+export ricianmean, ricianvar, ricianinformation, RicianMean, riciannoise, ricianbound   # Rician noise
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
 export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
@@ -95,6 +96,7 @@ include("fit/statistics.jl")           # the fit's statistics: stderror, vcov, A
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
+include("sim/rician.jl")               # Rician noise: mean, variance, information; RicianMean
 
 # errors: a fit's errors against the truth, bias and SD, predicted from derivatives or measured
 # (uses models, fit and sim)

@@ -684,8 +684,16 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, s; snr = 200))
   biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
-- Not modelled by crlb: Rician noise (the magnitude floor, and the floor that averaging
-  magnitude images keeps), bounds reached by noisy fits, nonlinearity at low SNR. That is what
+- Rician noise, from its own functions: `crlb(m, θ; riciannoise(m, θ; snr, averages,
+  averaging)...)` predicts a least-squares fit of magnitude data, its bias from the noise floor
+  (exactly: the fit of the magnitudes' mean, `RicianMean`) and its SD (with the Rician variance);
+  `ricianbound(m, θ; snr, ...)` is the Cramér–Rao bound of Rician data (the information
+  R(A/σ)/σ² per observation, as in Devan et al., Magn Reson Imaging 2020, Appendix), what no
+  estimator beats. `averaging = :complex` (the scanner's averages: the floor falls) or
+  `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself
+  removes the floor's bias when σ is known. `ricianmean`, `ricianvar`, `ricianinformation` for
+  one value.
+- Not modelled by crlb: bounds reached by noisy fits, nonlinearity at low SNR. That is what
   montecarlo is for.
 
 ## Protocol design

@@ -2959,6 +2959,26 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
 ### To build here, in order
 
 1. The Rician mean and the Rician information (the floor's bias; crlb under Rician noise).
+   **Done** (2026-11-03, src/sim/rician.jl): `ricianmean(A, σ)` (σ√(π/2)·L₁/₂(−A²/2σ²), through
+   scaled Bessel functions, differentiable), `ricianvar`, `ricianinformation` (R(A/σ)/σ², by
+   quadrature, the expansion 1 − 1/(2s²) − 1/(4s⁴) above s = 40); `RicianMean(m; σ, averages,
+   averaging)`, a model whose signal is the magnitudes' mean; `riciannoise(m, θ; snr, averages,
+   averaging)`, crlb's keywords for a least-squares fit of magnitude data (`simulate_with` the
+   mean: the floor's bias; `Σ` the Rician variance: the sandwich's SD); `ricianbound`, the
+   Cramér–Rao bound of Rician data (crlb with σⱼ/√(NEXⱼRⱼ) and the matching weights). Built from
+   crlb's own keywords: its kernel is unchanged.
+   - Checked: the mean and variance against simulated magnitudes; R against Monte Carlo of the
+     score's variance (s = 1: 0.5214 against 0.5217; s = 3: 0.940 against 0.941).
+   - **The floor's bias, predicted**: SMT, black holes, protocol A, SNR 20 per direction, the
+     spherical mean a magnitude average: crlb predicts a bias of +0.071 in v_ax (truth 0.241),
+     montecarlo measures +0.069; SD 0.0243 against 0.0244. The floor's bias is three times the
+     SD there: what directions cannot average away and the scanner's complex averages can.
+     Fitting `RicianMean(SMT; σ)` (σ known) removes it.
+   - **Devan 2020, Fig. 1, with the Rician bound**: the v_ax precision efficiency of the five
+     protocols at SNR 20 is their figure within 5% everywhere but protocol D (3–8% low); black
+     holes A 0.90 against 0.90, B 0.90 against 0.905, C 0.83 against 0.825, E 0.68 against 0.68,
+     where the Gaussian bound was up to 13% high (A, B). So their Fig. 1 is the Rician CRLB at
+     SNR 20 per direction, each direction its own magnitude image.
 2. The orientational covariance for a direction set (closed form above), and direction sets
    (electrostatic repulsion, Jones et al., Magn Reson Med 1999), tested against simulation.
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
@@ -3919,7 +3939,10 @@ items keep their numbers; the numbers are not an order.
      - Limits: one seed, two biexponential truths, one SNR, solver time only.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
 
-13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02).
+13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02). Started
+   on branch `nerve-smt` (2026-11-03): step 1 below, the expected magnitude as the model
+   (`RicianMean`), with the Rician bound (`ricianbound`) and crlb of least squares on magnitude
+   data (`riciannoise`); see "Peripheral nerve SMT".
    Magnitude images have Rician noise (Gudbjartsson & Patz, Magn Reson Med 1995): at low SNR
    the magnitude of a small signal sits on a floor of about σ√(π/2), and least squares, which
    assumes Gaussian noise, fits that floor as signal.

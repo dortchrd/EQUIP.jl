@@ -4,7 +4,7 @@ using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
 using Random
-using Statistics: mean, std, cov, median
+using Statistics: mean, std, var, cov, median
 using Test
 import NIfTI, JSON                  # io tests: NIfTI files with a chosen geometry; sidecars
 import SpecialFunctions, ForwardDiff   # SMT: erf, and derivatives of the stick's spherical mean
@@ -2471,6 +2471,79 @@ end
         @test sm.directions == [2, 2, 1, 2, 1] && sm.means ≈ [2.5, 2.5, 5, 6.5, 8]
         @test sphericalmean(collect(1.0:8.0), bv).TE === nothing
         @test_throws DimensionMismatch sphericalmean(collect(1.0:8.0), bv; TE = tes[1:7])
+    end
+
+    @testset "Rician noise: mean, variance, information; RicianMean, riciannoise, ricianbound" begin
+        rng = MersenneTwister(31)
+        # The mean and variance of a magnitude against simulated ones; the limits
+        for a in (0.0, 0.7, 2.0, 6.0)
+            y = abs.(a .+ randn(rng, 400_000) .+ im .* randn(rng, 400_000))
+            @test ricianmean(a, 1.0) ≈ mean(y) atol = 4 * std(y) / sqrt(400_000)
+            @test ricianvar(a, 1.0) ≈ var(y) rtol = 0.01
+        end
+        @test ricianmean(0.0, 2.0) ≈ 2 * sqrt(π / 2)
+        @test ricianvar(0.0, 1.0) ≈ 2 - π / 2
+        @test ricianmean(300.0, 1.0) ≈ 300 + 1 / 600 rtol = 1e-10
+        @test ricianvar(999.0, 1.0) ≈ ricianvar(1001.0, 1.0) rtol = 1e-6          # across its switch
+        @test ForwardDiff.derivative(a -> ricianmean(a, 1.0), 1.3) ≈
+              (ricianmean(1.3 + 1e-6, 1.0) - ricianmean(1.3 - 1e-6, 1.0)) / 2e-6 rtol = 1e-6
+        # The information R(s)/σ²: the variance of the score against Monte Carlo; 0 at A = 0, and
+        # its quadrature and its expansion agree at the switch (s = 40)
+        for a in (1.0, 3.0)
+            y = abs.(a .+ randn(rng, 1_000_000) .+ im .* randn(rng, 1_000_000))
+            score = y .* (SpecialFunctions.besselix.(1, y .* a) ./ SpecialFunctions.besselix.(0, y .* a)) .- a
+            @test ricianinformation(a, 1.0) ≈ var(score) rtol = 0.01
+        end
+        @test ricianinformation(0.0, 1.0) == 0 && ricianinformation(2.0, 2.0) ≈ ricianinformation(1.0, 1.0) / 4
+        @test EQUIP._ricianR(39.999) ≈ EQUIP._ricianR(40.001) rtol = 1e-7
+
+        # RicianMean: the model's signal through the Rician mean; complex averaging divides σ by
+        # √NEX, magnitude averaging leaves it
+        pr = SMT_PROTOCOLS.A
+        m = SMT(b = pr.b)
+        θ = nominal(m, :SMT_cBH)
+        σ = θ.S0 / 20
+        @test signal(RicianMean(m; σ), θ) ≈ ricianmean.(signal(m, θ), σ)
+        @test RicianMean(m; σ, averages = 4).σ == fill(σ / 2, 3)
+        @test RicianMean(m; σ, averages = 4, averaging = :magnitude).σ == fill(σ, 3)
+        @test parameters(RicianMean(m; σ)) == parameters(m) && nobs(RicianMean(m; σ)) == 3
+
+        # crlb of the least-squares fit of magnitude data (riciannoise) against montecarlo:
+        # black holes, protocol A, SNR 20 per direction, the spherical mean a magnitude average.
+        # The floor biases v_ax by about 0.07 (29%, three times its SD); predicted within 10%.
+        kw = riciannoise(m, θ; snr = 20, averages = pr.directions, averaging = :magnitude)
+        c = crlb(m, θ; kw..., weights = pr.directions)
+        mc = montecarlo(m, θ; snr = 20, averages = pr.directions, noise = :rician,
+                        averaging = :magnitude, weights = pr.directions, n = 5000, rng)
+        @test c.bias.vax ≈ mc.bias.vax rtol = 0.1
+        @test c.bias.vax > 2 * c.sd.vax
+        @test c.sd.vax ≈ mc.sd.vax rtol = 0.1
+        @test c.bias.Dax ≈ mc.bias.Dax rtol = 0.15
+        # Fitting the Rician mean itself (σ known) removes the floor's bias
+        Y = simulate(m, θ; snr = 20, averages = pr.directions, noise = :rician, averaging = :magnitude,
+                     n = 2000, rng)
+        rr = fit(RicianMean(m; σ), Y; weights = pr.directions)
+        @test abs(mean(rr.params.vax) - θ.vax) < 0.25 * c.sd.vax
+        @test mean(fit(m, Y; weights = pr.directions).params.vax) - θ.vax > 2 * c.sd.vax
+
+        # The Rician bound against Devan et al. 2020, Fig. 1: with the Rician information, the
+        # v_ax precision efficiency of the five protocols at SNR 20 per direction is their figure
+        # within 9% in every tissue (within 3% but protocol D, 5-8%), where the Gaussian one is up
+        # to 13% off (black holes, A and B)
+        fig1 = (SMT_NWM = (A = 0.90, B = 1.00, C = 1.10, D = 0.865, E = 0.84),
+                SMT_NAWM = (A = 1.10, B = 1.06, C = 1.05, D = 0.83, E = 0.82),
+                SMT_cBH = (A = 0.90, B = 0.905, C = 0.825, D = 0.685, E = 0.68),
+                SMT_T2lesion = (A = 1.11, B = 1.06, C = 0.99, D = 0.79, E = 0.79))
+        for name in keys(fig1), P in keys(SMT_PROTOCOLS)
+            p = SMT_PROTOCOLS[P]
+            ms = SMT(b = p.b)
+            t = nominal(ms, name)
+            sd = ricianbound(ms, t; snr = 20, averages = p.directions, averaging = :magnitude).sd.vax
+            eff = t.vax / (sd * sqrt(sum(p.directions)))
+            @test eff ≈ fig1[name][P] rtol = (P === :D ? 0.09 : 0.05)
+        end
+        # A bound: never below the Gaussian information's SD at the same σ
+        @test ricianbound(m, θ; snr = 20).sd.vax >= crlb(m, θ; snr = 20, weights = ones(3)).sd.vax
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin
