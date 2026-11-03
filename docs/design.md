@@ -3083,6 +3083,39 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      - Open: the nerve's dispersion (an input from the lab). The model could carry it, a Watson
        ODF in `_profile` with κ fixed from elsewhere (the spherical mean itself holds almost no
        information about κ; the l = 2 rotational invariant, NODDI or the literature do).
+   - **The spherical mean from a Rician spherical-harmonic fit** (2026-11-03, bench/floor_sh.jl,
+     the owner's question: the l = 0 coefficient is the spherical mean, so fit each shell's
+     directions with E|y| of an SH series and need no fibre ODF). v_ax bias / RMSE, σ right:
+     | Method | SNR 20, ODI 0 | 0.04 | 0.16 | 0.50 | SNR 10, ODI 0 | 0.04 | 0.16 | 0.50 |
+     |---|---|---|---|---|---|---|---|---|
+     | no correction | +0.157 / 0.166 | +0.128 / 0.141 | +0.057 / 0.084 | +0.035 / 0.069 | +0.323 / 0.332 | +0.288 / 0.301 | +0.187 / 0.212 | +0.138 / 0.172 |
+     | exact inversion per direction | +0.048 / 0.076 | +0.031 / 0.067 | −0.008 / 0.062 | −0.005 / 0.060 | +0.120 / 0.158 | +0.086 / 0.139 | −0.013 / 0.118 | −0.059 / 0.131 |
+     | E\|y\| per direction, one fibre direction | +0.001 / 0.044 | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | +0.002 / 0.080 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
+     | SH L = 2, E\|y\| | +0.015 / 0.074 | −0.037 / 0.069 | −0.075 / 0.102 | +0.000 / 0.059 | +0.051 / 0.121 | −0.016 / 0.116 | −0.113 / 0.177 | −0.043 / 0.162 |
+     | SH L = 4, E\|y\| | −0.094 / 0.109 | −0.070 / 0.094 | −0.032 / 0.077 | −0.002 / 0.061 | −0.069 / 0.139 | −0.055 / 0.139 | −0.115 / 0.181 | −0.147 / 0.222 |
+     | SH L = 6, E\|y\| | +0.021 / 0.065 | +0.014 / 0.062 | −0.019 / 0.066 | −0.006 / 0.061 | +0.090 / 0.141 | +0.060 / 0.127 | −0.042 / 0.128 | −0.088 / 0.147 |
+
+     - L = 6 has the smallest worst-case RMSE of every method (SNR 20: 0.066, against 0.076 for
+       the exact inversion per direction and 0.105 for the one-direction model; SNR 10: 0.147,
+       0.158, 0.181), and no ODF assumption. But it is no cure: L = 2 and 4 are biased by
+       truncation (a coherent bundle at b = 2500–4000 s/mm² is sharp on the sphere: L = 4 gives
+       −0.094 with no dispersion), L = 6 needs at least 28 directions per shell, its 28
+       coefficients from 30 values pool little across directions (SD about 0.06 against 0.044
+       for the one-direction model at SNR 20), and at SNR 10 its bias reaches ±0.09.
+     - Why no correction of the spherical mean can be free of the ODF: SMT's independence of the
+       ODF holds for the noise-free signal, the average of the directions' signals. The floor
+       acts on each direction through the nonlinear E|y|, so the mean of magnitudes depends on
+       how the signal is spread over directions, which is the ODF. A correction must assume an
+       ODF (the one-direction model), describe the directional signal freely (the SH fit, at the
+       cost of many coefficients), or work one noisy value at a time (the inversions). Averaging
+       complex data before the magnitude (the scanner's averages, or phase-corrected real data)
+       is the only route that keeps SMT's ODF independence at low SNR.
+     - The owner's follow-up: if the directional signal is fitted anyway, why the spherical mean?
+       A directional model, the SMT kernel convolved with a Watson ODF (orientation, κ, v_ax,
+       D_ax, S0: 6 parameters for the 94 images) and E|y| per direction, pools across directions
+       far more than 28 SH coefficients per shell and models the floor exactly; it gives up SMT's
+       robustness to the ODF's form (crossings, fascicles at angles), which matters less in a
+       single coherent nerve. Next to test, on the same pipeline.
 3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
    registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
    checked against the full Monte Carlo.
