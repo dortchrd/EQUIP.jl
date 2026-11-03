@@ -23,6 +23,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `julia -t auto --project=. bench/floor_corrections.jl` (about 45 s) and
   `bench/floor_robustness.jl` (σ wrong, fibre dispersion; about 4 minutes) and `bench/floor_sh.jl`
   (a Rician spherical-harmonic fit of each shell; about 15 minutes on 4 threads)
+- Building blocks against written-out equations (T2, ADC, SMT; blocks-proto): `julia -t 4
+  --project=. bench/blocks_cost.jl` (about 1 minute)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
 - The first `using EQUIP` after a code change takes about 40 s (precompile workload,
   src/precompile.jl). While developing, switch it off with a `LocalPreferences.toml` (not

@@ -3307,11 +3307,42 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   timings alone vary ±30% between runs on this machine; only the alternated fit timings are
   comparable.
 
+- **Blocks against written-out equations** (bench/blocks_cost.jl, the owner's question: is
+  building by parts slower than writing the equation out?). Each equation three ways in one
+  process, interleaved, best of 7, 4 threads:
+
+  | equation | how | signal! ns | fit µs/voxel | first fit s |
+  |---|---|---|---|---|
+  | T2 decay, 32 TEs | written | 93.0 | 0.445 | 0.57 |
+  | | blocks | 107.7 | 0.474 | 0.44 |
+  | | family (R2Decay, parts off) | 116.6 | 0.501 | 0.71 |
+  | ADC, 7 b | written (ADCDecay) | 22.6 | 0.234 | 0.60 |
+  | | blocks (`_relax(b, ADC)`) | 21.0 | 0.184 | 0.37 |
+  | SMT, 4 shells | written (before) | 60.7 | 0.583 | 1.02 |
+  | | blocks | 59.8 | 0.555 | 0.52 |
+  | | family (SMT, parts off) | 70.3 | 0.556 | 0.87 |
+
+  The blocks cost nothing that can be measured: they are inlined, and the ADC built from them
+  came out faster than the identical equation written out (0.18 against 0.23 µs), which says
+  that differences below about 20% are this machine's noise. What the T2 family pays, about 13%
+  of a 0.45 µs fit (0.06 µs per voxel), is the switched-off parts carried as fixed parameters
+  and their skip tests, consistent with the alternated timings above; SMT pays nothing, its cost
+  being in erf and exp. Diffusion hides the overhead, T2 shows it: one exp per echo is so cheap
+  that anything else is a visible fraction. Compilation (the first fit) stays under a second
+  either way. In a plain-number call (the signal! column) `_relax` tests its rate for zero; in a
+  fit the rate is a dual number and the test is not compiled at all.
+- **One exponential unit**: `_relax(t, R)` = exp(−t·R) is it, for a T2 over TE (R = 1/T2), an
+  ADC over b (R = D) and any decay; `_ball(b, D)` is the same unit, and the stick's directional
+  view the unit at b·t². With the stick's spherical mean (√π·erf(x)/(2x)) and the rules for
+  combining (fractions that sum, products for a compartment's T2 weighting times its
+  diffusion), these are the pieces T2 and SMT are made of.
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
   blocks and could be one family with switchable inversion efficiency and delay terms; ADCDecay
-  is T2Decay's equation in b; QMTSIR stays as it is.
+  is T2Decay's equation in b (the same unit, `_relax(b, ADC)`), and `_ball` could be written
+  with it; QMTSIR stays as it is.
 - A third T2 component (e.g. CSF, for myelin water imaging's three pools): one more part.
 - From the same SMT tissue function: a Watson-dispersed directional model and SMI's rotational
   invariants (roadmap item 7, Microstructure.jl notes).
