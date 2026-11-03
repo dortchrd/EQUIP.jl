@@ -2901,6 +2901,84 @@ offering NIfTI only. Why:
   standard orientation and back), memory-mapped reading of large files.
 - The command line's no-compile test (still to do from the plan), now with a `.mat` command.
 
+## Peripheral nerve SMT: the lab's protocol questions (2026-11-03, branch `nerve-smt`)
+
+A research branch, kept off `lean` until the owner has tested `lean` and the work here is
+accepted. It starts from `smt-proto` (SMT, SMTFreeWater, SMTT2, sphericalmean).
+
+### The questions (the owner's)
+
+The lab images peripheral nerves with diffusion MRI, today with about 10 averages over several
+gradient directions.
+
+1. **Directions, averages and b-values**: what is the best use of them for a nerve SMT protocol
+   under 10 minutes? With TR and the number of slices in the scan time, and a floor on the SNR of
+   the raw images (each direction's image, after the scanner's averages), below which they cannot
+   be registered for motion and distortion correction.
+2. **An echo-time dimension**: does repeating SMT at two echo times (`SMTT2`), using the
+   different T2s of the intra- and extra-axonal compartments, separate their signals better? And
+   does it fix the T2 weighting of the compartments in nerve, where single-TE SMT reports a
+   T2-weighted fraction, not the volume fraction (2026-11-03: v_ax 0.45, T2 90 and 50 ms, TE 80 ms
+   gives 0.66)?
+
+### How EQUIP answers them
+
+The quantity judged is the error of the fitted volume fraction v_ax (its bias and SD, so its
+RMSE), worst case over a set of nerve scenarios (healthy and pathological values; the T2s). Each
+source of error is a perturbation of the shell means, carried to v_ax by the fit's sensitivity
+(crlb's sandwich, and its bias from data made by another model):
+
+- **Noise**: σ²/(N_dirs·N_avg) per shell, from the per-image SNR (crlb's `averages`).
+- **The Rician floor**: the scanner's averages are (probably) complex, and shrink the floor; the
+  spherical mean averages magnitudes, and does not. At high b, where a nerve's signal is low, the
+  floor biases the shell means upward however many directions are averaged: this is where
+  averages can beat directions. Needs the Rician mean E|y| (closed form) for the bias, and the
+  Rician information (Devan 2020, Appendix) for crlb.
+- **Orientational sampling**: a finite direction set does not average the anisotropic signal
+  exactly. A nerve's fibres are one aligned population, the worst case. Closed form for a
+  direction set, by a Legendre expansion of one fibre's signal,
+  Var = Σ_{l≥2} a_l²/(2l+1) · (1/N²) Σ_ij P_l(g_i·g_j), its covariance across shells by the same
+  sum over the two shells' directions (the same fibre in every shell). Checked against
+  simulation (2026-11-03: white matter, b = 3000 s/mm², a Fibonacci set: 6 directions 17.2%
+  against 17.2%, 20: 3.41% against 3.42%, 64: 0.96% against 0.96%; 5% at about 15 directions, as
+  Schilling 2022's SNR = ∞ curve).
+- **T2 weighting**: single-TE SMT fitted to data with different compartment T2s (the bias, from
+  `simulate_with = SMTT2(...) => θ`), against SMTT2's own error at two TEs: bias against
+  precision, so RMSE, at the same scan time.
+- **Scan time**: T = Σ_shells N_dirs·N_avg·TR (+ the b = 0 images) for each TE, with TR set by the
+  number of slices and the time per slice (which depends on TE and the readout), and T1
+  recovery if TR is short. Under 10 minutes: the designer's `budget`, or a constraint.
+- **The registration floor**: for each shell, the per-image SNR (after the scanner's averages)
+  of its lowest-signal direction (parallel to the nerve) or of its mean, at least a threshold:
+  a designer constraint.
+- **Design variables**: each shell's b (continuous), N_dirs and N_avg (integers: enumerated),
+  the echo times (continuous; the minimum TE depends on b through the gradients), the number of
+  slices given. Validated by a full Monte Carlo of the pipeline: directional signals, the fibres'
+  orientation, noise with the scanner's averaging, the spherical mean, the fit.
+
+### To build here, in order
+
+1. The Rician mean and the Rician information (the floor's bias; crlb under Rician noise).
+2. The orientational covariance for a direction set (closed form above), and direction sets
+   (electrostatic repulsion, Jones et al., Magn Reson Med 1999), tested against simulation.
+3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
+   registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
+   checked against the full Monte Carlo.
+4. The search: N_dirs and N_avg enumerated, b and TE optimized (`optimize_protocol`), under the
+   budget and the SNR floor, worst case over the nerve scenarios; one TE (SMT) against two
+   (SMTT2), by the RMSE of the volume fraction.
+
+### Inputs needed from the lab
+
+- Nerve tissue values: v_ax and D_ax (healthy, and the pathology to detect), the intra- and
+  extra-axonal T2s, T1 (for TR).
+- The scanner and sequence: the SNR of one b = 0 image at the shortest TE; the shortest TE for
+  each b (gradient strength, δ, Δ, readout); the time per slice; the number of slices; today's
+  protocol (b-values, directions, 10 averages) as the baseline.
+- How the scanner combines averages (complex or magnitude).
+- The registration floor: the SNR needed, and of which image (the weakest direction, or the
+  shell's mean).
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
