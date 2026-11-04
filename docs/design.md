@@ -3337,6 +3337,22 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   combining (fractions that sum, products for a compartment's T2 weighting times its
   diffusion), these are the pieces T2 and SMT are made of.
 
+- **Public names, and the T2 form** (2026-11-04, the owner: "not sure I like underscore for
+  these function blocks", and relax in the T2 form). The blocks are a module, `EQUIP.Blocks`,
+  exporting `relax(t, T)` = exp(−t/T) (the papers' notation; T = Inf gives 1), `relaxrate(t, R)`
+  (the rate form, which the families' kernels use), `stick`, `zeppelin` and `ball`. The
+  spherical mean is the two-argument method (`stick(b, D)`), one direction the three-argument
+  one (`stick(b, D, t)`). Decided: plain names, since the leading underscore is Julia's mark of
+  an internal name and these are for writing models; a submodule rather than exports from EQUIP,
+  so that `stick` and `ball` stay out of user code that does not ask for them (`using
+  EQUIP.Blocks` brings them in); internals (`_skip`, `_sphmean`, `_optobs`) keep the underscore.
+  `relax(t, T)` is `relaxrate(t, 1/T)`, so a model written with it gives the T2 decays' numbers
+  bit for bit (tested: an `@mrimodel` T2 decay against T2Decay from the same start). Measured
+  (examples/building_blocks.jl, 20,000 voxels, 32 echoes, 4 threads): 0.97 µs per voxel against
+  T2Decay's 1.24; 1/T does not change between echoes, so the compiler hoists it out of the loop,
+  and the T2 form costs no division per echo. Every model's fits are bit-identical to the
+  underscore version (the snapshot, both precisions).
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation

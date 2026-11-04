@@ -372,6 +372,44 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
   `newmodel(:Name; acquisition = [:TE], parameters = [:S0, :T2])` writes a blank one, with
   TODOs.
 
+### Building blocks: `EQUIP.Blocks`
+
+The pieces EQUIP's own models are made of, for writing yours (`using EQUIP.Blocks`; b in s/mm²,
+D in mm²/s, times in s):
+
+| block | signal |
+|---|---|
+| `relax(t, T)` | exp(−t/T): a T2 decay `relax(TE, T2)`, a T1 term `relax(TI, T1)`; T = Inf gives 1 |
+| `relaxrate(t, R)` | exp(−t·R): the same with a rate, `relaxrate(TE, R2)` |
+| `stick(b, D)`, `stick(b, D, t)` | a stick's spherical mean, √π·erf(√(bD))/(2√(bD)); along one direction at cosine t to the fibre, exp(−b·D·t²) |
+| `zeppelin(b, D∥, D⊥)`, `zeppelin(b, D∥, D⊥, t)` | exp(−b·D⊥)·stick(b, D∥ − D⊥), in the same two views |
+| `ball(b, D)` | exp(−b·D): free water, an ADC |
+
+```julia
+using EQUIP, EQUIP.Blocks
+
+@mrimodel MyT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05)) = S0 * relax(TE, T2)
+
+@mrimodel ThreePool(TE; S0 = Free(start = :scale, lower = 0), fmw = Free(start = 0.1, lower = 0, upper = 0.5),
+                    fcsf = Free(start = 0.05, lower = 0, upper = 0.5), T2mw = Free(start = 0.015),
+                    T2ie = Free(start = 0.08), T2csf = 2.0) =                # CSF's T2 known
+    S0 * (fmw * relax(TE, T2mw) + (1 - fmw - fcsf) * relax(TE, T2ie) + fcsf * relax(TE, T2csf))
+
+@mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
+               Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
+    S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
+
+@mrimodel NerveZ(b, c; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+                 Dax = Free(start = 2e-3, lower = 0)) =                        # c = g·z, fibres along z
+    S0 * (vax * stick(b, Dax, c) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, c))
+```
+
+`MyT2` gives `T2Decay`'s fit bit for bit (from the same start), and as fast: the blocks are
+inlined. More, each fitted to simulated data (inversion recovery, SMT with compartment T2s):
+examples/building_blocks.jl. Plain names, not `_relax`: Julia's leading underscore marks internal
+names, and these are meant to be used; they live in their own module so that `stick` and `ball`
+stay out of the namespace of code that does not ask for them.
+
 ### By hand
 
 For a model that will grow, or one whose signal is more than a function of one observation, a
@@ -426,7 +464,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`.
   Always time → rate: R2 = 0 (a flat curve) is a valid value, but 1/0 is not. Variations such as
   an added offset are parts of one equation, off by default: `C = Fixed(0.0; free = Free(start
-  = 0.0))` in `parameters`, written with the building blocks of src/models/blocks.jl
+  = 0.0))` in `parameters`, written with the building blocks of `EQUIP.Blocks` (src/models/blocks.jl)
   (relaxation; stick, zeppelin and ball, in a direction or averaged over directions).
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its

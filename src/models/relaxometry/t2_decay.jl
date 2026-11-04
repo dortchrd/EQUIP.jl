@@ -103,8 +103,8 @@ end
 # skipped when its fraction is fixed at 0 (`_skip`, blocks.jl): its zero is then made from the
 # types alone (`zero(fshort * R2short * TE)`, no exp), so the sum has one type either way.
 @inline function _t2obs(TE, S0, fshort, R2short, R2, C)
-    main = (1 - fshort) * _relax(TE, R2)
-    short = _skip(fshort) ? zero(fshort * R2short * TE) : fshort * _relax(TE, R2short)
+    main = (1 - fshort) * relaxrate(TE, R2)
+    short = _skip(fshort) ? zero(fshort * R2short * TE) : fshort * relaxrate(TE, R2short)
     return S0 * (main + short) + C
 end
 
@@ -121,7 +121,10 @@ end
 
 signal!(out, m::AbstractR2Decay, p) = _t2signal!(out, m.TE, p.S0, p.fshort, p.R2short, p.R2, p.C)
 # The time form: R2 = 1/T2 for each component (1/Inf = 0: a component switched off stays off),
-# then the same signal (see builtin.jl for why time converts to rate).
+# then the same signal (see builtin.jl for why time converts to rate). Written per echo as
+# `relax(TE, T2)` (Blocks) it gives the same numbers bit for bit, since relax(t, T) is
+# relaxrate(t, 1/T), and no slower: 1/T does not change from echo to echo, so the compiler
+# computes it once, outside the loop (measured, examples/building_blocks.jl).
 signal!(out, m::AbstractT2Decay, p) =
     _t2signal!(out, m.TE, p.S0, p.fshort, 1 / p.T2short, 1 / p.T2, p.C)
 

@@ -74,7 +74,9 @@ end
 
 # Grouped by area, one file per model (or per family of closely related models). Names put the
 # quantity first, then the method: T1IR, T1MFA, T2Decay, QMTSIR, ...
-include("blocks.jl")                    # building blocks: relaxation, stick, zeppelin, ball; switchable parts
+include("blocks.jl")                    # EQUIP.Blocks: relax, relaxrate, stick, zeppelin, ball; switchable parts
+using .Blocks                           # the blocks, for the models below (exported by Blocks, not by EQUIP)
+using .Blocks: _skip, _sphmean, _optobs, _SphericalMean     # and its internals the models use
 include("relaxometry/t1_ir.jl")         # T1IR, R1IR, T1IRTD, R1IRTD: inversion recovery
 include("relaxometry/t1_sr.jl")         # T1SR, R1SR: saturation recovery
 include("relaxometry/t1_mfa.jl")        # T1MFA, R1MFA: multiple flip angles (spoiled gradient echo)

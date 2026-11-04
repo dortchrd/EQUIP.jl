@@ -12,7 +12,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `julia --project=MRImages -e 'using Pkg; Pkg.test()'`
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
-  `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s)
+  `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
+  `examples/building_blocks.jl` (six models written from `EQUIP.Blocks`, fitted; about 30 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
@@ -34,9 +35,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, `datastart`; `Fixed(value; free = Free(...))`, a part of a model
-  switched off by default); src/models/blocks.jl: the building blocks (relaxation; stick,
-  zeppelin, ball in a direction or as spherical means), one signal per family with parts
-  switched on and off (the T2 decays, the SMT models); src/models/macro.jl: `@mrimodel` (a model from a
+  switched off by default); src/models/blocks.jl: module `EQUIP.Blocks`, the building blocks
+  (`relax(t, T)`, `relaxrate`, `stick`, `zeppelin`, `ball`: in a direction or as spherical
+  means), public names for writing models; one signal per family with parts switched on and
+  off (the T2 decays, the SMT models); src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/orientation.jl: `directionset`, `orientationcovariance`,

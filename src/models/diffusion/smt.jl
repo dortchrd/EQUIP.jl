@@ -70,10 +70,10 @@ end
 # t for one direction. With the parts off: S0·(v_ax·S̄_stick + (1 − v_ax)·S̄_zeppelin), Kaden's.
 @inline function _smt(p, R2ax, R2ex, R2iso, b, TE, v)
     (; S0, vax, Dax, fiso, Diso, Dexpar, Dexperp) = p
-    ax = vax * (_relax(TE, R2ax) * _stick(b, Dax, v))                         # intra-axonal: sticks
-    ex = (1 - vax) * (_relax(TE, R2ex) * _zeppelin(b, Dexpar, Dexperp, v))    # extra-axonal: a zeppelin
+    ax = vax * (relaxrate(TE, R2ax) * stick(b, Dax, v))                       # intra-axonal: sticks
+    ex = (1 - vax) * (relaxrate(TE, R2ex) * zeppelin(b, Dexpar, Dexperp, v))  # extra-axonal: a zeppelin
     iso = _skip(fiso) ? zero(b * Diso * R2iso) :                               # (skipped when off)
-          _relax(TE, R2iso) * _ball(b, Diso)                                   # free water: a ball
+          relaxrate(TE, R2iso) * ball(b, Diso)                                 # free water: a ball
     return S0 * ((1 - fiso) * (ax + ex) + fiso * iso)
 end
 
