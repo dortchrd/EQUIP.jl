@@ -13,7 +13,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
-  `examples/building_blocks.jl` (six models written from `EQUIP.Blocks`, fitted; about 30 s)
+  `examples/building_blocks.jl` (six models written from `EQUIP.Blocks`, fitted; about 30 s);
+  `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
@@ -83,6 +84,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   DICOM is converted with dcm2niix, not read (docs/design.md)
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
+- docs/status.md: where the work stands (branches, what waits on the lab, open questions): the
+  map to read first when coming back; design.md has the reasons.
 
 ## Style
 
