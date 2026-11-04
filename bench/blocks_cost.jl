@@ -4,7 +4,7 @@
 # Each equation three ways, in one process, interleaved, best of 7 (docs/design.md, "Building
 # blocks"):
 #   written   the equation typed out in the loop (as before the refactor)
-#   blocks    the same parameters, the signal from the blocks (EQUIP.Blocks: relaxrate, stick, zeppelin)
+#   blocks    the same parameters, the signal from the blocks (EQUIP.Blocks: decay, stick, zeppelin)
 #   family    the family model (R2Decay, SMT), its switched-off parts carried as fixed parameters
 # for a T2 decay (32 echoes), an ADC (7 b-values: the same exponential unit with b and D) and
 # Kaden's SMT (4 shells). ns per signal! call (one thread), µs per voxel for a 20,000-voxel fit
@@ -26,14 +26,14 @@ function signal!(out, m::WrittenR2, p)
     return out
 end
 function signal!(out, m::BlockR2, p)
-    @inbounds for j in eachindex(out, m.TE); out[j] = p.S0 * relaxrate(m.TE[j], p.R2); end
+    @inbounds for j in eachindex(out, m.TE); out[j] = p.S0 * decay(m.TE[j], p.R2); end
     return out
 end
 # --- ADC: S0·exp(−b·ADC), the same exponential unit with b and D ----------------------------------
 @kwdef struct BlockADC{A} <: MRIModel; b::A; end
 parameters(::Type{<:BlockADC}) = parameters(ADCDecay)
 function signal!(out, m::BlockADC, p)
-    @inbounds for j in eachindex(out, m.b); out[j] = p.S0 * relaxrate(m.b[j], p.ADC); end
+    @inbounds for j in eachindex(out, m.b); out[j] = p.S0 * decay(m.b[j], p.ADC); end
     return out
 end
 # --- SMT, Kaden's two compartments ----------------------------------------------------------------
@@ -55,7 +55,7 @@ function signal!(out, m::BlockSMT, p)                    # blocks, the extra-axo
     Dperp = (1 - vax) * Dax
     @inbounds for j in eachindex(out, m.b)
         b = m.b[j]
-        out[j] = S0 * (vax * stick(b, Dax) + (1 - vax) * zeppelin(b, Dax, Dperp))
+        out[j] = S0 * (vax * stick(b, Dax, powder) + (1 - vax) * zeppelin(b, Dax, Dperp, powder))
     end
     return out
 end

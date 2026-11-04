@@ -104,10 +104,10 @@ end
 end
 
 # A tie by a formula of another parameter, and a free parameter with no start (given in the call).
-# A model from the building blocks (EQUIP.Blocks, used qualified: `relax`, `stick`, ... stay out of
-# the tests' namespace): T2Decay's equation in the T2 form
+# A model from the building blocks (EQUIP.Blocks, used qualified: `decay`, `stick`, ... stay out of
+# the tests' namespace): T2Decay's equation, the rate 1/T2 given to the block, T2 fitted
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
-    S0 * EQUIP.Blocks.relax(TE, T2)
+    S0 * EQUIP.Blocks.decay(TE, 1 / T2)
 
 @mrimodel TieFormula(t; A = Free(start = :scale), k1 = Free(start = 1.0), k2 = 0.5 * k1) =
     A * (exp(-k1 * t) + exp(-k2 * t))
@@ -2690,22 +2690,25 @@ end
         end
         @test occursin("missing: vax", msg(() -> signal(s, (S0 = 1.0, Dax = 2e-3))))
 
-        # The public blocks (EQUIP.Blocks): the T2 form, the rate form, and the compartments' two views
+        # The public blocks (EQUIP.Blocks): decay in rate form, the ball, and the compartments' two views
         B = EQUIP.Blocks
-        @test Set(names(B)) ⊇ Set([:relax, :relaxrate, :stick, :zeppelin, :ball])
-        @test B.relax(0.08, 0.08) ≈ exp(-1) && B.relax(0.05, Inf) === 1.0 && B.relaxrate(0.05, 0.0) === 1.0
-        @test B.relax(0.03, 0.07) == B.relaxrate(0.03, 1 / 0.07)                 # the same numbers
-        @test B.relax(0.03f0, 0.07f0) isa Float32 && B.stick(1000f0, 2f-3) isa Float32
-        @test B.stick(0.0, 2e-3) == 1 && B.stick(1000.0, 2e-3, 0.0) == 1 && B.stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
-        @test B.stick(2500.0, 2e-3) ≈ sum(w .* [B.stick(2500.0, 2e-3, t) for t in x]) rtol = 1e-12     # the mean of the view
-        @test B.zeppelin(2500.0, 2e-3, 0.5e-3) ≈ sum(w .* [B.zeppelin(2500.0, 2e-3, 0.5e-3, t) for t in x]) rtol = 1e-12
-        @test B.ball(1000.0, 1e-3) == exp(-1.0) && B.zeppelin(1000.0, 1e-3, 1e-3) ≈ B.ball(1000.0, 1e-3)
+        @test Set(names(B)) ⊇ Set([:decay, :ball, :stick, :zeppelin, :powder])
+        @test B.decay(0.08, 1 / 0.08) ≈ exp(-1) && B.decay(0.05, 1 / Inf) === 1.0 && B.decay(0.05, 0.0) === 1.0
+        @test B.decay(0.03, 12.5) == exp(-0.03 * 12.5) && B.ball(1000.0, 1e-3) == B.decay(1000.0, 1e-3) == exp(-1.0)
+        @test B.decay(0.03f0, 1 / 0.07f0) isa Float32 && B.stick(1000f0, 2f-3, B.powder) isa Float32
+        @test B.stick(0.0, 2e-3, B.powder) == 1 && B.stick(1000.0, 2e-3, 0.0) == 1 && B.stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
+        @test B.stick(2500.0, 2e-3, B.powder) ≈ sum(w .* [B.stick(2500.0, 2e-3, t) for t in x]) rtol = 1e-12     # the mean of the view
+        @test B.zeppelin(2500.0, 2e-3, 0.5e-3, B.powder) ≈ sum(w .* [B.zeppelin(2500.0, 2e-3, 0.5e-3, t) for t in x]) rtol = 1e-12
+        @test B.zeppelin(1000.0, 1e-3, 1e-3, B.powder) ≈ B.ball(1000.0, 1e-3)
+        # no view: an error that says which to write
+        @test occursin("stick(b, D, powder)", msg(() -> B.stick(1000.0, 2e-3)))
+        @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> B.zeppelin(1000.0, 2e-3, 0.5e-3)))
         # a model written with them: T2Decay's numbers, bit for bit, from the same start
         yb2 = simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :gaussian, rng)
         @test fit(BlockT2(TE = te), yb2).params == fit(m, yb2; T2 = Free(start = 0.05)).params
         # and SMTT2 in one line: the built-in's signal
-        smtt2(b, TE, p) = p.S0 * (p.vax * B.relax(TE, p.T2ax) * B.stick(b, p.Dax) +
-                                  (1 - p.vax) * B.relax(TE, p.T2ex) * B.zeppelin(b, p.Dax, (1 - p.vax) * p.Dax))
+        smtt2(b, TE, p) = p.S0 * (p.vax * B.decay(TE, 1 / p.T2ax) * B.stick(b, p.Dax, B.powder) +
+                                  (1 - p.vax) * B.decay(TE, 1 / p.T2ex) * B.zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, B.powder))
         θt = (; θs..., T2ax = 0.09, T2ex = 0.05)
         @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
     end

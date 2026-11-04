@@ -66,14 +66,14 @@ end
 # determined fit from wandering, as it did to hundreds of seconds at SNR 50 without it.
 
 # The tissue at one observation: b, TE (false without echo times: no T2 weighting), the rates
-# R2 = 1/T2 (0 for T2 = Inf), and the view, `_SphericalMean()` for the spherical mean or a cosine
+# R2 = 1/T2 (0 for T2 = Inf), and the view, `powder` for the spherical mean or a cosine
 # t for one direction. With the parts off: S0·(v_ax·S̄_stick + (1 − v_ax)·S̄_zeppelin), Kaden's.
 @inline function _smt(p, R2ax, R2ex, R2iso, b, TE, v)
     (; S0, vax, Dax, fiso, Diso, Dexpar, Dexperp) = p
-    ax = vax * (relaxrate(TE, R2ax) * stick(b, Dax, v))                       # intra-axonal: sticks
-    ex = (1 - vax) * (relaxrate(TE, R2ex) * zeppelin(b, Dexpar, Dexperp, v))  # extra-axonal: a zeppelin
+    ax = vax * (decay(TE, R2ax) * stick(b, Dax, v))                           # intra-axonal: sticks
+    ex = (1 - vax) * (decay(TE, R2ex) * zeppelin(b, Dexpar, Dexperp, v))      # extra-axonal: a zeppelin
     iso = _skip(fiso) ? zero(b * Diso * R2iso) :                               # (skipped when off)
-          relaxrate(TE, R2iso) * ball(b, Diso)                                 # free water: a ball
+          decay(TE, R2iso) * ball(b, Diso)                                     # free water: a ball
     return S0 * ((1 - fiso) * (ax + ex) + fiso * iso)
 end
 
@@ -82,7 +82,7 @@ function signal!(out, m::AbstractSMT, p)
     _checkobs(out, TE, :TE, m)          # with echo times, one per observation (once, before the loop)
     R2ax, R2ex, R2iso = 1 / p.T2ax, 1 / p.T2ex, 1 / p.T2iso
     @inbounds for j in eachindex(out, b)
-        out[j] = _smt(p, R2ax, R2ex, R2iso, b[j], _optobs(TE, j), _SphericalMean())
+        out[j] = _smt(p, R2ax, R2ex, R2iso, b[j], _optobs(TE, j), powder)
     end
     return out
 end

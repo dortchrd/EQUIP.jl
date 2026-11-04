@@ -3229,7 +3229,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
 
 ### Decisions
 
-1. **Blocks** (src/models/blocks.jl): `_relax(t, R)` = exp(−t·R) (R = 0: none); the diffusion
+1. **Blocks** (src/models/blocks.jl; public names since, `decay`, `ball`, `stick`, `zeppelin`,
+   `powder`, below): `_relax(t, R)` = exp(−t·R) (R = 0: none); the diffusion
    compartments `_stick`, `_zeppelin`, `_ball`, each in two views chosen by dispatch on the last
    argument, a cosine t (one gradient direction) or `_SphericalMean()` (the average over
    directions); the zeppelin is a stick with D∥ − D⊥ times exp(−b·D⊥), so both views follow from
@@ -3317,7 +3318,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   | | blocks | 107.7 | 0.474 | 0.44 |
   | | family (R2Decay, parts off) | 116.6 | 0.501 | 0.71 |
   | ADC, 7 b | written (ADCDecay) | 22.6 | 0.234 | 0.60 |
-  | | blocks (`_relax(b, ADC)`) | 21.0 | 0.184 | 0.37 |
+  | | blocks (`_relax(b, ADC)`, now `decay`) | 21.0 | 0.184 | 0.37 |
   | SMT, 4 shells | written (before) | 60.7 | 0.583 | 1.02 |
   | | blocks | 59.8 | 0.555 | 0.52 |
   | | family (SMT, parts off) | 70.3 | 0.556 | 0.87 |
@@ -3331,34 +3332,41 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   that anything else is a visible fraction. Compilation (the first fit) stays under a second
   either way. In a plain-number call (the signal! column) `_relax` tests its rate for zero; in a
   fit the rate is a dual number and the test is not compiled at all.
-- **One exponential unit**: `_relax(t, R)` = exp(−t·R) is it, for a T2 over TE (R = 1/T2), an
-  ADC over b (R = D) and any decay; `_ball(b, D)` is the same unit, and the stick's directional
+- **One exponential unit**: `decay(x, rate)` = exp(−x·rate) is it (named `_relax` at first),
+  for a T2 over TE (rate 1/T2), an ADC over b (rate D) and any decay; `ball(b, D)` is the same unit, and the stick's directional
   view the unit at b·t². With the stick's spherical mean (√π·erf(x)/(2x)) and the rules for
   combining (fractions that sum, products for a compartment's T2 weighting times its
   diffusion), these are the pieces T2 and SMT are made of.
 
-- **Public names, and the T2 form** (2026-11-04, the owner: "not sure I like underscore for
-  these function blocks", and relax in the T2 form). The blocks are a module, `EQUIP.Blocks`,
-  exporting `relax(t, T)` = exp(−t/T) (the papers' notation; T = Inf gives 1), `relaxrate(t, R)`
-  (the rate form, which the families' kernels use), `stick`, `zeppelin` and `ball`. The
-  spherical mean is the two-argument method (`stick(b, D)`), one direction the three-argument
-  one (`stick(b, D, t)`). Decided: plain names, since the leading underscore is Julia's mark of
-  an internal name and these are for writing models; a submodule rather than exports from EQUIP,
-  so that `stick` and `ball` stay out of user code that does not ask for them (`using
-  EQUIP.Blocks` brings them in); internals (`_skip`, `_sphmean`, `_optobs`) keep the underscore.
-  `relax(t, T)` is `relaxrate(t, 1/T)`, so a model written with it gives the T2 decays' numbers
-  bit for bit (tested: an `@mrimodel` T2 decay against T2Decay from the same start). Measured
-  (examples/building_blocks.jl, 20,000 voxels, 32 echoes, 4 threads): 0.97 µs per voxel against
-  T2Decay's 1.24; 1/T does not change between echoes, so the compiler hoists it out of the loop,
-  and the T2 form costs no division per echo. Every model's fits are bit-identical to the
-  underscore version (the snapshot, both precisions).
+- **Public names: `decay`, `ball`, and an explicit view** (2026-11-04, decided with the owner).
+  The blocks are a module, `EQUIP.Blocks`, exporting `decay(x, rate)` = exp(−x·rate), `ball`,
+  `stick`, `zeppelin` and `powder`:
+  - Plain names, since the leading underscore is Julia's mark of an internal name and these are
+    for writing models; a submodule rather than exports from EQUIP, so that `stick` and `ball`
+    stay out of user code that does not ask for them (`using EQUIP.Blocks` brings them in).
+    Internals (`_skip`, `_sphmean`, `_optobs`) keep the underscore.
+  - One exponential unit, in rate form, named `decay`: "relax" reads wrong for b ("for diffusion
+    we have an exponential decay with b"). A time constant is given as its rate, `decay(TE,
+    1/T2)`; the model's parameter, T2, is still what is fitted. The risk, written into its
+    docstring: `decay(TE, T2)` is exp(−TE·T2) and nothing reports it. `ball(b, D)` stays as its
+    own name (it is `decay(b, D)`), so diffusion models read like the compartment taxonomy.
+    (Tried first, the same day: `relax(t, T)` in the T2 form beside `relaxrate(t, R)`; replaced.)
+  - The view explicit: `stick(b, D, powder)` for the spherical mean (NMR's powder average),
+    `stick(b, D, t)` along one direction; `stick(b, D)` without a view is an error that says
+    which to write. (Tried first: the spherical mean as the two-argument method; the owner
+    preferred it explicit.) `powder` is the one value of a type, `Powder`, so the view is chosen
+    by dispatch, when compiling.
+  - Measured: a model written `S0 * decay(TE, 1/T2)` gives T2Decay's fits bit for bit (tested,
+    from the same start), and is no slower (examples/building_blocks.jl, 20,000 voxels, 32
+    echoes, 4 threads: 0.95 µs per voxel against T2Decay's 1.05): 1/T2 does not change between
+    echoes, so the compiler hoists it out of the loop. Every built-in model's fits are
+    bit-identical across the renames (the snapshot, both precisions).
 
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
   blocks and could be one family with switchable inversion efficiency and delay terms; ADCDecay
-  is T2Decay's equation in b (the same unit, `_relax(b, ADC)`), and `_ball` could be written
-  with it; QMTSIR stays as it is.
+  is T2Decay's equation in b (the same unit, `decay(b, ADC)`); QMTSIR stays as it is.
 - A third T2 component (e.g. CSF, for myelin water imaging's three pools): one more part.
 - From the same SMT tissue function: a Watson-dispersed directional model and SMI's rotational
   invariants (roadmap item 7, Microstructure.jl notes).

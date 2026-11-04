@@ -379,21 +379,24 @@ D in mm²/s, times in s):
 
 | block | signal |
 |---|---|
-| `relax(t, T)` | exp(−t/T): a T2 decay `relax(TE, T2)`, a T1 term `relax(TI, T1)`; T = Inf gives 1 |
-| `relaxrate(t, R)` | exp(−t·R): the same with a rate, `relaxrate(TE, R2)` |
-| `stick(b, D)`, `stick(b, D, t)` | a stick's spherical mean, √π·erf(√(bD))/(2√(bD)); along one direction at cosine t to the fibre, exp(−b·D·t²) |
-| `zeppelin(b, D∥, D⊥)`, `zeppelin(b, D∥, D⊥, t)` | exp(−b·D⊥)·stick(b, D∥ − D⊥), in the same two views |
-| `ball(b, D)` | exp(−b·D): free water, an ADC |
+| `decay(x, rate)` | exp(−x·rate), the exponential unit in rate form: `decay(TE, 1/T2)`, `decay(TE, R2)`, `decay(b, ADC)`, `1 − 2·decay(TI, 1/T1)`; rate 0 gives 1 |
+| `ball(b, D)` | exp(−b·D): isotropic diffusion (free water, an ADC), the same in every view |
+| `stick(b, D, powder)`, `stick(b, D, t)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine t to the fibre, exp(−b·D·t²) |
+| `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, t)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
+
+`decay` takes the rate: `decay(TE, T2)` would be exp(−TE·T2), almost no decay, and nothing reports
+it, so write `decay(TE, 1/T2)`; T2 is still what is fitted. A stick or a zeppelin takes its view
+explicitly, `powder` or a cosine; without one it is an error that says which to write.
 
 ```julia
 using EQUIP, EQUIP.Blocks
 
-@mrimodel MyT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05)) = S0 * relax(TE, T2)
+@mrimodel MyT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05)) = S0 * decay(TE, 1 / T2)
 
 @mrimodel ThreePool(TE; S0 = Free(start = :scale, lower = 0), fmw = Free(start = 0.1, lower = 0, upper = 0.5),
                     fcsf = Free(start = 0.05, lower = 0, upper = 0.5), T2mw = Free(start = 0.015),
                     T2ie = Free(start = 0.08), T2csf = 2.0) =                # CSF's T2 known
-    S0 * (fmw * relax(TE, T2mw) + (1 - fmw - fcsf) * relax(TE, T2ie) + fcsf * relax(TE, T2csf))
+    S0 * (fmw * decay(TE, 1 / T2mw) + (1 - fmw - fcsf) * decay(TE, 1 / T2ie) + fcsf * decay(TE, 1 / T2csf))
 
 @mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
                Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
