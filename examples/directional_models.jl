@@ -17,6 +17,8 @@
 #   julia -t 4 --project=. examples/directional_models.jl
 # =================================================================================================
 
+using EQUIP, EQUIP.Blocks, Random, LinearAlgebra, StaticArrays, Statistics, Printf
+rng = MersenneTwister(11)
 
 # --- the acquisition: b and the gradient direction of every image (bval, bvec) ---------------------
 g = directionset(64)                                        # 64 unit vectors, z ≥ 0
@@ -79,6 +81,4 @@ rs = fit(m, Y; θ = Free(start = θd), φ = Free(start = φd))           # fitte
 @printf("stick+zeppelin, orientation fitted from it: vax %.3f ± %.3f, Dax %.3e; direction %.2f° from the fibres\n",
         mean(rs.params.vax), std(rs.params.vax), mean(rs.params.Dax), median(angerr.(rs.params.θ, rs.params.φ, 1:nv)))
 t = minimum(@elapsed(fit(m, Y; θ = Free(start = θd), φ = Free(start = φd))) for _ in 1:3) / nv * 1e6
-@printf("fit time: %.1f µs per voxel (5 parameters, 132 images, %d threads)\n", t, Threads.nthreads())
-* 1e6
 @printf("fit time: %.1f µs per voxel (5 parameters, 132 images, %d threads)\n", t, Threads.nthreads())
