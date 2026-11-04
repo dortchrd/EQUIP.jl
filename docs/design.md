@@ -3362,6 +3362,19 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     echoes, so the compiler hoists it out of the loop. Every built-in model's fits are
     bit-identical across the renames (the snapshot, both precisions).
 
+- **Directions per image: three vectors of numbers** (2026-11-04, decided with the owner). A
+  directional model (examples/directional_models.jl) takes each image's b and gradient direction.
+  Every generic routine assumes a per-observation acquisition field is a vector of numbers: the
+  signal's number type (`_signaltype`), the conversion to the fit's precision, the length checks,
+  the protocol designer's static vectors. A field of 3-vectors broke `signal` (`float(Any)`) and
+  stayed Float64 in a Float32 fit, for an `@mrimodel` and a hand-written model alike (tested).
+  The rule that TD and TR already follow (filled to one value per observation in their
+  constructors) is kept: the components go in as `gx, gy, gz = eachrow(bvec)`, views of a .bvec's
+  rows, with no change to EQUIP. Tested: `signal`, Float64 and Float32 fits correct (the fit
+  copies every field into a plain vector when it starts, so the views cost nothing there), the
+  lengths checked. A model holds the views: after changing a bvec, build a new model. A b-tensor
+  per image would follow the same rule, as six component vectors.
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation

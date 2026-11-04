@@ -67,7 +67,15 @@ examples/directional_models.jl, discussed in the session:
 - **A stick and a zeppelin are tensors**, so the standard tensor model is the general case. DTI's
   principal direction can fix the fibres' direction, as per-voxel maps, or start a fit of θ and φ.
   Measured: SNR 100, 132 images, v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel.
-- **To decide:**
-  - an acquisition field of 3-vectors (needs a Float32 conversion), or keep three vectors;
-  - b and g, or the B-matrix B = b·ggᵀ, which tensor-valued encoding (planar, spherical) needs;
-  - a `tensor` block.
+- **Decided (2026-11-04): directions go in as three vectors of numbers,** `gx, gy, gz =
+  eachrow(readbvec("dwi.bvec"))`, views of the .bvec's rows. The rule, as for TD and TR (filled
+  to one value per observation in their constructors): every per-observation acquisition field
+  is a vector of numbers. A field of 3-vectors would break `signal` and the Float32 conversion
+  for every model, `@mrimodel` or hand-written (tested); the views fit correctly, in Float32
+  too (the fit copies every field into a plain vector when it starts), and the lengths are
+  checked. A model holds the views, so after changing a bvec (rotated for motion, a sign
+  flipped), build a new model.
+- **Small things to do:** a clear error for a field of 3-vectors, pointing to `eachrow`;
+  `loaddata` mapping a .bvec to `gx`, `gy`, `gz`; the example switched to `eachrow`.
+- **Still to decide:** b and g, or the B-matrix B = b·ggᵀ, which tensor-valued encoding (planar,
+  spherical) needs (by the same rule, six component vectors); a `tensor` block.
