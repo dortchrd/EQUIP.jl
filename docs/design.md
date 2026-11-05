@@ -4491,3 +4491,31 @@ numbers are not an order.
       interest and validation, not whole volumes.
    Networks trained on simulations stay out of scope (`simulate` and `scenarios` make the
    training sets for anyone who wants one).
+16. **Error propagation: to derived quantities, from uncertain inputs, and the estimator's own
+   noise bias** (discussed 2026-11-05; not built). Three pieces, each the delta method with a
+   different Jacobian:
+   - **Outputs: `propagate(c, g)`.** A quantity g of the fitted parameters (FA, MD, AD, RD from
+     DTI's six elements; any index or ratio): SD √(J Σ Jᵀ) with Σ = `c.cov`, bias g(fit) − g(truth)
+     (the assumptions', exact) + ½ tr(H Σ) (the noise's, second order), a covariance when g gives
+     several. Tested in a scratch script (DTI, 6 + 30 images, eigenvalues 1.7, 0.4, 0.3e-3, SNR 50
+     and 20, against 20,000 Monte Carlo fits): every SD within 1%, the FA–MD correlation (−0.12),
+     FA's noise bias +1.16e-3 against +1.37e-3. Eigenvalues differentiate through StaticArrays'
+     closed-form 3×3 symmetric solver (`eigvals(Symmetric(SMatrix))`): gradients equal
+     Hellmann–Feynman's; Hessians finite unless the eigenvalue in question is repeated. FA from the
+     six elements as √(3/2)·‖D − MD·I‖/‖D‖ (Basser & Pierpaoli 1996; Ennis & Kindlmann 2006),
+     checked equal to the eigenvalue forms to 7e-16.
+   - **Inputs: a fixed parameter that was measured** (a B1 map, a T1 for MTsat). The fit's
+     sensitivity is leakage's dθ̂/dc. Its bias: crlb with the fit's fixed value at the map's (exact,
+     already in EQUIP); its random part, L·Σ_c·Lᵀ added to the covariance (independent scans; to
+     add, e.g. `crlb(m, θ; snr, uncertain = (B1 = 0.03,))`). Measured (T1MFA, FA 2–30°, T1 1 s, a
+     B1 map 5% high with a 3% SD, SNR 1000, 20,000 voxels): bias −0.0945 s predicted, −0.0919
+     measured; SD 0.0572 predicted, 0.0576 measured, with the slope taken where the fit runs (B1 =
+     1.05: dT1/dB1 = −1.76; at the truth, −2.03, it over-predicts the SD by 14%: VFA's T1 goes as
+     1/B1²). Errors in the data themselves (the spherical mean's Rician floor, noise and
+     orientational sampling) are the sandwich's and `simulate_with`'s: `sphericalmeannoise`.
+   - **The estimator's own noise bias** (Box, J R Stat Soc B 1971): a nonlinear least-squares fit
+     is biased at second order in the noise, b ≈ −½ (JᵀWJ)⁻¹JᵀW·d, dᵢ = tr(Cov·Hᵢ), Hᵢ the Hessian
+     of observation i's signal. An addition to crlb, not part of the sandwich (the sandwich is the
+     first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
+     crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
+     measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).

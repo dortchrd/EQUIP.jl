@@ -53,6 +53,9 @@ Each branch builds on the one above it.
   lab's δ, Δ and maximum gradient; the units for restricted compartments to decide.
 - **Other blocks:** a tensor, kurtosis, EPG for multi-echo T2, the SPGR steady state, exchange; the
   T1 family as building blocks; ADC as the T2 equation in b.
+- **Roadmap item 16, error propagation:** `propagate(c, g)` for derived quantities (FA, MD,
+  AD, RD: tested against Monte Carlo), uncertain fixed inputs such as a B1 map (leakage's slope
+  at the fit's value, plus L·Σ·Lᵀ), and the estimator's own second-order noise bias (Box 1971).
 - **Roadmap items 14 and 15:** a protocol design from a number of points; Bayesian estimation
   (priors as residuals, the van Trees bound in crlb, NUTS as an extension).
 
