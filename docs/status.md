@@ -48,7 +48,7 @@ Each branch builds on the one above it.
 ## Discussed, not built
 
 - **Roadmap item 17, directional diffusion:** a built-in DTI (written out, the six elements,
-  a log-linear start) and StickZeppelin; `diffusion(bval, bvec)`, one helper whose named tuple
+  a log-linear start) and StickZeppelin; `diffusionencoding(bval, bvec)`, one helper whose named tuple
   goes into any directional model's constructor (DIPY's gradient table as the model); the
   B-matrix when b-tensor data come. DKI written out (examples/dki.jl, 22 parameters): the fit
   is fine (130–170 µs per voxel, all converged); the mess is the 15 names, the indices (MK,
@@ -67,26 +67,31 @@ Each branch builds on the one above it.
 - **Roadmap items 14 and 15:** a protocol design from a number of points; Bayesian estimation
   (priors as residuals, the van Trees bound in crlb, NUTS as an extension).
 
-## Open question (2026-11-04): directional models, and how they meet a tensor
+## Directional models, and how they meet a tensor (2026-11-04 and 05)
 
 examples/directional_models.jl, discussed in the session:
 
-- **The acquisition** is each image's b and gradient direction g (bval, bvec), for now as three
-  vectors gx, gy, gz.
+- **The acquisition** is each image's b and gradient direction g (bval, bvec).
 - **The cosine** t = g·n(θ, φ) is computed in the model, because it joins the acquisition and the
   parameters; the blocks take it as a number.
 - **A stick and a zeppelin are tensors**, so the standard tensor model is the general case. DTI's
   principal direction can fix the fibres' direction, as per-voxel maps, or start a fit of θ and φ.
   Measured: SNR 100, 132 images, v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel.
-- **Decided (2026-11-04): directions go in as three vectors of numbers,** `gx, gy, gz =
-  eachrow(readbvec("dwi.bvec"))`, views of the .bvec's rows. The rule, as for TD and TR (filled
-  to one value per observation in their constructors): every per-observation acquisition field
-  is a vector of numbers. A field of 3-vectors would break `signal` and the Float32 conversion
-  for every model, `@mrimodel` or hand-written (tested); the views fit correctly, in Float32
-  too (the fit copies every field into a plain vector when it starts), and the lengths are
-  checked. A model holds the views, so after changing a bvec (rotated for motion, a sign
-  flipped), build a new model.
-- **Small things to do:** a clear error for a field of 3-vectors, pointing to `eachrow`;
-  `loaddata` mapping a .bvec to `gx`, `gy`, `gz`; the example switched to `eachrow`.
+- **Decided (2026-11-04), revised (2026-11-05): a direction is a vector, so `g` holds one
+  `SVector{3}` per image,** beside `b` (design.md, "Directions per image"). It gains no speed:
+  one field instead of three, a direction as one value, `g = directionset(30)` directly, and a
+  matrix per image for b-tensors later. EQUIP needs two small methods (the Float32 conversion and
+  the signal's number type; tested in a scratch script). An nobs×3 matrix works by hand but not
+  in `@mrimodel`; gx, gy, gz works and was the first rule.
+- **Decided with it:** `readbvec` (MRImages, a general package) keeps returning the file's 3×N
+  matrix; EQUIP's `diffusionencoding(bval, bvec)` returns `(b, g)`, checked, and `loaddata` maps
+  a .bvec to `g`. A supertype `DirectionalDiffusion` carries what directional models share; each
+  keeps its own four-line struct (no field inheritance in Julia). New single-equation built-in
+  models are written with `@mrimodel`; QMTSIR stays written in full as the reference, with the
+  T2 and SMT families.
+- **To build (branch `directions-proto`):** the two methods and a clear error for other fields;
+  `diffusionencoding`; `DirectionalDiffusion`; a supertype option for `@mrimodel`; tests
+  (`signal`, `simulate`, Float32 fits, crlb, ProtocolDesign, `@mrimodel` with `g`); the
+  directional and DKI examples switched to `g`. Then the built-in DTI and StickZeppelin (item 17).
 - **Planned (roadmap item 17):** b and g until b-tensor data come, then the B-matrix B = b·ggᵀ
-  as six component vectors (planar and spherical encoding need them); a `tensor` block with it.
+  as one static matrix per image (planar and spherical encoding need it); a `tensor` block with it.

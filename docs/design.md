@@ -3374,6 +3374,57 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   copies every field into a plain vector when it starts, so the views cost nothing there), the
   lengths checked. A model holds the views: after changing a bvec, build a new model. A b-tensor
   per image would follow the same rule, as six component vectors.
+- **Revised (2026-11-05, with the owner): one direction per image, as a vector, `g`.** The
+  owner's reason: a gradient direction is a vector, so it is passed as one. `g` holds one
+  `SVector{3}` per image (`Vector{SVector{3,T}}`), beside `b`; a model reads `x, y, z = g[j]` or
+  `dot(g[j], n)`. It gains no speed (the same three numbers are loaded) and no capability: what it
+  gives is one field instead of three, a direction as one value, `g = directionset(30)` directly
+  (which already returns SVectors), and, for b-tensor encoding later, one matrix per image instead
+  of six component vectors.
+  - **EQUIP needs two methods** (src/models/interface.jl): the conversion to the fit's precision
+    for a vector of static vectors (`Vector{SVector{N,T}}`), and `_signaltype` taking the number
+    type inside each entry. Tested from outside in a scratch script (dti_g.jl: DTI, 6 + 30
+    images, SNR 50, 2000 voxels): without them `signal` fails (`float(Any)`); with them `signal`,
+    `simulate`, Float64 and Float32 fits (`precision = Float32`; the fit's model then holds
+    `SVector{3,Float32}`) and crlb all work, every voxel converged, Dxx 1.6996e-3 ± 3.19e-5 in
+    both precisions, crlb 3.17e-5. `nobs` and `@mrimodel` already handle it (a vector, one entry
+    per observation; the macro's body gets `g[j]`, one direction). Also to add: a clear error for
+    a field that is neither numbers nor static vectors.
+  - **The alternatives, measured or read.** gx, gy, gz (the 2026-11-04 rule) works and needs
+    nothing, but takes three fields. An nobs×3 matrix with `@views gx, gy, gz = g[:, 1], g[:, 2],
+    g[:, 3]` in `signal!` works by hand (scratch dti_matrix.jl: the same fits, 3.1 µs per voxel),
+    but a Float32 fit kept it in Float64, `nobs` does not check its rows (only `eachindex` in the
+    model's own loop caught a short one), and `@mrimodel` passes a matrix whole, so the body
+    cannot index it; teaching the macro "rows are observations" would set that rule for every
+    model's matrix fields. A named tuple of three vectors needs four methods and the same macro
+    change.
+  - **Files.** `readbvec` stays in MRImages as it is, the file's 3×N matrix: MRImages is a
+    general package (like nibabel), without StaticArrays (which also invalidates MRImages'
+    compiled code, "MRImages" above), and a matrix is the easier form for rotating or flipping
+    directions. EQUIP converts: `diffusionencoding(bval, bvec) -> (b = ..., g = ...)`, from files
+    or arrays, splatted into any directional model (`DTI(; diffusionencoding("dwi.bval",
+    "dwi.bvec")...)`), with the checks (lengths, unit vectors, small b to 0), and `loaddata`
+    mapping a .bvec to `g`. Named with the owner: not `diffusion` (too broad), and not `diff…`,
+    which in Julia and MATLAB reads as "differences".
+  - **One supertype, a struct per model.** `abstract type DirectionalDiffusion <: MRIModel` (models
+    with fields `b` and `g`) carries what is shared, written once: the construction from files,
+    the checks, a summary display (shells and counts, not every vector), a default S0 start, the
+    command line. Julia types cannot inherit fields, so each model keeps its own four-line
+    struct. Rejected: one struct with a tag (`Diffusion{:DTI}`): dispatch works, but EQUIP
+    rebuilds models from the bare type (`Base.typename(typeof(m)).wrapper(...)`, in
+    `_with_precision` and ProtocolDesign), which would drop the tag, and every model would print
+    as "Diffusion" (the reason the T2 and SMT families kept named types). A macro that writes
+    the struct (`@directional DTI`; tested, the Float32 rebuild included) waits until there are
+    more than about five such models or their shared fields change together.
+  - **Built-in models written with `@mrimodel`** (the owner's suggestion): new single-equation
+    models (DTI, StickZeppelin, IVIM, perhaps DKI) with the macro, as compact as their equations;
+    by hand, QMTSIR (the full layout as the reference), the T2 and SMT families (one equation for
+    several named types, which the macro cannot express), and signals that do not split by
+    observation (EPG). The macro's measurements allow it (roadmap item 8: T2DecayOffset, T1MFA
+    and QMTSIR bit for bit and as fast), and `newmodel(M)` writes any of them out in full. The
+    macro needs a supertype option (`... <: DirectionalDiffusion`) and its own precision
+    conversion checked with `g`. The existing simple models (the T1 models, ADCDecay,
+    ADCKurtosis) move one at a time, each with the refactoring check.
 
 ### Not done yet
 
@@ -4527,9 +4578,10 @@ numbers are not an order.
 17. **Directional diffusion: DTI, stick–zeppelin, DKI, and the acquisition they share**
    (discussed 2026-11-04 and 05; examples/directional_models.jl, examples/dki.jl and scratch
    scripts; not built).
-   The directions' rule is decided ("Directions per image", in the building-blocks section): b,
-   gx, gy, gz, each a vector of numbers. What follows is what to build on it, in order.
-   - **A built-in DTI, written out.** S = S0·exp(−b·gᵀDg), gᵀDg = gx²Dxx + gy²Dyy + gz²Dzz +
+   The directions' rule is decided ("Directions per image", in the building-blocks section,
+   revised 2026-11-05): `b`, and `g`, one `SVector{3}` per image, in models of a supertype
+   `DirectionalDiffusion`. What follows is what to build on it, in order.
+   - **A built-in DTI, written out** (with `@mrimodel`). S = S0·exp(−b·gᵀDg), gᵀDg = gx²Dxx + gy²Dyy + gz²Dzz +
      2gxgyDxy + 2gxgzDxz + 2gygzDyz, the six elements fitted. The owner kept this form over
      eigenvalues and angles (2026-11-05): the eigen form is degenerate where two eigenvalues are
      equal (the angles of a prolate tensor's minor axes are undetermined), needs a relabel, and
@@ -4550,11 +4602,10 @@ numbers are not an order.
      DTI's principal direction, as the fit's start or fixed as per-voxel maps. Measured (the
      example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel,
      Float64 and Float32.
-   - **The acquisition, shared without a struct per model.** Every directional model takes b, gx,
-     gy, gz; one helper builds them, `diffusion(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
-     ...)`, splatted into any model's keyword constructor: `DTI(; diffusion("dwi.bval",
-     "dwi.bvec")...)`, the same for an SMT on the shells or a model of the user's (tested in
-     scratch handmodels.jl with a hand-written DTI and stick–zeppelin). It checks the lengths,
+   - **The acquisition, shared.** Every directional model takes b and g; one helper builds them
+     (first `diffusion(...)` returning gx, gy, gz, tested in scratch handmodels.jl; now
+     `diffusionencoding(bval, bvec) -> (b = ..., g = ...)`), splatted into any model's keyword
+     constructor: `DTI(; diffusionencoding("dwi.bval", "dwi.bvec")...)`. It checks the lengths,
      transposes an N×3 table, checks unit vectors (atol 1e-2, as DIPY's gradient table) and sets
      b below a threshold to 0 (50 s/mm², DIPY's `b0_threshold`). DIPY's `GradientTable` is the
      model: one object per acquisition, shared by every model, with b-tensors as `btens` (linear,
@@ -4563,15 +4614,15 @@ numbers are not an order.
    - **Constructors.** An outer constructor (`DTI(bval, bvec)`) is safe; an inner one removes the
      positional constructor that `_with_precision` and `ProtocolDesign` rebuild models with; a
      second keyword-only constructor overwrites `@mrimodel`'s (an error at precompile time in a
-     package). So: `diffusion(...)` and the generated keyword constructors; a supertype
-     (`AbstractDirectional`) only if generic code comes to need one (the CLI's .bvec handling).
-   - **The small things decided** (status.md): a clear error for a field of 3-vectors, pointing
-     to `eachrow`; `loaddata` mapping a .bvec to gx, gy, gz; `readbvec` exported from EQUIP (now
-     only in EQUIP.MRImages); the example switched to `eachrow`.
+     package). So: `diffusionencoding(...)` and the generated keyword constructors, and the
+     supertype `DirectionalDiffusion` for what the models share (decided 2026-11-05).
+   - **The small things decided** (status.md): a clear error for a field that is neither numbers
+     nor static vectors; `loaddata` mapping a .bvec to `g`; `readbvec` exported from EQUIP (now
+     only in EQUIP.MRImages); the directional and DKI examples switched to `g`.
    - **The B-matrix, when b-tensor data come.** B = γ²∫F(t)F(t)ᵀdt with F the gradient's
      integral, S = S0·exp(−B:D); linear encoding is B = b·ggᵀ, so b and g say everything until
-     then. Planar and spherical encoding need all six elements: by the same rule, six component
-     vectors (Bxx, Byy, Bzz, Bxy, Bxz, Byz). The blocks in B form: ball exp(−D·tr B), stick
+     then. Planar and spherical encoding need all six elements: by the rule for g, one static
+     matrix per image (`SMatrix{3,3}`, or its six distinct elements as an `SVector{6}`). The blocks in B form: ball exp(−D·tr B), stick
      exp(−D·nᵀBn), zeppelin exp(−D⊥·tr B − (D∥ − D⊥)·nᵀBn), a tensor exp(−B:D). A `tensor` block
      waits for this decision.
    - **More views and blocks** (discussed, not built; status.md): a generic `rotinv(l)` view for
