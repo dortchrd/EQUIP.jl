@@ -1,4 +1,4 @@
-# Where we are (2026-11-04)
+# Where we are (2026-11-05)
 
 A note to come back to. The decisions and measurements behind each item are in docs/design.md;
 this is the map. Everything below is committed and pushed.
@@ -47,8 +47,16 @@ Each branch builds on the one above it.
 
 ## Discussed, not built
 
-- **Views for the blocks:** a generic `rotinv(l)` projection (SMI's rotational invariants;
-  `powder` is l = 0; one function, not l = 2 and 4 in every block) and a Watson-dispersed view.
+- **Roadmap item 17, directional diffusion:** a built-in DTI (written out, the six elements,
+  a log-linear start) and StickZeppelin; `diffusion(bval, bvec)`, one helper whose named tuple
+  goes into any directional model's constructor (DIPY's gradient table as the model); the
+  B-matrix when b-tensor data come. DKI written out (examples/dki.jl, 22 parameters): the fit
+  is fine (130–170 µs per voxel, all converged); the mess is the 15 names, the indices (MK,
+  AK, RK) and the constraints, and crlb, whose kernel did not finish compiling at 22
+  parameters (46 s with its pieces not inlined: the fix, measured).
+- **Views for the blocks** (item 17): a generic `rotinv(l)` projection (SMI's rotational
+  invariants; `powder` is l = 0; one function, not l = 2 and 4 in every block) and a
+  Watson-dispersed view.
 - **A cylinder block (axon diameter):** first a crlb check that diameter is measurable on the
   lab's δ, Δ and maximum gradient; the units for restricted compartments to decide.
 - **Other blocks:** a tensor, kurtosis, EPG for multi-echo T2, the SPGR steady state, exchange; the
@@ -80,5 +88,5 @@ examples/directional_models.jl, discussed in the session:
   flipped), build a new model.
 - **Small things to do:** a clear error for a field of 3-vectors, pointing to `eachrow`;
   `loaddata` mapping a .bvec to `gx`, `gy`, `gz`; the example switched to `eachrow`.
-- **Still to decide:** b and g, or the B-matrix B = b·ggᵀ, which tensor-valued encoding (planar,
-  spherical) needs (by the same rule, six component vectors); a `tensor` block.
+- **Planned (roadmap item 17):** b and g until b-tensor data come, then the B-matrix B = b·ggᵀ
+  as six component vectors (planar and spherical encoding need them); a `tensor` block with it.

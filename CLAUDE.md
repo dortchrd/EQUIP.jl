@@ -14,7 +14,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
   `examples/building_blocks.jl` (six models written from `EQUIP.Blocks`, fitted; about 30 s);
-  `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s)
+  `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
+  `examples/dki.jl` (DKI written out by hand, 22 parameters; about 15 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),

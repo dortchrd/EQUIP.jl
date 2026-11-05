@@ -4276,6 +4276,11 @@ numbers are not an order.
      voxel dispatches to the right method at no run-time cost. Derivatives may need chunked
      dual numbers (`ForwardDiff.JacobianConfig`) at that size. The model interface does not
      change.
+   - **Compilation is the first limit, before ~30–40** (measured 2026-11-05 on a 22-parameter
+     DKI, item 17): the fit compiles in 8–9 s, but crlb's kernel, with all its pieces inlined,
+     took 118 s at 13 parameters and did not finish in 23 minutes at 22. Its pieces not inlined:
+     18 s and 46 s. To do: don't inline above some P (decided at compile time, from the type
+     parameter), after measuring the small models' kernels with and without.
 12. **Later**: GPU, more models (Rician-likelihood fitting moved to item 13, a priority):
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
@@ -4519,3 +4524,103 @@ numbers are not an order.
      first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
      crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
      measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).
+17. **Directional diffusion: DTI, stick–zeppelin, DKI, and the acquisition they share**
+   (discussed 2026-11-04 and 05; examples/directional_models.jl, examples/dki.jl and scratch
+   scripts; not built).
+   The directions' rule is decided ("Directions per image", in the building-blocks section): b,
+   gx, gy, gz, each a vector of numbers. What follows is what to build on it, in order.
+   - **A built-in DTI, written out.** S = S0·exp(−b·gᵀDg), gᵀDg = gx²Dxx + gy²Dyy + gz²Dzz +
+     2gxgyDxy + 2gxgzDxz + 2gygzDyz, the six elements fitted. The owner kept this form over
+     eigenvalues and angles (2026-11-05): the eigen form is degenerate where two eigenvalues are
+     equal (the angles of a prolate tensor's minor axes are undetermined), needs a relabel, and
+     its angles wrap; FA, MD, AD and RD and their errors come from `propagate` (item 16), not from
+     reparametrizing. The one place an eigen form would pay: nerve DTI with λ2 = λ3 tied (an
+     axially symmetric tensor, 4 numbers and a direction), when the fit itself should carry the
+     symmetry. `datastart`: the log-linear fit, linear in ln S0 and the six elements (the B-matrix
+     design matrix, as DIPY's `design_matrix`), so no start needs tuning. Measured (scratch
+     dtiforms.jl, 6 + 30 images, Float64): written out, as an SMatrix product gᵀDg, and in
+     B-matrix form, the same speed within noise (2.5–2.8 µs per voxel): written out, as the papers
+     write it.
+   - **A built-in StickZeppelin**: one fibre, the stick's diffusivity also the zeppelin's parallel
+     one, D⊥ = (1 − v_ax)·D_ax by default (released in a call, as SMT's). The cosine t = g·n(θ, φ)
+     is computed in the signal, since it joins the acquisition and the parameters; the blocks take
+     a number. n as an SVector or three scalars (no allocation either way; a `[...]` vector
+     allocates 208 bytes per call: static arrays inside `signal!` are only notation, and must stay
+     static). n and −n are one fibre: a relabel (θ → π − θ, φ → φ + π) and φ wrapped. θ and φ from
+     DTI's principal direction, as the fit's start or fixed as per-voxel maps. Measured (the
+     example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel,
+     Float64 and Float32.
+   - **The acquisition, shared without a struct per model.** Every directional model takes b, gx,
+     gy, gz; one helper builds them, `diffusion(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
+     ...)`, splatted into any model's keyword constructor: `DTI(; diffusion("dwi.bval",
+     "dwi.bvec")...)`, the same for an SMT on the shells or a model of the user's (tested in
+     scratch handmodels.jl with a hand-written DTI and stick–zeppelin). It checks the lengths,
+     transposes an N×3 table, checks unit vectors (atol 1e-2, as DIPY's gradient table) and sets
+     b below a threshold to 0 (50 s/mm², DIPY's `b0_threshold`). DIPY's `GradientTable` is the
+     model: one object per acquisition, shared by every model, with b-tensors as `btens` (linear,
+     planar, spherical, cigar). Tried and dropped: an `Encoding` struct as a field of each model.
+     It breaks the per-observation rule for nothing (the cosine form costs the same, measured).
+   - **Constructors.** An outer constructor (`DTI(bval, bvec)`) is safe; an inner one removes the
+     positional constructor that `_with_precision` and `ProtocolDesign` rebuild models with; a
+     second keyword-only constructor overwrites `@mrimodel`'s (an error at precompile time in a
+     package). So: `diffusion(...)` and the generated keyword constructors; a supertype
+     (`AbstractDirectional`) only if generic code comes to need one (the CLI's .bvec handling).
+   - **The small things decided** (status.md): a clear error for a field of 3-vectors, pointing
+     to `eachrow`; `loaddata` mapping a .bvec to gx, gy, gz; `readbvec` exported from EQUIP (now
+     only in EQUIP.MRImages); the example switched to `eachrow`.
+   - **The B-matrix, when b-tensor data come.** B = γ²∫F(t)F(t)ᵀdt with F the gradient's
+     integral, S = S0·exp(−B:D); linear encoding is B = b·ggᵀ, so b and g say everything until
+     then. Planar and spherical encoding need all six elements: by the same rule, six component
+     vectors (Bxx, Byy, Bzz, Bxy, Bxz, Byz). The blocks in B form: ball exp(−D·tr B), stick
+     exp(−D·nᵀBn), zeppelin exp(−D⊥·tr B − (D∥ − D⊥)·nᵀBn), a tensor exp(−B:D). A `tensor` block
+     waits for this decision.
+   - **More views and blocks** (discussed, not built; status.md): a generic `rotinv(l)` view for
+     SMI's rotational invariants (`powder` is l = 0; one function, not l = 2 and 4 in every
+     block); a Watson-dispersed view; a cylinder of finite radius (axon diameter: first a crlb
+     check that the lab's δ, Δ and maximum gradient can measure it); kurtosis, EPG for multi-echo
+     T2, the SPGR steady state, exchange.
+   - **DKI, written out** (the owner's question, 2026-11-05: "I feel like that would be a mess";
+     examples/dki.jl). S = S0·exp(−b·gᵀDg + b²·MD²·Σ gᵢgⱼgₖgₗWᵢⱼₖₗ/6) (Jensen et
+     al., MRM 2005; ADCKurtosis is the same along one direction), 22 parameters: S0, D's six
+     elements, W's 15 distinct ones. The signal itself is short: Σ gᵢgⱼgₖgₗWᵢⱼₖₗ is the dot product
+     of the 15 elements with their monomials times their multiplicities (1, 4, 6, 12), one helper
+     function. Measured: 6 b = 0 and 30 directions at b = 1000 and 2000 (66 images), D's
+     eigenvalues 1.7, 0.4, 0.3e-3 mm²/s, an isotropic kurtosis K = 1, SNR 100, 2000 voxels, 4
+     threads:
+     - the fit: compiled in 8–9 s (under a second for the small models), 130–170 µs per voxel
+       in two runs (DTI's 2.5), all 2000 converged from W = 0 without a datastart; means right
+       (Dxx 1.698e-3, W1111 0.988, W1122 0.332, W1123 −0.0005 for 0); W1111's SD 0.25 at SNR
+       100, MKT's 0.040 (mean 0.997 for 1): the index is far better determined than the
+       elements it is made of. No voxel had K < 0 along a measured direction.
+     - crlb: did not finish compiling in 23 minutes (stopped). The cause, measured on the same
+       model with W's elements partly fixed (scratch dki_scaling.jl, dki_pieces.jl,
+       dki_noinline.jl): crlb's first call took 7 s at P = 7, 20 s at P = 10, 118 s at P = 13,
+       while the fit's stayed at 4–6 s. Each piece of the kernel compiles in under 3 s at P = 13
+       (the noise-free fit 2.2, `hessian!` 2.4, the rest under 1; about 7 s in all), and the
+       signal in nested dual numbers in 2 s, so neither the nested duals nor any one piece is it.
+       The kernel `_crlb!` alone took 43 s: every piece is `@inline`, so the kernel is one
+       function holding all their unrolled P×P static-array code, and the compiler's time grows
+       much faster than that code's size. With the kernel's calls marked `@noinline` (call-site
+       annotations, the pieces unchanged): the first crlb 18 s at P = 13 and 46 s at P = 22, then
+       0.5 ms a call (`crlb!` on its cache 0.1 ms); W1111's SD 0.242 predicted, 0.250 in the fits.
+       To do (with item 11): don't inline the pieces above some P. P is a type parameter, so
+       `P > 8 ? (@noinline f(x)) : f(x)` costs nothing at run time; measure the small models'
+       kernel (ProtocolDesign calls it millions of times) before and after, and choose the
+       threshold from that. The fit's own `levmar` may meet the same cliff at more parameters.
+     Where it is a mess, and what to do about each:
+     - the names: 15 Wᵢⱼₖₗ keywords and their multiplicities, best generated, not typed.
+     - the indices: the mean kurtosis tensor, MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 +
+       W2233))/5 (Hansen et al., MRM 2013), is linear in W and simple (in the example); MK, AK
+       and RK need W rotated into D's eigenframe and, in Tabesh's closed forms (MRM 2011),
+       Carlson's elliptic integrals. All of them are functions of the fit, so `propagate` (item 16) gives their
+       errors; AK and RK inherit the eigenvectors' degeneracy where λ2 = λ3.
+     - the constraints: K(g) ≥ 0 in every direction, and the signal must not rise with b (b·D(g)·
+       K(g) < 3 at b_max), are conditions on many parameters at once, which box bounds cannot
+       state (ADCKurtosis notes the same for one direction). DIPY's constrained DKI solves a
+       convex problem for it (Dela Haije et al., NeuroImage 2020). Here: check them on the result,
+       or penalize them as residuals (as item 15's priors).
+     - the start: the log-linear fit is linear in 21 unknowns (ln S0, D, and MD²·W, from which W),
+       a datastart as DTI's; it was not needed at SNR 100.
+     - the size: 22 parameters fit in static arrays (item 11's limit is about 30–40), and the fit
+       is fast enough (a million voxels in about 3 minutes on 4 threads); crlb's compilation is
+       the limit, as above, and it is EQUIP's, not DKI's.
