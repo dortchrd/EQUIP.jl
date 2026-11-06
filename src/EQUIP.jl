@@ -40,7 +40,7 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
-using SpecialFunctions: erf, besselix    # SMT's stick; Rician noise (loaded by ForwardDiff anyway)
+using SpecialFunctions: erf, erfi, besselix   # spherical means (erfi: D⊥ > D∥); Rician noise (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
 using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeometry, filestem,
                 sidecarpath, writesidecar, writemat

@@ -3592,6 +3592,32 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   most 2.3e-15 relative (b to 5000 s/mm², every ξ), with the same fits in
   examples/directional_models.jl. EQUIP 2085 tests pass.
 
+- **D⊥ > D∥, and the spherical means' helper** (2026-11-06, discussed with the owner). The
+  zeppelin's directional form is right for any D∥ and D⊥, but its spherical mean took √(b·(D∥ −
+  D⊥)) and threw a DomainError once b·(D∥ − D⊥) < −0.05 (tested: D∥ 0.5e-3, D⊥ 1e-3 mm²/s at b =
+  1000); a fit that strayed there would have stopped. Two levels, both decided:
+  - **The compartment is defined for both signs.** For D⊥ > D∥ (an oblate tensor) the mean over
+    directions of exp(+|a|·ξ²) is √π·erfi(√|a|)/(2√|a|): checked against the integral computed
+    numerically (0.4396004 both), and `erfi` takes the fit's dual numbers. The helper has three
+    branches: the series near 0 (either sign), erf for a > 0, erfi for a < 0.
+  - **What is physical is the model's to say**, by its parametrization, as Microstructure.jl
+    does ("to constrain D⊥ to be smaller than D∥, D⊥ is represented as D∥ multiplied by a
+    fraction between [0, 1]", Gong & Yendiki 2026, section 2.2.1.1): a model that fits D⊥ fits a
+    fraction `fperp` with bounds 0 and 1 and computes D⊥ = fperp·D∥; the struct (the
+    acquisition) does not change. SMT's tortuosity limit is the case fperp = 1 − v_ax; no
+    built-in model frees D⊥ today.
+  - **The helper renamed for what it computes**: `_sphmean` was not the spherical mean but one
+    factor of it (the owner found it confusing). It is `_meanexp(a)` = ∫₀¹ exp(−a·ξ²) dξ, the
+    mean over directions of exp(−a·ξ²), from which every axially symmetric compartment's
+    spherical mean is made (stick: _meanexp(b·D); zeppelin: exp(−b·D⊥)·_meanexp(b·(D∥ − D⊥));
+    a cylinder's would be the zeppelin's with its restricted D⊥, Gong & Yendiki Eq. 2; a sphere
+    is isotropic and needs none; a full tensor's has no erf form). Each method carries its
+    full equation in a comment above it, with the paper's equation number. Writing the closed
+    form out in every method instead was considered: each would repeat the three-way branch
+    (0/0 at b = 0 or D∥ = D⊥, the infinite derivative of √a at 0, the erfi case).
+  - Measured: every built-in model's starts and fits bit-identical to before (the positive
+    branch is the same expression); the SMT, compartment and direction test sets pass (134).
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation

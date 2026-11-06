@@ -2412,21 +2412,26 @@ end
 
     @testset "SMT and its variants: the spherical mean technique (Kaden 2016; Devan et al., MRI 2020)" begin
         rng = MersenneTwister(21)
-        # The stick's spherical mean, √π·erf(x)/(2x): its series near 0 and erf beyond, the same
-        # (values and derivatives) on both sides of the switch; and against the mean over
-        # directions it stands for, ∫₀¹ exp(−x²ξ²) dξ (ξ = cos ψ: uniform over the sphere)
-        f(x2) = sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
-        for x2 in (1e-3, 0.0499999, 0.0500001, 0.7, 12.0)
-            @test EQUIP._sphmean(x2) ≈ f(x2) rtol = 1e-11
-            @test ForwardDiff.derivative(EQUIP._sphmean, x2) ≈ ForwardDiff.derivative(f, x2) rtol = 1e-8
+        # The mean over directions of exp(−a·ξ²), ∫₀¹ exp(−a·ξ²) dξ (ξ = cos ψ: uniform over the
+        # sphere), what the spherical means are made of: its series near 0, erf for a > 0 and
+        # erfi for a < 0 (a zeppelin with D⊥ > D∥), the same (values and derivatives) on both
+        # sides of each switch
+        f(a) = sqrt(π) * SpecialFunctions.erf(sqrt(a)) / (2 * sqrt(a))
+        fneg(a) = sqrt(π) * SpecialFunctions.erfi(sqrt(-a)) / (2 * sqrt(-a))
+        for a in (1e-3, 0.0499999, 0.0500001, 0.7, 12.0)
+            @test EQUIP._meanexp(a) ≈ f(a) rtol = 1e-11
+            @test ForwardDiff.derivative(EQUIP._meanexp, a) ≈ ForwardDiff.derivative(f, a) rtol = 1e-8
+            @test EQUIP._meanexp(-a) ≈ fneg(-a) rtol = 1e-11
+            @test ForwardDiff.derivative(EQUIP._meanexp, -a) ≈ ForwardDiff.derivative(fneg, -a) rtol = 1e-8
         end
-        @test EQUIP._sphmean(0.0) == 1 && ForwardDiff.derivative(EQUIP._sphmean, 0.0) ≈ -1 / 3
+        @test EQUIP._meanexp(0.0) == 1 && ForwardDiff.derivative(EQUIP._meanexp, 0.0) ≈ -1 / 3
+        @test EQUIP._meanexp(-3f0) isa Float32 && EQUIP._meanexp(3f0) isa Float32
         u = range(0, 1; length = 200_001)                         # the trapezoid rule over cos ψ
         trap(g) = (sum(g.(u)) - (g(0) + g(1)) / 2) * step(u)
         b, D, Dperp = 2000.0, 2.0e-3, 0.7e-3
-        @test EQUIP._sphmean(b * D) ≈ trap(c -> exp(-b * D * c^2)) rtol = 1e-9                     # stick
-        @test exp(-b * Dperp) * EQUIP._sphmean(b * (D - Dperp)) ≈
-              trap(c -> exp(-b * (Dperp + (D - Dperp) * c^2))) rtol = 1e-9                      # zeppelin
+        @test stick(b, D, powder) ≈ trap(c -> exp(-b * D * c^2)) rtol = 1e-9                         # stick
+        @test zeppelin(b, D, Dperp, powder) ≈ trap(c -> exp(-b * (Dperp + (D - Dperp) * c^2))) rtol = 1e-9  # zeppelin
+        @test zeppelin(b, Dperp, D, powder) ≈ trap(c -> exp(-b * (D + (Dperp - D) * c^2))) rtol = 1e-9  # D⊥ > D∥
         # The model: S0 at b = 0; free diffusion when v_ax = 0 (D⊥ = D_ax); sticks alone when 1
         m = SMT(b = [0.0, 1000.0, 3000.0])
         @test signal(m, (S0 = 2.0, vax = 0.4, Dax = 2e-3))[1] == 2.0
@@ -2668,6 +2673,9 @@ end
         @test stick(2500.0, 2e-3, powder) ≈ sum(w .* [stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12
         @test zeppelin(2500.0, 2e-3, 0.5e-3, powder) ≈ sum(w .* [zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
         @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ iso(1000.0, 1e-3)
+        # D⊥ > D∥ (oblate): defined in both views, the spherical mean the mean of the directional one
+        @test zeppelin(1000.0, 0.5e-3, 1e-3, powder) ≈ sum(w .* [zeppelin(1000.0, 0.5e-3, 1e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(1000f0, 0.5f-3, 1f-3, powder) isa Float32
         # no view: an error that says which to write
         @test occursin("stick(b, D, powder)", msg(() -> stick(1000.0, 2e-3)))
         @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> zeppelin(1000.0, 2e-3, 0.5e-3)))

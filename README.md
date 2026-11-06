@@ -366,8 +366,10 @@ Yendiki, Imaging Neuroscience 2026), for the compartments of Panagiotaki et al.'
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | an axially symmetric tensor: its spherical mean, exp(−b·D⊥)·√π·erf(√(b(D∥ − D⊥)))/(2√(b(D∥ − D⊥))); along one direction at cosine ξ to the fiber, exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) |
 
 A stick or a zeppelin takes its view explicitly, `powder` (its spherical mean) or a cosine ξ
-(along one gradient direction); without one it is an error that says which to write. The cosine
-comes from two helpers, not compartments themselves:
+(along one gradient direction); without one it is an error that says which to write. A zeppelin
+with D⊥ > D∥ (oblate) is allowed in both views (its spherical mean then takes erfi); to keep
+D⊥ ≤ D∥ in a model that fits D⊥, give it a fraction, D⊥ = fperp·D∥ with bounds 0 and 1. The
+cosine comes from two helpers, not compartments themselves:
 
 | helper | gives |
 |---|---|

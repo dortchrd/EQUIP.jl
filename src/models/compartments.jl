@@ -88,7 +88,8 @@ stick(1000.0, 2e-3, 1.0)         # exp(−2): along the fiber
 stick(1000.0, 2e-3, 0.0)         # 1: across it
 ```
 """
-@inline stick(b, D, ::Powder) = _sphmean(b * D)
+# S̄ = ∫₀¹ exp(−b·D·ξ²) dξ = √π·erf(√(b·D)) / (2√(b·D))                     (Gong & Yendiki, Eq. 3)
+@inline stick(b, D, ::Powder) = _meanexp(b * D)
 @inline stick(b, D, ξ::Real) = exp(-b * D * ξ^2)
 stick(b, D) = throw(ArgumentError("stick(b, D) needs its view: stick(b, D, powder) for the " *
     "spherical mean, stick(b, D, ξ) along one direction at cosine ξ to the fiber"))
@@ -104,34 +105,52 @@ Neuroscience 2026, Eq. 7); with `powder`, its average over all directions (their
 al., NeuroImage 2016). With D⊥ = (1 − v_ax)·D_ax, the tortuosity limit, it is Kaden's
 extra-axonal compartment; with D∥ = D⊥ = D, it is `iso(b, D)`.
 
+D⊥ > D∥ (an oblate tensor) is allowed and correct in both views: the spherical mean then takes
+the imaginary error function, exp(−b·D⊥)·√π·erfi(√(b·(D⊥ − D∥))) / (2√(b·(D⊥ − D∥))). Whether
+it is physical is the model's to say: to keep D⊥ ≤ D∥, give the model a fraction, D⊥ =
+fperp·D∥ with 0 ≤ fperp ≤ 1 (as Microstructure.jl does; SMT's tortuosity limit is the case
+fperp = 1 − v_ax).
+
 ```julia
 zeppelin(1000.0, 2e-3, 0.5e-3, powder)   # the spherical mean
 zeppelin(1000.0, 2e-3, 0.5e-3, 1.0)      # exp(−2): along the fiber
 zeppelin(1000.0, 2e-3, 0.5e-3, 0.0)      # exp(−0.5): across it
 ```
 """
+# S = exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²))                                          (Gong & Yendiki, Eq. 7)
 @inline zeppelin(b, Dpar, Dperp, ξ::Real) = exp(-b * Dpar * ξ^2 - b * Dperp * (1 - ξ^2))
-@inline zeppelin(b, Dpar, Dperp, ::Powder) = exp(-b * Dperp) * _sphmean(b * (Dpar - Dperp))
+# S̄ = exp(−b·D⊥)·∫₀¹ exp(−b·(D∥ − D⊥)·ξ²) dξ
+#   = exp(−b·D⊥)·√π·erf(√(b·(D∥ − D⊥))) / (2√(b·(D∥ − D⊥)))                (Gong & Yendiki, Eq. 1)
+@inline zeppelin(b, Dpar, Dperp, ::Powder) = exp(-b * Dperp) * _meanexp(b * (Dpar - Dperp))
 zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs its view: " *
     "zeppelin(b, D∥, D⊥, powder) for the spherical mean, zeppelin(b, D∥, D⊥, ξ) along one direction"))
 
-# √π·erf(x)/(2x), from x² = x2 (√(π/(4x²))·erf(x), as Gong & Yendiki write it): the mean of
-# exp(−x²·cos²ψ) over all directions (a stick's signal exp(−b·D·(g·n)²) averaged over gradient
-# directions g, with x² = b·D; the zeppelin's with x² = b·(D∥ − D⊥)); 1 at x = 0. Near 0, its
-# Taylor series in x², Σ (−1)ⁿ x²ⁿ / (n!·(2n + 1)), 6 terms (error below 2e-12 for x² < 0.05):
-# no 0/0 at b = 0, and no square root, whose derivative is infinite at 0 (the fit's dual numbers
-# would carry it). The coefficients are integers, and π enters converted to x2's type, so a
-# Float32 fit stays in Float32.
-@inline function _sphmean(x2)
-    if abs(x2) < 0.05                   # (comparing a dual number compares its value)
-        t = x2
+# ∫₀¹ exp(−a·ξ²) dξ: the mean over all directions of exp(−a·ξ²), ξ the cosine between a fiber and
+# a gradient direction spread uniformly over the sphere. Every axially symmetric compartment's
+# spherical mean is made of it: the stick's is _meanexp(b·D), the zeppelin's exp(−b·D⊥)·
+# _meanexp(b·(D∥ − D⊥)) (and a cylinder's would be the zeppelin's with its restricted D⊥). Closed
+# forms:
+#   a > 0:  √π·erf(√a) / (2√a)          (Gong & Yendiki's √(π/(4a))·erf(√a))
+#   a < 0:  √π·erfi(√−a) / (2√−a)       (exp(+|a|·ξ²): a zeppelin with D⊥ > D∥, oblate)
+#   a = 0:  1
+# Near 0 (|a| < 0.05, either sign) its Taylor series instead, Σ (−1)ⁿ aⁿ / (n!·(2n + 1)), 6 terms
+# (error below 2e-12): no 0/0 at b = 0 or at D∥ = D⊥, and no square root, whose derivative is
+# infinite at 0 (the fit's dual numbers would carry it). The coefficients are integers, and π
+# enters converted to a's type, so a Float32 fit stays in Float32.
+@inline function _meanexp(a)
+    if abs(a) < 0.05                    # (comparing a dual number compares its value)
+        t = a
         s = 1 - t / 3
-        t *= x2; s += t / 10
-        t *= x2; s -= t / 42
-        t *= x2; s += t / 216
-        t *= x2; s -= t / 1320
+        t *= a; s += t / 10
+        t *= a; s -= t / 42
+        t *= a; s += t / 216
+        t *= a; s -= t / 1320
         return s
+    elseif a > 0
+        x = sqrt(a)
+        return erf(x) / x * (sqrt(oftype(x, π)) / 2)
+    else
+        x = sqrt(-a)
+        return erfi(x) / x * (sqrt(oftype(x, π)) / 2)
     end
-    x = sqrt(x2)
-    return erf(x) / x * (sqrt(oftype(x, π)) / 2)
 end
