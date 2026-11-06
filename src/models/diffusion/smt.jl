@@ -36,8 +36,12 @@ of the diffusion signal in a shell, from sticks (intra-axonal, no radial diffusi
 zeppelin around them (extra-axonal), with the same parallel diffusivity D_ax and the
 extra-axonal radial diffusivity from the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax:
 
-    S̄(b) = S0·[v_ax·f(b·D_ax) + (1 − v_ax)·exp(−b·D⊥,ex)·f(b·v_ax·D_ax)],
-    f(x²) = √π·erf(x)/(2x)
+    S̄(b)    = S0·[v_ax·S̄_ax(b) + (1 − v_ax)·S̄_ex(b)]
+    S̄_ax(b) = √π·erf(√(b·D_ax)) / (2√(b·D_ax))                                   (sticks)
+    S̄_ex(b) = exp(−b·D⊥,ex)·√π·erf(√(b·(D_ax − D⊥,ex))) / (2√(b·(D_ax − D⊥,ex)))   (zeppelin)
+
+In the code these are `stick(b, Dax, powder)` and `zeppelin(b, Dax, Dperp, powder)`, EQUIP's
+compartments.
 
 The fibers' orientations drop out of the spherical mean (crossing, dispersion, undulation).
 
