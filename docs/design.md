@@ -3536,7 +3536,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   - **The blocks are plain functions of EQUIP, exported** (no module `EQUIP.Blocks`): `ball`,
     `stick`, `zeppelin`, `powder`, `fiberdirection` and `⋅`. `using EQUIP` is all a model
     needs; nothing clashed (no other name in EQUIP or its tests). They are the diffusion
-    compartments only, as Microstructure.jl's are; relaxation is written as its equation,
+    compartments only (Microstructure.jl's carry a T2 each, as the paper of 2026 below
+    shows; here a compartment's T2 is written in the model); relaxation is written as its equation,
     `exp(-TE / T2)`, which cannot be mistaken (`decay(TE, T2)` was exp(−TE·T2), silently wrong:
     its docstring had to warn of it). No `decay`, public or internal.
   - **Measured, the refactoring check** (every built-in model, 300 voxels at SNR 100, starts,
@@ -3567,6 +3568,18 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   owner: it belongs with the compartments); `fiberdirection` moves to orientation.jl, beside
   `directionset`, as the geometry that gives a directional compartment its view ξ = g ⋅ n. The
   functions keep their names; only files, comments and docs change.
+
+- **`iso`, not `ball`** (2026-11-06, the owner, from Gong & Yendiki, "Microstructure.jl: A Julia
+  package for probabilistic microstructure model fitting with diffusion MRI", Imaging
+  Neuroscience 2026;4, doi:10.1162/IMAG.a.1102). Their compartments are Cylinder, Stick,
+  Zeppelin, Sphere and Iso; Iso (section 2.2.1.5, Eq. 5) is isotropic Gaussian diffusion, used
+  for CSF, an extra-cellular space, or with D = 0 for immobile water in ex vivo tissue, the
+  "dot" (their SANDIdot). So `iso(b, D)` is Panagiotaki's ball and, at D = 0, the dot: no dot of
+  its own is needed. Read from the paper, two more things: their Eqs. 6–8 write the cosine as
+  ξ = g·n, the notation chosen here; and each of their compartments carries a T2, a factor
+  e^(−t/T2) included only with multi-TE data (sections 2.2, 2.2.1), so EQUIP's compartments,
+  diffusion only with a compartment's T2 written in the model, differ from theirs there. (This
+  log had said "diffusion only, as Microstructure.jl's are"; corrected.)
 
 ### Not done yet
 

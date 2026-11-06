@@ -74,7 +74,7 @@ end
 
 # Grouped by area, one file per model (or per family of closely related models). Names put the
 # quantity first, then the method: T1IR, T1MFA, T2Decay, QMTSIR, ...
-include("compartments.jl")              # the compartments: ball, stick, zeppelin and their view
+include("compartments.jl")              # the compartments: iso, stick, zeppelin and their view
                                         # powder (exported), for the models below
 include("relaxometry/t1_ir.jl")         # T1IR, R1IR, T1IRTD, R1IRTD: inversion recovery
 include("relaxometry/t1_sr.jl")         # T1SR, R1SR: saturation recovery

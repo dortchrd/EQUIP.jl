@@ -114,7 +114,7 @@ function _profile(m::SMTFreeWater, p, j, ξ)
     b = m.b[j]
     Dperp = (1 - p.vax) * p.Dax
     tissue = p.vax * stick(b, p.Dax, ξ) + (1 - p.vax) * zeppelin(b, p.Dax, Dperp, ξ)
-    return p.S0 * ((1 - p.fiso) * tissue + p.fiso * ball(b, p.Diso))
+    return p.S0 * ((1 - p.fiso) * tissue + p.fiso * iso(b, p.Diso))
 end
 function _profile(m::SMTT2, p, j, ξ)
     b, TE = m.b[j], m.TE[j]

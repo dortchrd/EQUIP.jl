@@ -355,14 +355,16 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
 ### Compartments
 
 The diffusion compartments EQUIP's own models are made of, exported by EQUIP for writing yours
-(`using EQUIP` brings them; b in s/mm², D in mm²/s). The name and the set are those of
-Panagiotaki et al.'s taxonomy (NeuroImage 2012), as in Microstructure.jl:
+(`using EQUIP` brings them; b in s/mm², D in mm²/s). The names are Microstructure.jl's (Gong &
+Yendiki, Imaging Neuroscience 2026), for the compartments of Panagiotaki et al.'s taxonomy
+(NeuroImage 2012), where `iso` is the "ball":
 
 | compartment | signal |
 |---|---|
-| `ball(b, D)` | exp(−b·D): isotropic diffusion (free water, an ADC), the same in every view |
+| `iso(b, D)` | exp(−b·D): isotropic Gaussian diffusion (free water, an extra-cellular space, an ADC), the same in every view; with D = 0, immobile water (a "dot") |
 | `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
+
 A stick or a zeppelin takes its view explicitly, `powder` (its spherical mean) or a cosine ξ
 (along one gradient direction); without one it is an error that says which to write. The cosine
 comes from two helpers, not compartments themselves:
@@ -371,9 +373,11 @@ comes from two helpers, not compartments themselves:
 |---|---|
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
 | `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated |
- Relaxation is written as its equation, as the paper writes it:
-`exp(-TE / T2)`, `1 - 2exp(-TI / T1)` (as Microstructure.jl's compartments carry their T2s, the
-blocks are the diffusion compartments only).
+
+The compartments are diffusion only. Relaxation is written in the model as its equation, as the
+paper writes it: `exp(-TE / T2)`, `1 - 2exp(-TI / T1)`, and a compartment's T2 as a factor of it,
+`vax * exp(-TE / T2ax) * stick(...)`, in a model whose acquisition has several echo times.
+(Microstructure.jl's compartments carry a T2 each instead, used only with multi-TE data.)
 
 ```julia
 using EQUIP
@@ -385,7 +389,7 @@ using EQUIP
 
 @mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
                Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
-    S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
+    S0 * (f * iso(b, Dstar) + (1 - f) * iso(b, D))
 
 @mrimodel SMTwithT2(b, TE; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
                     Dax = Free(start = 2e-3, lower = 0), T2ax = Free(start = 0.08), T2ex = Free(start = 0.05)) =

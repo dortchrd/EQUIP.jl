@@ -2654,19 +2654,20 @@ end
         @test all(signal(RicianSphericalMean(m; σ), θ) .>= signal(RicianMean(m; σ), θ) .- 1e-12)  # (convex)
     end
 
-    @testset "Compartments: ball, stick, zeppelin and the powder view, exported by EQUIP" begin
+    @testset "Compartments: iso, stick, zeppelin and the powder view, exported by EQUIP" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
-        @test Set(names(EQUIP)) ⊇ Set([:ball, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
+        @test Set(names(EQUIP)) ⊇ Set([:iso, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
+        @test !isdefined(EQUIP, :ball)
         @test !isdefined(EQUIP, :Blocks) && !isdefined(EQUIP, :decay) && !isdefined(EQUIP, :_decay)
-        @test ball(1000.0, 1e-3) == exp(-1.0) && ball(0.0, 3e-3) == 1
+        @test iso(1000.0, 1e-3) == exp(-1.0) && iso(0.0, 3e-3) == 1 && iso(4000.0, 0.0) == 1    # D = 0: a dot
         @test stick(1000f0, 2f-3, powder) isa Float32 && stick(1000f0, 2f-3, 0.5f0) isa Float32
         @test stick(0.0, 2e-3, powder) == 1 && stick(1000.0, 2e-3, 0.0) == 1 && stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
         @test stick(1000.0, 2e-3, powder) ≈ 0.5981440066613041 rtol = 1e-14                # √π·erf(√2)/(2√2)
         x, w = EQUIP._GL01                                     # Gauss–Legendre on [0, 1]: the mean over ξ
         @test stick(2500.0, 2e-3, powder) ≈ sum(w .* [stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12
         @test zeppelin(2500.0, 2e-3, 0.5e-3, powder) ≈ sum(w .* [zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
-        @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ ball(1000.0, 1e-3)
+        @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ iso(1000.0, 1e-3)
         # no view: an error that says which to write
         @test occursin("stick(b, D, powder)", msg(() -> stick(1000.0, 2e-3)))
         @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> zeppelin(1000.0, 2e-3, 0.5e-3)))

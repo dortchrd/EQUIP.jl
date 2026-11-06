@@ -52,7 +52,7 @@ export MRIModel, Free, Fixed, BestOf, parameters, defaults                  # mo
 export resolve, signal!, signal, nobs                                       # values and signals
 export datastart, relabel                                                   # optional hooks
 export @mrimodel, newmodel                                                  # a model in one step; a file
-export ball, stick, zeppelin, powder                                        # compartments, and their spherical-mean view
+export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
 export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves

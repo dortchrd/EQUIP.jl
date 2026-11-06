@@ -197,7 +197,7 @@ function signal!(out, m::SMTFreeWater, p)
     Dperp = (1 - vax) * Dax                       # tortuosity
     @inbounds for j in eachindex(out, b)
         tissue = vax * stick(b[j], Dax, powder) + (1 - vax) * zeppelin(b[j], Dax, Dperp, powder)
-        out[j] = S0 * ((1 - fiso) * tissue + fiso * ball(b[j], Diso))     # free water: a ball
+        out[j] = S0 * ((1 - fiso) * tissue + fiso * iso(b[j], Diso))      # free water: isotropic
     end
     return out
 end

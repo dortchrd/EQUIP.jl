@@ -13,13 +13,14 @@ Each branch builds on the one above it.
 | `smt-proto` | SMT, SMTFreeWater, SMTT2 | not merged |
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
 | `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off (both undone on `directions-proto`); examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
-| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`ball`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2084, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`iso`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2085, CLI 124, MRImages 103 |
 
 ## Done recently
 
 - **Compartments** (called "building blocks" until 2026-11-06; the literature's word, after
   Panagiotaki et al.'s taxonomy). The diffusion compartments, exported by EQUIP, no module
-  (src/models/compartments.jl): `ball(b, D)`, and `stick` and `zeppelin` with an explicit view,
+  (src/models/compartments.jl): `iso(b, D)` (Panagiotaki's ball; with D = 0 the dot), and
+  `stick` and `zeppelin` with an explicit view,
   `powder` (the spherical mean) or a cosine ξ (one direction). The cosine comes from helpers, not
   compartments: `fiberdirection` (orientation.jl) and `ξ = g ⋅ n`. Relaxation is written as its
   equation, `exp(-TE / T2)`; there is no `decay`.
@@ -63,7 +64,9 @@ Each branch builds on the one above it.
   Watson-dispersed view.
 - **A cylinder compartment (axon diameter):** first a crlb check that diameter is measurable on the
   lab's δ, Δ and maximum gradient; the units for restricted compartments to decide.
-- **Other compartments:** a tensor, a sphere, a dot (Panagiotaki's taxonomy). Not compartments,
+- **Other compartments:** a tensor, a cylinder and a sphere (Panagiotaki's taxonomy;
+  Microstructure.jl has the cylinder and sphere, with the GPD approximation; the dot is
+  `iso(b, 0)`). Not compartments,
   and so written in their models: kurtosis, EPG for multi-echo T2, the SPGR steady state,
   exchange.
 - **Roadmap item 16, error propagation:** `propagate(c, g)` for derived quantities (FA, MD,

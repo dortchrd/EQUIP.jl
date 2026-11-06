@@ -1,8 +1,8 @@
 # =================================================================================================
 # Models written with `@mrimodel`, relaxation as its equation and diffusion from the
-# compartments (ball, stick, zeppelin), each fitted to simulated data
+# compartments (iso, stick, zeppelin), each fitted to simulated data
 #
-#   ball(b, D)  stick(b, D, view)  zeppelin(b, D∥, D⊥, view)   view: powder or a cosine ξ
+#   iso(b, D)  stick(b, D, view)  zeppelin(b, D∥, D⊥, view)   view: powder or a cosine ξ
 #
 # `@mrimodel` turns one observation's signal into a model (src/models/macro.jl): the positional
 # arguments are the acquisition, the keywords the parameters (Free(...) is fitted, a number is
@@ -12,7 +12,7 @@
 #   1. T2 decay, exp(-TE / T2): T2 is fitted; the built-in T2Decay's fit, to rounding
 #   2. inversion recovery, magnitude
 #   3. three-pool T2 (myelin water, intra/extracellular water, CSF), CSF's T2 known
-#   4. IVIM: perfusion and diffusion, two balls
+#   4. IVIM: perfusion and diffusion, two isotropic compartments
 #   5. SMT with a T2 per compartment, in one line
 #   6. a nerve along a known direction (z): sticks and a zeppelin along each gradient direction,
 #      no spherical mean (the compartments' directional view)
@@ -62,7 +62,7 @@ show_fit("3. three pools (SNR 1000):", fit(ThreePool(TE = te48), simulate(ThreeP
 # --- 4. IVIM: perfusion and diffusion ---------------------------------------------------------------
 @mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
                Dstar = Free(start = 0.02, lower = 0.003, upper = 0.1), D = Free(start = 1e-3, lower = 0, upper = 3e-3)) =
-    S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
+    S0 * (f * iso(b, Dstar) + (1 - f) * iso(b, D))
 
 bv = [0.0, 10, 20, 40, 60, 100, 200, 400, 600, 800, 1000]
 θ = (S0 = 1000.0, f = 0.12, Dstar = 0.025, D = 0.9e-3)

@@ -35,7 +35,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, `datastart`); src/models/compartments.jl: the diffusion
-  compartments exported by EQUIP for writing models (`ball`, `stick`, `zeppelin`, with the view
+  compartments exported by EQUIP for writing models (`iso`, `stick`, `zeppelin`, with the view
   `powder` or a cosine ξ);
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank

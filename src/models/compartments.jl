@@ -1,7 +1,7 @@
 # =================================================================================================
 # Compartments: the diffusion compartments models are written with (exported by EQUIP)
 #
-#   ball(b, D)                 exp(−b·D)                          isotropic diffusion (free water)
+#   iso(b, D)                  exp(−b·D)                          isotropic diffusion (free water; D = 0: a dot)
 #   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
 #   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·stick(b, D∥ − D⊥, view) axially symmetric
 #   powder                                                        the view averaged over directions
@@ -10,23 +10,27 @@
 # the signal along one gradient direction at cosine ξ between the fiber and the gradient (what a
 # direction set samples), or `powder`, its average over all directions (the spherical mean,
 # NMR's powder average, what SMT fits). `stick(b, D)` without a view is an error that says which
-# to write. The ball is the same in every view and takes none. The cosine for one image comes from
+# to write. The isotropic compartment is the same in every view and takes none. The cosine for one image comes from
 # `fiberdirection` (orientation.jl) and Julia's dot product: ξ = (gx[j], gy[j], gz[j]) ⋅ n.
 #
 # The name is the literature's: the compartments of Panagiotaki et al.'s taxonomy (NeuroImage
-# 2012: ball, stick, zeppelin, tensor, cylinder, sphere, dot), as in Microstructure.jl; a model
-# made of them is a multi-compartment model. ("Kernel", in the standard-model and SMI papers, is
-# the signal of one fiber bundle, its compartments together: a stick plus a zeppelin is one.)
+# 2012: ball, stick, zeppelin, tensor, cylinder, sphere, dot) and of Microstructure.jl (Gong &
+# Yendiki, Imaging Neuroscience 2026: Cylinder, Stick, Zeppelin, Sphere, Iso), whose names EQUIP
+# follows: `iso` is Panagiotaki's ball, and with D = 0 the dot (Gong & Yendiki, section 2.2.1.5);
+# a model made of them is a multi-compartment model. ("Kernel", in the standard-model and SMI
+# papers, is the signal of one fiber bundle, its compartments together: a stick plus a zeppelin
+# is one; Gong & Yendiki's Eqs. 6–8 use ξ = g·n, as here.)
 # Plain functions, exported by EQUIP (`using EQUIP` brings them), for writing a model as its
 # paper writes it:
 #
 #   @mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
 #                  Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
-#       S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
+#       S0 * (f * iso(b, Dstar) + (1 - f) * iso(b, D))
 #
-# They are diffusion only, as Microstructure.jl's compartments are: a compartment's T2 weighting
-# is written in the model as its equation, `vax * exp(-TE / T2ax) * stick(...)`, in a model whose
-# acquisition has the echo times to measure it (SMTT2). Every model, EQUIP's own included, is
+# They are diffusion only. (Microstructure.jl's carry a T2 each, the factor e^(−t/T2) of Gong &
+# Yendiki's Eqs. 1–5, included only with multi-TE data.) Here a compartment's T2 weighting is
+# written in the model as its equation, `vax * exp(-TE / T2ax) * stick(...)`, in a model whose
+# acquisition has the echo times to measure it (SMTT2): no T2 to switch off in the others. Every model, EQUIP's own included, is
 # written out in the standard format (a struct, `parameters`, `signal!`), with these as its
 # compartments. More: README, "Compartments", and examples/compartments.jl. (Until 2026-11-06
 # they were "building blocks", first a module of their own, `EQUIP.Blocks`, with an exponential
@@ -34,23 +38,27 @@
 # on and off: docs/design.md, "Building blocks".) They cost nothing against the equation written
 # out: the compiler inlines them.
 #
-# Diffusion compartments: Kaden et al., NeuroImage 2016; Panagiotaki et al., NeuroImage 2012. The
+# Diffusion compartments: Kaden et al., NeuroImage 2016; Panagiotaki et al., NeuroImage 2012;
+# Gong & Yendiki, Imaging Neuroscience 2026 (doi:10.1162/IMAG.a.1102). The
 # two views of a compartment are two methods of one function: Julia picks the one that matches
 # the arguments (dispatch), when compiling, so neither costs a test at run time.
 # =================================================================================================
 
 """
-    ball(b, D) = exp(−b·D)
+    iso(b, D) = exp(−b·D)
 
-Isotropic diffusion (free water, CSF, an ADC): the same along every direction and in the powder
-average, so it takes no view. Named as a compartment so that diffusion models read like the
-papers (Panagiotaki et al., NeuroImage 2012).
+An isotropic compartment: Gaussian diffusion, the same along every direction and in the powder
+average, so it takes no view. As Gong & Yendiki use it (Imaging Neuroscience 2026, Eq. 5): CSF or
+free water (D about 3e-3 mm²/s at body temperature), an extra-cellular space (D from the tissue),
+or, with D = 0, immobile water (a signal of 1 at every b: the "dot" of Panagiotaki et al.,
+NeuroImage 2012, whose name for this compartment is the "ball").
 
 ```julia
-ball(1000.0, 1e-3)               # exp(−1)
+iso(1000.0, 1e-3)                # exp(−1)
+iso(4000.0, 0.0)                 # 1: a dot
 ```
 """
-@inline ball(b, D) = exp(-b * D)
+@inline iso(b, D) = exp(-b * D)
 
 """
     powder
