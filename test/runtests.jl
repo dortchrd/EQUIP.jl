@@ -125,7 +125,7 @@ function EQUIP.signal!(out, m::DirStickZeppelin, p)
     (; S0, vax, Dax, θ, φ) = p
     n = EQUIP.Blocks.fiberdirection(θ, φ)
     @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = EQUIP.Blocks.fibercosine(gx[j], gy[j], gz[j], n)
+        ξ = (gx[j], gy[j], gz[j]) ⋅ n
         out[j] = S0 * (vax * EQUIP.Blocks.stick(b[j], Dax, ξ) +
                        (1 - vax) * EQUIP.Blocks.zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
     end
@@ -2755,7 +2755,7 @@ end
         @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
     end
 
-    @testset "Directions per image: diffusionencoding, fiberdirection, fibercosine" begin
+    @testset "Directions per image: diffusionencoding, fiberdirection, g ⋅ n" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         rng = MersenneTwister(5)
         dirs = directionset(30)
@@ -2783,9 +2783,13 @@ end
         B = EQUIP.Blocks
         n = B.fiberdirection(0.7, 0.3)
         @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && B.fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
-        @test B.fibercosine(dirs[3]..., n) ≈ dot(dirs[3], SVector(n))
-        @test B.fibercosine(0.0, 0.0, 1.0, B.fiberdirection(π / 3, 0.4)) ≈ 0.5
-        @test B.fiberdirection === EQUIP.Blocks.fiberdirection && :fibercosine in names(B)
+        # the cosine is Julia's dot, passed on by Blocks (the same function: no clash with LinearAlgebra)
+        @test B.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(B) && :fiberdirection in names(B)
+        @test Tuple(dirs[3]) ⋅ n ≈ dot(dirs[3], SVector(n))                     # two tuples
+        @test dirs[3] ⋅ n == Tuple(dirs[3]) ⋅ n                                  # or an SVector
+        @test (0.0, 0.0, 1.0) ⋅ B.fiberdirection(π / 3, 0.4) ≈ 0.5
+        tdot(g, n) = @allocated g ⋅ n
+        @test (tdot((1.0, 2.0, 3.0), n); tdot((1.0, 2.0, 3.0), n) == 0)
         # a directional model on it: its signal is the stick and zeppelin written out, no allocation
         m = DirStickZeppelin(; acq...)
         θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, θ = 0.7, φ = 0.3)

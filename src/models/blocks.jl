@@ -8,7 +8,7 @@
 #   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
 #   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·stick(b, D∥ − D⊥, view) axially symmetric
 #   fiberdirection(θ, φ)       (sinθ·cosφ, sinθ·sinφ, cosθ)       a fiber's direction, from angles
-#   fibercosine(gx, gy, gz, n) gx·n₁ + gy·n₂ + gz·n₃              the view ξ of one image
+#   g ⋅ n                      g₁·n₁ + g₂·n₂ + g₃·n₃              the view ξ of one image (Julia's dot)
 #
 # b in s/mm², D in mm²/s, times in s. A compartment with a direction takes its view explicitly:
 # a cosine ξ, the signal along one gradient direction at cosine ξ between the fiber and the
@@ -54,8 +54,16 @@
 module Blocks
 
 using SpecialFunctions: erf
+using LinearAlgebra: ⋅
 
-export decay, ball, stick, zeppelin, powder, fiberdirection, fibercosine
+export decay, ball, stick, zeppelin, powder, fiberdirection
+# The cosine between a gradient direction and a fiber is Julia's own dot product, ξ = g ⋅ n
+# (LinearAlgebra's `⋅`, typed \cdot then Tab), on two triples: g = (gx[j], gy[j], gz[j]) and
+# n = fiberdirection(θ, φ). It takes tuples as well as vectors, with nothing allocated, so no
+# block of our own is needed (a `fibercosine(g, n)` was one: the same numbers bit for bit, and
+# as fast; docs/design.md, "Directions per image"). Passed on here, so `using EQUIP.Blocks`
+# brings it; with `using LinearAlgebra` too it is the same function, so the names do not clash.
+export ⋅
 
 """
     decay(x, rate) = exp(−x·rate)
@@ -147,31 +155,27 @@ zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs it
     fiberdirection(θ, φ) -> (nx, ny, nz)
 
 The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y plane), in
-radians, as a tuple of three numbers: a fiber's direction n, for [`fibercosine`](@ref). In a
-model, compute it once, before the loop over the images: its sines and cosines are the same for
-every image, and the compiler does not move them out of the loop (measured: a stick–zeppelin's
-fit took twice as long with them per image, docs/design.md, "Directions per image").
-"""
-@inline fiberdirection(θ, φ) = (sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
+radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
+g = (gx[j], gy[j], gz[j]), the cosine between them is ξ = g ⋅ n (Julia's dot product, passed on
+by this module): the view `ξ` that [`stick`](@ref) and [`zeppelin`](@ref) take for one gradient
+direction, and for unit vectors also the gradient's projection on the fiber. Only ξ² enters
+their signals, so n and −n are the same fiber.
 
-"""
-    fibercosine(gx, gy, gz, n)
-
-The cosine of the angle between one image's gradient direction, (gx, gy, gz), and a fiber's
-direction n (three numbers, e.g. from [`fiberdirection`](@ref)): the dot product, which for unit
-vectors is also the gradient's projection on the fiber. It is the view `ξ` that
-[`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction; only ξ² enters their
-signals, so n and −n are the same fiber.
+In a model, compute n once, before the loop over the images: its sines and cosines are the same
+for every image, and the compiler does not move them out of the loop (measured: a
+stick–zeppelin's fit took twice as long with them per image, docs/design.md, "Directions per
+image").
 
 ```julia
 n = fiberdirection(θ, φ)                                  # once per voxel
 for j in eachindex(out, b, gx, gy, gz)
-    ξ = fibercosine(gx[j], gy[j], gz[j], n)               # each image
+    g = (gx[j], gy[j], gz[j])                             # image j's gradient direction
+    ξ = g ⋅ n                                             # the cosine, gradient to fiber
     out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
 end
 ```
 """
-@inline fibercosine(gx, gy, gz, n) = gx * n[1] + gy * n[2] + gz * n[3]
+@inline fiberdirection(θ, φ) = (sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
 
 # √π·erf(x)/(2x), from x² = x2: the mean of exp(−x²·cos²ψ) over all directions (a stick's signal
 # exp(−b·D·(g·n)²) averaged over gradient directions g, with x² = b·D); 1 at x = 0. Near 0, its

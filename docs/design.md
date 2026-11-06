@@ -3460,8 +3460,9 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     on "a directional model" (a spherical mean of any of them, a shared log-linear start):
     changing `<: MRIModel` to `<: DirectionalDiffusion` breaks nothing. The macro's supertype
     option is not needed either.
-  - **Two blocks**, the owner's names: `fiberdirection(θ, φ)`, the unit vector as a tuple, and
-    `fibercosine(gx, gy, gz, n)`, the cosine between one image's gradient direction and the
+  - **Two blocks**, the owner's names (the second since replaced by Julia's `⋅`, below):
+    `fiberdirection(θ, φ)`, the unit vector as a tuple, and `fibercosine(g, n)`, the cosine
+    between one image's gradient direction and the
     fiber (the dot product; for unit vectors also the projection; the view `ξ` of `stick` and
     `zeppelin`). Plain tuples: no StaticArrays needed (measured: 0 bytes, the same speed as
     the cosine written out or as `SVector(gx[j], gy[j], gz[j]) ⋅ n`, which differs by 8e-16).
@@ -3480,6 +3481,17 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     view would use. Renamed in the blocks (`stick(b, D, ξ)`), their docstrings, `_profile` and
     the Legendre and Rician sums in orientation.jl, the examples, the tests, the Watson samplers
     in bench/; the nerve example's `c` too. Only names changed: the view is passed by position.
+    And `fibercosine` takes two triples, `fibercosine(g, n)` with g = (gx[j], gy[j], gz[j]) and n
+    from `fiberdirection` (the owner, 2026-11-06: three numbers for g beside a tuple for n "feels
+    off"), so the line reads as the equation, ξ = g·n; symmetric in its arguments, tuples or
+    SVectors alike, and allocation-free (a tuple of three numbers is the three loads). Then
+    replaced by Julia's own dot (the owner: "or we could even do g⋅n!"): LinearAlgebra's `⋅`
+    takes any iterable containers, tuples included, so `ξ = g ⋅ n` needs no block of ours.
+    Measured against `fibercosine(g, n)` (stick–zeppelin, 66 images, 4000 voxels): signals and
+    fits bit-identical in both precisions, nothing allocated, the same speed within noise (10.6
+    against 11.4 µs per voxel, timed while the test suite ran). `EQUIP.Blocks` passes `⋅` on
+    (`using LinearAlgebra: ⋅; export ⋅`), so `using EQUIP.Blocks` is enough; it is the same
+    binding as LinearAlgebra's, so `using LinearAlgebra` beside it does not clash (checked).
   - **Angle models by hand, not with `@mrimodel`** (revising "built-in models written with
     `@mrimodel`" above for them): a macro body is one image's signal, so a direction made from
     θ and φ in it is made for every image. Measured in examples/directional_models.jl (132

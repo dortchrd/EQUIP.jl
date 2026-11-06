@@ -13,7 +13,7 @@ Each branch builds on the one above it.
 | `smt-proto` | SMT, SMTFreeWater, SMTT2 | not merged |
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
 | `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off; examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
-| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; the blocks `fiberdirection`, `fibercosine`; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2106, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; the block `fiberdirection` and Julia's `⋅` passed on (ξ = g ⋅ n); `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2108, CLI 124, MRImages 103 |
 
 ## Done recently
 
@@ -89,8 +89,8 @@ examples/directional_models.jl, discussed in the session:
   matrix. No supertype (the owner, 2026-11-06): everything works by field name; add one when
   code must dispatch on "a directional model". New single-equation built-in models without
   angles (DTI) are written with `@mrimodel`; models with fiber angles (StickZeppelin) by hand,
-  `fiberdirection(θ, φ)` once per voxel and `fibercosine(gx[j], gy[j], gz[j], n)` per image;
-  QMTSIR stays written in full as the reference, with the T2 and SMT families.
+  `fiberdirection(θ, φ)` once per voxel and `ξ = g ⋅ n` (Julia's dot) per image, with
+  g = (gx[j], gy[j], gz[j]); QMTSIR stays written in full as the reference, with the T2 and SMT families.
 - **Built (branch `directions-proto`, 2026-11-06):** `diffusionencoding` (b-values kept as
   given; the threshold only says where a direction must be a unit vector), `loaddata` reading a
   .bvec beside the .bval, `readbvec` exported, the two fiber blocks, `nobs` refusing a field of

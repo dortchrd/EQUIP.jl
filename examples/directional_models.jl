@@ -11,12 +11,12 @@
 # vectors b, gx, gy, gz, made by `diffusionencoding` (from the files, or here from arrays) and
 # passed to any directional model as keywords. The cosine between gradient and fiber, ξ = g·n, is
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the blocks
-# take it as a number: `fiberdirection(θ, φ)` once per voxel, `fibercosine(gx[j], gy[j], gz[j], n)`
-# for each image. The stick + zeppelin is written by hand for that reason: written with
-# `@mrimodel`, whose body runs once per image, its sines and cosines are computed for every image
-# and its fit takes about twice as long (both are timed at the end). DTI has no angles, and the
-# macro suits it. A stick and a zeppelin are tensors (D = D∥·nnᵀ; D = D⊥·I + (D∥ − D⊥)·nnᵀ):
-# checked below.
+# take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n` (Julia's dot) for
+# each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is written by hand for that
+# reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
+# computed for every image and its fit takes about twice as long (both are timed at the end).
+# DTI has no angles, and the macro suits it. A stick and a zeppelin are tensors (D = D∥·nnᵀ;
+# D = D⊥·I + (D∥ − D⊥)·nnᵀ): checked below.
 #
 # Run from the repository folder (about 30 s):
 #   julia -t 4 --project=. examples/directional_models.jl
@@ -53,7 +53,8 @@ function signal!(out, m::StickZeppelin, p)
     n = fiberdirection(θ, φ)                                         # once per voxel
     Dperp = (1 - vax) * Dax                                          # tortuosity
     @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = fibercosine(gx[j], gy[j], gz[j], n)                      # cosine, gradient to fiber
+        g = (gx[j], gy[j], gz[j])                                    # image j's gradient direction
+        ξ = g ⋅ n                                                    # the cosine, gradient to fiber
         out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
     end
     return out
@@ -65,7 +66,7 @@ end
                                       Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
                                       θ = Free(start = 0.5, lower = 0, upper = π),
                                       φ = Free(start = 0.0, lower = -π, upper = π))
-    ξ = fibercosine(gx, gy, gz, fiberdirection(θ, φ))               # cosine, gradient to fiber
+    ξ = (gx, gy, gz) ⋅ fiberdirection(θ, φ)                         # the cosine, gradient to fiber
     Dperp = (1 - vax) * Dax                                          # tortuosity
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, Dperp, ξ))
 end
@@ -80,7 +81,7 @@ m = StickZeppelin(; acq...)                                 # `...`: b, gx, gy, 
 display(m); println()
 
 # a stick and a zeppelin are tensors: D = D∥·nnᵀ, and D⊥·I + (D∥ − D⊥)·nnᵀ
-n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; ξ5 = fibercosine(gg..., n)
+n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; ξ5 = gg ⋅ n
 Dst = 2e-3 * n * n'; Dzp = 0.8e-3 * I + (2e-3 - 0.8e-3) * n * n'
 println("stick as a tensor:    ", stick(2500.0, 2e-3, ξ5) ≈ exp(-2500.0 * gg' * Dst * gg))
 println("zeppelin as a tensor: ", zeppelin(2500.0, 2e-3, 0.8e-3, ξ5) ≈ exp(-2500.0 * gg' * Dzp * gg))

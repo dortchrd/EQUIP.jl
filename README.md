@@ -384,7 +384,7 @@ D in mm²/s, times in s):
 | `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
-| `fibercosine(gx, gy, gz, n)` | the cosine ξ between one image's gradient direction and the fiber, gx·n₁ + gy·n₂ + gz·n₃: the view `ξ` above |
+| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, passed on by `EQUIP.Blocks`), on two tuples, nothing allocated; the view `ξ` above |
 
 `decay` takes the rate: `decay(TE, T2)` would be exp(−TE·T2), almost no decay, and nothing reports
 it, so write `decay(TE, 1/T2)`; T2 is still what is fitted. A stick or a zeppelin takes its view
@@ -426,7 +426,7 @@ m = StickZeppelin(; acq...)                           # any model with these fie
 ```
 
 With fiber angles, write `signal!` by hand and compute the direction once per voxel,
-`n = fiberdirection(θ, φ)`, then `ξ = fibercosine(gx[j], gy[j], gz[j], n)` for each image: an
+`n = fiberdirection(θ, φ)`, then `ξ = (gx[j], gy[j], gz[j]) ⋅ n` for each image: an
 `@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
 and the fit takes about twice as long (examples/directional_models.jl times both).
 
