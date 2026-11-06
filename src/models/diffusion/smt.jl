@@ -28,7 +28,7 @@
 # floor: in montecarlo, `averaging = :magnitude`; per direction, `sphericalmeannoise`.)
 #
 # The same tissue equation gives the signal along one direction (`_profile`, in orientation.jl):
-# the compartments in their directional view, at cosine t between fiber and gradient.
+# the compartments in their directional view, at cosine ξ between fiber and gradient.
 # =================================================================================================
 
 """
@@ -67,7 +67,7 @@ end
 
 # The tissue at one observation: b, TE (false without echo times: no T2 weighting), the rates
 # R2 = 1/T2 (0 for T2 = Inf), and the view, `powder` for the spherical mean or a cosine
-# t for one direction. With the parts off: S0·(v_ax·S̄_stick + (1 − v_ax)·S̄_zeppelin), Kaden's.
+# ξ for one direction. With the parts off: S0·(v_ax·S̄_stick + (1 − v_ax)·S̄_zeppelin), Kaden's.
 @inline function _smt(p, R2ax, R2ex, R2iso, b, TE, v)
     (; S0, vax, Dax, fiso, Diso, Dexpar, Dexperp) = p
     ax = vax * (decay(TE, R2ax) * stick(b, Dax, v))                           # intra-axonal: sticks

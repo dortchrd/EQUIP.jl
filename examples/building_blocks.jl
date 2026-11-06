@@ -82,16 +82,16 @@ println("   against the built-in SMTT2: ", round(maximum(abs, signal(MySMTT2(b =
 
 # --- 6. A nerve along z: one direction at a time, no spherical mean ---------------------------------
 # Peripheral nerve runs roughly along the bore: with the fibers' direction known, each gradient
-# direction g sees the cosine c = g·z, and the directional view of the blocks models every image.
-@mrimodel NerveZ(b, c; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+# direction g sees the cosine ξ = g·z, and the directional view of the blocks models every image.
+@mrimodel NerveZ(b, ξ; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
                  Dax = Free(start = 2e-3, lower = 0, upper = 3e-3)) =
-    S0 * (vax * stick(b, Dax, c) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, c))
+    S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
 
 g = directionset(30)                               # 30 directions, repeated on each shell
 bn = [fill(0.0, 4); fill(1000.0, 30); fill(2500.0, 30)]
-cn = [fill(1.0, 4); [d[3] for d in g]; [d[3] for d in g]]     # cosine with z (any value at b = 0)
+ξn = [fill(1.0, 4); [d[3] for d in g]; [d[3] for d in g]]     # cosine with z (any value at b = 0)
 θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3)
-show_fit("6. nerve along z, 64 images:", fit(NerveZ(b = bn, c = cn), simulate(NerveZ(b = bn, c = cn), θ; σ = 10.0, noise = :gaussian, rng)), θ)
+show_fit("6. nerve along z, 64 images:", fit(NerveZ(b = bn, ξ = ξn), simulate(NerveZ(b = bn, ξ = ξn), θ; σ = 10.0, noise = :gaussian, rng)), θ)
 
 # --- What the T2 form costs ------------------------------------------------------------------------
 # decay(TE, 1/T2): 1/T2 is the same for every echo, so the compiler computes it once per voxel, as

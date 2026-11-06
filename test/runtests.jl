@@ -125,9 +125,9 @@ function EQUIP.signal!(out, m::DirStickZeppelin, p)
     (; S0, vax, Dax, θ, φ) = p
     n = EQUIP.Blocks.fiberdirection(θ, φ)
     @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = EQUIP.Blocks.fibercosine(gx[j], gy[j], gz[j], n)
-        out[j] = S0 * (vax * EQUIP.Blocks.stick(b[j], Dax, t) +
-                       (1 - vax) * EQUIP.Blocks.zeppelin(b[j], Dax, (1 - vax) * Dax, t))
+        ξ = EQUIP.Blocks.fibercosine(gx[j], gy[j], gz[j], n)
+        out[j] = S0 * (vax * EQUIP.Blocks.stick(b[j], Dax, ξ) +
+                       (1 - vax) * EQUIP.Blocks.zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
     end
     return out
 end
@@ -2418,7 +2418,7 @@ end
         rng = MersenneTwister(21)
         # The stick's spherical mean, √π·erf(x)/(2x): its series near 0 and erf beyond, the same
         # (values and derivatives) on both sides of the switch; and against the mean over
-        # directions it stands for, ∫₀¹ exp(−x²u²) du (u = cos ψ: uniform over the sphere)
+        # directions it stands for, ∫₀¹ exp(−x²ξ²) dξ (ξ = cos ψ: uniform over the sphere)
         f(x2) = sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
         for x2 in (1e-3, 0.0499999, 0.0500001, 0.7, 12.0)
             @test EQUIP._sphmean(x2) ≈ f(x2) rtol = 1e-11
@@ -2609,7 +2609,7 @@ end
         for (mm, tt) in ((m, θ), (SMTFreeWater(b = m.b), (; θ..., fiso = 0.2, Diso = 3e-3)),
                          (SMTT2(b = [0.0, 2500, 2500], TE = [0.07, 0.07, 0.12]), (; θ..., T2ax = 0.09, T2ex = 0.05)))
             pp = resolve(mm, tt)
-            @test [sum(w .* [EQUIP._profile(mm, pp, j, t) for t in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt)
+            @test [sum(w .* [EQUIP._profile(mm, pp, j, ξ) for ξ in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt)
         end
         # Direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
         # moment I/3, which averages order 2 exactly)
@@ -2728,7 +2728,7 @@ end
         x, w = EQUIP._GL01
         for (mm, tt_) in ((s, (; θs..., fiso = 0.2)), (SMT(b = bt, TE = tt), (; θs..., T2ax = 0.09, T2ex = 0.05, fiso = 0.1, T2iso = 1.5)))
             pp = resolve(mm, tt_)
-            @test [sum(w .* [EQUIP._profile(mm, pp, j, t) for t in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt_) rtol = 1e-10
+            @test [sum(w .* [EQUIP._profile(mm, pp, j, ξ) for ξ in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt_) rtol = 1e-10
         end
         @test occursin("missing: vax", msg(() -> signal(s, (S0 = 1.0, Dax = 2e-3))))
 
@@ -2739,8 +2739,8 @@ end
         @test B.decay(0.03, 12.5) == exp(-0.03 * 12.5) && B.ball(1000.0, 1e-3) == B.decay(1000.0, 1e-3) == exp(-1.0)
         @test B.decay(0.03f0, 1 / 0.07f0) isa Float32 && B.stick(1000f0, 2f-3, B.powder) isa Float32
         @test B.stick(0.0, 2e-3, B.powder) == 1 && B.stick(1000.0, 2e-3, 0.0) == 1 && B.stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
-        @test B.stick(2500.0, 2e-3, B.powder) ≈ sum(w .* [B.stick(2500.0, 2e-3, t) for t in x]) rtol = 1e-12     # the mean of the view
-        @test B.zeppelin(2500.0, 2e-3, 0.5e-3, B.powder) ≈ sum(w .* [B.zeppelin(2500.0, 2e-3, 0.5e-3, t) for t in x]) rtol = 1e-12
+        @test B.stick(2500.0, 2e-3, B.powder) ≈ sum(w .* [B.stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12     # the mean of the view
+        @test B.zeppelin(2500.0, 2e-3, 0.5e-3, B.powder) ≈ sum(w .* [B.zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
         @test B.zeppelin(1000.0, 1e-3, 1e-3, B.powder) ≈ B.ball(1000.0, 1e-3)
         # no view: an error that says which to write
         @test occursin("stick(b, D, powder)", msg(() -> B.stick(1000.0, 2e-3)))
@@ -2789,10 +2789,10 @@ end
         # a directional model on it: its signal is the stick and zeppelin written out, no allocation
         m = DirStickZeppelin(; acq...)
         θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, θ = 0.7, φ = 0.3)
-        t = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
+        ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
         Dp = 0.4 * 1.9e-3
-        @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * t^2) +
-                                        0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * t^2))) rtol = 1e-12
+        @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * ξ^2) +
+                                        0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * ξ^2))) rtol = 1e-12
         out = zeros(64); signal!(out, m, θ)
         allocs(m, out, θ) = @allocated signal!(out, m, θ)
         @test allocs(m, out, θ) == 0

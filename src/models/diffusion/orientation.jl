@@ -8,9 +8,9 @@
 #
 # The spherical mean is an integral over all directions; the data give its average over N. For
 # one population of fibers along n, the signal of observation j at gradient direction g depends
-# only on t = n·g, so it expands in Legendre polynomials (even orders: g and −g are the same):
+# only on ξ = n·g, so it expands in Legendre polynomials (even orders: g and −g are the same):
 #
-#   f_j(t) = Σ_l a_l(j)·P_l(t),   a_0(j) the spherical mean (what SMT fits)
+#   f_j(ξ) = Σ_l a_l(j)·P_l(ξ),   a_0(j) the spherical mean (what SMT fits)
 #
 # and the average over a set G_j of N_j directions is a_0(j) plus an error
 #
@@ -72,12 +72,12 @@ function _fibonacci(k, N)                        # the k-th of N points over the
     return SVector(r * cos(φ), r * sin(φ), z)
 end
 
-# The signal of observation j for one fiber population at cos t to the gradient: what the
-# spherical mean averages. Its average over t ∈ [0, 1] is the model's own signal. The same tissue
+# The signal of observation j for one fiber population at cosine ξ to the gradient: what the
+# spherical mean averages. Its average over ξ ∈ [0, 1] is the model's own signal. The same tissue
 # equation as `signal!` (smt.jl), with the compartments in their directional view: one function
 # for every SMT model and every part switched on (free water, T2s, the extra-axonal diffusivities).
-_profile(m::AbstractSMT, p, j, t) =
-    _smt(p, 1 / p.T2ax, 1 / p.T2ex, 1 / p.T2iso, m.b[j], _optobs(m.TE, j), t)
+_profile(m::AbstractSMT, p, j, ξ) =
+    _smt(p, 1 / p.T2ax, 1 / p.T2ex, 1 / p.T2iso, m.b[j], _optobs(m.TE, j), ξ)
 
 # Gauss–Legendre nodes and weights on [0, 1] (n of them: exact for polynomials of degree 2n − 1),
 # by Newton's method on P_n from the Chebyshev guesses.
@@ -118,16 +118,16 @@ function _legendre!(P, x)
 end
 
 # The even Legendre coefficients a_0, a_2, ..., a_L of observation j's profile:
-# a_l = (2l + 1)·∫₀¹ f(t)·P_l(t) dt (f even in t). With σ, of the magnitude images' mean in each
-# direction, ricianmean(f(t), σ): the Rician floor acts direction by direction, before the
+# a_l = (2l + 1)·∫₀¹ f(ξ)·P_l(ξ) dξ (f even in ξ). With σ, of the magnitude images' mean in each
+# direction, ricianmean(f(ξ), σ): the Rician floor acts direction by direction, before the
 # spherical mean, so on the profile, not on its average.
 function _legendrecoefs(m, p, j, L, σ = nothing)
     x, w = _GL01
     a = zeros(L ÷ 2 + 1)
     P = zeros(L + 1)
-    for (t, wt) in zip(x, w)
-        f = σ === nothing ? _profile(m, p, j, t) : ricianmean(abs(_profile(m, p, j, t)), σ)
-        _legendre!(P, t)
+    for (ξ, wt) in zip(x, w)
+        f = σ === nothing ? _profile(m, p, j, ξ) : ricianmean(abs(_profile(m, p, j, ξ)), σ)
+        _legendre!(P, ξ)
         for (k, l) in enumerate(0:2:L)
             a[k] += (2l + 1) * wt * f * P[l+1]
         end
@@ -208,7 +208,7 @@ end
 
 A model whose signal is the expected spherical mean of magnitude images: for each observation
 (shell), the mean over all fiber–gradient angles of [`ricianmean`](@ref) of the signal in that
-direction, ∫₀¹ E|y|(f_j(t)) dt, for one fiber population (one of the SMT models). Unlike
+direction, ∫₀¹ E|y|(f_j(ξ)) dξ, for one fiber population (one of the SMT models). Unlike
 [`RicianMean`](@ref) of the spherical mean, the floor acts direction by direction: directions
 near the fibers, where the signal is small at high b, sit on the floor, and since E|y| is convex
 in the signal the spherical mean of magnitudes lies above the floor of the mean (2026-11-03:
@@ -234,8 +234,8 @@ function signal!(out, w::RicianSphericalMean, p)
     x, wt = _GL01
     for j in eachindex(out, w.σ)
         s = zero(eltype(out))
-        for (t, ω) in zip(x, wt)
-            s += ω * ricianmean(abs(_profile(w.model, p, j, t)), w.σ[j])
+        for (ξ, ω) in zip(x, wt)
+            s += ω * ricianmean(abs(_profile(w.model, p, j, ξ)), w.σ[j])
         end
         out[j] = s
     end
@@ -280,7 +280,7 @@ function sphericalmeannoise(m::AbstractSMT, θ::NamedTuple; snr = nothing,
     σc = σ1 ./ sqrt.(nex)                                        # after the scanner's averages
     p = resolve(m, θ)
     x, wt = _GL01
-    v = [sum(ω * ricianvar(abs(_profile(m, p, j, t)), σc[j]) for (t, ω) in zip(x, wt)) / dirs[j]
+    v = [sum(ω * ricianvar(abs(_profile(m, p, j, ξ)), σc[j]) for (ξ, ω) in zip(x, wt)) / dirs[j]
          for j in 1:n]
     C = orientationcovariance(m, θ, sets; σ = σc)
     return (simulate_with = RicianSphericalMean(m; σ = σc) => θ, Σ = Diagonal(v) + C)

@@ -22,19 +22,19 @@ function karlsen(M, σ)
     return (lo + hi) / 2
 end
 
-# A Watson-distributed unit vector about μ (density ∝ exp(κ(μ·x)²)): t = μ·x by rejection from
+# A Watson-distributed unit vector about μ (density ∝ exp(κ(μ·x)²)): ξ = μ·x by rejection from
 # the uniform on [0, 1], a random sign, a uniform azimuth.
 function watson(rng, μ, κ)
-    t = 0.0
+    ξ = 0.0
     while true
-        t = rand(rng)
-        rand(rng) <= exp(κ * (t^2 - 1)) && break
+        ξ = rand(rng)
+        rand(rng) <= exp(κ * (ξ^2 - 1)) && break
     end
-    t *= rand(rng, Bool) ? 1 : -1
+    ξ *= rand(rng, Bool) ? 1 : -1
     a = abs(μ[1]) < 0.9 ? SVector(1.0, 0, 0) : SVector(0.0, 1, 0)
     e1 = normalize(a - dot(a, μ) * μ); e2 = cross(μ, e1)
     φ = 2π * rand(rng)
-    return t * μ + sqrt(1 - t^2) * (cos(φ) * e1 + sin(φ) * e2)
+    return ξ * μ + sqrt(1 - ξ^2) * (cos(φ) * e1 + sin(φ) * e2)
 end
 odi(κ) = 2 / π * atan(1 / κ)
 
@@ -88,8 +88,8 @@ end
 for κ in (1.0, 4.0, 16.0)
     rng = MersenneTwister(5); μ = SVector(0.0, 0, 1)
     sim = mean(watson(rng, μ, κ)[3]^2 for _ in 1:200_000)
-    ts = range(0, 1; length = 100_001); w = exp.(κ .* ts .^ 2)
-    @printf("Watson κ = %4.0f: E[t²] %.4f simulated, %.4f exact (ODI %.2f)\n", κ, sim, sum(ts .^ 2 .* w) / sum(w), odi(κ))
+    ξs = range(0, 1; length = 100_001); w = exp.(κ .* ξs .^ 2)
+    @printf("Watson κ = %4.0f: E[ξ²] %.4f simulated, %.4f exact (ODI %.2f)\n", κ, sim, sum(ξs .^ 2 .* w) / sum(w), odi(κ))
 end
 println()
 

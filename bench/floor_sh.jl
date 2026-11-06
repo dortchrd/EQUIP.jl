@@ -25,14 +25,14 @@ function karlsen(M, σ)
     return (lo + hi) / 2
 end
 function watson(rng, μ, κ)
-    t = 0.0
+    ξ = 0.0
     while true
-        t = rand(rng); rand(rng) <= exp(κ * (t^2 - 1)) && break
+        ξ = rand(rng); rand(rng) <= exp(κ * (ξ^2 - 1)) && break
     end
-    t *= rand(rng, Bool) ? 1 : -1
+    ξ *= rand(rng, Bool) ? 1 : -1
     a = abs(μ[1]) < 0.9 ? SVector(1.0, 0, 0) : SVector(0.0, 1, 0)
     e1 = normalize(a - dot(a, μ) * μ); e2 = cross(μ, e1); φ = 2π * rand(rng)
-    return t * μ + sqrt(1 - t^2) * (cos(φ) * e1 + sin(φ) * e2)
+    return ξ * μ + sqrt(1 - ξ^2) * (cos(φ) * e1 + sin(φ) * e2)
 end
 odi(κ) = 2 / π * atan(1 / κ)
 

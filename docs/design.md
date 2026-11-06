@@ -3352,7 +3352,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     own name (it is `decay(b, D)`), so diffusion models read like the compartment taxonomy.
     (Tried first, the same day: `relax(t, T)` in the T2 form beside `relaxrate(t, R)`; replaced.)
   - The view explicit: `stick(b, D, powder)` for the spherical mean (NMR's powder average),
-    `stick(b, D, t)` along one direction; `stick(b, D)` without a view is an error that says
+    `stick(b, D, ξ)` along one direction; `stick(b, D)` without a view is an error that says
     which to write. (Tried first: the spherical mean as the two-argument method; the owner
     preferred it explicit.) `powder` is the one value of a type, `Powder`, so the view is chosen
     by dispatch, when compiling.
@@ -3462,7 +3462,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     option is not needed either.
   - **Two blocks**, the owner's names: `fiberdirection(θ, φ)`, the unit vector as a tuple, and
     `fibercosine(gx, gy, gz, n)`, the cosine between one image's gradient direction and the
-    fiber (the dot product; for unit vectors also the projection; the view `t` of `stick` and
+    fiber (the dot product; for unit vectors also the projection; the view `ξ` of `stick` and
     `zeppelin`). Plain tuples: no StaticArrays needed (measured: 0 bytes, the same speed as
     the cosine written out or as `SVector(gx[j], gy[j], gz[j]) ⋅ n`, which differs by 8e-16).
     Tried and dropped on the way: a `gdotn(g, n, j)` on `g = (gx, gy, gz)` (the owner disliked
@@ -3474,7 +3474,12 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     or `⋅` (extending LinearAlgebra's `dot` to tuples is type piracy, changing it for every
     package; a `⋅` of our own would clash with LinearAlgebra's for anyone using both). The
     spelling is US throughout now: "fibre" became "fiber" in every comment, docstring and doc
-    (the owner's choice, with the names).
+    (the owner's choice, with the names). The cosine itself is **ξ**, not t (the owner,
+    2026-11-06: t reads as time in MRI): SMI's notation, ξ = ĝ·n̂ in its kernel K(b, ξ)
+    (Novikov et al., NeuroImage 2018), and the Legendre forms P_l(ξ) a later rotational-invariant
+    view would use. Renamed in the blocks (`stick(b, D, ξ)`), their docstrings, `_profile` and
+    the Legendre and Rician sums in orientation.jl, the examples, the tests, the Watson samplers
+    in bench/; the nerve example's `c` too. Only names changed: the view is passed by position.
   - **Angle models by hand, not with `@mrimodel`** (revising "built-in models written with
     `@mrimodel`" above for them): a macro body is one image's signal, so a direction made from
     θ and φ in it is made for every image. Measured in examples/directional_models.jl (132
@@ -4661,7 +4666,7 @@ numbers are not an order.
      B-matrix form, the same speed within noise (2.5–2.8 µs per voxel): written out, as the papers
      write it.
    - **A built-in StickZeppelin**: one fiber, the stick's diffusivity also the zeppelin's parallel
-     one, D⊥ = (1 − v_ax)·D_ax by default (released in a call, as SMT's). The cosine t = g·n(θ, φ)
+     one, D⊥ = (1 − v_ax)·D_ax by default (released in a call, as SMT's). The cosine ξ = g·n(θ, φ)
      is computed in the signal, since it joins the acquisition and the parameters; the blocks take
      a number. n as an SVector or three scalars (no allocation either way; a `[...]` vector
      allocates 208 bytes per call: static arrays inside `signal!` are only notation, and must stay

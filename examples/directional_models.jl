@@ -9,7 +9,7 @@
 #
 # The acquisition is each image's b and gradient direction (the .bval and .bvec files), as four
 # vectors b, gx, gy, gz, made by `diffusionencoding` (from the files, or here from arrays) and
-# passed to any directional model as keywords. The cosine between gradient and fiber, t = g·n, is
+# passed to any directional model as keywords. The cosine between gradient and fiber, ξ = g·n, is
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the blocks
 # take it as a number: `fiberdirection(θ, φ)` once per voxel, `fibercosine(gx[j], gy[j], gz[j], n)`
 # for each image. The stick + zeppelin is written by hand for that reason: written with
@@ -53,8 +53,8 @@ function signal!(out, m::StickZeppelin, p)
     n = fiberdirection(θ, φ)                                         # once per voxel
     Dperp = (1 - vax) * Dax                                          # tortuosity
     @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = fibercosine(gx[j], gy[j], gz[j], n)                      # cosine, gradient to fiber
-        out[j] = S0 * (vax * stick(b[j], Dax, t) + (1 - vax) * zeppelin(b[j], Dax, Dperp, t))
+        ξ = fibercosine(gx[j], gy[j], gz[j], n)                      # cosine, gradient to fiber
+        out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
     end
     return out
 end
@@ -65,9 +65,9 @@ end
                                       Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
                                       θ = Free(start = 0.5, lower = 0, upper = π),
                                       φ = Free(start = 0.0, lower = -π, upper = π))
-    t = fibercosine(gx, gy, gz, fiberdirection(θ, φ))               # cosine, gradient to fiber
+    ξ = fibercosine(gx, gy, gz, fiberdirection(θ, φ))               # cosine, gradient to fiber
     Dperp = (1 - vax) * Dax                                          # tortuosity
-    S0 * (vax * stick(b, Dax, t) + (1 - vax) * zeppelin(b, Dax, Dperp, t))
+    S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, Dperp, ξ))
 end
 
 # --- 2. the standard tensor (DTI): S0·exp(−b·gᵀDg), six elements ---------------------------------
@@ -80,10 +80,10 @@ m = StickZeppelin(; acq...)                                 # `...`: b, gx, gy, 
 display(m); println()
 
 # a stick and a zeppelin are tensors: D = D∥·nnᵀ, and D⊥·I + (D∥ − D⊥)·nnᵀ
-n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; t5 = fibercosine(gg..., n)
+n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; ξ5 = fibercosine(gg..., n)
 Dst = 2e-3 * n * n'; Dzp = 0.8e-3 * I + (2e-3 - 0.8e-3) * n * n'
-println("stick as a tensor:    ", stick(2500.0, 2e-3, t5) ≈ exp(-2500.0 * gg' * Dst * gg))
-println("zeppelin as a tensor: ", zeppelin(2500.0, 2e-3, 0.8e-3, t5) ≈ exp(-2500.0 * gg' * Dzp * gg))
+println("stick as a tensor:    ", stick(2500.0, 2e-3, ξ5) ≈ exp(-2500.0 * gg' * Dst * gg))
+println("zeppelin as a tensor: ", zeppelin(2500.0, 2e-3, 0.8e-3, ξ5) ≈ exp(-2500.0 * gg' * Dzp * gg))
 
 # --- simulate 300 voxels, fibers in random directions --------------------------------------------
 nv = 300

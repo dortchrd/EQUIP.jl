@@ -19,7 +19,7 @@ Each branch builds on the one above it.
 
 - **Building blocks.** `decay(x, rate)` (rate form: `decay(TE, 1/T2)`; its docstring warns that
   `decay(TE, T2)` is wrong and silent), `ball(b, D)`, and `stick` and `zeppelin` with an explicit
-  view: `powder` (the spherical mean) or a cosine t (one direction).
+  view: `powder` (the spherical mean) or a cosine ξ (one direction).
 - **One equation per family.** The T2 decays (offset and short component switched on in the
   call) and SMT (free water, compartment T2s, the extra-axonal diffusivities as ties). T2 fits are
   bit-identical to before; SMT agrees to rounding. The blocks cost nothing measurable; the

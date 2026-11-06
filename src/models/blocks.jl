@@ -5,13 +5,13 @@
 #                                                                 decay(TE, 1/T2), decay(TE, R2),
 #                                                                 decay(b, ADC), 1 − 2·decay(TI, 1/T1)
 #   ball(b, D)                 exp(−b·D)                          isotropic diffusion (free water)
-#   stick(b, D, view)          exp(−b·D·t²) at view = t           a cylinder of zero radius
+#   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
 #   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·stick(b, D∥ − D⊥, view) axially symmetric
 #   fiberdirection(θ, φ)       (sinθ·cosφ, sinθ·sinφ, cosθ)       a fiber's direction, from angles
-#   fibercosine(gx, gy, gz, n) gx·n₁ + gy·n₂ + gz·n₃              the view t of one image
+#   fibercosine(gx, gy, gz, n) gx·n₁ + gy·n₂ + gz·n₃              the view ξ of one image
 #
 # b in s/mm², D in mm²/s, times in s. A compartment with a direction takes its view explicitly:
-# a cosine t, the signal along one gradient direction at cosine t between the fiber and the
+# a cosine ξ, the signal along one gradient direction at cosine ξ between the fiber and the
 # gradient (what a direction set samples), or `powder`, its average over all directions (the
 # spherical mean, NMR's powder average, what SMT fits). `stick(b, D)` without a view is an error
 # that says which to write. The ball is the same in every view and takes none.
@@ -101,7 +101,7 @@ compartment so that diffusion models read like the papers (Panagiotaki et al., N
     powder
 
 The view of a diffusion compartment averaged over all gradient directions: the spherical mean
-(NMR's powder average), what SMT fits. `stick(b, D, powder)`; `stick(b, D, t)` is one direction.
+(NMR's powder average), what SMT fits. `stick(b, D, powder)`; `stick(b, D, ξ)` is one direction.
 """
 struct Powder end
 const powder = Powder()
@@ -111,13 +111,13 @@ const powder = Powder()
 
 """
     stick(b, D, powder)    the spherical mean: √π·erf(√(b·D)) / (2√(b·D))
-    stick(b, D, t)         along one gradient direction: exp(−b·D·t²)
+    stick(b, D, ξ)         along one gradient direction: exp(−b·D·ξ²)
 
 A stick: a cylinder of zero radius, diffusion along the fiber only (an axon in SMT, a neurite in
 NODDI), b in s/mm², D in mm²/s. With `powder`, the signal averaged over all gradient directions
-(1 at b = 0); with a number `t`, the cosine of the angle between the fiber and the gradient, the
+(1 at b = 0); with a number `ξ`, the cosine of the angle between the fiber and the gradient, the
 signal along that one direction. The powder average is the average of the directional signal over
-t ∈ [0, 1] (Kaden et al., NeuroImage 2016).
+ξ ∈ [0, 1] (Kaden et al., NeuroImage 2016).
 
 ```julia
 using EQUIP.Blocks
@@ -127,13 +127,13 @@ stick(1000.0, 2e-3, 0.0)         # 1: across it
 ```
 """
 @inline stick(b, D, ::Powder) = _sphmean(b * D)
-@inline stick(b, D, t::Real) = exp(-b * D * t^2)
+@inline stick(b, D, ξ::Real) = exp(-b * D * ξ^2)
 stick(b, D) = throw(ArgumentError("stick(b, D) needs its view: stick(b, D, powder) for the " *
-    "spherical mean, stick(b, D, t) along one direction at cosine t to the fiber"))
+    "spherical mean, stick(b, D, ξ) along one direction at cosine ξ to the fiber"))
 
 """
     zeppelin(b, D∥, D⊥, powder)    the spherical mean: exp(−b·D⊥)·stick(b, D∥ − D⊥, powder)
-    zeppelin(b, D∥, D⊥, t)         along one direction: exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·t²)
+    zeppelin(b, D∥, D⊥, ξ)         along one direction: exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²)
 
 An axially symmetric tensor (the extra-axonal space in SMT and NODDI): a stick with D∥ − D⊥,
 times the attenuation that every direction has, exp(−b·D⊥). The views as for [`stick`](@ref).
@@ -141,7 +141,7 @@ With D⊥ = (1 − v_ax)·D_ax, the tortuosity limit, it is Kaden's extra-axonal
 """
 @inline zeppelin(b, Dpar, Dperp, v) = exp(-b * Dperp) * stick(b, Dpar - Dperp, v)
 zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs its view: " *
-    "zeppelin(b, D∥, D⊥, powder) for the spherical mean, zeppelin(b, D∥, D⊥, t) along one direction"))
+    "zeppelin(b, D∥, D⊥, powder) for the spherical mean, zeppelin(b, D∥, D⊥, ξ) along one direction"))
 
 """
     fiberdirection(θ, φ) -> (nx, ny, nz)
@@ -159,15 +159,15 @@ fit took twice as long with them per image, docs/design.md, "Directions per imag
 
 The cosine of the angle between one image's gradient direction, (gx, gy, gz), and a fiber's
 direction n (three numbers, e.g. from [`fiberdirection`](@ref)): the dot product, which for unit
-vectors is also the gradient's projection on the fiber. It is the view `t` that
-[`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction; only t² enters their
+vectors is also the gradient's projection on the fiber. It is the view `ξ` that
+[`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction; only ξ² enters their
 signals, so n and −n are the same fiber.
 
 ```julia
 n = fiberdirection(θ, φ)                                  # once per voxel
 for j in eachindex(out, b, gx, gy, gz)
-    t = fibercosine(gx[j], gy[j], gz[j], n)               # each image
-    out[j] = S0 * (vax * stick(b[j], Dax, t) + (1 - vax) * zeppelin(b[j], Dax, Dperp, t))
+    ξ = fibercosine(gx[j], gy[j], gz[j], n)               # each image
+    out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
 end
 ```
 """
