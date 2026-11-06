@@ -4877,3 +4877,31 @@ numbers are not an order.
      - the size: 22 parameters fit in static arrays (item 11's limit is about 30–40), and the fit
        is fast enough (a million voxels in about 3 minutes on 4 threads); crlb's compilation is
        the limit, as above, and it is EQUIP's, not DKI's.
+18. **The spherical mean's pipeline errors, back with the nerve protocol work** (taken out of
+   `directions-proto` on 2026-11-06, the owner: "remove this section ... for now, I don't fully
+   understand it ... leave it on the roadmap while we add other models"). Built on `nerve-smt`
+   (2026-11-03; "Peripheral nerve SMT" above), where the code, its tests and the studies remain:
+   - `orientationcovariance(m, θ, sets)`: the covariance across shells of the error a finite
+     direction set makes in a spherical mean, for fibers in a random orientation, exact from the
+     Legendre coefficients of the model's directional signal (the addition theorem); added to
+     the noise's covariance in crlb, the fitted parameters' spread over orientations.
+   - `RicianSphericalMean(m; σ)`: the expected spherical mean of magnitude images, the Rician
+     floor acting direction by direction before the average (what the data are; the bias).
+   - `sphericalmeannoise(m, θ; snr, directions, averages)`: both, and each shell's Rician noise
+     over its directions, as crlb's keywords for the whole pipeline.
+   - bench/floor_corrections.jl, floor_robustness.jl, floor_sh.jl: the floor-correction studies
+     (their results above, "Peripheral nerve SMT").
+   What stays on `directions-proto`: `directionset` and `fiberdirection` (src/models/diffusion/
+   directions.jl), the Rician noise tools (`ricianmean`, `RicianMean`, `riciannoise`,
+   `ricianbound`), and `sphericalmean`. Two changes when it comes back, discussed with the owner:
+   - **Any fiber orientation distribution, not one population.** The directional signal of a
+     voxel is one bundle's kernel convolved with the ODF; averaged over random rotations, each
+     Legendre order l of the error takes a factor p_l², the ODF's normalized rotational invariant
+     (SMI's p_l): one population p_l = 1 (today's formula, the worst case, a nerve), isotropic
+     p_l = 0 for l ≥ 2, dispersion and crossings between (a Watson κ gives them).
+   - **Each SMT model's equation written once, over the view**, `_smtsignal(m, p, j, view)`:
+     `signal!` passes `powder`, the error analysis a cosine ξ, instead of a hand-written
+     directional profile per model (the owner disliked the duplication). The same per-model
+     function is the "kernel" of the literature, which a directional fit and SMI's rotational
+     invariants (a `rotinv(l)` view) could share.
+   Needed by the nerve SMT protocol evaluator and search (steps 3 and 4, waiting on the lab).

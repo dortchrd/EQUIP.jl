@@ -13,7 +13,7 @@ Each branch builds on the one above it.
 | `smt-proto` | SMT, SMTFreeWater, SMTT2 | not merged |
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
 | `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off (both undone on `directions-proto`); examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
-| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`iso`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2085, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`iso`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout; the spherical mean's pipeline errors (`orientationcovariance`, `RicianSphericalMean`, `sphericalmeannoise`) and the floor studies taken out, to return with the nerve protocol work (design.md, roadmap item 18) | not merged. Last full runs: EQUIP 2082, CLI 124, MRImages 103 |
 
 ## Done recently
 
@@ -22,7 +22,7 @@ Each branch builds on the one above it.
   (src/models/diffusion/compartments.jl): `iso(b, D)` (Panagiotaki's ball; with D = 0 the dot), and
   `stick` and `zeppelin` with an explicit view,
   `powder` (the spherical mean) or a cosine ξ (one direction). The cosine comes from helpers, not
-  compartments: `fiberdirection` (orientation.jl) and `ξ = g ⋅ n`. Relaxation is written as its
+  compartments: `fiberdirection` (directions.jl) and `ξ = g ⋅ n`. Relaxation is written as its
   equation, `exp(-TE / T2)`; there is no `decay`.
 - **One equation per family: tried on blocks-proto, then undone (2026-11-06, the owner: "I do not
   like how unreadable that code is, switching things on and off").** Every model is in the
@@ -33,8 +33,12 @@ Each branch builds on the one above it.
   - The exact per-direction inversion (`corrRicianBias` on each direction's image) is the safe
     choice when dispersion is unknown or above about ODI 0.1.
   - Phase-corrected real data removes the problem at its source.
+  - The studies (bench/floor_*.jl) and the functions they use are on `nerve-smt`; taken out of
+    `directions-proto` on 2026-11-06 until the nerve protocol work resumes (roadmap item 18).
 
 ## Waiting on the lab (nerve SMT steps 3 and 4: the protocol evaluator, then the search)
+
+(The evaluator needs the spherical mean's pipeline errors back first: roadmap item 18.)
 
 - nerve v_ax, D_ax, compartment T2s, T1; the nerve's dispersion
 - the b = 0 SNR, the shortest TE at each b, the time per slice, the number of slices, today's

@@ -61,7 +61,7 @@ export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS       # diffusion models
-export sphericalmean, directionset, orientationcovariance, RicianSphericalMean, sphericalmeannoise
+export sphericalmean, directionset
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep

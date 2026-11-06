@@ -22,10 +22,6 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   in the package's own environment: `julia -t auto --project=. bench/speed.jl` (about 1 minute)
 - Monte Carlo against crlb (bias and SD, z in Monte Carlo standard errors; T2, Dortch 2018
   Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
-- Rician floor corrections for SMT on the simulated spherical-mean pipeline (nerve-smt):
-  `julia -t auto --project=. bench/floor_corrections.jl` (about 45 s) and
-  `bench/floor_robustness.jl` (σ wrong, fiber dispersion; about 4 minutes) and `bench/floor_sh.jl`
-  (a Rician spherical-harmonic fit of each shell; about 15 minutes on 4 threads)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
 - The first `using EQUIP` after a code change takes about 40 s (precompile workload,
   src/precompile.jl). While developing, switch it off with a `LocalPreferences.toml` (not
@@ -40,9 +36,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
-  (src/models/diffusion/orientation.jl: `fiberdirection`, which with Julia's `⋅` gives a
-  directional compartment its view ξ = g ⋅ n; `directionset`, `orientationcovariance`,
-  `sphericalmeannoise`, the spherical mean's pipeline errors for SMT)
+  (src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
+  evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
   `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the

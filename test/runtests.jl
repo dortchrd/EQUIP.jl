@@ -137,6 +137,35 @@ end
 EQUIP.parameters(::Type{<:DirVectors}) = (S0 = Free(start = :scale, lower = 0),)
 EQUIP.signal!(out, m::DirVectors, p) = (out .= p.S0; out)
 
+# Gauss–Legendre nodes and weights on [0, 1] (n of them, exact for polynomials of degree 2n − 1),
+# by Newton's method on P_n from the Chebyshev guesses: the tests average a compartment's
+# directional view over ξ ∈ [0, 1] with them (its spherical mean)
+function gausslegendre01(n)
+    x, w = zeros(n), zeros(n)
+    for i in 1:n
+        z = cos(π * (i - 0.25) / (n + 0.5))
+        for _ in 1:100
+            p0, p1 = 1.0, z
+            for k in 2:n
+                p0, p1 = p1, ((2k - 1) * z * p1 - (k - 1) * p0) / k
+            end
+            dp = n * (z * p1 - p0) / (z^2 - 1)
+            dz = p1 / dp
+            z -= dz
+            abs(dz) < 1e-15 && break
+        end
+        p0, p1 = 1.0, z
+        for k in 2:n
+            p0, p1 = p1, ((2k - 1) * z * p1 - (k - 1) * p0) / k
+        end
+        dp = n * (z * p1 - p0) / (z^2 - 1)
+        x[i] = (1 + z) / 2                       # [−1, 1] → [0, 1]
+        w[i] = 1 / ((1 - z^2) * dp^2)            # 2/((1 − z²)P'²), halved for [0, 1]
+    end
+    return x, w
+end
+const GL01 = gausslegendre01(120)
+
 @mrimodel TieFormula(t; A = Free(start = :scale), k1 = Free(start = 1.0), k2 = 0.5 * k1) =
     A * (exp(-k1 * t) + exp(-k2 * t))
 @mrimodel NoStart(t; A = Free(start = :scale), k) = A * exp(-k * t)
@@ -2599,66 +2628,6 @@ end
         @test ricianbound(m, θ; snr = 20).sd.vax >= crlb(m, θ; snr = 20, weights = ones(3)).sd.vax
     end
 
-    @testset "Orientational sampling: directionset, orientationcovariance, sphericalmeannoise" begin
-        rng = MersenneTwister(41)
-        randdir() = normalize(SVector{3}(randn(rng, 3)))
-        m = SMT(b = [0.0, 1000, 2500, 4000])
-        θ = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
-        p = resolve(m, θ)
-        # Each model's directional signal averages, over the fiber–gradient angle, to its own signal
-        x, w = EQUIP._GL01
-        for (mm, tt) in ((m, θ), (SMTFreeWater(b = m.b), (; θ..., fiso = 0.2, Diso = 3e-3)),
-                         (SMTT2(b = [0.0, 2500, 2500], TE = [0.07, 0.07, 0.12]), (; θ..., T2ax = 0.09, T2ex = 0.05)))
-            pp = resolve(mm, tt)
-            @test [sum(w .* [EQUIP._profile(mm, pp, j, ξ) for ξ in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt)
-        end
-        # Direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
-        # moment I/3, which averages order 2 exactly)
-        G = directionset(30)
-        @test length(G) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, G) && G == directionset(30)
-        @test norm(sum(g * g' for g in G) / 30 - I / 3) < 1e-6
-        @test length(directionset(1)) == 1
-        # The covariance against simulation over fiber orientations, across shells too; b = 0: none
-        dirs = [1, 10, 20, 40]
-        sets = directionset.(dirs)
-        C = orientationcovariance(m, θ, sets)
-        ns = [randdir() for _ in 1:20_000]                   # one fiber orientation per voxel
-        E = [mean(EQUIP._profile(m, p, j, dot(n, g)) for g in sets[j]) - signal(m, θ)[j]
-             for n in ns, j in 1:4]
-        S = cov(E)
-        @test all(abs.(C[1, :]) .< 1e-15)                    # b = 0: no orientational error
-        @test all(abs.(mean(E; dims = 1)) .<= 4 .* sqrt.(diag(S))' ./ sqrt(20_000) .+ 1e-12)   # mean 0
-        @test diag(C)[2:4] ≈ diag(S)[2:4] rtol = 0.05
-        @test C[2, 3] ≈ S[2, 3] rtol = 0.1
-        # Schilling et al. 2022's minimal number of directions (relative SD ≤ 5%, no noise; their
-        # Fig. 4, SNR = Inf: about 6 at b = 1 ms/μm², about 30 at 10): 4 at b = 1000 s/mm², 10 at
-        # 3000, 28 at 10000, for evenly spread sets
-        nmin(b) = (mb = SMT(b = [b]); findfirst(N -> sqrt(orientationcovariance(mb, θ, [directionset(N; iterations = 500)])[1]) /
-                                                     signal(mb, θ)[1] <= 0.05, 1:100))
-        @test nmin(1000.0) <= 6 && nmin(3000.0) == 10 && 24 <= nmin(10000.0) <= 34
-
-        # The whole pipeline simulated (one fiber population in a random orientation per voxel, a
-        # Rician magnitude image per direction, the spherical mean, the SMT fit) against crlb with
-        # sphericalmeannoise: the floor acts direction by direction (bias 0.16 here, five times the
-        # 0.03 the floor of the mean gives); SD within 20% (crlb is linear, the fit is bounded)
-        d = [4, 30, 30, 30]
-        σ = 1 / 20
-        sets = directionset.(d)
-        ns = [randdir() for _ in 1:2000]
-        Y = [mean(abs(EQUIP._profile(m, p, j, dot(n, g)) + σ * (randn(rng) + im * randn(rng))) for g in sets[j])
-             for n in ns, j in 1:4]
-        r = fit(m, Y; weights = d)
-        c = crlb(m, θ; sphericalmeannoise(m, θ; snr = 20, directions = d, sets)..., weights = d)
-        @test mean(r.params.vax) - θ.vax ≈ c.bias.vax rtol = 0.1
-        @test mean(r.params.Dax) - θ.Dax ≈ c.bias.Dax rtol = 0.1
-        @test std(r.params.vax) ≈ c.sd.vax rtol = 0.2
-        @test crlb(m, θ; riciannoise(m, θ; snr = 20, averages = d, averaging = :magnitude)..., weights = d).bias.vax <
-              0.3 * c.bias.vax
-        # RicianSphericalMean: the SMT signal at high SNR; above the Rician mean of the spherical mean
-        @test signal(RicianSphericalMean(m; σ = 1e-6), θ) ≈ signal(m, θ) rtol = 1e-6
-        @test all(signal(RicianSphericalMean(m; σ), θ) .>= signal(RicianMean(m; σ), θ) .- 1e-12)  # (convex)
-    end
-
     @testset "Compartments: iso, stick, zeppelin and the powder view, exported by EQUIP" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
@@ -2669,7 +2638,7 @@ end
         @test stick(1000f0, 2f-3, powder) isa Float32 && stick(1000f0, 2f-3, 0.5f0) isa Float32
         @test stick(0.0, 2e-3, powder) == 1 && stick(1000.0, 2e-3, 0.0) == 1 && stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
         @test stick(1000.0, 2e-3, powder) ≈ 0.5981440066613041 rtol = 1e-14                # √π·erf(√2)/(2√2)
-        x, w = EQUIP._GL01                                     # Gauss–Legendre on [0, 1]: the mean over ξ
+        x, w = GL01                                            # Gauss–Legendre on [0, 1]: the mean over ξ
         @test stick(2500.0, 2e-3, powder) ≈ sum(w .* [stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12
         @test zeppelin(2500.0, 2e-3, 0.5e-3, powder) ≈ sum(w .* [zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
         @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ iso(1000.0, 1e-3)
@@ -2679,8 +2648,7 @@ end
         # no view: an error that says which to write
         @test occursin("stick(b, D, powder)", msg(() -> stick(1000.0, 2e-3)))
         @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> zeppelin(1000.0, 2e-3, 0.5e-3)))
-        # the SMT models are written with them: each one's signal is Kaden's equation written out,
-        # and its directional profile averages, over the fiber–gradient angle, to its signal
+        # the SMT models are written with them: each one's signal is Kaden's equation written out
         bs = [0.0, 1000, 2500, 4000]
         sph(x2) = x2 == 0 ? 1.0 : sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
         θs = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
@@ -2691,11 +2659,6 @@ end
         smtt2(b, TE, p) = p.S0 * (p.vax * exp(-TE / p.T2ax) * stick(b, p.Dax, powder) +
                                   (1 - p.vax) * exp(-TE / p.T2ex) * zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, powder))
         @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
-        for (mm, tt_) in ((SMT(b = bs), θs), (SMTFreeWater(b = bs), (; θs..., fiso = 0.2, Diso = 3e-3)),
-                          (SMTT2(b = bt, TE = tt), θt))
-            pp = resolve(mm, tt_)
-            @test [sum(w .* [EQUIP._profile(mm, pp, j, ξ) for ξ in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt_) rtol = 1e-10
-        end
         # relaxation is written as its equation: exp(-TE / T2) gives T2Decay's fit, from the same
         # start, to rounding (T2Decay multiplies by the rate 1/T2, this divides by T2)
         te = collect(0.01:0.01:0.32)
@@ -2709,7 +2672,12 @@ end
     @testset "Directions per image: diffusionencoding, fiberdirection, g ⋅ n" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         rng = MersenneTwister(5)
+        # direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
+        # moment I/3, which averages order 2 exactly)
         dirs = directionset(30)
+        @test length(dirs) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, dirs) && dirs == directionset(30)
+        @test norm(sum(g * g' for g in dirs) / 30 - I / 3) < 1e-6
+        @test length(directionset(1)) == 1
         G = reduce(hcat, [fill([0.0, 0.0, 0.0], 4); collect.(dirs); collect.(dirs)])   # 3×64, FSL: 0 0 0 at b = 0
         bv = [fill(0.0, 2); fill(5.0, 2); fill(1000.0, 30); fill(2500.0, 30)]
         acq = diffusionencoding(bv, G)

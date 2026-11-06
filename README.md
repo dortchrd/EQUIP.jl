@@ -374,6 +374,7 @@ cosine comes from two helpers, not compartments themselves:
 | helper | gives |
 |---|---|
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
+| `directionset(N)` | N gradient directions spread evenly over the sphere (electrostatic repulsion), to simulate a scheme |
 | `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated |
 
 The compartments are diffusion only. Relaxation is written in the model as its equation, as the
@@ -763,12 +764,6 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself
   removes the floor's bias when σ is known. `ricianmean`, `ricianvar`, `ricianinformation` for
   one value.
-- The spherical mean's whole pipeline (SMT models): `crlb(m, θ; sphericalmeannoise(m, θ; snr,
-  directions, averages)..., weights)` adds the Rician floor acting on each direction's image
-  (for one aligned fiber population, the directions near the fibers sit on the floor), the
-  noise, and the error of averaging over a finite direction set (`orientationcovariance`,
-  closed form; `directionset(N)` for evenly spread directions): what to weigh directions
-  against the scanner's averages with.
 - Not modelled by crlb: bounds reached by noisy fits, nonlinearity at low SNR. That is what
   montecarlo is for.
 

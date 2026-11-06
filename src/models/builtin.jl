@@ -84,5 +84,5 @@ include("diffusion/compartments.jl")    # the compartments: iso, stick, zeppelin
 include("diffusion/adc_decay.jl")       # ADCDecay
 include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, one direction
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
-include("diffusion/orientation.jl")     # fiberdirection; directionset, orientationcovariance: finite direction sets
+include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery
