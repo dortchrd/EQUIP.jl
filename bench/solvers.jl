@@ -52,7 +52,7 @@
 # bounds, or without), or failed. "same" = every estimate within 1e-4 (relative) of EQUIP's;
 # "lower" and "higher" = the method's SSE is clearly lower or higher than EQUIP's; "failed" = no
 # finite answer (an error, or NaN). Biexponential fits are put in the same order first
-# (T2short ≤ T2), so swapped components are not counted as different.
+# (T2short ≤ T2long), so swapped components are not counted as different.
 #
 # Run, from the repository folder:
 #   julia --project=bench -e 'using Pkg; Pkg.instantiate()'    # once: installs the packages

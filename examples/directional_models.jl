@@ -22,7 +22,7 @@
 #   julia -t 4 --project=. examples/directional_models.jl
 # =================================================================================================
 
-using EQUIP, EQUIP.Blocks, Random, LinearAlgebra, StaticArrays, Statistics, Printf
+using EQUIP, Random, LinearAlgebra, StaticArrays, Statistics, Printf
 import EQUIP: parameters, signal!
 rng = MersenneTwister(11)
 

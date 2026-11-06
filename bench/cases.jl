@@ -32,7 +32,7 @@
 #                     :sir4_range) at SNR 50: many voxels' best unbounded fit has PSR < 0, so in
 #                     the run with bounds the bound PSR ≥ 0 comes into play
 #   :biexp            T2BiexpDecay, 32 echoes 10-320 ms, values around those of myelin water
-#                     imaging: fshort 0.05-0.30, T2short 10-30 ms, T2 60-120 ms, S0 0.8-1.2,
+#                     imaging: fshort 0.05-0.30, T2short 10-30 ms, T2long 60-120 ms, S0 0.8-1.2,
 #                     SNR 200 (relative to S0); two exponentials, the classic ill-conditioned fit.
 #                     How well the data determine it depends on the T2 separation, the amplitude
 #                     ratio, the TE sampling and the SNR; in practice it needs SNR above ~100-200
@@ -44,7 +44,7 @@
 #
 # A biexponential fit can come out with its two components swapped (the "short" one with the
 # longer T2) and the same SSE. Before comparing answers, `biexp_order!` swaps them back
-# (T2short ≤ T2, fshort → 1 - fshort), for every method alike.
+# (T2short ≤ T2long, fshort → 1 - fshort), for every method alike.
 # =================================================================================================
 
 using EQUIP, Random
@@ -71,9 +71,9 @@ function sirtruth(rng, n; psr = extrema(sirclass(:PSR)))
     return (; PSR, R1f, Sf, M0f, kmf, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
 end
 
-# Put every biexponential fit in the same order, T2short ≤ T2 (est: one column per voxel)
+# Put every biexponential fit in the same order, T2short ≤ T2long (est: one column per voxel)
 function biexp_order!(est, names)
-    f, s, l = findfirst(==(:fshort), names), findfirst(==(:T2short), names), findfirst(==(:T2), names)
+    f, s, l = findfirst(==(:fshort), names), findfirst(==(:T2short), names), findfirst(==(:T2long), names)
     for v in axes(est, 2)
         if est[s, v] > est[l, v]
             est[s, v], est[l, v] = est[l, v], est[s, v]
@@ -149,7 +149,7 @@ function makecase(name::Symbol; n = NVOX)
         snr = name === :biexp ? 200 : 100
         m = T2BiexpDecay(TE = collect(0.01:0.01:0.32))
         truth = (S0 = uniform(rng, (0.8, 1.2), n), fshort = uniform(rng, (0.05, 0.30), n),
-                 T2short = uniform(rng, (0.010, 0.030), n), T2 = uniform(rng, (0.060, 0.120), n))
+                 T2short = uniform(rng, (0.010, 0.030), n), T2long = uniform(rng, (0.060, 0.120), n))
         Y = simulate(m, truth; noise = :rician, snr, rng)
         return (; name, title = "biexponential T2, 32 echoes, myelin-water-like values, SNR $snr",
                 m, Y, truth, roles = (;), starts = nothing, order! = biexp_order!)

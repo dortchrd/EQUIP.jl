@@ -120,12 +120,9 @@ end
 function _LeakageCache(m::MRIModel, s::Scenario)
     c = _CRLBCache(m, s, :sandwich)               # checks the protocol against the scenario
     # The fixed parameters held at a number (a tie, R1m = :R1f, follows the parameter it names:
-    # its own leakage, of a deviation from the tie, is for later), except the parts switched off
-    # (an offset or a fraction at 0, a T2 at Inf: no relative error to speak of; models/interface.jl).
-    C = Tuple(n for n in keys(s.roles) if s.roles[n] isa Fixed && s.roles[n].value isa Real && !_isoff(s.roles[n]))
-    isempty(C) && throw(ArgumentError("leakage: the fit fixes no parameter at a number (parts " *
-        "switched off, an offset or a fraction at 0, a T2 at Inf, are left out; fix one in the " *
-        "call to include it, e.g. `C = 0.0`)"))
+    # its own leakage, of a deviation from the tie, is for later).
+    C = Tuple(n for n in keys(s.roles) if s.roles[n] isa Fixed && s.roles[n].value isa Real)
+    isempty(C) && throw(ArgumentError("leakage: the fit fixes no parameter at a number"))
     # The joint fit: the same roles with those fixed numbers free. Nothing is fitted with it, so
     # the starts are placeholders (a number each, so that no `:data` or `BestOf` is worked out).
     joint = map(n -> n in C ? Free(start = 0.0) :

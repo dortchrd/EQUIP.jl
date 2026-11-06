@@ -3222,6 +3222,9 @@ Novikov et al., NeuroImage 2018; Coelho et al., NeuroImage 2022) give v_ax, or i
 
 ## Building blocks: one signal per family, parts switched on and off (2026-11-03, branch `blocks-proto`)
 
+(The families and `decay` were undone on 2026-11-06: "Reversed", at the end of this section. The
+blocks remain, as EQUIP's exported diffusion compartments.)
+
 The owner's request, after reading Microstructure.jl (roadmap item 7): a model family as one
 function made of building blocks, where parts are turned on and off, rather than a type per
 variant, "unless you're paying a huge computational price: it's cleaner from a maintenance and
@@ -3508,6 +3511,49 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     .bvec in `loaddata` (and its errors), the blocks, a hand-written stick–zeppelin on them
     (its signal against the equation written out, no allocation, fits in both precisions),
     and the refusal of 3-vector fields by `signal`, `fit` and `nobs`. 27 tests; full runs: EQUIP 2106, CLI 124, MRImages 103.
+
+- **Reversed (2026-11-06, the owner): no families, no `decay`; every model in the standard
+  format, the blocks EQUIP's own diffusion functions.** In the owner's words: "outside of the
+  decay block the rest is diffusion ... maybe we remove that and just use blocks for diffusion,
+  consistent with Microstructure.jl"; "I don't want it to be its own module. These are just
+  functions that are used to build models more easily"; "I want decay removed. I do not like how
+  unreadable that code is, switching things on and off ... same for SMT"; "we want to maintain
+  standard EQUIP format throughout". So the family refactor above (decisions 1–8) is undone, by
+  `git revert` of its commit (8cc4bc7) with the later work kept:
+  - **Every model written out, its own struct, `parameters` and `signal!`**, as before the
+    refactor and as QMTSIR is: T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay,
+    R2BiexpDecay (in their own file again, `T2long`/`R2long` as before), SMT, SMTFreeWater,
+    SMTT2, each its own equation, with nothing switched on or off. Gone with the families: the
+    switchable roles (`Fixed(value; free = Free(...))`, `_switchable`, `_isoff`, the `off`
+    display, leakage's leaving them out), the skip of a part at zero (`_skip`), infinite fixed
+    numbers, SMT's optional TE and its ties for the extra-axonal diffusivities, and the
+    combinations no named model had (two T2 components with an offset; SMT with free water and
+    compartment T2s): write one as its own model.
+  - **The SMT models are written with the diffusion blocks**, `stick(b, D_ax, powder)` and
+    `zeppelin(b, D_ax, D⊥, powder)` (and `ball` for free water), each model its own `signal!`;
+    the three directional profiles in orientation.jl likewise, one per model, in the ξ view.
+  - **The blocks are plain functions of EQUIP, exported** (no module `EQUIP.Blocks`): `ball`,
+    `stick`, `zeppelin`, `powder`, `fiberdirection` and `⋅`. `using EQUIP` is all a model
+    needs; nothing clashed (no other name in EQUIP or its tests). They are the diffusion
+    compartments only, as Microstructure.jl's are; relaxation is written as its equation,
+    `exp(-TE / T2)`, which cannot be mistaken (`decay(TE, T2)` was exp(−TE·T2), silently wrong:
+    its docstring had to warn of it). No `decay`, public or internal.
+  - **Measured, the refactoring check** (every built-in model, 300 voxels at SNR 100, starts,
+    values, SSE, iterations, statuses, both precisions): against the code before this change
+    (directions-proto as committed), **bit-identical for every model**: the standard-format code
+    computes exactly what the family code did. Against the code before the family refactor: the
+    T2 models and all others bit-identical; the SMT models differ at rounding level, from the
+    one source recorded then (the zeppelin's anisotropy D_ax − D⊥, not v_ax·D_ax): Float64 at
+    most 6e-13 (SMT), 3e-12 (SMTFreeWater), 2.7e-4 for SMTT2 (poorly determined at SNR 100);
+    Float32, single voxels move. A model written `S0 * exp(-TE / T2)` gives T2Decay's fit to
+    rounding (dividing by T2 rounds differently from multiplying by 1/T2, as T2Decay does).
+  - bench/blocks_cost.jl is removed: it compared written-out equations, the blocks and the
+    families (its numbers are in "Measured" above); the blocks' cost was nothing measurable.
+  - Found on the way: `stick`'s docstring gave its spherical mean at b = 1000 s/mm², D = 2e-3
+    mm²/s, as 0.606; it is 0.598 (√π·erf(√2)/(2√2)), now tested.
+  - Tests: the family's 41 replaced by 18 on the blocks and the SMT models written with them
+    (each signal against Kaden's equation, each profile's mean against the signal); full runs
+    EQUIP 2084, CLI 124, MRImages 103.
 
 ### Not done yet
 

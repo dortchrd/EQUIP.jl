@@ -104,10 +104,9 @@ end
 end
 
 # A tie by a formula of another parameter, and a free parameter with no start (given in the call).
-# A model from the building blocks (EQUIP.Blocks, used qualified: `decay`, `stick`, ... stay out of
-# the tests' namespace): T2Decay's equation, the rate 1/T2 given to the block, T2 fitted
+# T2Decay's equation written as a user writes it, relaxation as its equation, T2 fitted
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
-    S0 * EQUIP.Blocks.decay(TE, 1 / T2)
+    S0 * exp(-TE / T2)
 
 # A directional model written by hand (examples/directional_models.jl): one fiber n(θ, φ), the
 # blocks' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
@@ -123,11 +122,10 @@ EQUIP.parameters(::Type{<:DirStickZeppelin}) = (S0 = Free(start = :scale, lower 
 function EQUIP.signal!(out, m::DirStickZeppelin, p)
     (; b, gx, gy, gz) = m
     (; S0, vax, Dax, θ, φ) = p
-    n = EQUIP.Blocks.fiberdirection(θ, φ)
+    n = fiberdirection(θ, φ)
     @inbounds for j in eachindex(out, b, gx, gy, gz)
         ξ = (gx[j], gy[j], gz[j]) ⋅ n
-        out[j] = S0 * (vax * EQUIP.Blocks.stick(b[j], Dax, ξ) +
-                       (1 - vax) * EQUIP.Blocks.zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
+        out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
     end
     return out
 end
@@ -158,8 +156,8 @@ const CASES = [
     (R2DecayOffset(TE = collect(0.003:0.003:0.036)), (S0 = 1000.0, R2 = 33.0, C = 50.0)),
     (ADCDecay(b = [0.0, 250, 500, 750, 1000, 1500, 2000]), (S0 = 1000.0, ADC = 0.8e-3)),
     (ADCKurtosis(b = [0.0, 250, 500, 1000, 1500, 2000, 2500]), (S0 = 1000.0, ADC = 0.8e-3, K = 1.0)),
-    (T2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2 = 0.08)),
-    (R2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2 = 12.5)),
+    (T2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)),
+    (R2BiexpDecay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
     (T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]), (M0 = 1000.0, Sf = -0.9, T1 = 0.9)),
     (T1SR(TD = [0.1, 0.3, 0.6, 1.0, 2.0, 4.0]), (M0 = 1000.0, T1 = 1.2)),
     (T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.4, B1 = 1.0)),
@@ -205,10 +203,9 @@ end
 
     @testset "signal! checks lengths when called directly: $(nameof(typeof(m)))" for (m, truth) in CASES
         n = nobs(m)
-        p = resolve(m, truth)               # complete: a direct call fills nothing in (parts off too)
-        @test signal!(zeros(n), m, p) ≈ signal(m, truth)
-        @test_throws DimensionMismatch signal!(zeros(n + 1), m, p)       # would read past the end
-        @test_throws DimensionMismatch signal!(zeros(n - 1), m, p)
+        @test signal!(zeros(n), m, truth) ≈ signal(m, truth)
+        @test_throws DimensionMismatch signal!(zeros(n + 1), m, truth)   # would read past the end
+        @test_throws DimensionMismatch signal!(zeros(n - 1), m, truth)
     end
 
     @testset "fit! does not allocate" begin
@@ -299,8 +296,7 @@ end
         m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
         @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
         @test defaults(T1MFA(FA = [2, 10], TR = 0.015)) == (B1 = 1.0,)
-        @test defaults(ADCDecay(b = [0.0, 1000.0])) == (;)                  # nothing fixed
-        @test defaults(T2Decay(TE = [0.01])) == (fshort = 0.0, T2short = Inf, C = 0.0)   # the parts off
+        @test defaults(T2Decay(TE = [0.01])) == (;)                        # nothing fixed
         θfree = (PSR = 0.12, R1f = 1.1, Sf = -0.95, M0f = 1.0)
         everything = merge(θfree, (kmf = 12.5, R1m = 1.1, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
         @test signal(m, merge(defaults(m), θfree)) == signal(m, everything)
@@ -348,12 +344,12 @@ end
         # no number to take: must be given, and the error says why
         te = collect(0.01:0.01:0.32)
         @test occursin("`T2` (it starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
-        @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, fshort = 0.0, T2short = Inf, T2 = 0.08, C = 0.0)
+        @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, T2 = 0.08)
         @test occursin("`T1` (it starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
         # ... and lists what truth takes for every parameter, the keywords' values included
         e = msg(() -> nominal(T2Decay(TE = te)))
-        @test occursin(r"\n  S0 +free +:scale +\[0.0, Inf\] +1.0\n", e)
-        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +required\n", e)
+        @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
+        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +required$", e)
         e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
         @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
         # mistakes
@@ -704,26 +700,26 @@ end
     @testset "bi-exponential T2 and diffusion kurtosis" begin
         te = collect(0.01:0.01:0.32)
         mT, mR = T2BiexpDecay(TE = te), R2BiexpDecay(TE = te)
-        θT = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2 = 0.08)
-        θR = (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2 = 12.5)
+        θT = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)
+        θR = (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)
         # the two forms are the same signal; the components can swap; fshort = 0 is mono-exponential
         @test signal(mT, θT) ≈ signal(mR, θR)
-        @test signal(mT, θT) ≈ signal(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2 = 0.02))
+        @test signal(mT, θT) ≈ signal(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2long = 0.02))
         @test signal(mT, merge(θT, (fshort = 0.0,))) ≈ signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08))
         # relabel puts the shorter T2 (the larger rate) first, only when all three are free
-        θs = EQUIP.relabel(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2 = 0.02))
+        θs = EQUIP.relabel(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08, T2long = 0.02))
         @test θs.T2short == 0.02
-        @test θs.T2 == 0.08
+        @test θs.T2long == 0.08
         @test θs.fshort ≈ 0.15
-        @test EQUIP.relabel(mR, (S0 = 1000.0, fshort = 0.85, R2short = 12.5, R2 = 50.0)).R2short == 50.0
+        @test EQUIP.relabel(mR, (S0 = 1000.0, fshort = 0.85, R2short = 12.5, R2long = 50.0)).R2short == 50.0
         @test EQUIP.relabel(mT, (S0 = 1000.0, fshort = 0.85, T2short = 0.08)) ==
-              (S0 = 1000.0, fshort = 0.85, T2short = 0.08)                       # T2 fixed
+              (S0 = 1000.0, fshort = 0.85, T2short = 0.08)                       # T2long fixed
         @test EQUIP.relabel(T2Decay(TE = te), (S0 = 1.0, T2 = 0.1)) == (S0 = 1.0, T2 = 0.1)  # default
         # noisy data (SNR 100): both forms report the same, ordered components
         Y = reduce(vcat, [permutedims(signal(mT, θT) .+ 10 .* randn(MersenneTwister(i), 32)) for i in 1:100])
         rT, rR = fit(mT, Y), fit(mR, Y)
-        @test all(rT.params.T2short .<= rT.params.T2)
-        @test all(rR.params.R2short .>= rR.params.R2)
+        @test all(rT.params.T2short .<= rT.params.T2long)
+        @test all(rR.params.R2short .>= rR.params.R2long)
         # where both reach the same minimum (equal SSE) they agree; local minima are real in this
         # model (with these seeds, 1 voxel of 100 converged to different minima in the two forms)
         same = isconverged.(rT.status) .& isconverged.(rR.status) .& (abs.(rT.sse .- rR.sse) .<= 1e-6 .* rR.sse)
@@ -924,7 +920,7 @@ end
         @test res.settings.mask === mask                                        # a reference
         @test fitted(res, 3, 2) ≈ signal(m, (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2]))
         @test fitted(res, 8) == fitted(res, 3, 2)                               # linear index
-        @test resolve(res, 3, 2) == resolve(m, (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2]))
+        @test resolve(res, 3, 2) == (S0 = res.params.S0[3, 2], T2 = res.params.T2[3, 2])
         @test_throws ArgumentError resolve(res)
         @test_throws ArgumentError resolve(r, 1)
         @test sum(abs2, residuals(res, data, 3, 2)) ≈ res.sse[3, 2] rtol = 1e-8
@@ -1026,7 +1022,7 @@ end
         @test collect(values(stderror(fit(m, y; precision = Float32)))) ≈ collect(values(stderror(r))) rtol = 1e-4
         # AIC/BIC: the information criteria pick the model that made the data
         mb = T2BiexpDecay(TE = te)
-        yb = simulate(mb, (S0 = 1000.0, fshort = 0.3, T2short = 0.015, T2 = 0.09); σ = 5.0,
+        yb = simulate(mb, (S0 = 1000.0, fshort = 0.3, T2short = 0.015, T2long = 0.09); σ = 5.0,
                       noise = :gaussian, rng = MersenneTwister(5))
         ym = simulate(m, θ; σ = 5.0, noise = :gaussian, rng = MersenneTwister(6))
         @test bic(fit(mb, yb)) < bic(fit(m, yb)) && aic(fit(mb, yb)) < aic(fit(m, yb))
@@ -1070,8 +1066,8 @@ end
         @test tissue(:WM) == (T1 = 1.084, T2 = 0.069)
         @test tissue(:CSF) == (T1 = 4.124, T2 = 1.75)
         @test nominal(R2Decay(TE = te), merge(tissue(:CSF), (T2 = 2.0,))).R2 == 0.5    # own value
-        @test nominal(T2Decay(TE = te), (T2 = 0.06,); S0 = 500.0) == (S0 = 500.0, fshort = 0.0, T2short = Inf, T2 = 0.06, C = 0.0)
-        @test nominal(R2Decay(TE = te), :WM) == (S0 = 1.0, fshort = 0.0, R2short = 0.0, R2 = 1 / 0.069, C = 0.0)
+        @test nominal(T2Decay(TE = te), (T2 = 0.06,); S0 = 500.0) == (S0 = 500.0, T2 = 0.06)
+        @test nominal(R2Decay(TE = te), :WM) == (S0 = 1.0, R2 = 1 / 0.069)
         @test nominal(T1IR(TI = [0.1]), :GM; Sf = -0.95, M0 = 1000.0) == (M0 = 1000.0, Sf = -0.95, T1 = 1.82)
         @test_throws ArgumentError nominal(T1IR(TI = [0.1]), :GM)              # Sf is not a tissue value
         @test_throws ArgumentError nominal(m, :brain)                          # unknown tissue
@@ -1437,7 +1433,7 @@ end
         # fit of the noise-free bi-exponential signal
         te = collect(0.01:0.01:0.32)
         mt, mb = T2Decay(TE = te), T2BiexpDecay(TE = te)
-        θb = (S0 = 1000.0, fshort = 0.2, T2short = 0.02, T2 = 0.08)
+        θb = (S0 = 1000.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)
         ref = (S0 = 1000.0, T2 = 0.08)
         c = crlb(mt, ref; snr = 100, simulate_with = mb => θb)
         @test c.fit.T2 ≈ fit(mt, signal(mb, θb)).params.T2 rtol = 1e-8
@@ -1451,9 +1447,9 @@ end
         @test montecarlo(mt, ref; noise = :rician, snr = 100, n = 50, simulate_with = mb => θb).noise === :rician
         # vary changes the data's truth; the reference stays
         w = crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :fshort => [0.1, 0.3])
-        @test w[1].fit.T2 > w[2].fit.T2 && w[1].truth == nominal(mt, ref) && w[2].data.second.fshort == 0.3
+        @test w[1].fit.T2 > w[2].fit.T2 && w[1].truth == ref && w[2].data.second.fshort == 0.3
         @test occursin("not a parameter of T2BiexpDecay",
-                       msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :R2 => [12.0])))
+                       msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :T2 => [0.07])))
         # mistakes
         @test occursin("the sandwich only", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, cov = :biased)))
         @test occursin("observations", msg(() -> crlb(mt, ref; snr = 100, simulate_with = T2BiexpDecay(TE = te[1:10]) => θb)))
@@ -1885,7 +1881,7 @@ end
             push!(cases, (m, θ, f, noisecovariance(m, θ; snr = 200)))
         end
         Σt = [100.0 * 0.5^abs(i - j) for i in 1:32, j in 1:32]
-        θb = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2 = 0.08)
+        θb = (S0 = 1000.0, fshort = 0.15, T2short = 0.02, T2long = 0.08)
         push!(cases, (T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08), (;), Σt),
                      (T2BiexpDecay(TE = te), θb, (;), Σt),
                      (T2BiexpDecay(TE = te), θb, (;), Diagonal(collect(range(5.0, 20.0, length = 32)) .^ 2)),
@@ -2658,101 +2654,47 @@ end
         @test all(signal(RicianSphericalMean(m; σ), θ) .>= signal(RicianMean(m; σ), θ) .- 1e-12)  # (convex)
     end
 
-    @testset "Building blocks: one signal per family, parts switched on and off" begin
+    @testset "Building blocks: the diffusion compartments, exported by EQUIP" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
-        te = collect(0.01:0.01:0.32)
-        m = T2Decay(TE = te)
-        # A part off: Fixed at its value, with the role it takes when switched on
-        r = parameters(T2Decay).fshort
-        @test r isa Fixed && r.value == 0.0 && r.free isa Free && EQUIP._isoff(r)
-        @test !EQUIP._switchable(parameters(T1MFA).B1)                         # B1 is no part
-        @test EQUIP._switchable(parameters(SMTFreeWater).Diso) && !EQUIP._isoff(parameters(SMTFreeWater).Diso)
-        # leakage leaves the parts off out, and keeps a switchable assumption (Diso)
-        θfw = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3, fiso = 0.2)
-        @test keys(leakage(SMTFreeWater(b = [0.0, 500, 1000, 2000, 3000]), θfw).relative) == (:Diso,)
-        on = parameters(m; fshort = Free(), C = Free(upper = 100.0))
-        @test on.fshort.start == 0.2 && on.fshort.lower == 0 && on.fshort.upper == 1
-        @test on.C.start == 0.0 && on.C.upper == 100.0                        # the call's bound wins
-        @test parameters(m; C = 5.0).C == Fixed(5.0)                          # fixed elsewhere: no part
-        @test occursin(r"\n  C +off +0.0", sprint(show, MIME("text/plain"), m))
-        # A complete set does not need the parts that are off; a real parameter is still required
-        @test signal(m, (S0 = 1000.0, T2 = 0.08)) ≈ 1000.0 .* exp.(-te ./ 0.08)
-        @test signal(m, (S0 = 1000.0, T2 = 0.08, C = 5.0)) ≈ 1000.0 .* exp.(-te ./ 0.08) .+ 5.0
-        @test occursin("missing: B1", msg(() -> signal(T1MFA(FA = [2, 10], TR = 0.015), (M0 = 1.0, T1 = 1.0))))
-        # Parts off change no number: the bi-exponential equation with fshort = 0, C = 0 is the mono
-        θ = (S0 = 1000.0, T2 = 0.08)
-        @test signal(m, θ) == signal(T2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.0, T2short = 0.02, T2 = 0.08))
-        # Switched on in a call = the named model: the same roles give the same fit, bit for bit
-        rng = MersenneTwister(21)
-        yb = simulate(m, (S0 = 1000.0, fshort = 0.2, T2short = 0.015, T2 = 0.08); σ = 2.0, noise = :gaussian, rng)
-        a = fit(T2BiexpDecay(TE = te), yb)
-        b = fit(m, yb; fshort = Free(), T2short = Free(), T2 = Free(start = m -> 2 * mean(m.TE)))
-        @test a.params == b.params && a.sse == b.sse
-        yo = simulate(m, (S0 = 1000.0, T2 = 0.08, C = 40.0); σ = 2.0, noise = :gaussian, rng)
-        @test fit(m, yo; C = Free()).params.C ≈ fit(T2DecayOffset(TE = te), yo).params.C rtol = 1e-6
-        @test fit(R2Decay(TE = te), yo; C = Free()).params.R2 ≈ fit(R2DecayOffset(TE = te), yo).params.R2 rtol = 1e-6
-        # ... and a combination no model had: two components and an offset
-        θbo = (S0 = 1000.0, fshort = 0.2, T2short = 0.015, T2 = 0.08, C = 30.0)
-        r = fit(m, signal(m, θbo); fshort = Free(), T2short = Free(), C = Free())
-        @test all(values(map((x, y) -> isapprox(x, y; rtol = 1e-6), r.params, θbo)))
-        # The parts' values are allowed to be infinite (a T2 of Inf: none); NaN still marks a voxel
-        @test isconverged(fit(m, yo).status)
-        @test fit(m, yo; C = NaN).status == EQUIP.InvalidData
-        Y = reduce(vcat, [yo' for _ in 1:3])
-        @test fit(m, Y; C = [0.0, Inf, 0.0]).status[2] == EQUIP.InvalidData      # Inf in a map: invalid
-        # A part is skipped only when a plain number is exactly 0: a dual number (differentiated,
-        # as crlb's and leakage's seeded fixed values) never is, so its derivative is there
-        g(f) = signal(m, (S0 = 1000.0, fshort = f, T2short = 0.015, T2 = 0.08))[3]
-        @test ForwardDiff.derivative(g, 0.0) ≈ 1000 * (exp(-te[3] / 0.015) - exp(-te[3] / 0.08))
-
-        # SMT: free water, compartment T2s and the extra-axonal diffusivities as parts
+        # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
+        @test Set(names(EQUIP)) ⊇ Set([:ball, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
+        @test !isdefined(EQUIP, :Blocks) && !isdefined(EQUIP, :decay) && !isdefined(EQUIP, :_decay)
+        @test ball(1000.0, 1e-3) == exp(-1.0) && ball(0.0, 3e-3) == 1
+        @test stick(1000f0, 2f-3, powder) isa Float32 && stick(1000f0, 2f-3, 0.5f0) isa Float32
+        @test stick(0.0, 2e-3, powder) == 1 && stick(1000.0, 2e-3, 0.0) == 1 && stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
+        @test stick(1000.0, 2e-3, powder) ≈ 0.5981440066613041 rtol = 1e-14                # √π·erf(√2)/(2√2)
+        x, w = EQUIP._GL01                                     # Gauss–Legendre on [0, 1]: the mean over ξ
+        @test stick(2500.0, 2e-3, powder) ≈ sum(w .* [stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(2500.0, 2e-3, 0.5e-3, powder) ≈ sum(w .* [zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ ball(1000.0, 1e-3)
+        # no view: an error that says which to write
+        @test occursin("stick(b, D, powder)", msg(() -> stick(1000.0, 2e-3)))
+        @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> zeppelin(1000.0, 2e-3, 0.5e-3)))
+        # the SMT models are written with them: each one's signal is Kaden's equation written out,
+        # and its directional profile averages, over the fiber–gradient angle, to its signal
         bs = [0.0, 1000, 2500, 4000]
-        s = SMT(b = bs)
+        sph(x2) = x2 == 0 ? 1.0 : sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
         θs = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
-        p = resolve(s, θs)
-        @test p.Dexpar == 2.0e-3 && p.Dexperp ≈ 0.4 * 2.0e-3                   # the ties: Kaden's model
         Dperp = 0.4 * 2.0e-3
-        @test signal(s, θs) ≈ [0.6 * EQUIP._sphmean(b * 2e-3) + 0.4 * exp(-b * Dperp) * EQUIP._sphmean(b * 1.2e-3) for b in bs] rtol = 1e-12
-        ys = simulate(s, θs; σ = 0.002, noise = :gaussian, rng)
-        @test fit(s, ys; fiso = Free()).params == fit(SMTFreeWater(b = bs), ys).params
+        @test signal(SMT(b = bs), θs) ≈ [0.6 * sph(b * 2e-3) + 0.4 * exp(-b * Dperp) * sph(b * 1.2e-3) for b in bs] rtol = 1e-10
         bt, tt = [bs; bs], [fill(0.07, 4); fill(0.12, 4)]
-        yt = simulate(SMTT2(b = bt, TE = tt), (; θs..., T2ax = 0.09, T2ex = 0.05); σ = 0.0005, noise = :gaussian, rng)
-        @test fit(SMT(b = bt, TE = tt), yt; T2ax = Free(), T2ex = Free()).params == fit(SMTT2(b = bt, TE = tt), yt).params
-        # without the tortuosity limit: the extra-axonal radial diffusivity fitted
-        bw = [0.0, 500, 1000, 2000, 3000, 4000, 5000]
-        sw = SMT(b = bw)
-        rw = fit(sw, signal(sw, (; θs..., Dexperp = 0.4e-3)); Dexperp = Free())
-        @test rw.params.Dexperp ≈ 0.4e-3 rtol = 1e-5
-        @test rw.params.vax ≈ 0.6 rtol = 1e-5
-        # the directional view: the same tissue equation; its mean over the angle is the signal
-        x, w = EQUIP._GL01
-        for (mm, tt_) in ((s, (; θs..., fiso = 0.2)), (SMT(b = bt, TE = tt), (; θs..., T2ax = 0.09, T2ex = 0.05, fiso = 0.1, T2iso = 1.5)))
+        θt = (; θs..., T2ax = 0.09, T2ex = 0.05)
+        smtt2(b, TE, p) = p.S0 * (p.vax * exp(-TE / p.T2ax) * stick(b, p.Dax, powder) +
+                                  (1 - p.vax) * exp(-TE / p.T2ex) * zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, powder))
+        @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
+        for (mm, tt_) in ((SMT(b = bs), θs), (SMTFreeWater(b = bs), (; θs..., fiso = 0.2, Diso = 3e-3)),
+                          (SMTT2(b = bt, TE = tt), θt))
             pp = resolve(mm, tt_)
             @test [sum(w .* [EQUIP._profile(mm, pp, j, ξ) for ξ in x]) for j in 1:nobs(mm)] ≈ signal(mm, tt_) rtol = 1e-10
         end
-        @test occursin("missing: vax", msg(() -> signal(s, (S0 = 1.0, Dax = 2e-3))))
-
-        # The public blocks (EQUIP.Blocks): decay in rate form, the ball, and the compartments' two views
-        B = EQUIP.Blocks
-        @test Set(names(B)) ⊇ Set([:decay, :ball, :stick, :zeppelin, :powder])
-        @test B.decay(0.08, 1 / 0.08) ≈ exp(-1) && B.decay(0.05, 1 / Inf) === 1.0 && B.decay(0.05, 0.0) === 1.0
-        @test B.decay(0.03, 12.5) == exp(-0.03 * 12.5) && B.ball(1000.0, 1e-3) == B.decay(1000.0, 1e-3) == exp(-1.0)
-        @test B.decay(0.03f0, 1 / 0.07f0) isa Float32 && B.stick(1000f0, 2f-3, B.powder) isa Float32
-        @test B.stick(0.0, 2e-3, B.powder) == 1 && B.stick(1000.0, 2e-3, 0.0) == 1 && B.stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
-        @test B.stick(2500.0, 2e-3, B.powder) ≈ sum(w .* [B.stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12     # the mean of the view
-        @test B.zeppelin(2500.0, 2e-3, 0.5e-3, B.powder) ≈ sum(w .* [B.zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
-        @test B.zeppelin(1000.0, 1e-3, 1e-3, B.powder) ≈ B.ball(1000.0, 1e-3)
-        # no view: an error that says which to write
-        @test occursin("stick(b, D, powder)", msg(() -> B.stick(1000.0, 2e-3)))
-        @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> B.zeppelin(1000.0, 2e-3, 0.5e-3)))
-        # a model written with them: T2Decay's numbers, bit for bit, from the same start
-        yb2 = simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :gaussian, rng)
-        @test fit(BlockT2(TE = te), yb2).params == fit(m, yb2; T2 = Free(start = 0.05)).params
-        # and SMTT2 in one line: the built-in's signal
-        smtt2(b, TE, p) = p.S0 * (p.vax * B.decay(TE, 1 / p.T2ax) * B.stick(b, p.Dax, B.powder) +
-                                  (1 - p.vax) * B.decay(TE, 1 / p.T2ex) * B.zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, B.powder))
-        θt = (; θs..., T2ax = 0.09, T2ex = 0.05)
-        @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
+        # relaxation is written as its equation: exp(-TE / T2) gives T2Decay's fit, from the same
+        # start, to rounding (T2Decay multiplies by the rate 1/T2, this divides by T2)
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        yb2 = simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :gaussian, rng = MersenneTwister(21))
+        rb, rm = fit(BlockT2(TE = te), yb2), fit(m, yb2; T2 = Free(start = 0.05))
+        @test rb.params.T2 ≈ rm.params.T2 rtol = 1e-10
+        @test rb.params.S0 ≈ rm.params.S0 rtol = 1e-10
     end
 
     @testset "Directions per image: diffusionencoding, fiberdirection, g ⋅ n" begin
@@ -2780,14 +2722,13 @@ end
         write(joinpath(dir, "dwi.bvec"), join((join(G[k, :], " ") for k in 1:3), "\n") * "\n")
         @test diffusionencoding(joinpath(dir, "dwi.bval"), joinpath(dir, "dwi.bvec")) == acq
         # the blocks: a fiber's direction, and its cosine with a gradient direction
-        B = EQUIP.Blocks
-        n = B.fiberdirection(0.7, 0.3)
-        @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && B.fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
-        # the cosine is Julia's dot, passed on by Blocks (the same function: no clash with LinearAlgebra)
-        @test B.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(B) && :fiberdirection in names(B)
+        n = fiberdirection(0.7, 0.3)
+        @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
+        # the cosine is Julia's dot, exported by EQUIP too (the same function: no clash with LinearAlgebra)
+        @test EQUIP.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(EQUIP)
         @test Tuple(dirs[3]) ⋅ n ≈ dot(dirs[3], SVector(n))                     # two tuples
         @test dirs[3] ⋅ n == Tuple(dirs[3]) ⋅ n                                  # or an SVector
-        @test (0.0, 0.0, 1.0) ⋅ B.fiberdirection(π / 3, 0.4) ≈ 0.5
+        @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5
         tdot(g, n) = @allocated g ⋅ n
         @test (tdot((1.0, 2.0, 3.0), n); tdot((1.0, 2.0, 3.0), n) == 0)
         # a directional model on it: its signal is the stick and zeppelin written out, no allocation

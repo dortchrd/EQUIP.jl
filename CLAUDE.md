@@ -13,7 +13,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
-  `examples/building_blocks.jl` (six models written from `EQUIP.Blocks`, fitted; about 30 s);
+  `examples/building_blocks.jl` (six models written with `@mrimodel` and the blocks, fitted; about 30 s);
   `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
   `examples/dki.jl` (DKI written out by hand, 22 parameters; about 15 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
@@ -26,8 +26,6 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `julia -t auto --project=. bench/floor_corrections.jl` (about 45 s) and
   `bench/floor_robustness.jl` (σ wrong, fiber dispersion; about 4 minutes) and `bench/floor_sh.jl`
   (a Rician spherical-harmonic fit of each shell; about 15 minutes on 4 threads)
-- Building blocks against written-out equations (T2, ADC, SMT; blocks-proto): `julia -t 4
-  --project=. bench/blocks_cost.jl` (about 1 minute)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
 - The first `using EQUIP` after a code change takes about 40 s (precompile workload,
   src/precompile.jl). While developing, switch it off with a `LocalPreferences.toml` (not
@@ -36,11 +34,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
-  `parameters`, `signal!`, `datastart`; `Fixed(value; free = Free(...))`, a part of a model
-  switched off by default); src/models/blocks.jl: module `EQUIP.Blocks`, the building blocks
-  (`decay(x, rate)`, `ball`, `stick`, `zeppelin` with the view `powder` or a cosine;
-  `fiberdirection` and Julia's `⋅`, passed on, for directional models), public names for writing models; one signal per family with parts switched on and
-  off (the T2 decays, the SMT models); src/models/macro.jl: `@mrimodel` (a model from a
+  `parameters`, `signal!`, `datastart`); src/models/blocks.jl: the building blocks, diffusion
+  compartments exported by EQUIP for writing models (`ball`, `stick`, `zeppelin` with the view
+  `powder` or a cosine ξ; `fiberdirection` and Julia's `⋅` for directional models);
+  src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/orientation.jl: `directionset`, `orientationcovariance`,

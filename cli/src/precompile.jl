@@ -27,8 +27,8 @@ const _TRUTHS = (
     T1MFA = (M0 = 1.0, T1 = 1.0), R1MFA = (M0 = 1.0, R1 = 1.0),
     T2Decay = (S0 = 1.0, T2 = 0.08), R2Decay = (S0 = 1.0, R2 = 12.5),
     T2DecayOffset = (S0 = 1.0, T2 = 0.08, C = 0.0), R2DecayOffset = (S0 = 1.0, R2 = 12.5, C = 0.0),
-    T2BiexpDecay = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2 = 0.08),
-    R2BiexpDecay = (S0 = 1.0, fshort = 0.2, R2short = 50.0, R2 = 12.5),
+    T2BiexpDecay = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08),
+    R2BiexpDecay = (S0 = 1.0, fshort = 0.2, R2short = 50.0, R2long = 12.5),
     ADCDecay = (S0 = 1.0, ADC = 8e-4), ADCKurtosis = (S0 = 1.0, ADC = 1e-3, K = 1.0),
     QMTSIR = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 

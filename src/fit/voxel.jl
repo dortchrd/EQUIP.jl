@@ -73,14 +73,9 @@ fit(model::MRIModel, y::AbstractVector; kwargs...) = fit!(init(model; kwargs...)
 @inline _pick(x::AbstractArray, v, ::Type{T}) where {T} = @inbounds T(x[v])
 @inline _pick(x, v, ::Type{T}) where {T} = x
 
-# The checks of a voxel's fixed values, by where each comes from (`src`, the fit's setting; `x`,
-# this voxel's value): a value from a map (one per voxel) must be finite, a NaN or Inf there
-# marks a bad voxel; a number, the same everywhere, must not be NaN, and may be infinite (a T2 of
-# Inf, no T2 weighting, is how a part of a model is switched off, src/models/blocks.jl); ties
-# (names, functions) pass. Which method applies is known when compiling: no cost per voxel.
-@inline _okfixed(src::AbstractArray, x::Real) = isfinite(x)
-@inline _okfixed(src::Real, x::Real) = !isnan(x)
-@inline _okfixed(src, x) = true
+# NaN/Inf checks that skip ties (functions).
+@inline _finite(x::Real) = isfinite(x)
+@inline _finite(x) = true
 
 function _invalid(::FitSpec{F,P,T}) where {F,P,T}
     nan = NamedTuple{F}(ntuple(_ -> T(NaN), Val(P)))
@@ -98,7 +93,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     # 2. This voxel's starting point, as an SVector in the order F.
     θ0 = SVector{P,T}(Tuple(map(x -> _pick(x, v, T), spec.start)))
     # 3. Bad inputs mark the voxel invalid instead of producing a meaningless fit.
-    if !(all(isfinite, c.y) && all(values(map(_okfixed, spec.fixed, fixed))) && all(isfinite, θ0))
+    if !(all(isfinite, c.y) && all(_finite, values(fixed)) && all(isfinite, θ0))
         return _invalid(spec)
     end
     prob = VoxelProblem{F}(c.model, c.y, fixed, spec.weights)

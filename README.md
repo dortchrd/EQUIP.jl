@@ -287,7 +287,7 @@ so these models first try 30 values of T1 per voxel and start from the best one 
 in tests, at most 2 of 200 voxels failed for T1 from 0.05 to 4 s, against all 200 from a single
 start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(start = ...)`, skips it.
 
-| area | model | signal | free | fixed (and off: parts to switch on) |
+| area | model | signal | free | fixed |
 |---|---|---|---|---|
 | relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery, long TR: \|M0·[Sf·e^(−TI/T1) + 1 − e^(−TI/T1)]\|; Sf = inversion efficiency (−1 = perfect), as in T1IRTD | M0, Sf, T1 | |
 | | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | |
@@ -297,38 +297,18 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R1SR(TD = ...)` | the same with R1 = 1/T1 | M0, R1 | |
 | | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
 | | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 |
-| | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | off: C, fshort, T2short |
-| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | off: C, fshort, R2short |
-| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | off: fshort, T2short |
-| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | off: fshort, R2short |
-| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2)]; the shorter T2 reported as T2short (the long one is `T2`, `T2long` before 2026-11-03) | S0, fshort, T2short, T2 | off: C |
-| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2 = 1/T2 | S0, fshort, R2short, R2 | off: C |
+| | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case) | S0, T2 | |
+| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
+| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
+| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
+| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)]; the shorter T2 reported as T2short | S0, fshort, T2short, T2long | |
+| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
-| | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1); `TE` optional | S0, vax, Dax (mm²/s) | Dexpar = Dax, Dexperp = (1 − vax)·Dax (ties); off: fiso (Diso = 3e-3), T2ax, T2ex, T2iso (Inf: no T2 weighting) |
-| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s; as `SMT` otherwise |
-| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | as `SMT` otherwise |
+| | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
+| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
+| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
-
-**Parts switched on and off.** The T2 decays are one equation,
-S0·[(1 − fshort)·exp(−TE/T2) + fshort·exp(−TE/T2short)] + C, and the SMT models one, with free
-water, a T2 per compartment and the extra-axonal diffusivities as parts. A part a model does not
-use is switched off by its value (C = 0, fshort = 0, a T2 of Inf), shown as `off` in the model's
-display, and switched on in a call, with its start and bounds from the model; a set of true
-values does not need it:
-
-```julia
-m = T2Decay(TE = te)
-fit(m, y; C = Free())                                     # T2DecayOffset's fit
-fit(m, y; fshort = Free(), T2short = Free(), C = Free())  # two components and an offset
-fit(SMT(b = b), means; fiso = Free())                     # SMTFreeWater's fit
-fit(SMT(b = b), means; Dexperp = Free())                  # without the tortuosity limit
-simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :rician)   # C, fshort, T2short: off
-```
-
-The named variants (`T2DecayOffset`, `T2BiexpDecay`, `SMTFreeWater`, `SMTT2`) differ only in
-what is on by default. A part that is off costs no accuracy (the same numbers, bit for bit) and
-little time (skipped when fixed at 0; fits 4–17% slower for the mono-exponentials, none for SMT).
 
 ## Writing a model
 
@@ -372,48 +352,49 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
   `newmodel(:Name; acquisition = [:TE], parameters = [:S0, :T2])` writes a blank one, with
   TODOs.
 
-### Building blocks: `EQUIP.Blocks`
+### Building blocks
 
-The pieces EQUIP's own models are made of, for writing yours (`using EQUIP.Blocks`; b in s/mm²,
-D in mm²/s, times in s):
+The diffusion compartments EQUIP's own models are made of, exported by EQUIP for writing yours
+(`using EQUIP` brings them; b in s/mm², D in mm²/s):
 
 | block | signal |
 |---|---|
-| `decay(x, rate)` | exp(−x·rate), the exponential unit in rate form: `decay(TE, 1/T2)`, `decay(TE, R2)`, `decay(b, ADC)`, `1 − 2·decay(TI, 1/T1)`; rate 0 gives 1 |
 | `ball(b, D)` | exp(−b·D): isotropic diffusion (free water, an ADC), the same in every view |
 | `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
-| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, passed on by `EQUIP.Blocks`), on two tuples, nothing allocated; the view `ξ` above |
+| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated; the view `ξ` above |
 
-`decay` takes the rate: `decay(TE, T2)` would be exp(−TE·T2), almost no decay, and nothing reports
-it, so write `decay(TE, 1/T2)`; T2 is still what is fitted. A stick or a zeppelin takes its view
-explicitly, `powder` or a cosine; without one it is an error that says which to write.
+A stick or a zeppelin takes its view explicitly, `powder` or a cosine; without one it is an
+error that says which to write. Relaxation is written as its equation, as the paper writes it:
+`exp(-TE / T2)`, `1 - 2exp(-TI / T1)` (as Microstructure.jl's compartments carry their T2s, the
+blocks are the diffusion compartments only).
 
 ```julia
-using EQUIP, EQUIP.Blocks
-
-@mrimodel MyT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05)) = S0 * decay(TE, 1 / T2)
+using EQUIP
 
 @mrimodel ThreePool(TE; S0 = Free(start = :scale, lower = 0), fmw = Free(start = 0.1, lower = 0, upper = 0.5),
                     fcsf = Free(start = 0.05, lower = 0, upper = 0.5), T2mw = Free(start = 0.015),
                     T2ie = Free(start = 0.08), T2csf = 2.0) =                # CSF's T2 known
-    S0 * (fmw * decay(TE, 1 / T2mw) + (1 - fmw - fcsf) * decay(TE, 1 / T2ie) + fcsf * decay(TE, 1 / T2csf))
+    S0 * (fmw * exp(-TE / T2mw) + (1 - fmw - fcsf) * exp(-TE / T2ie) + fcsf * exp(-TE / T2csf))
 
 @mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
                Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
     S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
 
-@mrimodel NerveZ(b, c; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
-                 Dax = Free(start = 2e-3, lower = 0)) =                        # c = g·z, fibers along z
-    S0 * (vax * stick(b, Dax, c) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, c))
+@mrimodel SMTwithT2(b, TE; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+                    Dax = Free(start = 2e-3, lower = 0), T2ax = Free(start = 0.08), T2ex = Free(start = 0.05)) =
+    S0 * (vax * exp(-TE / T2ax) * stick(b, Dax, powder) +
+          (1 - vax) * exp(-TE / T2ex) * zeppelin(b, Dax, (1 - vax) * Dax, powder))
+
+@mrimodel NerveZ(b, ξ; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+                 Dax = Free(start = 2e-3, lower = 0)) =                        # ξ = g·z, fibers along z
+    S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
 ```
 
-`MyT2` gives `T2Decay`'s fit bit for bit (from the same start), and as fast: the blocks are
-inlined. More, each fitted to simulated data (inversion recovery, SMT with compartment T2s):
-examples/building_blocks.jl. Plain names, not `_relax`: Julia's leading underscore marks internal
-names, and these are meant to be used; they live in their own module so that `stick` and `ball`
-stay out of the namespace of code that does not ask for them.
+The blocks are inlined: a model written with them is as fast as the equation written out. More,
+each fitted to simulated data (inversion recovery, a T2 decay against the built-in T2Decay):
+examples/building_blocks.jl.
 
 A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
 four acquisition fields, `b`, `gx`, `gy`, `gz`, each one value per image, and
@@ -483,9 +464,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   written once, in the rate form; the time form converts and calls it:
   `signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))`.
   Always time → rate: R2 = 0 (a flat curve) is a valid value, but 1/0 is not. Variations such as
-  an added offset are parts of one equation, off by default: `C = Fixed(0.0; free = Free(start
-  = 0.0))` in `parameters`, written with the building blocks of `EQUIP.Blocks` (src/models/blocks.jl)
-  (relaxation; stick, zeppelin and ball, in a direction or averaged over directions).
+  an added offset are separate models with their own loop.
 - **`nobs`** (the number of observations) works for every model automatically: it is the common
   length of the model's vector fields. A model with other kinds of vector fields can define its
   own method.

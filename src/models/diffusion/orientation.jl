@@ -73,11 +73,25 @@ function _fibonacci(k, N)                        # the k-th of N points over the
 end
 
 # The signal of observation j for one fiber population at cosine ξ to the gradient: what the
-# spherical mean averages. Its average over ξ ∈ [0, 1] is the model's own signal. The same tissue
-# equation as `signal!` (smt.jl), with the compartments in their directional view: one function
-# for every SMT model and every part switched on (free water, T2s, the extra-axonal diffusivities).
-_profile(m::AbstractSMT, p, j, ξ) =
-    _smt(p, 1 / p.T2ax, 1 / p.T2ex, 1 / p.T2iso, m.b[j], _optobs(m.TE, j), ξ)
+# spherical mean averages. Its average over ξ ∈ [0, 1] is the model's own signal: the same
+# compartments as each model's `signal!` (smt.jl), in their directional view.
+function _profile(m::SMT, p, j, ξ)
+    b = m.b[j]
+    Dperp = (1 - p.vax) * p.Dax                                       # tortuosity
+    return p.S0 * (p.vax * stick(b, p.Dax, ξ) + (1 - p.vax) * zeppelin(b, p.Dax, Dperp, ξ))
+end
+function _profile(m::SMTFreeWater, p, j, ξ)
+    b = m.b[j]
+    Dperp = (1 - p.vax) * p.Dax
+    tissue = p.vax * stick(b, p.Dax, ξ) + (1 - p.vax) * zeppelin(b, p.Dax, Dperp, ξ)
+    return p.S0 * ((1 - p.fiso) * tissue + p.fiso * ball(b, p.Diso))
+end
+function _profile(m::SMTT2, p, j, ξ)
+    b, TE = m.b[j], m.TE[j]
+    Dperp = (1 - p.vax) * p.Dax
+    return p.S0 * (p.vax * exp(-TE / p.T2ax) * stick(b, p.Dax, ξ) +
+                   (1 - p.vax) * exp(-TE / p.T2ex) * zeppelin(b, p.Dax, Dperp, ξ))
+end
 
 # Gauss–Legendre nodes and weights on [0, 1] (n of them: exact for polynomials of degree 2n − 1),
 # by Newton's method on P_n from the Chebyshev guesses.
@@ -170,7 +184,7 @@ number or one per observation), the covariance of the magnitude images' means in
 Rician mean of each direction's signal, the profile the data actually average):
 [`sphericalmeannoise`](@ref) uses it.
 """
-function orientationcovariance(m::AbstractSMT, θ::NamedTuple, sets;
+function orientationcovariance(m::Union{SMT,SMTFreeWater,SMTT2}, θ::NamedTuple, sets;
                                σ = nothing, L::Integer = 60)
     n = nobs(m)
     length(sets) == n || throw(DimensionMismatch("orientationcovariance: $(length(sets)) direction " *
@@ -216,11 +230,11 @@ v_ax's bias 0.156 measured in a simulated pipeline, against 0.033 from the floor
 `σ` is one image's noise SD after the scanner's (complex) averages, a number or one per
 observation. The integral by Gauss–Legendre quadrature, 120 nodes.
 """
-struct RicianSphericalMean{M<:AbstractSMT,S<:AbstractVector} <: MRIModel
+struct RicianSphericalMean{M<:Union{SMT,SMTFreeWater,SMTT2},S<:AbstractVector} <: MRIModel
     model::M
     σ::S
 end
-function RicianSphericalMean(m::AbstractSMT; σ)
+function RicianSphericalMean(m::Union{SMT,SMTFreeWater,SMTT2}; σ)
     n = nobs(m)
     σv = σ isa Real ? fill(Float64(σ), n) : Float64.(collect(σ))
     length(σv) == n || throw(DimensionMismatch("RicianSphericalMean: $(length(σv)) σ for $n observations"))
@@ -268,7 +282,7 @@ crlb(m, θ; sphericalmeannoise(m, θ; snr = 20, directions = dirs, averages = ne
      weights = dirs .* nex)
 ```
 """
-function sphericalmeannoise(m::AbstractSMT, θ::NamedTuple; snr = nothing,
+function sphericalmeannoise(m::Union{SMT,SMTFreeWater,SMTT2}, θ::NamedTuple; snr = nothing,
                             σ = nothing, directions, averages = 1,
                             sets = directionset.(directions isa Integer ? fill(directions, nobs(m)) : directions))
     n = nobs(m)
