@@ -3590,7 +3590,10 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   the spherical-mean form computes exactly what it did, so SMT, SMTFreeWater and SMTT2 give
   bit-identical starts and fits, both precisions; the directional form rounds differently, at
   most 2.3e-15 relative (b to 5000 s/mm², every ξ), with the same fits in
-  examples/directional_models.jl. EQUIP 2085 tests pass.
+  examples/directional_models.jl. EQUIP 2085 tests pass. Then written with the exponent split
+  as the spherical mean is (the owner): S(ξ) = exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²), every direction
+  seeing D⊥ and only the excess depending on the angle, as one exp of the two exponents (no
+  second exp per image); the paper's form stays in the comment.
 
 - **D⊥ > D∥, and the spherical means' helper** (2026-11-06, discussed with the owner). The
   zeppelin's directional form is right for any D∥ and D⊥, but its spherical mean took √(b·(D∥ −

@@ -3,7 +3,7 @@
 #
 #   iso(b, D)                  exp(−b·D)                          isotropic diffusion (free water; D = 0: a dot)
 #   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
-#   zeppelin(b, D∥, D⊥, view)  exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) at ξ  axially symmetric
+#   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²) at ξ axially symmetric
 #   powder                                                        the view averaged over directions
 #
 # b in s/mm², D in mm²/s. A compartment with a direction takes its view explicitly: a cosine ξ,
@@ -96,7 +96,7 @@ stick(b, D) = throw(ArgumentError("stick(b, D) needs its view: stick(b, D, powde
 
 """
     zeppelin(b, D∥, D⊥, powder)    the spherical mean: exp(−b·D⊥)·√π·erf(√(b·(D∥ − D⊥))) / (2√(b·(D∥ − D⊥)))
-    zeppelin(b, D∥, D⊥, ξ)         along one direction: exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²))
+    zeppelin(b, D∥, D⊥, ξ)         along one direction: exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²)
 
 A zeppelin: an axially symmetric tensor, diffusivity D∥ along the fiber and D⊥ across it (the
 extra-axonal space in SMT and NODDI), b in s/mm², D in mm²/s. With a number `ξ`, the cosine
@@ -117,9 +117,11 @@ zeppelin(1000.0, 2e-3, 0.5e-3, 1.0)      # exp(−2): along the fiber
 zeppelin(1000.0, 2e-3, 0.5e-3, 0.0)      # exp(−0.5): across it
 ```
 """
-# S = exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²))                                          (Gong & Yendiki, Eq. 7)
-@inline zeppelin(b, Dpar, Dperp, ξ::Real) = exp(-b * Dpar * ξ^2 - b * Dperp * (1 - ξ^2))
-# S̄ = exp(−b·D⊥)·∫₀¹ exp(−b·(D∥ − D⊥)·ξ²) dξ
+# S(ξ) = exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²): every direction sees D⊥; only the excess D∥ − D⊥
+# depends on the angle (= exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)), Gong & Yendiki, Eq. 7). One exp of the
+# two exponents: the same numbers as the product, without a second exp per image.
+@inline zeppelin(b, Dpar, Dperp, ξ::Real) = exp(-b * Dperp - b * (Dpar - Dperp) * ξ^2)
+# S̄ = exp(−b·D⊥)·∫₀¹ exp(−b·(D∥ − D⊥)·ξ²) dξ: the same factors, the angle's averaged
 #   = exp(−b·D⊥)·√π·erf(√(b·(D∥ − D⊥))) / (2√(b·(D∥ − D⊥)))                (Gong & Yendiki, Eq. 1)
 @inline zeppelin(b, Dpar, Dperp, ::Powder) = exp(-b * Dperp) * _meanexp(b * (Dpar - Dperp))
 zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs its view: " *
