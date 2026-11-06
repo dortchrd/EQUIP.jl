@@ -7,7 +7,7 @@
 # `@mrimodel` turns one observation's signal into a model (src/models/macro.jl): the positional
 # arguments are the acquisition, the keywords the parameters (Free(...) is fitted, a number is
 # fixed). Relaxation is written as the paper writes it, exp(-TE / T2); the diffusion
-# compartments, exported by EQUIP (src/models/compartments.jl), make the rest read the same way.
+# compartments, exported by EQUIP (src/models/diffusion/compartments.jl), make the rest read the same way.
 #
 #   1. T2 decay, exp(-TE / T2): T2 is fitted; the built-in T2Decay's fit, to rounding
 #   2. inversion recovery, magnitude

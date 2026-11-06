@@ -19,7 +19,7 @@ Each branch builds on the one above it.
 
 - **Compartments** (called "building blocks" until 2026-11-06; the literature's word, after
   Panagiotaki et al.'s taxonomy). The diffusion compartments, exported by EQUIP, no module
-  (src/models/compartments.jl): `iso(b, D)` (Panagiotaki's ball; with D = 0 the dot), and
+  (src/models/diffusion/compartments.jl): `iso(b, D)` (Panagiotaki's ball; with D = 0 the dot), and
   `stick` and `zeppelin` with an explicit view,
   `powder` (the spherical mean) or a cosine ξ (one direction). The cosine comes from helpers, not
   compartments: `fiberdirection` (orientation.jl) and `ξ = g ⋅ n`. Relaxation is written as its

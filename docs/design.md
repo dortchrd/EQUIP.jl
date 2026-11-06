@@ -3621,6 +3621,9 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   - Measured: every built-in model's starts and fits bit-identical to before (the positive
     branch is the same expression); the SMT, compartment and direction test sets pass (134).
 
+- **The compartments live with the diffusion models** (2026-11-06, the owner):
+  src/models/diffusion/compartments.jl, included first in the diffusion group.
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
