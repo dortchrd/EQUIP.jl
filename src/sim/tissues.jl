@@ -39,7 +39,7 @@ const TISSUES = (
     muscle = (T1 = 1.412, T2 = 0.050),          # skeletal muscle
     heart = (T1 = 1.471, T2 = 0.047),
     kidney = (T1 = 1.194, T2 = 0.056),
-    cartilage_0 = (T1 = 1.168, T2 = 0.027),     # collagen fibres at 0° to the field
+    cartilage_0 = (T1 = 1.168, T2 = 0.027),     # collagen fibers at 0° to the field
     cartilage_55 = (T1 = 1.156, T2 = 0.043),    # at 55° (the magic angle)
     WM = (T1 = 1.084, T2 = 0.069),
     GM = (T1 = 1.820, T2 = 0.099),

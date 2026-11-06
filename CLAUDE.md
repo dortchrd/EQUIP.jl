@@ -24,7 +24,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
 - Rician floor corrections for SMT on the simulated spherical-mean pipeline (nerve-smt):
   `julia -t auto --project=. bench/floor_corrections.jl` (about 45 s) and
-  `bench/floor_robustness.jl` (σ wrong, fibre dispersion; about 4 minutes) and `bench/floor_sh.jl`
+  `bench/floor_robustness.jl` (σ wrong, fiber dispersion; about 4 minutes) and `bench/floor_sh.jl`
   (a Rician spherical-harmonic fit of each shell; about 15 minutes on 4 threads)
 - Building blocks against written-out equations (T2, ADC, SMT; blocks-proto): `julia -t 4
   --project=. bench/blocks_cost.jl` (about 1 minute)
@@ -38,8 +38,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, `datastart`; `Fixed(value; free = Free(...))`, a part of a model
   switched off by default); src/models/blocks.jl: module `EQUIP.Blocks`, the building blocks
-  (`decay(x, rate)`, `ball`, `stick`, `zeppelin` with the view `powder` or a cosine), public
-  names for writing models; one signal per family with parts switched on and
+  (`decay(x, rate)`, `ball`, `stick`, `zeppelin` with the view `powder` or a cosine;
+  `fiberdirection`, `fibercosine` for directional models), public names for writing models; one signal per family with parts switched on and
   off (the T2 decays, the SMT models); src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
@@ -72,8 +72,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
   search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;
   the result rounded to the ms by a search of its own)
-- src/io/: data files in, maps out, on MRImages: data.jl (`loaddata`, `loadmap`, `DataInfo`:
-  files stacked into observations, sidecar keys to model fields), maps.jl (`savemaps`: BIDS
+- src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
+  and a .bvec as a directional model's b, gx, gy, gz, checked), data.jl (`loaddata`,
+  `loadmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
+  model fields), maps.jl (`savemaps`: BIDS
   names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`);
   ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
   invalidates MRImages' own, docs/design.md)

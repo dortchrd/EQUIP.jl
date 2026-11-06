@@ -62,7 +62,9 @@ The acquisition values found (`info.found`), one per observation, by the models'
 - BIDS JSON sidecars (`name.json` beside `name.nii.gz`, as dcm2niix writes them): `EchoTime` →
   `TE`, `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees). A
   value given for a 4-D file holds for each of its volumes; a key some files lack is left out.
-- An FSL `.bval` file beside a single file (dcm2niix writes them for diffusion): `b` (s/mm²).
+- An FSL `.bval` file beside a single file (dcm2niix writes them for diffusion): `b` (s/mm²);
+  with a `.bvec` beside it too, the gradient directions `gx`, `gy`, `gz`, checked as
+  [`diffusionencoding`](@ref) checks them.
 
 ```julia
 data, info = loaddata("sub-01_T2map.nii.gz")      # TE from sub-01_T2map.json
@@ -147,6 +149,18 @@ function _found(paths, cars, counts)
             length(b) == counts[1] || throw(ArgumentError("$bval has $(length(b)) b-values; " *
                                                           "$(paths[1]) has $(counts[1]) images"))
             found[:b] = b
+            # the gradient directions beside it (FSL's .bvec): gx, gy, gz, checked with the
+            # b-values by `diffusionencoding` (one per image, unit vectors where b > 50)
+            bvec = filestem(paths[1]) * ".bvec"
+            if isfile(bvec)
+                acq = try
+                    diffusionencoding(b, readbvec(bvec))
+                catch e                                    # said with the file's name
+                    e isa Union{ArgumentError,DimensionMismatch} || rethrow()
+                    throw(ArgumentError("$bvec (with $bval): $(e.msg)"))
+                end
+                found[:gx], found[:gy], found[:gz] = acq.gx, acq.gy, acq.gz
+            end
         end
     end
     return found

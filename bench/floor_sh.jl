@@ -1,13 +1,13 @@
 # =================================================================================================
 # The spherical mean from a Rician spherical-harmonic fit of each shell, against the other floor
-# corrections for SMT, with and without fibre dispersion
+# corrections for SMT, with and without fiber dispersion
 #
-# The pipeline of bench/floor_robustness.jl (one fibre population per voxel, or 100 fibres from a
+# The pipeline of bench/floor_robustness.jl (one fiber population per voxel, or 100 fibers from a
 # Watson distribution about it; a Rician magnitude image per direction). Each shell's direction
 # magnitudes are fitted by least squares with E|y|(|Σ c_lm Y_lm(g)|, σ) as the model, the real even
 # spherical harmonics to order L = 2, 4, 6 (6, 15, 28 coefficients for 30 directions); the l = 0
 # coefficient is the shell's spherical mean (Y₀₀ scaled to 1), then the SMT fit. No assumption on
-# the fibre ODF beyond the order L. σ known. Bias and RMSE of v_ax at SNR 20 and 10 per image
+# the fiber ODF beyond the order L. σ known. Bias and RMSE of v_ax at SNR 20 and 10 per image
 # (docs/design.md, "Peripheral nerve SMT", step 2). About 7 minutes per SNR on 4 threads:
 #   julia -t auto --project=. bench/floor_sh.jl              (SNRS=20 or SNRS=10 for one of them)
 # =================================================================================================
@@ -110,9 +110,9 @@ function simulate_pipeline(rng, σ, κ; nvox = 2000, K = 100)
     mags = Matrix{Vector{Float64}}(undef, nvox, 4)
     for i in 1:nvox
         n = normalize(SVector{3}(randn(rng, 3)))
-        fibres = isinf(κ) ? [n] : [watson(rng, n, κ) for _ in 1:K]
+        fibers = isinf(κ) ? [n] : [watson(rng, n, κ) for _ in 1:K]
         for j in 1:4
-            mags[i, j] = [abs(mean(EQUIP._profile(m, p, j, dot(u, g)) for u in fibres) +
+            mags[i, j] = [abs(mean(EQUIP._profile(m, p, j, dot(u, g)) for u in fibers) +
                               σ * (randn(rng) + im * randn(rng))) for g in sets[j]]
         end
     end
@@ -135,7 +135,7 @@ println(); flush(stdout)
 
 const Ls = (2, 4, 6)
 const SHY = Dict(L => [shmatrix(sets[j], L) for j in 1:4] for L in Ls)
-const NAMES = ["no correction", "exact inversion per direction", "E|y|/dir in the model (1 fibre)",
+const NAMES = ["no correction", "exact inversion per direction", "E|y|/dir in the model (1 fiber)",
                "SH L=2, E|y| per direction", "SH L=4, E|y| per direction", "SH L=6, E|y| per direction"]
 function analyse(mags, σ)
     raw = mean.(mags)

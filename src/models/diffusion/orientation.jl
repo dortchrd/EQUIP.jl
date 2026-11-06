@@ -3,11 +3,11 @@
 #
 #   directionset(N)                        N directions spread evenly (electrostatic repulsion)
 #   orientationcovariance(m, θ, sets)      the covariance, across shells, of the error of the
-#                                          shells' means over their direction sets, for one fibre
+#                                          shells' means over their direction sets, for one fiber
 #                                          population in a random orientation
 #
 # The spherical mean is an integral over all directions; the data give its average over N. For
-# one population of fibres along n, the signal of observation j at gradient direction g depends
+# one population of fibers along n, the signal of observation j at gradient direction g depends
 # only on t = n·g, so it expands in Legendre polynomials (even orders: g and −g are the same):
 #
 #   f_j(t) = Σ_l a_l(j)·P_l(t),   a_0(j) the spherical mean (what SMT fits)
@@ -22,10 +22,10 @@
 #   C_jk = Σ_{l≥2} a_l(j)·a_l(k)/(2l+1) · (1/(N_j N_k)) Σ_{g∈G_j} Σ_{h∈G_k} P_l(g·h)
 #
 # exact, from the tissue (the a_l) and the direction sets alone (the double sums, which a set
-# that averages order l exactly makes 0). Shells see the same fibre, so they are correlated.
+# that averages order l exactly makes 0). Shells see the same fiber, so they are correlated.
 # One aligned population is the worst case (a peripheral nerve); dispersion or crossing
 # populations shrink the a_l. Added to the noise's covariance, it makes crlb's SD the error of
-# the fitted parameters over voxels with fibres in any orientation (docs/design.md, "Peripheral
+# the fitted parameters over voxels with fibers in any orientation (docs/design.md, "Peripheral
 # nerve SMT").
 # =================================================================================================
 
@@ -72,7 +72,7 @@ function _fibonacci(k, N)                        # the k-th of N points over the
     return SVector(r * cos(φ), r * sin(φ), z)
 end
 
-# The signal of observation j for one fibre population at cos t to the gradient: what the
+# The signal of observation j for one fiber population at cos t to the gradient: what the
 # spherical mean averages. Its average over t ∈ [0, 1] is the model's own signal. The same tissue
 # equation as `signal!` (smt.jl), with the compartments in their directional view: one function
 # for every SMT model and every part switched on (free water, T2s, the extra-axonal diffusivities).
@@ -139,7 +139,7 @@ end
     orientationcovariance(m, θ, sets; L = 60) -> Matrix{Float64}
 
 The covariance, across observations, of the error a finite direction set makes in a spherical
-mean: one fibre population in an orientation spread uniformly over the sphere, `sets[j]` the
+mean: one fiber population in an orientation spread uniformly over the sphere, `sets[j]` the
 gradient directions averaged for observation j (unit 3-vectors; `directionset(N)` for evenly
 spread ones; a single direction or an empty set for a b = 0 shell, which has no error). For the
 SMT models (`SMT`, `SMTFreeWater`, `SMTT2`), at truth `θ` (every parameter's value), in signal
@@ -148,9 +148,9 @@ units squared:
     C_jk = Σ_{l=2,4,…,L} a_l(j)·a_l(k)/(2l+1) · (1/(N_j N_k)) Σ_{g∈G_j} Σ_{h∈G_k} P_l(g·h)
 
 with a_l(j) the Legendre coefficients of observation j's signal as a function of the cosine
-between fibre and gradient (exact: the addition theorem; header of src/models/diffusion/
+between fiber and gradient (exact: the addition theorem; header of src/models/diffusion/
 orientation.jl). Its mean over orientations is 0: the error shows as spread, not bias, over
-voxels with fibres in different orientations. One aligned population (a nerve) is the worst
+voxels with fibers in different orientations. One aligned population (a nerve) is the worst
 case.
 
 Added to the noise's covariance, crlb gives the fitted parameters' SD over orientations and
@@ -207,10 +207,10 @@ end
     RicianSphericalMean(m; σ)
 
 A model whose signal is the expected spherical mean of magnitude images: for each observation
-(shell), the mean over all fibre–gradient angles of [`ricianmean`](@ref) of the signal in that
-direction, ∫₀¹ E|y|(f_j(t)) dt, for one fibre population (one of the SMT models). Unlike
+(shell), the mean over all fiber–gradient angles of [`ricianmean`](@ref) of the signal in that
+direction, ∫₀¹ E|y|(f_j(t)) dt, for one fiber population (one of the SMT models). Unlike
 [`RicianMean`](@ref) of the spherical mean, the floor acts direction by direction: directions
-near the fibres, where the signal is small at high b, sit on the floor, and since E|y| is convex
+near the fibers, where the signal is small at high b, sit on the floor, and since E|y| is convex
 in the signal the spherical mean of magnitudes lies above the floor of the mean (2026-11-03:
 v_ax's bias 0.156 measured in a simulated pipeline, against 0.033 from the floor of the mean).
 `σ` is one image's noise SD after the scanner's (complex) averages, a number or one per
@@ -249,7 +249,7 @@ end
 crlb's keywords for the whole spherical-mean pipeline of an SMT model `m` at truth `θ`: magnitude
 images, one per gradient direction (`directions[j]` of them for shell j, the directions `sets`),
 each the complex mean of `averages[j]` acquisitions (the scanner's NEX: σ/√NEX), averaged into
-the shell's spherical mean, for one fibre population in a random orientation. Every error the
+the shell's spherical mean, for one fiber population in a random orientation. Every error the
 pipeline has, carried to the fit by crlb:
 
 - the Rician floor, direction by direction (`simulate_with`: [`RicianSphericalMean`](@ref), the

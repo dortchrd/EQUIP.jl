@@ -77,8 +77,10 @@ function _niftiinfo(io, path, pattern)
     end
     isempty(found) && return
     println(io, "\nEQUIP reads, for the models' fields (", n, n == 1 ? " volume)" : " volumes)")
-    source = Dict(f => String(k) for (k, f) in pairs(EQUIP._BIDS))
-    rows = [String(f) * " (from " * get(source, f, basename(stem * ".bval")) * ")" => v
+    source = Dict{Symbol,String}(f => String(k) for (k, f) in pairs(EQUIP._BIDS))
+    source[:b] = basename(stem * ".bval")
+    foreach(f -> source[f] = basename(stem * ".bvec"), (:gx, :gy, :gz))
+    rows = [String(f) * " (from " * source[f] * ")" => v
             for (f, v) in sort!(collect(found); by = first)]
     _rows(io, rows)
 end

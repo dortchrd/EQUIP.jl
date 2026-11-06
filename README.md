@@ -381,8 +381,10 @@ D in mm²/s, times in s):
 |---|---|
 | `decay(x, rate)` | exp(−x·rate), the exponential unit in rate form: `decay(TE, 1/T2)`, `decay(TE, R2)`, `decay(b, ADC)`, `1 − 2·decay(TI, 1/T1)`; rate 0 gives 1 |
 | `ball(b, D)` | exp(−b·D): isotropic diffusion (free water, an ADC), the same in every view |
-| `stick(b, D, powder)`, `stick(b, D, t)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine t to the fibre, exp(−b·D·t²) |
+| `stick(b, D, powder)`, `stick(b, D, t)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine t to the fiber, exp(−b·D·t²) |
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, t)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
+| `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
+| `fibercosine(gx, gy, gz, n)` | the cosine t between one image's gradient direction and the fiber, gx·n₁ + gy·n₂ + gz·n₃: the view `t` above |
 
 `decay` takes the rate: `decay(TE, T2)` would be exp(−TE·T2), almost no decay, and nothing reports
 it, so write `decay(TE, 1/T2)`; T2 is still what is fitted. A stick or a zeppelin takes its view
@@ -403,7 +405,7 @@ using EQUIP, EQUIP.Blocks
     S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
 
 @mrimodel NerveZ(b, c; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
-                 Dax = Free(start = 2e-3, lower = 0)) =                        # c = g·z, fibres along z
+                 Dax = Free(start = 2e-3, lower = 0)) =                        # c = g·z, fibers along z
     S0 * (vax * stick(b, Dax, c) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, c))
 ```
 
@@ -412,6 +414,21 @@ inlined. More, each fitted to simulated data (inversion recovery, SMT with compa
 examples/building_blocks.jl. Plain names, not `_relax`: Julia's leading underscore marks internal
 names, and these are meant to be used; they live in their own module so that `stick` and `ball`
 stay out of the namespace of code that does not ask for them.
+
+A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
+four acquisition fields, `b`, `gx`, `gy`, `gz`, each one value per image, and
+`diffusionencoding` makes them from a .bval and a .bvec (checked: a direction per b-value, unit
+vectors where b > 50):
+
+```julia
+acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., gx = ..., gy = ..., gz = ...)
+m = StickZeppelin(; acq...)                           # any model with these fields
+```
+
+With fiber angles, write `signal!` by hand and compute the direction once per voxel,
+`n = fiberdirection(θ, φ)`, then `t = fibercosine(gx[j], gy[j], gz[j], n)` for each image: an
+`@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
+and the fit takes about twice as long (examples/directional_models.jl times both).
 
 ### By hand
 
@@ -758,7 +775,7 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   one value.
 - The spherical mean's whole pipeline (SMT models): `crlb(m, θ; sphericalmeannoise(m, θ; snr,
   directions, averages)..., weights)` adds the Rician floor acting on each direction's image
-  (for one aligned fibre population, the directions near the fibres sit on the floor), the
+  (for one aligned fiber population, the directions near the fibers sit on the floor), the
   noise, and the error of averaging over a finite direction set (`orientationcovariance`,
   closed form; `directionset(N)` for evenly spread directions): what to weigh directions
   against the scanner's averages with.
@@ -840,8 +857,10 @@ savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map,
 - `loaddata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
   given; their size and geometry checked), the intensity scaling applied; `precision = Float32`
   for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
-  `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), and `b`
-  from an FSL `.bval` beside the data. Nothing is converted: seconds and degrees, as in BIDS.
+  `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), `b`
+  from an FSL `.bval` beside the data, and `gx`, `gy`, `gz` from a `.bvec` beside that
+  (checked as `diffusionencoding` checks them). Nothing is converted: seconds and degrees, as in
+  BIDS.
 - MATLAB: `loaddata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
   observations along the last dimension after up to three spatial ones (`nx×ny×nz×N`,
   `nx×ny×N`, or `nvoxels×N` for voxels already masked); `loadmap("data.mat:mask", info)`;
@@ -851,7 +870,9 @@ savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map,
   names where they exist (`T1map`, `R1map`, `T2map`, `S0map`, ...), the status and SSE maps,
   and with `stderror = true` the standard errors; beside each a JSON sidecar recording how it
   was made (the model, its acquisition, each parameter's role, the precision, EQUIP's version).
-- `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is).
+- `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
+  `readbvec(path)`: an FSL `.bvec` as its 3×N matrix; `diffusionencoding(bval, bvec)`: both,
+  as a directional model's `b`, `gx`, `gy`, `gz` (from file names or from those arrays).
   `writetable(path, rows)`: crlb's and montecarlo's rows as TSV.
 - Any image: `img = readimage(path)` gives `img.data`, `img.header` (the geometry), `img.meta`
   (the sidecar, every entry as it is); `writeimage(path, MRImage(values, img))` writes values

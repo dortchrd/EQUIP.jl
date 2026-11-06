@@ -388,6 +388,7 @@ acquisition settings, e.g. `TI` and `TD`). Throws an error if they differ. A mod
 fields of another kind can define its own method.
 """
 function nobs(m::MRIModel)
+    _checkfields(m)
     # Each field's length if it is a vector, -1 if not: a tuple (`map` over the tuple of fields,
     # each field's type known), so nothing is allocated. It is called for every noise level
     # crlb is given; collecting the lengths in an array cost 35–65 ns and 80–240 bytes a call.
@@ -401,6 +402,26 @@ function nobs(m::MRIModel)
                                 "different lengths, $(filter(>=(0), collect(lens)))"))
     return n
 end
+# A per-observation field holds numbers, one per observation: every generic routine relies on
+# it (the lengths, the signal's number type, the conversion to the fit's precision). A vector of
+# anything else (3-vectors as gradient directions, one per image) is said here, where every fit,
+# signal and crlb starts, with what to write instead; otherwise it would fail later, obscurely
+# (`float(Any)`), or stay Float64 in a Float32 fit. The test is on the fields' types, so the
+# compiler settles it when compiling: nothing at run time. A matrix is not checked: it is not a
+# per-observation field (a lookup table, say), and `nobs` does not count it.
+@inline _checkfields(m) =
+    any(x -> x isa AbstractVector && !(eltype(x) <: Number), _fields(m)) ? _badfield(m) : nothing
+@noinline function _badfield(m)
+    names = fieldnames(typeof(m))
+    f = names[findfirst(f -> (x = getfield(m, f); x isa AbstractVector && !(eltype(x) <: Number)),
+                        names)]
+    T = eltype(getfield(m, f))
+    throw(ArgumentError("$(nameof(typeof(m))): the field `$f` holds $T values; a field with " *
+        "one value per observation must hold numbers. Gradient directions go in as three " *
+        "fields of numbers, gx, gy and gz: `diffusionencoding(bval, bvec)` makes them (and b) " *
+        "from a .bval and a .bvec, or from a 3×N matrix"))
+end
+
 # `nobs` is StatsAPI's function (imported in EQUIP.jl); this adds a method for every
 # MRIModel. A specific model can add its own, more specific method, e.g.
 # `nobs(m::T2Spectrum) = length(m.TE)`, and Julia will pick that one for it.

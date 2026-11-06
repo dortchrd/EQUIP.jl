@@ -1,8 +1,8 @@
 # =================================================================================================
-# Rician floor corrections for SMT: how they hold up when σ is wrong and the fibres are dispersed
+# Rician floor corrections for SMT: how they hold up when σ is wrong and the fibers are dispersed
 #
 # The pipeline of bench/floor_corrections.jl; each correction given f × the true σ (f = 0.8 to 1.2,
-# the same data), and data from fibres dispersed about the voxel's orientation (K = 100 fibres from
+# the same data), and data from fibers dispersed about the voxel's orientation (K = 100 fibers from
 # a Watson distribution, κ = 16, 4, 1: ODI = (2/π)·atan(1/κ) = 0.04, 0.16, 0.50) with σ right.
 # Bias and RMSE of v_ax at SNR 20 and 10 per image (docs/design.md, "Peripheral nerve SMT", step 2).
 # About 4 minutes:
@@ -44,14 +44,14 @@ const p = EQUIP.resolve(m, θ)
 const d = [4, 30, 30, 30]
 const sets = directionset.(d)
 
-# Each voxel's magnitude images, by shell: κ = Inf for one fibre direction.
+# Each voxel's magnitude images, by shell: κ = Inf for one fiber direction.
 function simulate_pipeline(rng, σ, κ; nvox = 2000, K = 100)
     mags = Matrix{Vector{Float64}}(undef, nvox, 4)
     for i in 1:nvox
         n = normalize(SVector{3}(randn(rng, 3)))
-        fibres = isinf(κ) ? [n] : [watson(rng, n, κ) for _ in 1:K]
+        fibers = isinf(κ) ? [n] : [watson(rng, n, κ) for _ in 1:K]
         for j in 1:4
-            mags[i, j] = [abs(mean(EQUIP._profile(m, p, j, dot(u, g)) for u in fibres) +
+            mags[i, j] = [abs(mean(EQUIP._profile(m, p, j, dot(u, g)) for u in fibers) +
                               σ * (randn(rng) + im * randn(rng))) for g in sets[j]]
         end
     end
@@ -99,11 +99,11 @@ for snr in (20, 10)
     # σ misestimated: one dataset, each correction given σ × f
     mags = simulate_pipeline(MersenneTwister(1), σ, Inf)
     fs = (0.8, 0.9, 1.0, 1.1, 1.2)
-    table("SNR $snr, one fibre direction, σ used = f × true σ: v_ax bias / RMSE (truth 0.6)",
+    table("SNR $snr, one fiber direction, σ used = f × true σ: v_ax bias / RMSE (truth 0.6)",
           ["f = $f" for f in fs], [analyse(mags, f * σ) for f in fs])
     # dispersion: data from a Watson ODF, σ right
     κs = (Inf, 16.0, 4.0, 1.0)
-    table("SNR $snr, σ right, fibres dispersed (Watson κ): v_ax bias / RMSE (truth 0.6)",
+    table("SNR $snr, σ right, fibers dispersed (Watson κ): v_ax bias / RMSE (truth 0.6)",
           [isinf(κ) ? "none" : @sprintf("κ %g, ODI %.2f", κ, odi(κ)) for κ in κs],
           [analyse(simulate_pipeline(MersenneTwister(2), σ, κ), σ) for κ in κs])
 end

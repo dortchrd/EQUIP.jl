@@ -81,7 +81,7 @@ println("   against the built-in SMTT2: ", round(maximum(abs, signal(MySMTT2(b =
                                                   signal(SMTT2(b = bs, TE = tes), θ)); sigdigits = 2), " largest difference in signal")
 
 # --- 6. A nerve along z: one direction at a time, no spherical mean ---------------------------------
-# Peripheral nerve runs roughly along the bore: with the fibres' direction known, each gradient
+# Peripheral nerve runs roughly along the bore: with the fibers' direction known, each gradient
 # direction g sees the cosine c = g·z, and the directional view of the blocks models every image.
 @mrimodel NerveZ(b, c; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
                  Dax = Free(start = 2e-3, lower = 0, upper = 3e-3)) =

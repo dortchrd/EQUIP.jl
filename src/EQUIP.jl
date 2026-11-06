@@ -42,8 +42,8 @@ import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo resu
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
 using SpecialFunctions: erf, besselix    # SMT's stick; Rician noise (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
-using MRImages: MRImage, readimage, writeimage, readvalues, samegeometry, filestem, sidecarpath,
-                writesidecar, writemat
+using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeometry, filestem,
+                sidecarpath, writesidecar, writemat
 
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
@@ -70,7 +70,8 @@ export cond, cor, leakage, LeakageResult                                    # di
 export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 export loaddata, loadmap, DataInfo, savemaps, writetable                     # data in, maps out
-export MRImage, readimage, writeimage, readvalues                           # (from MRImages)
+export diffusionencoding                                                    # .bval + .bvec -> b, gx, gy, gz
+export MRImage, readimage, writeimage, readvalues, readbvec                 # (from MRImages)
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit, sim ← errors ← design (fit and sim
@@ -113,6 +114,7 @@ include("design/design.jl")            # ProtocolDesign: the objective (Eq. 5), 
 include("design/search.jl")            # optimize_protocol: differential evolution, Nelder–Mead
 
 # io: data files in, maps out (MRImages reads and writes the files; here, what fitting needs)
+include("io/encoding.jl")              # diffusionencoding: a .bval and a .bvec as b, gx, gy, gz
 include("io/data.jl")                  # loaddata, loadmap, DataInfo: a dataset's files as one array
 include("io/maps.jl")                  # savemaps: the maps in the data's geometry, with sidecars
 include("io/tables.jl")                # writetable: crlb's and montecarlo's rows as TSV

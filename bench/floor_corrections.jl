@@ -1,7 +1,7 @@
 # =================================================================================================
 # Rician floor corrections for SMT, compared on the simulated spherical-mean pipeline
 #
-# One fibre population in a random orientation per voxel; a Rician magnitude image per gradient
+# One fiber population in a random orientation per voxel; a Rician magnitude image per gradient
 # direction; the spherical mean of each shell; the SMT fit (Kaden et al., NeuroImage 2016). The
 # floor handled seven ways: none; the Karlsen inversion (Magn Reson Med 1999;41:614, Eq. 4) of each
 # shell mean or of each direction (Kaden's `--rician`); NYU's sqrt(max(M² − σ², 0)) (SMI.m) and

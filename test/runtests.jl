@@ -109,6 +109,36 @@ end
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
     S0 * EQUIP.Blocks.decay(TE, 1 / T2)
 
+# A directional model written by hand (examples/directional_models.jl): one fiber n(θ, φ), the
+# blocks' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
+Base.@kwdef struct DirStickZeppelin{A,X,Y,Z} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+EQUIP.parameters(::Type{<:DirStickZeppelin}) = (S0 = Free(start = :scale, lower = 0),
+    vax = Free(start = 0.5, lower = 0, upper = 1), Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
+    θ = Free(start = 0.5, lower = 0, upper = π), φ = Free(start = 0.0, lower = -π, upper = π))
+function EQUIP.signal!(out, m::DirStickZeppelin, p)
+    (; b, gx, gy, gz) = m
+    (; S0, vax, Dax, θ, φ) = p
+    n = EQUIP.Blocks.fiberdirection(θ, φ)
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        t = EQUIP.Blocks.fibercosine(gx[j], gy[j], gz[j], n)
+        out[j] = S0 * (vax * EQUIP.Blocks.stick(b[j], Dax, t) +
+                       (1 - vax) * EQUIP.Blocks.zeppelin(b[j], Dax, (1 - vax) * Dax, t))
+    end
+    return out
+end
+# The same acquisition given as one 3-vector per image: refused, with what to write instead
+Base.@kwdef struct DirVectors{A,G} <: MRIModel
+    b::A
+    g::G
+end
+EQUIP.parameters(::Type{<:DirVectors}) = (S0 = Free(start = :scale, lower = 0),)
+EQUIP.signal!(out, m::DirVectors, p) = (out .= p.S0; out)
+
 @mrimodel TieFormula(t; A = Free(start = :scale), k1 = Free(start = 1.0), k2 = 0.5 * k1) =
     A * (exp(-k1 * t) + exp(-k2 * t))
 @mrimodel NoStart(t; A = Free(start = :scale), k) = A * exp(-k * t)
@@ -2295,6 +2325,18 @@ end
         niwrite(path("dwi.nii"), Float32.(Y[:, :, :, 1:4]))
         write(path("dwi.bval"), "0 500 1000 2000\n")
         @test loaddata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
+        # and an FSL .bvec beside both: gx, gy, gz (0 0 0 at b = 0), checked by diffusionencoding
+        write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0\n")
+        fd = loaddata(path("dwi.nii"))[2].found
+        @test fd[:gx] == [0, 1, 0, 0.6] && fd[:gy] == [0, 0, 1, 0.8] && fd[:gz] == zeros(4)
+        @test (; (k => fd[k] for k in (:b, :gx, :gy, :gz))...) ==
+              diffusionencoding(path("dwi.bval"), path("dwi.bvec"))
+        write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0.5\n")          # image 4 not unit
+        @test occursin("dwi.bvec (with", msg(() -> loaddata(path("dwi.nii")))) &&
+              occursin("unit vectors", msg(() -> loaddata(path("dwi.nii"))))
+        write(path("dwi.bvec"), "0 1 0\n0 0 1\n0 0 0\n")                      # three images, not four
+        @test occursin("one direction per image", msg(() -> loaddata(path("dwi.nii"))))
+        rm(path("dwi.bvec"))
         # Mistakes
         NIfTI.niwrite(path("other.nii"), NIfTI.NIVolume(Float32.(Y[:, :, :, 1])))
         niwrite(path("small.nii"), zeros(Float32, 4, 4, 2))
@@ -2397,7 +2439,7 @@ end
         @test nominal(m, :SMT_cBH).vax == 0.241 && nominal(m, :SMT_NWM).Dax == 1.9e-3
 
         # Devan 2020, Fig. 1: the vax precision efficiency 1/√(N·CRLB/vax²) of the five
-        # protocols, for an isotropic fibre arrangement (their worst case, where each direction's
+        # protocols, for an isotropic fiber arrangement (their worst case, where each direction's
         # signal is the spherical mean). At SNR 20 per direction (their simulations' SNR; Fig. 1
         # does not say), with the shells' means weighted by their directions, it is their figure:
         # within 5% for normal white matter, 15% for the others. Theirs adds the Rician factor,
@@ -2562,7 +2604,7 @@ end
         m = SMT(b = [0.0, 1000, 2500, 4000])
         θ = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
         p = resolve(m, θ)
-        # Each model's directional signal averages, over the fibre–gradient angle, to its own signal
+        # Each model's directional signal averages, over the fiber–gradient angle, to its own signal
         x, w = EQUIP._GL01
         for (mm, tt) in ((m, θ), (SMTFreeWater(b = m.b), (; θ..., fiso = 0.2, Diso = 3e-3)),
                          (SMTT2(b = [0.0, 2500, 2500], TE = [0.07, 0.07, 0.12]), (; θ..., T2ax = 0.09, T2ex = 0.05)))
@@ -2575,11 +2617,11 @@ end
         @test length(G) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, G) && G == directionset(30)
         @test norm(sum(g * g' for g in G) / 30 - I / 3) < 1e-6
         @test length(directionset(1)) == 1
-        # The covariance against simulation over fibre orientations, across shells too; b = 0: none
+        # The covariance against simulation over fiber orientations, across shells too; b = 0: none
         dirs = [1, 10, 20, 40]
         sets = directionset.(dirs)
         C = orientationcovariance(m, θ, sets)
-        ns = [randdir() for _ in 1:20_000]                   # one fibre orientation per voxel
+        ns = [randdir() for _ in 1:20_000]                   # one fiber orientation per voxel
         E = [mean(EQUIP._profile(m, p, j, dot(n, g)) for g in sets[j]) - signal(m, θ)[j]
              for n in ns, j in 1:4]
         S = cov(E)
@@ -2594,7 +2636,7 @@ end
                                                      signal(mb, θ)[1] <= 0.05, 1:100))
         @test nmin(1000.0) <= 6 && nmin(3000.0) == 10 && 24 <= nmin(10000.0) <= 34
 
-        # The whole pipeline simulated (one fibre population in a random orientation per voxel, a
+        # The whole pipeline simulated (one fiber population in a random orientation per voxel, a
         # Rician magnitude image per direction, the spherical mean, the SMT fit) against crlb with
         # sphericalmeannoise: the floor acts direction by direction (bias 0.16 here, five times the
         # 0.03 the floor of the mean gives); SD within 20% (crlb is linear, the fit is bounded)
@@ -2711,6 +2753,61 @@ end
                                   (1 - p.vax) * B.decay(TE, 1 / p.T2ex) * B.zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, B.powder))
         θt = (; θs..., T2ax = 0.09, T2ex = 0.05)
         @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
+    end
+
+    @testset "Directions per image: diffusionencoding, fiberdirection, fibercosine" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        rng = MersenneTwister(5)
+        dirs = directionset(30)
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 4); collect.(dirs); collect.(dirs)])   # 3×64, FSL: 0 0 0 at b = 0
+        bv = [fill(0.0, 2); fill(5.0, 2); fill(1000.0, 30); fill(2500.0, 30)]
+        acq = diffusionencoding(bv, G)
+        @test keys(acq) == (:b, :gx, :gy, :gz) && all(v -> v isa Vector{Float64}, values(acq))
+        @test acq.b == bv && (acq.gx, acq.gy, acq.gz) == (G[1, :], G[2, :], G[3, :])   # b kept as given
+        @test diffusionencoding(bv, permutedims(G)) == acq                           # N×3 too
+        @test diffusionencoding(1:3, [1 0 0; 0 1 0; 0 0 1]).gy == [0, 1, 0]          # 3×3: a .bvec
+        Gc = copy(G); a2 = diffusionencoding(bv, Gc); Gc[1, 5] = 9.0
+        @test a2.gx[5] == G[1, 5]                                                    # copied
+        # mistakes, said with what is wrong
+        @test occursin("one direction per image", msg(() -> diffusionencoding(bv[1:63], G)))
+        @test occursin("3×N or N×3", msg(() -> diffusionencoding(bv, [G; G[1:1, :]])))
+        @test occursin("image 5", msg(() -> diffusionencoding(bv, 2 .* G))) &&
+              occursin("unit vectors", msg(() -> diffusionencoding(bv, 2 .* G)))
+        @test diffusionencoding(bv, 2 .* G; b0threshold = 3000).gx == 2 .* G[1, :]   # (checked above it)
+        # from the files, as dcm2niix writes them
+        dir = mktempdir()
+        write(joinpath(dir, "dwi.bval"), join(bv, " ") * "\n")
+        write(joinpath(dir, "dwi.bvec"), join((join(G[k, :], " ") for k in 1:3), "\n") * "\n")
+        @test diffusionencoding(joinpath(dir, "dwi.bval"), joinpath(dir, "dwi.bvec")) == acq
+        # the blocks: a fiber's direction, and its cosine with a gradient direction
+        B = EQUIP.Blocks
+        n = B.fiberdirection(0.7, 0.3)
+        @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && B.fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
+        @test B.fibercosine(dirs[3]..., n) ≈ dot(dirs[3], SVector(n))
+        @test B.fibercosine(0.0, 0.0, 1.0, B.fiberdirection(π / 3, 0.4)) ≈ 0.5
+        @test B.fiberdirection === EQUIP.Blocks.fiberdirection && :fibercosine in names(B)
+        # a directional model on it: its signal is the stick and zeppelin written out, no allocation
+        m = DirStickZeppelin(; acq...)
+        θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, θ = 0.7, φ = 0.3)
+        t = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
+        Dp = 0.4 * 1.9e-3
+        @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * t^2) +
+                                        0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * t^2))) rtol = 1e-12
+        out = zeros(64); signal!(out, m, θ)
+        allocs(m, out, θ) = @allocated signal!(out, m, θ)
+        @test allocs(m, out, θ) == 0
+        # fitted in both precisions, from the true direction's neighborhood
+        Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng)
+        for T in (Float64, Float32)
+            r = fit(m, Y; precision = T, θ = Free(start = 0.6), φ = Free(start = 0.2))
+            @test eltype(r.params.vax) == T && count(isconverged, r.status) == 200
+            @test abs(mean(r.params.vax) - 0.6) < 0.01 && abs(mean(r.params.θ) - 0.7) < 0.01
+        end
+        # one 3-vector per image is refused where every fit and signal starts, naming the remedy
+        mv = DirVectors(b = bv, g = [SVector(c...) for c in eachcol(G)])
+        for f in (() -> signal(mv, (S0 = 1.0,)), () -> fit(mv, Y), () -> nobs(mv))
+            @test occursin("the field `g` holds", msg(f)) && occursin("diffusionencoding", msg(f))
+        end
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

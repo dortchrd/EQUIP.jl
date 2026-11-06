@@ -2935,10 +2935,10 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
   averages can beat directions. Needs the Rician mean E|y| (closed form) for the bias, and the
   Rician information (Devan 2020, Appendix) for crlb.
 - **Orientational sampling**: a finite direction set does not average the anisotropic signal
-  exactly. A nerve's fibres are one aligned population, the worst case. Closed form for a
-  direction set, by a Legendre expansion of one fibre's signal,
+  exactly. A nerve's fibers are one aligned population, the worst case. Closed form for a
+  direction set, by a Legendre expansion of one fiber's signal,
   Var = Σ_{l≥2} a_l²/(2l+1) · (1/N²) Σ_ij P_l(g_i·g_j), its covariance across shells by the same
-  sum over the two shells' directions (the same fibre in every shell). Checked against
+  sum over the two shells' directions (the same fiber in every shell). Checked against
   simulation (2026-11-03: white matter, b = 3000 s/mm², a Fibonacci set: 6 directions 17.2%
   against 17.2%, 20: 3.41% against 3.42%, 64: 0.96% against 0.96%; 5% at about 15 directions, as
   Schilling 2022's SNR = ∞ curve).
@@ -2953,7 +2953,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
   a designer constraint.
 - **Design variables**: each shell's b (continuous), N_dirs and N_avg (integers: enumerated),
   the echo times (continuous; the minimum TE depends on b through the gradients), the number of
-  slices given. Validated by a full Monte Carlo of the pipeline: directional signals, the fibres'
+  slices given. Validated by a full Monte Carlo of the pipeline: directional signals, the fibers'
   orientation, noise with the scanner's averaging, the spherical mean, the fit.
 
 ### To build here, in order
@@ -2987,15 +2987,15 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
    model's directional signal `_profile`, its Legendre coefficients by 120-node Gauss–Legendre,
    orders to 60); `RicianSphericalMean(m; σ)` and `sphericalmeannoise(m, θ; snr, directions,
    averages, sets)`, crlb's keywords for the whole spherical-mean pipeline.
-   - Checked: the covariance against 20,000–50,000 random fibre orientations, cross-shell terms
+   - Checked: the covariance against 20,000–50,000 random fiber orientations, cross-shell terms
      too (1.135 against 1.163 ×10⁻⁶; diagonal within 1%), mean 0. Schilling 2022's minimal
      directions at SNR = ∞ (v 0.6, λ 2 μm²/ms, 5%): 4, 7, 10, 16, 23, 28 at b = 1, 2, 3, 5, 8, 10
      ms/μm², as their Fig. 4.
    - **Found: the floor acts direction by direction.** A first comparison with the whole
-     pipeline simulated (one fibre population in a random orientation per voxel, a Rician image
+     pipeline simulated (one fiber population in a random orientation per voxel, a Rician image
      per direction, the spherical mean, the SMT fit) matched the SD but not the bias: v_ax 0.156
      simulated against 0.033 from the floor of the shell's mean signal (`riciannoise`). For one
-     aligned population the directions near the fibres have almost no signal at high b and sit
+     aligned population the directions near the fibers have almost no signal at high b and sit
      on the floor, and E|y| is convex in the signal, so the mean of magnitudes is above the
      floor of the mean. With the floor applied to each direction's signal and averaged over the
      angle (`RicianSphericalMean`), and the noise and orientation terms on the same footing
@@ -3010,7 +3010,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      0.105 (60 × 2), 0.069 (30 × 4), 0.058 (20 × 6), 0.074 (12 × 10: the orientational SD grows),
      0.218 (6 × 20). Placeholder values; the lab's own come next (steps 3 and 4).
    - **Floor corrections compared** (2026-11-03; the pipeline above: SMT, b = 0, 1000, 2500,
-     4000 s/mm², 4/30/30/30 directions, v 0.6, D 2e-3, one fibre population in a random
+     4000 s/mm², 4/30/30/30 directions, v 0.6, D 2e-3, one fiber population in a random
      orientation, 2000 voxels, σ known). Bias, SD and RMSE of v_ax at SNR 20 per image, then 10:
      | Method | SNR 20 | SNR 10 |
      |---|---|---|
@@ -3032,7 +3032,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      better but is the inverse of a single noisy value, biased at low SNR (below the floor it
      clips to 0, above it is not). Modelling E|y| direction by direction inside the fit
      (`RicianSphericalMean`) has no bias and the smallest SD, but assumes the directional
-     profile, one fibre population: right for a coherent nerve, not invariant to dispersion or
+     profile, one fiber population: right for a coherent nerve, not invariant to dispersion or
      crossings as SMT itself is. Devan 2020 fitted their Rician simulations with Kaden's code
      and does not say it used `--rician`.
 
@@ -3049,7 +3049,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      be unbiased near the floor; the model of the mean (`RicianSphericalMean`) can.
    - **Robustness of the corrections** (2026-11-03, bench/floor_robustness.jl, the same pipeline;
      v_ax bias / RMSE, truth 0.6). σ misestimated (each correction given f × the true σ, the same
-     data), one fibre direction:
+     data), one fiber direction:
      | Method | SNR 20, f 0.8 | f 1.0 | f 1.2 | SNR 10, f 0.8 | f 1.0 | f 1.2 |
      |---|---|---|---|---|---|---|
      | no correction | +0.156 / 0.165 | +0.156 / 0.165 | +0.156 / 0.165 | +0.321 / 0.330 | +0.321 / 0.330 | +0.321 / 0.330 |
@@ -3058,7 +3058,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
      | DESIGNER | +0.121 / 0.134 | +0.112 / 0.126 | +0.109 / 0.123 | +0.259 / 0.273 | +0.246 / 0.261 | +0.243 / 0.257 |
      | E\|y\| per direction in the model | +0.035 / 0.058 | +0.000 / 0.044 | −0.034 / 0.053 | +0.075 / 0.112 | +0.001 / 0.080 | −0.076 / 0.106 |
 
-     Fibres dispersed about the voxel's orientation (100 fibres from a Watson distribution; ODI
+     Fibers dispersed about the voxel's orientation (100 fibers from a Watson distribution; ODI
      0.04, 0.16, 0.50 for κ = 16, 4, 1), σ right:
      | Method | SNR 20, ODI 0.04 | 0.16 | 0.50 | SNR 10, ODI 0.04 | 0.16 | 0.50 |
      |---|---|---|---|---|---|---|
@@ -3072,11 +3072,11 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
        ±10% at SNR 20 (∓0.037 at SNR 10), and it keeps the lowest RMSE across ±20%. The
        per-direction corrections fall short at the right σ, so a σ too high helps them.
      - Dispersion lowers the floor's bias for every method (no correction: 0.157 at ODI 0 to
-       0.035 at 0.50, SNR 20): with the fibres spread, fewer directions sit near zero signal.
-       The model, which assumes one fibre direction, then over-corrects (−0.023 at ODI 0.04,
+       0.035 at 0.50, SNR 20): with the fibers spread, fewer directions sit near zero signal.
+       The model, which assumes one fiber direction, then over-corrects (−0.023 at ODI 0.04,
        −0.079 at 0.16), while the per-direction corrections become about right at ODI 0.16. The
        crossover is between ODI 0.04 and 0.16: below it the model is best, above it the exact
-       inversion per direction or SMI.m. The floor is worst where the fibres are coherent, which
+       inversion per direction or SMI.m. The floor is worst where the fibers are coherent, which
        is where the model is right.
      - Worst RMSE over all ten conditions: SNR 20, no correction 0.166, exact inversion 0.101,
        SMI.m 0.115, DESIGNER 0.134, the model 0.105; SNR 10, 0.332, 0.209, 0.237, 0.273, 0.181.
@@ -3085,12 +3085,12 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
        information about κ; the l = 2 rotational invariant, NODDI or the literature do).
    - **The spherical mean from a Rician spherical-harmonic fit** (2026-11-03, bench/floor_sh.jl,
      the owner's question: the l = 0 coefficient is the spherical mean, so fit each shell's
-     directions with E|y| of an SH series and need no fibre ODF). v_ax bias / RMSE, σ right:
+     directions with E|y| of an SH series and need no fiber ODF). v_ax bias / RMSE, σ right:
      | Method | SNR 20, ODI 0 | 0.04 | 0.16 | 0.50 | SNR 10, ODI 0 | 0.04 | 0.16 | 0.50 |
      |---|---|---|---|---|---|---|---|---|
      | no correction | +0.157 / 0.166 | +0.128 / 0.141 | +0.057 / 0.084 | +0.035 / 0.069 | +0.323 / 0.332 | +0.288 / 0.301 | +0.187 / 0.212 | +0.138 / 0.172 |
      | exact inversion per direction | +0.048 / 0.076 | +0.031 / 0.067 | −0.008 / 0.062 | −0.005 / 0.060 | +0.120 / 0.158 | +0.086 / 0.139 | −0.013 / 0.118 | −0.059 / 0.131 |
-     | E\|y\| per direction, one fibre direction | +0.001 / 0.044 | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | +0.002 / 0.080 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
+     | E\|y\| per direction, one fiber direction | +0.001 / 0.044 | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | +0.002 / 0.080 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
      | SH L = 2, E\|y\| | +0.015 / 0.074 | −0.037 / 0.069 | −0.075 / 0.102 | +0.000 / 0.059 | +0.051 / 0.121 | −0.016 / 0.116 | −0.113 / 0.177 | −0.043 / 0.162 |
      | SH L = 4, E\|y\| | −0.094 / 0.109 | −0.070 / 0.094 | −0.032 / 0.077 | −0.002 / 0.061 | −0.069 / 0.139 | −0.055 / 0.139 | −0.115 / 0.181 | −0.147 / 0.222 |
      | SH L = 6, E\|y\| | +0.021 / 0.065 | +0.014 / 0.062 | −0.019 / 0.066 | −0.006 / 0.061 | +0.090 / 0.141 | +0.060 / 0.127 | −0.042 / 0.128 | −0.088 / 0.147 |
@@ -3215,7 +3215,7 @@ Novikov et al., NeuroImage 2018; Coelho et al., NeuroImage 2022) give v_ax, or i
 - Whether the scanner can export complex (or magnitude and phase) images for diffusion EPI, and
   its coil combination; the existing complex- and magnitude-averaged nerve DTI (to measure the
   floor in the lab's data).
-- The nerve's fibre dispersion (ODI or Watson κ: NODDI, the l = 2 invariant, or published
+- The nerve's fiber dispersion (ODI or Watson κ: NODDI, the l = 2 invariant, or published
   values), which decides the floor correction (step 2, "Robustness of the corrections").
 - The registration floor: the SNR needed, and of which image (the weakest direction, or the
   shell's mean).
@@ -3439,6 +3439,58 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   `@mrimodel` (its supertype option still to add). Still to add: a clear error for a field of
   3-vectors or a matrix, pointing to `diffusionencoding`. A b-tensor per image, when it comes,
   as six component vectors (the 2026-11-04 rule).
+- **Built (2026-11-06, branch `directions-proto`), with these decisions:**
+  - **`diffusionencoding`** (src/io/encoding.jl, exported): from file names or arrays (a 3×N
+    .bvec, or N×3; a 3×3 matrix read as a .bvec), returning plain `Vector{Float64}`s, copied. The
+    b-values are **kept as given**: the threshold (50 s/mm²) only says where a direction must be
+    a unit vector (within 1e-2; FSL writes 0 0 0 at b = 0). Proposed first: set b below it to 0,
+    as a cleaning step; dropped, because a b of 5 s/mm² is a real b-value and the model is more
+    accurate with it (DIPY's `b0_threshold` likewise marks the b = 0 images and changes no
+    value). Errors say what is wrong: a direction per b-value, the matrix's shape, which image
+    is not a unit vector and its length. `readbvec` is exported from EQUIP too.
+  - **`loaddata`** reads a `.bvec` beside the `.bval` into `found[:gx]`, `[:gy]`, `[:gz]`
+    through `diffusionencoding` (its errors given with the file's name), so the command line's
+    model building, which takes every found value whose name is a field of the model, gives a
+    directional model its directions with no flag; `equip info` labels them as from the .bvec.
+  - **No supertype** (the owner, 2026-11-06: "do we need a supertype? since we are using gx, gy,
+    gz"). Everything planned for `DirectionalDiffusion` works by field name: the keyword
+    constructors take `diffusionencoding`'s result, `loaddata` and the command line map by
+    name, the checks are in `diffusionencoding`, and the generic display already summarizes a
+    long vector (`b = 131 values from 0.0 to 2600.0`, checked). Add one when code must dispatch
+    on "a directional model" (a spherical mean of any of them, a shared log-linear start):
+    changing `<: MRIModel` to `<: DirectionalDiffusion` breaks nothing. The macro's supertype
+    option is not needed either.
+  - **Two blocks**, the owner's names: `fiberdirection(θ, φ)`, the unit vector as a tuple, and
+    `fibercosine(gx, gy, gz, n)`, the cosine between one image's gradient direction and the
+    fiber (the dot product; for unit vectors also the projection; the view `t` of `stick` and
+    `zeppelin`). Plain tuples: no StaticArrays needed (measured: 0 bytes, the same speed as
+    the cosine written out or as `SVector(gx[j], gy[j], gz[j]) ⋅ n`, which differs by 8e-16).
+    Tried and dropped on the way: a `gdotn(g, n, j)` on `g = (gx, gy, gz)` (the owner disliked
+    passing j; all images at once allocated 608 bytes a call and fitted 70% slower); one
+    function taking the angles, `fibercosine(gx[j], gy[j], gz[j], θ, φ)`, which the owner
+    preferred to read but which recomputes the sines and cosines for every image: the
+    compiler does not move them out of the loop (stick–zeppelin, 66 images, 4000 voxels: fit
+    10.4 µs per voxel against 5.4 with n once per voxel; 9.7 with `sincos`); and our own `dot`
+    or `⋅` (extending LinearAlgebra's `dot` to tuples is type piracy, changing it for every
+    package; a `⋅` of our own would clash with LinearAlgebra's for anyone using both). The
+    spelling is US throughout now: "fibre" became "fiber" in every comment, docstring and doc
+    (the owner's choice, with the names).
+  - **Angle models by hand, not with `@mrimodel`** (revising "built-in models written with
+    `@mrimodel`" above for them): a macro body is one image's signal, so a direction made from
+    θ and φ in it is made for every image. Measured in examples/directional_models.jl (132
+    images, 300 voxels, 4 threads): by hand 12.8 µs per voxel, the same model with the macro
+    23.1, the same fits. DTI, with no angles, still suits the macro. Giving the macro a "once
+    per voxel" section would be new design work.
+  - **One value per observation, checked**: `nobs` (where every fit, signal and crlb starts)
+    refuses a vector field whose entries are not numbers, naming the field and the remedy
+    (`diffusionencoding`), where before a field of 3-vectors failed later as `float(Any)` or
+    stayed Float64 in a Float32 fit. The test is on the fields' types, settled when compiling:
+    `nobs` takes 2–3 ns with or without it (T2Decay, QMTSIR), no allocation. A matrix is not
+    checked: it is not a per-observation field (a lookup table, say).
+  - Tests: diffusionencoding (arrays, files, the layouts, copies, b kept, every error), a
+    .bvec in `loaddata` (and its errors), the blocks, a hand-written stick–zeppelin on them
+    (its signal against the equation written out, no allocation, fits in both precisions),
+    and the refusal of 3-vector fields by `signal`, `fit` and `nobs`. 27 tests; full runs: EQUIP 2106, CLI 124, MRImages 103.
 
 ### Not done yet
 
@@ -3856,7 +3908,7 @@ numbers are not an order.
      pulses).
 7. **Diffusion microstructure: NODDI and SMT**, many small fits on multi-shell data.
    - **SMT**, the spherical mean technique (Kaden et al., MRM 2016; NeuroImage 2016): averaging
-     the signal over directions within each shell removes the fibre orientation distribution;
+     the signal over directions within each shell removes the fiber orientation distribution;
      the microscopic model (per-axon parallel and perpendicular diffusivities; multi-compartment
      SMT with an intra-axonal stick and an extra-axonal compartment) is fitted to a few shell
      averages per voxel. Small, fast fits: a natural fit for EQUIP. It needs `erf` of dual
@@ -3886,7 +3938,7 @@ numbers are not an order.
          1–5% for every protocol (A 0.90 against 0.90, B 1.00 against 1.00, C 1.10 against
          1.10, D 0.86 against 0.865), NAWM and T2 lesions within 6%, black holes up to 13%
          higher (protocols A and B). Their CRLB is of the directional signals, the worst case
-         over fibre arrangements (isotropic, where each direction's signal is the spherical
+         over fiber arrangements (isotropic, where each direction's signal is the spherical
          mean: the same Fisher information as ours), with the Rician factor R(S, σ), which lowers
          the information most where the signal is lowest: the high-b shells of A and B, in the
          tissue with the lowest v_ax. So the figure's SNR (not stated) is 20, the SNR of their
@@ -3959,7 +4011,7 @@ numbers are not an order.
        `Rician`), with σ sampled as one more parameter in the MCMC.
      - What EQUIP can take:
        1. **Compartments as building blocks.** Small functions of one observation and the
-          cosine t between fibre and gradient (stick, zeppelin, ball, later cylinder and
+          cosine t between fiber and gradient (stick, zeppelin, ball, later cylinder and
           sphere), each with its directional signal f(t), its spherical mean (closed form where
           there is one), and its l-th Legendre projection. Today SMT, SMTFreeWater and SMTT2 are
           three types with three `signal!`s and three `_profile`s, and orientation.jl takes
@@ -3980,7 +4032,7 @@ numbers are not an order.
          every value and drops it from the likelihood, which `logp_rician` does: EQUIP fits S0);
          allocating vector code (the package needs no derivatives; EQUIP's fits do).
      - Two cautions from our own runs: their SH order rule gives order 4 at b = 2500 s/mm², which
-       our coherent-fibre runs found biased (bench/floor_sh.jl); and an l = 2 rotational
+       our coherent-fiber runs found biased (bench/floor_sh.jl); and an l = 2 rotational
        invariant is a norm of 5 SH coefficients, so with noise it has a floor of its own (a
        noncentral χ with 5 degrees of freedom): an SMI fit by least squares has to model it.
      - Restricted compartments (`Cylinder`, `Sphere`) need Δ, δ and G per observation and a
@@ -4608,15 +4660,16 @@ numbers are not an order.
      dtiforms.jl, 6 + 30 images, Float64): written out, as an SMatrix product gᵀDg, and in
      B-matrix form, the same speed within noise (2.5–2.8 µs per voxel): written out, as the papers
      write it.
-   - **A built-in StickZeppelin**: one fibre, the stick's diffusivity also the zeppelin's parallel
+   - **A built-in StickZeppelin**: one fiber, the stick's diffusivity also the zeppelin's parallel
      one, D⊥ = (1 − v_ax)·D_ax by default (released in a call, as SMT's). The cosine t = g·n(θ, φ)
      is computed in the signal, since it joins the acquisition and the parameters; the blocks take
      a number. n as an SVector or three scalars (no allocation either way; a `[...]` vector
      allocates 208 bytes per call: static arrays inside `signal!` are only notation, and must stay
-     static). n and −n are one fibre: a relabel (θ → π − θ, φ → φ + π) and φ wrapped. θ and φ from
+     static). n and −n are one fiber: a relabel (θ → π − θ, φ → φ + π) and φ wrapped. θ and φ from
      DTI's principal direction, as the fit's start or fixed as per-voxel maps. Measured (the
-     example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel,
-     Float64 and Float32.
+     example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, Float64 and
+     Float32. Written by hand with `fiberdirection` once per voxel and `fibercosine` per image
+     (12.8 µs per voxel; with `@mrimodel` 23.1: "Directions per image", built 2026-11-06).
    - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
      them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
      ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),

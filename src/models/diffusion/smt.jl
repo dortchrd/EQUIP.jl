@@ -4,8 +4,8 @@
 # tissue values are below), with free water and compartment T2s as parts to switch on
 #
 # Averaging the diffusion-weighted signal over the gradient directions of a shell (its spherical
-# mean) removes the fibre orientation distribution: crossing, dispersion and undulation drop out,
-# and what is left depends on the diffusion within one fibre and around it. Per shell b and echo
+# mean) removes the fiber orientation distribution: crossing, dispersion and undulation drop out,
+# and what is left depends on the diffusion within one fiber and around it. Per shell b and echo
 # time TE, from the building blocks (src/models/blocks.jl):
 #
 #   S̄(b, TE) = S0·[(1 − fiso)·(v_ax·E_ax·S̄_stick(b, D_ax) + (1 − v_ax)·E_ex·S̄_zeppelin(b, D∥ex, D⊥ex))
@@ -28,7 +28,7 @@
 # floor: in montecarlo, `averaging = :magnitude`; per direction, `sphericalmeannoise`.)
 #
 # The same tissue equation gives the signal along one direction (`_profile`, in orientation.jl):
-# the compartments in their directional view, at cosine t between fibre and gradient.
+# the compartments in their directional view, at cosine t between fiber and gradient.
 # =================================================================================================
 
 """
@@ -100,7 +100,7 @@ extra-axonal radial diffusivity from the tortuosity limit, D⊥,ex = (1 − v_ax
     S̄(b) = S0·[v_ax·f(b·D_ax) + (1 − v_ax)·exp(−b·D⊥,ex)·f(b·v_ax·D_ax)],
     f(x²) = √π·erf(x)/(2x)
 
-The fibres' orientations drop out of the spherical mean (crossing, dispersion, undulation).
+The fibers' orientations drop out of the spherical mean (crossing, dispersion, undulation).
 
 - acquisition: `b` (s/mm²), one per shell: the data are the shells' spherical means
   ([`sphericalmean`](@ref)); a shell at b = 0 gives S0 directly. `TE` (s, one per shell), only

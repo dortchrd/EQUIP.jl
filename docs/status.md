@@ -1,4 +1,4 @@
-# Where we are (2026-11-05)
+# Where we are (2026-11-06)
 
 A note to come back to. The decisions and measurements behind each item are in docs/design.md;
 this is the map. Everything below is committed and pushed.
@@ -12,7 +12,8 @@ Each branch builds on the one above it.
 | `lean` | the CLI, MRImages, `@mrimodel`, `newmodel`, examples, roadmap items 13–14 | the owner is testing it; nothing merged into it since |
 | `smt-proto` | SMT, SMTFreeWater, SMTT2 | not merged |
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
-| `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off; examples/building_blocks.jl, examples/directional_models.jl; roadmap item 15 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
+| `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off; examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; the blocks `fiberdirection`, `fibercosine`; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2106, CLI 124, MRImages 103 |
 
 ## Done recently
 
@@ -24,7 +25,7 @@ Each branch builds on the one above it.
   bit-identical to before; SMT agrees to rounding. The blocks cost nothing measurable; the
   mono-exponentials pay about 13% for the parts they carry switched off.
 - **Floor corrections for nerve SMT** (simulated):
-  - Modelling the floor per direction is best when the fibres are coherent.
+  - Modelling the floor per direction is best when the fibers are coherent.
   - The exact per-direction inversion (`corrRicianBias` on each direction's image) is the safe
     choice when dispersion is unknown or above about ODI 0.1.
   - Phase-corrected real data removes the problem at its source.
@@ -67,7 +68,7 @@ Each branch builds on the one above it.
 - **Roadmap items 14 and 15:** a protocol design from a number of points; Bayesian estimation
   (priors as residuals, the van Trees bound in crlb, NUTS as an extension).
 
-## Directional models, and how they meet a tensor (2026-11-04 and 05)
+## Directional models, and how they meet a tensor (2026-11-04 to 06)
 
 examples/directional_models.jl, discussed in the session:
 
@@ -75,8 +76,9 @@ examples/directional_models.jl, discussed in the session:
 - **The cosine** t = g·n(θ, φ) is computed in the model, because it joins the acquisition and the
   parameters; the blocks take it as a number.
 - **A stick and a zeppelin are tensors**, so the standard tensor model is the general case. DTI's
-  principal direction can fix the fibres' direction, as per-voxel maps, or start a fit of θ and φ.
-  Measured: SNR 100, 132 images, v_ax 0.600 ± 0.004, the direction to 0.14°, 20 µs per voxel.
+  principal direction can fix the fibers' direction, as per-voxel maps, or start a fit of θ and φ.
+  Measured: SNR 100, 132 images, v_ax 0.600 ± 0.004, the direction to 0.14°, 12.8 µs per voxel
+  written by hand (23.1 with `@mrimodel`, whose body makes the direction for every image).
 - **Decided: gx, gy, gz, built from the files by `diffusionencoding`** (2026-11-04; changed to
   one SVector `g` per image on 2026-11-05; back on 2026-11-06, the owner's preference after
   seeing both written out: design.md, "Directions per image"). `diffusionencoding(bval, bvec)`
@@ -84,13 +86,16 @@ examples/directional_models.jl, discussed in the session:
   checked, for any directional model: `DTI(; diffusionencoding("dwi.bval", "dwi.bvec")...)`. No
   change to EQUIP's generic code.
 - **Decided with it:** `readbvec` (MRImages, a general package) keeps returning the file's 3×N
-  matrix. A supertype `DirectionalDiffusion` (fields b, gx, gy, gz) carries what directional
-  models share; each keeps its own small struct (no field inheritance in Julia). New
-  single-equation built-in models are written with `@mrimodel`; QMTSIR stays written in full as
-  the reference, with the T2 and SMT families.
-- **To build (branch `directions-proto`):** `diffusionencoding`; `DirectionalDiffusion`;
-  `loaddata` mapping a .bvec to gx, gy, gz; a clear error for a field of 3-vectors or a matrix;
-  a supertype option for `@mrimodel`; tests; the directional example switched to
-  `diffusionencoding`. Then the built-in DTI and StickZeppelin (item 17).
+  matrix. No supertype (the owner, 2026-11-06): everything works by field name; add one when
+  code must dispatch on "a directional model". New single-equation built-in models without
+  angles (DTI) are written with `@mrimodel`; models with fiber angles (StickZeppelin) by hand,
+  `fiberdirection(θ, φ)` once per voxel and `fibercosine(gx[j], gy[j], gz[j], n)` per image;
+  QMTSIR stays written in full as the reference, with the T2 and SMT families.
+- **Built (branch `directions-proto`, 2026-11-06):** `diffusionencoding` (b-values kept as
+  given; the threshold only says where a direction must be a unit vector), `loaddata` reading a
+  .bvec beside the .bval, `readbvec` exported, the two fiber blocks, `nobs` refusing a field of
+  3-vectors (naming `diffusionencoding`), "fiber" spelling, the directional and DKI examples on
+  `diffusionencoding`, tests. **Next:** the built-in DTI (with a log-linear start) and
+  StickZeppelin (item 17).
 - **Planned (roadmap item 17):** b and g until b-tensor data come, then the B-matrix B = b·ggᵀ
   as six component vectors (planar and spherical encoding need them); a `tensor` block with it.

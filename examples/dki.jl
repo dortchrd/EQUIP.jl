@@ -19,7 +19,8 @@
 #   - the constraints (K ≥ 0 in every direction) are not box bounds: checked on the results
 #
 # The acquisition as decided for directional models (design.md, "Directions per image"): b and
-# three vectors gx, gy, gz, the rows of a 3×N .bvec table (`eachrow`), here made up.
+# three vectors gx, gy, gz, made by `diffusionencoding` from a .bval and a .bvec (here, made-up
+# arrays in the same layout).
 #
 # Run from the repository folder (about 15 s, most of it compiling for 22 parameters):
 #   julia -t 4 --project=. examples/dki.jl
@@ -81,9 +82,9 @@ mkt(p) = (p.W1111 + p.W2222 + p.W3333 + 2 * (p.W1122 + p.W1133 + p.W2233)) / 5
 
 # --- the acquisition: 6 b = 0, 30 directions at b = 1000 and at 2000 s/mm² (66 images) ----------
 g = directionset(30)
-bvec = reduce(hcat, [fill(SVector(0.0, 0.0, 1.0), 6); g; g])     # 3×66, as a .bvec file holds it
-gx, gy, gz = eachrow(bvec)
-m = DKI(b = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)], gx = gx, gy = gy, gz = gz)
+bval = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+bvec = reduce(hcat, [fill(SVector(0.0, 0.0, 0.0), 6); g; g])     # 3×66, as a .bvec file holds it
+m = DKI(; diffusionencoding(bval, bvec)...)                      # b, gx, gy, gz
 
 # --- the truth: D's eigenvalues 1.7, 0.4, 0.3e-3 mm²/s along x, y, z; isotropic kurtosis K = 1 --
 # For isotropic kurtosis W = K·(δᵢⱼδₖₗ + δᵢₖδⱼₗ + δᵢₗδⱼₖ)/3: W1111 = W2222 = W3333 = K and
