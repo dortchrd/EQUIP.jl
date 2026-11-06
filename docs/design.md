@@ -3522,7 +3522,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   `git revert` of its commit (8cc4bc7) with the later work kept:
   - **Every model written out, its own struct, `parameters` and `signal!`**, as before the
     refactor and as QMTSIR is: T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay,
-    R2BiexpDecay (in their own file again, `T2long`/`R2long` as before), SMT, SMTFreeWater,
+    R2BiexpDecay (in their own file again, `T2long`/`R2long` as before, kept by the owner: they
+    pair with `T2short`/`R2short`), SMT, SMTFreeWater,
     SMTT2, each its own equation, with nothing switched on or off. Gone with the families: the
     switchable roles (`Fixed(value; free = Free(...))`, `_switchable`, `_isoff`, the `off`
     display, leakage's leaving them out), the skip of a part at zero (`_skip`), infinite fixed
