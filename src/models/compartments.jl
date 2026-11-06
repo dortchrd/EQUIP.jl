@@ -1,19 +1,22 @@
 # =================================================================================================
-# Building blocks: diffusion compartments for writing models (exported by EQUIP)
+# Compartments: the diffusion compartments models are written with (exported by EQUIP)
 #
 #   ball(b, D)                 exp(−b·D)                          isotropic diffusion (free water)
 #   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
 #   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·stick(b, D∥ − D⊥, view) axially symmetric
 #   powder                                                        the view averaged over directions
-#   fiberdirection(θ, φ)       (sinθ·cosφ, sinθ·sinφ, cosθ)       a fiber's direction, from angles
-#   g ⋅ n                      g₁·n₁ + g₂·n₂ + g₃·n₃              the view ξ of one image (Julia's dot)
 #
 # b in s/mm², D in mm²/s. A compartment with a direction takes its view explicitly: a cosine ξ,
 # the signal along one gradient direction at cosine ξ between the fiber and the gradient (what a
 # direction set samples), or `powder`, its average over all directions (the spherical mean,
 # NMR's powder average, what SMT fits). `stick(b, D)` without a view is an error that says which
-# to write. The ball is the same in every view and takes none.
+# to write. The ball is the same in every view and takes none. The cosine for one image comes from
+# `fiberdirection` (orientation.jl) and Julia's dot product: ξ = (gx[j], gy[j], gz[j]) ⋅ n.
 #
+# The name is the literature's: the compartments of Panagiotaki et al.'s taxonomy (NeuroImage
+# 2012: ball, stick, zeppelin, tensor, cylinder, sphere, dot), as in Microstructure.jl; a model
+# made of them is a multi-compartment model. ("Kernel", in the standard-model and SMI papers, is
+# the signal of one fiber bundle, its compartments together: a stick plus a zeppelin is one.)
 # Plain functions, exported by EQUIP (`using EQUIP` brings them), for writing a model as its
 # paper writes it:
 #
@@ -21,19 +24,19 @@
 #                  Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
 #       S0 * (f * ball(b, Dstar) + (1 - f) * ball(b, D))
 #
-# They are the diffusion compartments only, as Microstructure.jl's compartments are (the owner,
-# 2026-11-06): relaxation is written as its equation, `exp(-TE / T2)`, and every model, EQUIP's
-# own included, is written out in the standard format (a struct, `parameters`, `signal!`), with
-# these as its compartments. More: README, "Building blocks", and examples/building_blocks.jl.
-# (Until 2026-11-06 they were a module of their own, `EQUIP.Blocks`, with an exponential unit
-# `decay(x, rate)`, and the T2 and SMT families were each one equation with parts switched on
-# and off: removed, docs/design.md, "Building blocks".) The blocks cost nothing against the
-# equation written out: the compiler inlines them.
+# They are diffusion only, as Microstructure.jl's compartments are: a compartment's T2 weighting
+# is written in the model as its equation, `vax * exp(-TE / T2ax) * stick(...)`, in a model whose
+# acquisition has the echo times to measure it (SMTT2). Every model, EQUIP's own included, is
+# written out in the standard format (a struct, `parameters`, `signal!`), with these as its
+# compartments. More: README, "Compartments", and examples/compartments.jl. (Until 2026-11-06
+# they were "building blocks", first a module of their own, `EQUIP.Blocks`, with an exponential
+# unit `decay(x, rate)`, while the T2 and SMT families were each one equation with parts switched
+# on and off: docs/design.md, "Building blocks".) They cost nothing against the equation written
+# out: the compiler inlines them.
 #
-# Diffusion compartments: Kaden et al., NeuroImage 2016; Panagiotaki et al., NeuroImage 2012 (the
-# taxonomy of compartments). The two views of a compartment are two methods of one function: Julia
-# picks the one that matches the arguments (dispatch), when compiling, so neither costs a test at
-# run time.
+# Diffusion compartments: Kaden et al., NeuroImage 2016; Panagiotaki et al., NeuroImage 2012. The
+# two views of a compartment are two methods of one function: Julia picks the one that matches
+# the arguments (dispatch), when compiling, so neither costs a test at run time.
 # =================================================================================================
 
 """
@@ -93,32 +96,6 @@ With D⊥ = (1 − v_ax)·D_ax, the tortuosity limit, it is Kaden's extra-axonal
 @inline zeppelin(b, Dpar, Dperp, v) = exp(-b * Dperp) * stick(b, Dpar - Dperp, v)
 zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs its view: " *
     "zeppelin(b, D∥, D⊥, powder) for the spherical mean, zeppelin(b, D∥, D⊥, ξ) along one direction"))
-
-"""
-    fiberdirection(θ, φ) -> (nx, ny, nz)
-
-The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y plane), in
-radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
-g = (gx[j], gy[j], gz[j]), the cosine between them is ξ = g ⋅ n (Julia's dot product, which
-EQUIP exports: it takes tuples, with nothing allocated): the view `ξ` that [`stick`](@ref) and [`zeppelin`](@ref) take for one gradient
-direction, and for unit vectors also the gradient's projection on the fiber. Only ξ² enters
-their signals, so n and −n are the same fiber.
-
-In a model, compute n once, before the loop over the images: its sines and cosines are the same
-for every image, and the compiler does not move them out of the loop (measured: a
-stick–zeppelin's fit took twice as long with them per image, docs/design.md, "Directions per
-image").
-
-```julia
-n = fiberdirection(θ, φ)                                  # once per voxel
-for j in eachindex(out, b, gx, gy, gz)
-    g = (gx[j], gy[j], gz[j])                             # image j's gradient direction
-    ξ = g ⋅ n                                             # the cosine, gradient to fiber
-    out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
-end
-```
-"""
-@inline fiberdirection(θ, φ) = (sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
 
 # √π·erf(x)/(2x), from x² = x2: the mean of exp(−x²·cos²ψ) over all directions (a stick's signal
 # exp(−b·D·(g·n)²) averaged over gradient directions g, with x² = b·D); 1 at x = 0. Near 0, its

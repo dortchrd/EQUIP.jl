@@ -13,18 +13,20 @@ Each branch builds on the one above it.
 | `smt-proto` | SMT, SMTFreeWater, SMTT2 | not merged |
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
 | `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off (both undone on `directions-proto`); examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
-| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; the block `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the blocks exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2084, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`ball`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout | not merged. Last full runs: EQUIP 2084, CLI 124, MRImages 103 |
 
 ## Done recently
 
-- **Building blocks.** The diffusion compartments, exported by EQUIP (no module since
-  2026-11-06): `ball(b, D)`, and `stick` and `zeppelin` with an explicit view, `powder` (the
-  spherical mean) or a cosine ξ (one direction); `fiberdirection` and `ξ = g ⋅ n` for directional
-  models. Relaxation is written as its equation, `exp(-TE / T2)`; there is no `decay`.
+- **Compartments** (called "building blocks" until 2026-11-06; the literature's word, after
+  Panagiotaki et al.'s taxonomy). The diffusion compartments, exported by EQUIP, no module
+  (src/models/compartments.jl): `ball(b, D)`, and `stick` and `zeppelin` with an explicit view,
+  `powder` (the spherical mean) or a cosine ξ (one direction). The cosine comes from helpers, not
+  compartments: `fiberdirection` (orientation.jl) and `ξ = g ⋅ n`. Relaxation is written as its
+  equation, `exp(-TE / T2)`; there is no `decay`.
 - **One equation per family: tried on blocks-proto, then undone (2026-11-06, the owner: "I do not
   like how unreadable that code is, switching things on and off").** Every model is in the
   standard format again, its own struct, `parameters` and `signal!`; SMT's three are written with
-  the blocks. Every built-in model's fits are bit-identical to the family code's.
+  the compartments. Every built-in model's fits are bit-identical to the family code's.
 - **Floor corrections for nerve SMT** (simulated):
   - Modelling the floor per direction is best when the fibers are coherent.
   - The exact per-direction inversion (`corrRicianBias` on each direction's image) is the safe
@@ -56,13 +58,14 @@ Each branch builds on the one above it.
   is fine (130–170 µs per voxel, all converged); the mess is the 15 names, the indices (MK,
   AK, RK) and the constraints, and crlb, whose kernel did not finish compiling at 22
   parameters (46 s with its pieces not inlined: the fix, measured).
-- **Views for the blocks** (item 17): a generic `rotinv(l)` projection (SMI's rotational
-  invariants; `powder` is l = 0; one function, not l = 2 and 4 in every block) and a
+- **Views for the compartments** (item 17): a generic `rotinv(l)` projection (SMI's rotational
+  invariants; `powder` is l = 0; one function, not l = 2 and 4 in every compartment) and a
   Watson-dispersed view.
-- **A cylinder block (axon diameter):** first a crlb check that diameter is measurable on the
+- **A cylinder compartment (axon diameter):** first a crlb check that diameter is measurable on the
   lab's δ, Δ and maximum gradient; the units for restricted compartments to decide.
-- **Other blocks:** a tensor, kurtosis, EPG for multi-echo T2, the SPGR steady state, exchange; the
-  T1 family as building blocks; ADC as the T2 equation in b.
+- **Other compartments:** a tensor, a sphere, a dot (Panagiotaki's taxonomy). Not compartments,
+  and so written in their models: kurtosis, EPG for multi-echo T2, the SPGR steady state,
+  exchange.
 - **Roadmap item 16, error propagation:** `propagate(c, g)` for derived quantities (FA, MD,
   AD, RD: tested against Monte Carlo), uncertain fixed inputs such as a B1 map (leakage's slope
   at the fit's value, plus L·Σ·Lᵀ), and the estimator's own second-order noise bias (Box 1971).
@@ -74,8 +77,8 @@ Each branch builds on the one above it.
 examples/directional_models.jl, discussed in the session:
 
 - **The acquisition** is each image's b and gradient direction g (bval, bvec).
-- **The cosine** t = g·n(θ, φ) is computed in the model, because it joins the acquisition and the
-  parameters; the blocks take it as a number.
+- **The cosine** ξ = g·n(θ, φ) is computed in the model, because it joins the acquisition and
+  the parameters; the compartments take it as a number.
 - **A stick and a zeppelin are tensors**, so the standard tensor model is the general case. DTI's
   principal direction can fix the fibers' direction, as per-voxel maps, or start a fit of θ and φ.
   Measured: SNR 100, 132 images, v_ax 0.600 ± 0.004, the direction to 0.14°, 12.8 µs per voxel
@@ -94,9 +97,10 @@ examples/directional_models.jl, discussed in the session:
   g = (gx[j], gy[j], gz[j]); QMTSIR stays written in full as the reference, with the T2 and SMT families.
 - **Built (branch `directions-proto`, 2026-11-06):** `diffusionencoding` (b-values kept as
   given; the threshold only says where a direction must be a unit vector), `loaddata` reading a
-  .bvec beside the .bval, `readbvec` exported, the two fiber blocks, `nobs` refusing a field of
+  .bvec beside the .bval, `readbvec` exported, `fiberdirection` and `⋅`, `nobs` refusing a field of
   3-vectors (naming `diffusionencoding`), "fiber" spelling, the directional and DKI examples on
   `diffusionencoding`, tests. **Next:** the built-in DTI (with a log-linear start) and
   StickZeppelin (item 17).
 - **Planned (roadmap item 17):** b and g until b-tensor data come, then the B-matrix B = b·ggᵀ
-  as six component vectors (planar and spherical encoding need them); a `tensor` block with it.
+  as six component vectors (planar and spherical encoding need them); a `tensor` compartment
+  with it.

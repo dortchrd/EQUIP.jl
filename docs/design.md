@@ -3556,6 +3556,18 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     (each signal against Kaden's equation, each profile's mean against the signal); full runs
     EQUIP 2084, CLI 124, MRImages 103.
 
+- **"Compartments", not "blocks"** (2026-11-06, the owner). The literature's word: the ball,
+  stick, zeppelin, tensor, cylinder, sphere and dot are the compartments of Panagiotaki et al.'s
+  taxonomy (NeuroImage 2012), and Microstructure.jl calls them so; a model of them is a
+  multi-compartment model ("kernel", in the standard-model and SMI papers, is one fiber
+  bundle's signal, its compartments together). src/models/blocks.jl is
+  src/models/compartments.jl, examples/building_blocks.jl is examples/compartments.jl, the
+  README's section is "Compartments". What is not a compartment is placed by what it is:
+  `powder` stays with them (the view that picks a compartment's spherical-mean signal, the
+  owner: it belongs with the compartments); `fiberdirection` moves to orientation.jl, beside
+  `directionset`, as the geometry that gives a directional compartment its view ξ = g ⋅ n. The
+  functions keep their names; only files, comments and docs change.
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation

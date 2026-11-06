@@ -1,13 +1,13 @@
 # =================================================================================================
-# Models written with `@mrimodel`, relaxation as its equation and diffusion from the building
-# blocks, each fitted to simulated data
+# Models written with `@mrimodel`, relaxation as its equation and diffusion from the
+# compartments (ball, stick, zeppelin), each fitted to simulated data
 #
 #   ball(b, D)  stick(b, D, view)  zeppelin(b, D∥, D⊥, view)   view: powder or a cosine ξ
 #
 # `@mrimodel` turns one observation's signal into a model (src/models/macro.jl): the positional
 # arguments are the acquisition, the keywords the parameters (Free(...) is fitted, a number is
 # fixed). Relaxation is written as the paper writes it, exp(-TE / T2); the diffusion
-# compartments, exported by EQUIP, make the rest read the same way.
+# compartments, exported by EQUIP (src/models/compartments.jl), make the rest read the same way.
 #
 #   1. T2 decay, exp(-TE / T2): T2 is fitted; the built-in T2Decay's fit, to rounding
 #   2. inversion recovery, magnitude
@@ -15,10 +15,10 @@
 #   4. IVIM: perfusion and diffusion, two balls
 #   5. SMT with a T2 per compartment, in one line
 #   6. a nerve along a known direction (z): sticks and a zeppelin along each gradient direction,
-#      no spherical mean (the directional view of the blocks)
+#      no spherical mean (the compartments' directional view)
 #
 # Run from the repository folder (about 30 s):
-#   julia --project=. examples/building_blocks.jl
+#   julia --project=. examples/compartments.jl
 # =================================================================================================
 
 using EQUIP, Random, Printf
@@ -84,7 +84,7 @@ println("   against the built-in SMTT2: ", round(maximum(abs, signal(MySMTT2(b =
 
 # --- 6. A nerve along z: one direction at a time, no spherical mean ---------------------------------
 # Peripheral nerve runs roughly along the bore: with the fibers' direction known, each gradient
-# direction g sees the cosine ξ = g·z, and the directional view of the blocks models every image.
+# direction g sees the cosine ξ = g·z, and the compartments' directional view models every image.
 @mrimodel NerveZ(b, ξ; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
                  Dax = Free(start = 2e-3, lower = 0, upper = 3e-3)) =
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))

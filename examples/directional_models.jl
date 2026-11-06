@@ -10,10 +10,10 @@
 # The acquisition is each image's b and gradient direction (the .bval and .bvec files), as four
 # vectors b, gx, gy, gz, made by `diffusionencoding` (from the files, or here from arrays) and
 # passed to any directional model as keywords. The cosine between gradient and fiber, ξ = g·n, is
-# computed in the model, because it joins the acquisition (g) and the parameters (n); the blocks
-# take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n` (Julia's dot) for
-# each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is written by hand for that
-# reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
+# computed in the model, because it joins the acquisition (g) and the parameters (n); the
+# compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n`
+# (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is written by
+# hand for that reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
 # computed for every image and its fit takes about twice as long (both are timed at the end).
 # DTI has no angles, and the macro suits it. A stick and a zeppelin are tensors (D = D∥·nnᵀ;
 # D = D⊥·I + (D∥ − D⊥)·nnᵀ): checked below.

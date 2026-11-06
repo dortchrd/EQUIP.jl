@@ -13,7 +13,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
-  `examples/building_blocks.jl` (six models written with `@mrimodel` and the blocks, fitted; about 30 s);
+  `examples/compartments.jl` (six models written with `@mrimodel` and the compartments, fitted; about 30 s);
   `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
   `examples/dki.jl` (DKI written out by hand, 22 parameters; about 15 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
@@ -34,13 +34,14 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
-  `parameters`, `signal!`, `datastart`); src/models/blocks.jl: the building blocks, diffusion
-  compartments exported by EQUIP for writing models (`ball`, `stick`, `zeppelin` with the view
-  `powder` or a cosine ξ; `fiberdirection` and Julia's `⋅` for directional models);
+  `parameters`, `signal!`, `datastart`); src/models/compartments.jl: the diffusion
+  compartments exported by EQUIP for writing models (`ball`, `stick`, `zeppelin`, with the view
+  `powder` or a cosine ξ);
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
-  (src/models/diffusion/orientation.jl: `directionset`, `orientationcovariance`,
+  (src/models/diffusion/orientation.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  directional compartment its view ξ = g ⋅ n; `directionset`, `orientationcovariance`,
   `sphericalmeannoise`, the spherical mean's pipeline errors for SMT)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,

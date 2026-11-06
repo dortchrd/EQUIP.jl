@@ -109,7 +109,7 @@ end
     S0 * exp(-TE / T2)
 
 # A directional model written by hand (examples/directional_models.jl): one fiber n(θ, φ), the
-# blocks' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
+# compartments' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
 Base.@kwdef struct DirStickZeppelin{A,X,Y,Z} <: MRIModel
     b::A
     gx::X
@@ -2654,7 +2654,7 @@ end
         @test all(signal(RicianSphericalMean(m; σ), θ) .>= signal(RicianMean(m; σ), θ) .- 1e-12)  # (convex)
     end
 
-    @testset "Building blocks: the diffusion compartments, exported by EQUIP" begin
+    @testset "Compartments: ball, stick, zeppelin and the powder view, exported by EQUIP" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
         @test Set(names(EQUIP)) ⊇ Set([:ball, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
@@ -2721,7 +2721,7 @@ end
         write(joinpath(dir, "dwi.bval"), join(bv, " ") * "\n")
         write(joinpath(dir, "dwi.bvec"), join((join(G[k, :], " ") for k in 1:3), "\n") * "\n")
         @test diffusionencoding(joinpath(dir, "dwi.bval"), joinpath(dir, "dwi.bvec")) == acq
-        # the blocks: a fiber's direction, and its cosine with a gradient direction
+        # the directional view: a fiber's direction, and its cosine with a gradient direction
         n = fiberdirection(0.7, 0.3)
         @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
         # the cosine is Julia's dot, exported by EQUIP too (the same function: no clash with LinearAlgebra)

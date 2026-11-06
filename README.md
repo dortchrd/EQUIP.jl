@@ -352,21 +352,26 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
   `newmodel(:Name; acquisition = [:TE], parameters = [:S0, :T2])` writes a blank one, with
   TODOs.
 
-### Building blocks
+### Compartments
 
 The diffusion compartments EQUIP's own models are made of, exported by EQUIP for writing yours
-(`using EQUIP` brings them; b in s/mm², D in mm²/s):
+(`using EQUIP` brings them; b in s/mm², D in mm²/s). The name and the set are those of
+Panagiotaki et al.'s taxonomy (NeuroImage 2012), as in Microstructure.jl:
 
-| block | signal |
+| compartment | signal |
 |---|---|
 | `ball(b, D)` | exp(−b·D): isotropic diffusion (free water, an ADC), the same in every view |
 | `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
 | `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
-| `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
-| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated; the view `ξ` above |
+A stick or a zeppelin takes its view explicitly, `powder` (its spherical mean) or a cosine ξ
+(along one gradient direction); without one it is an error that says which to write. The cosine
+comes from two helpers, not compartments themselves:
 
-A stick or a zeppelin takes its view explicitly, `powder` or a cosine; without one it is an
-error that says which to write. Relaxation is written as its equation, as the paper writes it:
+| helper | gives |
+|---|---|
+| `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
+| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated |
+ Relaxation is written as its equation, as the paper writes it:
 `exp(-TE / T2)`, `1 - 2exp(-TI / T1)` (as Microstructure.jl's compartments carry their T2s, the
 blocks are the diffusion compartments only).
 
@@ -392,9 +397,9 @@ using EQUIP
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
 ```
 
-The blocks are inlined: a model written with them is as fast as the equation written out. More,
-each fitted to simulated data (inversion recovery, a T2 decay against the built-in T2Decay):
-examples/building_blocks.jl.
+The compartments are inlined: a model written with them is as fast as the equation written out.
+More, each fitted to simulated data (inversion recovery, a T2 decay against the built-in T2Decay):
+examples/compartments.jl.
 
 A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
 four acquisition fields, `b`, `gx`, `gy`, `gz`, each one value per image, and

@@ -1,6 +1,9 @@
 # =================================================================================================
-# Orientational sampling: the error of a spherical mean taken over a finite set of directions
+# Directions: a fiber's direction, and the error of a spherical mean taken over a finite set of
+# gradient directions
 #
+#   fiberdirection(θ, φ)                   a fiber's unit vector n, from its angles: the view
+#                                          ξ = g ⋅ n of the directional compartments (stick, zeppelin)
 #   directionset(N)                        N directions spread evenly (electrostatic repulsion)
 #   orientationcovariance(m, θ, sets)      the covariance, across shells, of the error of the
 #                                          shells' means over their direction sets, for one fiber
@@ -71,6 +74,33 @@ function _fibonacci(k, N)                        # the k-th of N points over the
     φ = π * (3 - sqrt(5)) * k
     return SVector(r * cos(φ), r * sin(φ), z)
 end
+
+"""
+    fiberdirection(θ, φ) -> (nx, ny, nz)
+
+The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y plane), in
+radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
+g = (gx[j], gy[j], gz[j]), the cosine between them is ξ = g ⋅ n (Julia's dot product, which
+EQUIP exports: it takes tuples, with nothing allocated): the view `ξ` that the compartments
+[`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction, and for unit vectors
+also the gradient's projection on the fiber. Only ξ² enters their signals, so n and −n are the
+same fiber. Not a compartment: the geometry that gives a directional compartment its view.
+
+In a model, compute n once, before the loop over the images: its sines and cosines are the same
+for every image, and the compiler does not move them out of the loop (measured: a
+stick–zeppelin's fit took twice as long with them per image, docs/design.md, "Directions per
+image").
+
+```julia
+n = fiberdirection(θ, φ)                                  # once per voxel
+for j in eachindex(out, b, gx, gy, gz)
+    g = (gx[j], gy[j], gz[j])                             # image j's gradient direction
+    ξ = g ⋅ n                                             # the cosine, gradient to fiber
+    out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
+end
+```
+"""
+@inline fiberdirection(θ, φ) = (sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ))
 
 # The signal of observation j for one fiber population at cosine ξ to the gradient: what the
 # spherical mean averages. Its average over ξ ∈ [0, 1] is the model's own signal: the same

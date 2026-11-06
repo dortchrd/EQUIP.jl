@@ -15,8 +15,8 @@
 #   D⊥,ex = (1 − v_ax)·D_ax                                          the tortuosity limit
 #
 # The intra- and extra-axonal parallel diffusivities are the same, D_ax. So the parameters are
-# S0, v_ax (the apparent axonal volume fraction) and D_ax. The compartments are the building
-# blocks (blocks.jl): `stick(b, D_ax, powder)` is S̄_ax/S0, `zeppelin(b, D_ax, D⊥,ex, powder)` is
+# S0, v_ax (the apparent axonal volume fraction) and D_ax. The compartments are EQUIP's
+# (compartments.jl): `stick(b, D_ax, powder)` is S̄_ax/S0, `zeppelin(b, D_ax, D⊥,ex, powder)` is
 # S̄_ex/S0 (its anisotropy D_ax − D⊥,ex = v_ax·D_ax, never negative for v_ax and D_ax in their
 # bounds). Each model below is written out in full, its own `signal!`.
 #
