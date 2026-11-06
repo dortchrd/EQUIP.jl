@@ -3581,6 +3581,17 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   diffusion only with a compartment's T2 written in the model, differ from theirs there. (This
   log had said "diffusion only, as Microstructure.jl's are"; corrected.)
 
+- **The zeppelin as its own equation** (2026-11-06, the owner: writing it through a stick,
+  `exp(−b·D⊥)·stick(b, D∥ − D⊥, view)`, "might be true mathematically, but I have never seen
+  this"). Each view is now its own method, written as Gong & Yendiki write it: along one
+  direction exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) (their Eq. 7), and the spherical mean
+  exp(−b·D⊥)·√π·erf(√(b(D∥ − D⊥)))/(2√(b(D∥ − D⊥))) (their Eq. 1), through the same helper
+  `_sphmean` the stick's spherical mean uses (for b = 0 and the fit's dual numbers). Measured:
+  the spherical-mean form computes exactly what it did, so SMT, SMTFreeWater and SMTT2 give
+  bit-identical starts and fits, both precisions; the directional form rounds differently, at
+  most 2.3e-15 relative (b to 5000 s/mm², every ξ), with the same fits in
+  examples/directional_models.jl. EQUIP 2085 tests pass.
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation

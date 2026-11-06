@@ -3,7 +3,7 @@
 #
 #   iso(b, D)                  exp(−b·D)                          isotropic diffusion (free water; D = 0: a dot)
 #   stick(b, D, view)          exp(−b·D·ξ²) at view = ξ           a cylinder of zero radius
-#   zeppelin(b, D∥, D⊥, view)  exp(−b·D⊥)·stick(b, D∥ − D⊥, view) axially symmetric
+#   zeppelin(b, D∥, D⊥, view)  exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) at ξ  axially symmetric
 #   powder                                                        the view averaged over directions
 #
 # b in s/mm², D in mm²/s. A compartment with a direction takes its view explicitly: a cosine ξ,
@@ -94,19 +94,30 @@ stick(b, D) = throw(ArgumentError("stick(b, D) needs its view: stick(b, D, powde
     "spherical mean, stick(b, D, ξ) along one direction at cosine ξ to the fiber"))
 
 """
-    zeppelin(b, D∥, D⊥, powder)    the spherical mean: exp(−b·D⊥)·stick(b, D∥ − D⊥, powder)
-    zeppelin(b, D∥, D⊥, ξ)         along one direction: exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²)
+    zeppelin(b, D∥, D⊥, powder)    the spherical mean: exp(−b·D⊥)·√π·erf(√(b·(D∥ − D⊥))) / (2√(b·(D∥ − D⊥)))
+    zeppelin(b, D∥, D⊥, ξ)         along one direction: exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²))
 
-An axially symmetric tensor (the extra-axonal space in SMT and NODDI): a stick with D∥ − D⊥,
-times the attenuation that every direction has, exp(−b·D⊥). The views as for [`stick`](@ref).
-With D⊥ = (1 − v_ax)·D_ax, the tortuosity limit, it is Kaden's extra-axonal compartment.
+A zeppelin: an axially symmetric tensor, diffusivity D∥ along the fiber and D⊥ across it (the
+extra-axonal space in SMT and NODDI), b in s/mm², D in mm²/s. With a number `ξ`, the cosine
+between the fiber and the gradient, the signal along that one direction (Gong & Yendiki, Imaging
+Neuroscience 2026, Eq. 7); with `powder`, its average over all directions (their Eq. 1; Kaden et
+al., NeuroImage 2016). With D⊥ = (1 − v_ax)·D_ax, the tortuosity limit, it is Kaden's
+extra-axonal compartment; with D∥ = D⊥ = D, it is `iso(b, D)`.
+
+```julia
+zeppelin(1000.0, 2e-3, 0.5e-3, powder)   # the spherical mean
+zeppelin(1000.0, 2e-3, 0.5e-3, 1.0)      # exp(−2): along the fiber
+zeppelin(1000.0, 2e-3, 0.5e-3, 0.0)      # exp(−0.5): across it
+```
 """
-@inline zeppelin(b, Dpar, Dperp, v) = exp(-b * Dperp) * stick(b, Dpar - Dperp, v)
+@inline zeppelin(b, Dpar, Dperp, ξ::Real) = exp(-b * Dpar * ξ^2 - b * Dperp * (1 - ξ^2))
+@inline zeppelin(b, Dpar, Dperp, ::Powder) = exp(-b * Dperp) * _sphmean(b * (Dpar - Dperp))
 zeppelin(b, Dpar, Dperp) = throw(ArgumentError("zeppelin(b, D∥, D⊥) needs its view: " *
     "zeppelin(b, D∥, D⊥, powder) for the spherical mean, zeppelin(b, D∥, D⊥, ξ) along one direction"))
 
-# √π·erf(x)/(2x), from x² = x2: the mean of exp(−x²·cos²ψ) over all directions (a stick's signal
-# exp(−b·D·(g·n)²) averaged over gradient directions g, with x² = b·D); 1 at x = 0. Near 0, its
+# √π·erf(x)/(2x), from x² = x2 (√(π/(4x²))·erf(x), as Gong & Yendiki write it): the mean of
+# exp(−x²·cos²ψ) over all directions (a stick's signal exp(−b·D·(g·n)²) averaged over gradient
+# directions g, with x² = b·D; the zeppelin's with x² = b·(D∥ − D⊥)); 1 at x = 0. Near 0, its
 # Taylor series in x², Σ (−1)ⁿ x²ⁿ / (n!·(2n + 1)), 6 terms (error below 2e-12 for x² < 0.05):
 # no 0/0 at b = 0, and no square root, whose derivative is infinite at 0 (the fit's dual numbers
 # would carry it). The coefficients are integers, and π enters converted to x2's type, so a

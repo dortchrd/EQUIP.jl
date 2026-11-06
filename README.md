@@ -363,7 +363,7 @@ Yendiki, Imaging Neuroscience 2026), for the compartments of Panagiotaki et al.'
 |---|---|
 | `iso(b, D)` | exp(−b·D): isotropic Gaussian diffusion (free water, an extra-cellular space, an ADC), the same in every view; with D = 0, immobile water (a "dot") |
 | `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
-| `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | exp(−b·D⊥)·stick(b, D∥ − D⊥, view), in the same two views |
+| `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | an axially symmetric tensor: its spherical mean, exp(−b·D⊥)·√π·erf(√(b(D∥ − D⊥)))/(2√(b(D∥ − D⊥))); along one direction at cosine ξ to the fiber, exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) |
 
 A stick or a zeppelin takes its view explicitly, `powder` (its spherical mean) or a cosine ξ
 (along one gradient direction); without one it is an error that says which to write. The cosine
