@@ -5534,7 +5534,7 @@ numbers are not an order.
        14.3 µs both; DKI's 0.166 → 0.147 ms, its first crlb 47.5 → 44.6 s.
      - Not done: tissue presets by derived quantities (`nominal(DTI, :WM_DTI; direction)`), and a
        sweep over a derived quantity (`vary = :FA => 0.2:0.1:0.9`), which would go through the
-       same hook.
+       same hook. Full runs: EQUIP 2283, CLI 124.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
