@@ -69,6 +69,12 @@ Each branch builds on the one above it.
 
 ## Discussed, not built
 
+- **Roadmap item 20, Rician fitting for every model** (the owner, 2026-11-07): one way to ask
+  for it (`noise = :rician, σ`), the Gaussian fit first and the Rician fit from it, σ as a
+  map, bounds where the signal can fall below the floor, a faster `ricianmean`, the Rician
+  likelihood as an option, noncentral χ for coils, crlb for it. Measured for DTI and DKI
+  (design.md, item 17's review): it removes the floor's bias in tissue (MD −11% → +0.4% at
+  SNR 10), runs away without bounds in CSF, and is 10–40× slower as it stands.
 - **Roadmap item 17, directional diffusion:** StickZeppelin (DTI is built, 2026-11-07); `diffusionencoding(bval, bvec)`, one helper whose
   named tuple goes into any directional model's constructor (DIPY's gradient table as the
   model); the B-matrix when b-tensor data come. DKI written out (examples/dki.jl, 22 parameters): the fit

@@ -5332,3 +5332,50 @@ numbers are not an order.
      montecarlo (the delta method and the second-order bias, tested against Monte Carlo as in
      item 16); then DKI built in (V form) with MK, AK, RK and MKT, checked against DIPY on the
      comparison's data; then the standard-error maps and the protocol objective.
+20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
+   roadmap for everything"; not built). Magnitude data are Rician: where the true signal
+   approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
+   SIR's early TIs), the measured signal sits on a floor of about 1.25σ, and every fit that
+   assumes Gaussian noise reads the floor as signal. Measured for DTI and DKI ("Issues 3 and 4,
+   measured", item 17's review): MD 11% low at SNR 10 in white matter, 3% at 20, 1.4% at 30,
+   0.5% at 50; least squares on the Rician mean removes it in tissue (≤ 0.6%).
+   - **What exists:** `RicianMean(m; σ)` (src/sim/rician.jl), a model whose signal is the
+     expected magnitude of `m`'s, for any model, already fittable: `fit(RicianMean(m; σ),
+     data)`; and the Rician noise for crlb (`riciannoise`, `ricianbound`). The study fitted it
+     started from the Gaussian fit's maps, by hand.
+   - **What to build:**
+     - **One way to ask for it, for any model**, e.g. `fit(m, data; noise = :rician, σ)`:
+       the Gaussian fit first (its starts, `:loglinear`, `datastart`, `:scale`, which assume
+       the signal itself), then the Rician fit from it. Today the starts go through
+       `RicianMean`'s signal, where `:scale` is wrong (the Rician mean is not proportional to
+       S0) and the log start is poorly determined near the floor.
+     - **σ as a map:** one σ per voxel (noise varies across the image with coil sensitivity
+       and parallel imaging), not only one per observation, and so σ held like a fixed
+       parameter; and where σ comes from: the image background (Rayleigh), a noise scan, or
+       MP-PCA (Veraart et al., NeuroImage 2016). EQUIP estimates none of them yet.
+     - **Bounds where the signal can vanish below the floor:** there any large decay rate
+       fits the floor equally, and an unbounded fit runs away (DTI in CSF at b = 2500: MD
+       +10 000%, 20% of voxels not converged at SNR 10; with D's diagonal at most 4e-3 mm²/s,
+       98–100% converged). Each model's defaults to say which bounds the Rician fit needs.
+     - **Speed:** the fit was 10–40× slower than the Gaussian one (150–2000 µs per voxel on 4
+       threads against 7–120), from the Bessel functions in dual numbers. A cheaper
+       `ricianmean` (a rational or tabulated approximation with its derivative, accurate to
+       well below the noise) would make it routine.
+     - **The objective:** least squares on the Rician mean (as now) is consistent but not
+       efficient at low SNR; the Rician likelihood itself (maximum likelihood) is, and is not a
+       sum of squares: Fisher scoring or iteratively reweighted least squares around LM, a
+       solver option. Measured, the least-squares version overcorrects DKI's MKT at SNR 20
+       (−8%, its RMSE above the Gaussian fit's): the likelihood may not, to test.
+     - **Coils:** a sum-of-squares reconstruction from L coils is noncentral χ, not Rician
+       (Constantinides et al., MRM 1997); `ricianmean` generalizes with L (and an effective
+       σ and L for parallel imaging).
+     - **crlb with it:** the Rician fit's own errors (the sandwich with the Rician variance),
+       beside the Gaussian fit's floor bias that `riciannoise` already gives: so a protocol
+       can be designed for the estimator that will be used.
+   - **For every model:** DTI and DKI at high b; T2Decay and T2BiexpDecay at long TE (myelin
+     water's short component and the floor are confounded); T1IR, R1IR and QMTSIR with
+     magnitude data near the inversion's null; ADCDecay, ADCKurtosis, the SMT models (their
+     spherical means already have `averaging = :magnitude` in `RicianMean`). Tests: the floor
+     bias recovered against simulations for each, the no-information cases with bounds, σ maps.
+   - **Not the remedy for everything:** where the data have no information (CSF at b = 2000 in
+     DKI: 0.25% of S0, below the floor) no noise model recovers it; mask, or constrain.
