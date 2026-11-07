@@ -12,7 +12,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `julia --project=MRImages -e 'using Pkg; Pkg.test()'`
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
-  `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s)
+  `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
+  `examples/compartments.jl` (six models written with `@mrimodel` and the compartments, fitted; about 30 s);
+  `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
+  `examples/dki.jl` (the built-in DKI, its indices and the K ≥ 0 check; about 15 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
@@ -27,25 +30,34 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
-  `parameters`, `signal!`, `datastart`); src/models/macro.jl: `@mrimodel` (a model from a
+  `parameters`, `signal!`, the optional hooks `datastart`, `relabel`, `derived` and `fromderived`, its reverse for `nominal`); src/models/diffusion/compartments.jl: the diffusion
+  compartments exported by EQUIP for writing models (`iso`, `stick`, `zeppelin`, with the view
+  `powder` or a cosine ξ);
+  src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
+  (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
+  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
+  evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
   → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
   `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the
   solver, result.jl the `FitResult`
 - src/sim/, from true values to data (uses models only): `nominal` and tissue presets
   (`TISSUES`), noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
-  `simulate` and crlb; `noisecovariance`), `simulate`
+  `simulate` and crlb; `noisecovariance`), `simulate`; rician.jl (`ricianmean`, `ricianvar`,
+  `ricianinformation`, `RicianMean`, and `riciannoise`/`ricianbound` for crlb under Rician noise)
 - src/errors/, a fit's errors against the truth (bias, SD, RMSE): scenario.jl, the `Scenario` (a truth and the fit judged against it, built
   from the truth with fit's keywords: what crlb and montecarlo take; `crlb(m, θ; kmf = 12.5)`
   makes one); derivatives.jl, crlb's pieces one function each (`CRLBCache`, `noisefree!`,
   `hessian!`, `meat`, `information`, `sandwich`, `biasgradient`, `biasedcrlb`; allocation-free,
   summed row by row from dual numbers), with one-call versions (`jacobian`, `hessian`,
   `informationmatrix`, ...); crlb.jl, the kernel `_crlb!` (their composition), `crlb!` and
-  `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3);
+  `crlb` (bias, SD and RMSE predicted from derivatives; sandwich or Eq. 3; the model's
+  `derived` quantities after the parameters, by the delta method, `_derivedcrlb`);
   montecarlo.jl, `montecarlo` (the same measured by simulating and fitting, with `crlb`
-  alongside); compare.jl, `compare` (the same measured on a dataset fit, e.g. simulated maps);
+  alongside; derived quantities from each copy's fit); compare.jl, `compare` (the same measured on a dataset fit, e.g. simulated maps);
   diagnostics.jl, `cond`, `cor` and `leakage` (where the errors come from: dθ̂/dc of each
   fixed parameter, from a joint cache with the fixed numbers seeded too); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
@@ -56,8 +68,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
   search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;
   the result rounded to the ms by a search of its own)
-- src/io/: data files in, maps out, on MRImages: data.jl (`loaddata`, `loadmap`, `DataInfo`:
-  files stacked into observations, sidecar keys to model fields), maps.jl (`savemaps`: BIDS
+- src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
+  and a .bvec as a directional model's b, gx, gy, gz, checked), data.jl (`loaddata`,
+  `loadmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
+  model fields), maps.jl (`savemaps`: BIDS
   names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`);
   ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
   invalidates MRImages' own, docs/design.md)
@@ -69,6 +83,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   DICOM is converted with dcm2niix, not read (docs/design.md)
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
+- docs/status.md: where the work stands (branches, what waits on the lab, open questions): the
+  map to read first when coming back; design.md has the reasons.
 
 ## Style
 

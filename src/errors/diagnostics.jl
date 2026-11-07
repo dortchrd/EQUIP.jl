@@ -34,7 +34,7 @@ cond(crlb(m, θ; snr = 200, kmf = Free()))    # kmf estimated too, 5 parameters 
 ```
 """
 cond(c::CRLBResult) =
-    _condition(c.gram, _freetruth(c), map(in(c.onbound), keys(c.fit)), length(c.σ))
+    _condition(c.gram, _freetruth(c), map(in(c.onbound), _freenames(c)), length(c.σ))
 
 # √(λmax/λmin) of the scaled J₀ᵀJ₀, P×P (no SVD of the N×P J₀): the scaled J₀'s singular values
 # are the square roots of its eigenvalues. Each column scaled by its parameter's true value θ
@@ -51,9 +51,10 @@ end
 # The true value of each free parameter of a result (crlb's or montecarlo's), exactly (the
 # result keeps its truth as given): read directly when a number, through `resolve` when the
 # truth ties it to another parameter (rare: a tie is usually on a fixed parameter, R1m = :R1f).
-# Also the sweep's table (sweep.jl).
+# Also the sweep's table (sweep.jl). The parameters only (`_freenames`): not the model's derived
+# quantities, which follow them in the result's named tuples.
 function _freetruth(r)
-    F = keys(r.sd)
+    F = _freenames(r)
     given = map(p -> r.truth[p], NamedTuple{F}(F))
     all(x -> x isa Real, values(given)) && return map(Float64, given)
     θt = resolve(r.model, r.truth)
@@ -63,8 +64,8 @@ end
 """
     cor(c::CRLBResult) -> Matrix
 
-The predicted correlations of the estimates of the fit's free parameters (in model order,
-`keys(c.fit)`), from the covariance [`vcov`](@ref)`(c)`: Cᵢⱼ / (SDᵢ·SDⱼ), 1 on the diagonal (as
+The predicted correlations of the estimates of the fit's free parameters (in model order, as
+`vcov(c)`: the first names of `c.fit`, before the model's derived quantities), from the covariance [`vcov`](@ref)`(c)`: Cᵢⱼ / (SDᵢ·SDⱼ), 1 on the diagonal (as
 Statistics' `cor`). Near ±1: noise moves the two estimates together (what makes `cond(c)`
 large). `NaN` off the diagonal for a parameter held on a bound (SD 0) or not determined by the
 data (SD `Inf`). [`cor`](@ref)`(mc)` measures the same from a Monte Carlo's estimates.

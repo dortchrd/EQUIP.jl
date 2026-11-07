@@ -10,7 +10,7 @@
 #   cache.jl    `init` wraps the FitSpec in a FitCache (with the model in the working precision,
 #               the solver settings and work buffers)
 #   voxel.jl    fitting one voxel with it: `fit!(cache, y)`, and `fit(m, y)` for a vector
-#   starts.jl   each voxel's starting point (:data, BestOf, :scale)
+#   starts.jl   each voxel's starting point (:data, :loglinear, BestOf, :scale)
 #   levmar.jl   the solver (Levenberg–Marquardt) for one voxel
 #   dataset.jl  `fit(m, data)`: every voxel of a dataset, spread over threads; `refit`
 #   result.jl   FitResult: what `fit` and `fit!` return
@@ -31,6 +31,8 @@ The resolved parameter roles of one fit (made by `setup`):
   `candindex` (those within its bounds); `candindex = 0` means none
 - `fromdata`: for each free parameter, whether it starts at `:data` (the model's
   [`datastart`](@ref))
+- `fromlog`: for each free parameter, whether it starts at `:loglinear` (the weighted fit of
+  ln y with ln S, starts.jl)
 - `weights`: `nothing` (unweighted), or one weight per observation in precision `T`: the fit
   minimizes ½Σᵢwᵢrᵢ²
 
@@ -47,6 +49,7 @@ struct FitSpec{F,P,T,S,X,W}
     candidates::Vector{T}       # BestOf values to try for one free parameter (empty = none)
     candindex::Int              # which free parameter they are for (0 = none)
     fromdata::NTuple{P,Bool}    # true for free parameters that start at :data
+    fromlog::NTuple{P,Bool}     # true for free parameters that start at :loglinear
     weights::W                  # nothing, or Vector{T}: one weight per observation
 end
 
@@ -183,7 +186,7 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     fixedvals = NamedTuple{X}(map(n -> _value(roles[n].value, T), X))
 
     # 5. Starting values. Each Free role's start says where it comes from (see `Free`): a number
-    #    or a map, `:scale`, `:data`, or `BestOf(values)`.
+    #    or a map, `:scale`, `:data`, `:loglinear`, or `BestOf(values)`.
     M = nameof(typeof(model))
     start(n) = roles[n].start
     for n in F
@@ -210,15 +213,37 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
                 throw(ArgumentError("`$n` starts at :data, but $M has no data start for it (see `datastart`)"))
         end
     end
+    #    `:loglinear`: the fit's own log-linear start (starts.jl); nothing to check here.
+    fromlog = map(n -> start(n) === :loglinear, F)
     #    The values `_fit_voxel` starts from. `:scale` and `:data` hold the placeholder 1, replaced
-    #    voxel by voxel; a BestOf parameter its middle value, used if no value can be scored.
+    #    voxel by voxel; `:loglinear` 0, where its Gauss–Newton steps begin (and where the
+    #    parameter stays if the data cannot determine it); a BestOf parameter its middle value,
+    #    used if no value can be scored.
     startvalue(n) = start(n) === :scale || start(n) === :data ? one(T) :
+                    start(n) === :loglinear ? zero(T) :
                     start(n) isa BestOf ? sort(candidates)[cld(length(candidates), 2)] : _value(start(n), T)
     starts = NamedTuple{F}(map(startvalue, F))
+    #    `:loglinear` fits ln S, so the signal where it starts (those parameters at 0, the rest at
+    #    their starts and fixed values, the first voxel's of any map) must be positive and finite
+    #    in every observation. It is not for a time constant at 0 (T2 = 0 is no signal: the start
+    #    stayed at T2's lower bound, and the fit stopped there and reported convergence, measured
+    #    2026-11-07) or for a signal that changes sign (a real-valued inversion recovery).
+    if any(fromlog)
+        s0 = zeros(T, nobs(model))
+        signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), starts), map(x -> _pick(x, 1, T), fixedvals))))
+        if !all(x -> isfinite(x) && x > 0, s0)
+            lognames = join((n for n in F if start(n) === :loglinear), "`, `")
+            throw(ArgumentError("`$lognames` start at :loglinear, but $M's signal there (each at 0, " *
+                "the other parameters at their starts) is not positive and finite in every " *
+                "observation, so its logarithm is undefined. :loglinear is for parameters for which " *
+                "0 is a valid value in a signal that stays positive: diffusivities and rates (R2, " *
+                "not T2), magnitude data. Give a number or :data instead."))
+        end
+    end
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
     return FitSpec{F,P,T,typeof(starts),typeof(fixedvals),typeof(w)}(lower, upper, starts, scale,
-                                                    fixedvals, candidates, candindex, fromdata, w)
+                                                    fixedvals, candidates, candindex, fromdata, fromlog, w)
 end
 
 # The BestOf values of parameter `name` within its bounds, in precision T; an error if none is.

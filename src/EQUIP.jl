@@ -26,7 +26,7 @@ module EQUIP
 # function that another package owns. We do that for a few standard function names, so that our
 # `fit` IS StatsBase's `fit` (and our `init` is SciML's `init`): loading those packages together
 # then causes no name clash.
-using LinearAlgebra                        # dot, Diagonal, diag
+using LinearAlgebra                        # dot, Diagonal, diag; cholesky (DTI's start)
 import LinearAlgebra: cond                 # cond(c): a crlb result's condition number
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
@@ -40,34 +40,40 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
+using SpecialFunctions: erf, erfi, besselix   # spherical means (erfi: D⊥ > D∥); Rician noise (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
-using MRImages: MRImage, readimage, writeimage, readvalues, samegeometry, filestem, sidecarpath,
-                writesidecar, writemat
+using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeometry, filestem,
+                sidecarpath, writesidecar, writemat
 
 # --- Public names -------------------------------------------------------------------------------
 # `export` lists the names a user gets with `using EQUIP`. Everything else is still
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, BestOf, parameters, defaults                  # model interface
 export resolve, signal!, signal, nobs                                       # values and signals
-export datastart, relabel                                                   # optional hooks
+export datastart, relabel, derived, fromderived                                      # optional hooks
 export @mrimodel, newmodel                                                  # a model in one step; a file
+export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
+export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
 export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit statistics
 export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
-export ADCDecay, ADCKurtosis                                               # diffusion models
+export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS  # diffusion models
+export sphericalmean, directionset
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
+export ricianmean, ricianvar, ricianinformation, RicianMean, riciannoise, ricianbound   # Rician noise
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
 export ProtocolDesign, optimize_protocol, DesignResult                       # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 export loaddata, loadmap, DataInfo, savemaps, writetable                     # data in, maps out
-export MRImage, readimage, writeimage, readvalues                           # (from MRImages)
+export diffusionencoding                                                    # .bval + .bvec -> b, gx, gy, gz
+export MRImage, readimage, writeimage, readvalues, readbvec                 # (from MRImages)
 
 # --- Source files, in layers ----------------------------------------------------------------
 # Each layer only uses the layers above it: models ← fit, sim ← errors ← design (fit and sim
@@ -83,7 +89,7 @@ include("models/builtin.jl")           # the built-in models, by area (relaxomet
 include("fit/levmar.jl")               # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + the keywords of a fit -> FitSpec
 include("fit/result.jl")               # FitResult: what fit and fit! return
-include("fit/starts.jl")               # each voxel's starting point: :data, BestOf, :scale
+include("fit/starts.jl")               # each voxel's starting point: :data, :loglinear, BestOf, :scale
 include("fit/cache.jl")                # init -> FitCache: everything a voxel fit needs, made once
 include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
 include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit
@@ -93,6 +99,7 @@ include("fit/statistics.jl")           # the fit's statistics: stderror, vcov, A
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
+include("sim/rician.jl")               # Rician noise: mean, variance, information; RicianMean
 
 # errors: a fit's errors against the truth, bias and SD, predicted from derivatives or measured
 # (uses models, fit and sim)
@@ -109,6 +116,7 @@ include("design/design.jl")            # ProtocolDesign: the objective (Eq. 5), 
 include("design/search.jl")            # optimize_protocol: differential evolution, Nelder–Mead
 
 # io: data files in, maps out (MRImages reads and writes the files; here, what fitting needs)
+include("io/encoding.jl")              # diffusionencoding: a .bval and a .bvec as b, gx, gy, gz
 include("io/data.jl")                  # loaddata, loadmap, DataInfo: a dataset's files as one array
 include("io/maps.jl")                  # savemaps: the maps in the data's geometry, with sidecars
 include("io/tables.jl")                # writetable: crlb's and montecarlo's rows as TSV

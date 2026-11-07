@@ -92,6 +92,39 @@ function resolve(res::FitResult, I...)
 end
 
 """
+    derived(res) -> nothing or (name = value, ...)
+
+The quantities the model derives from its parameters ([`derived`](@ref)`(m, p)`: DTI's MD,
+FA, AD, RD and principal eigenvector), for a fit: numbers for one voxel, maps for a dataset, in the fit's precision,
+NaN where a voxel was not fitted. `nothing` for a model that derives none. Computed when
+asked, on threads, from every voxel's parameters ([`resolve`](@ref)), so the fit itself pays
+nothing.
+
+```julia
+r = fit(DTI(; acq...), dwi; mask)
+d = derived(r)           # (MD = map, FA = map, AD = map, RD = map, V1x = map, V1y = map, V1z = map)
+```
+"""
+function derived(res::FitResult)
+    _onevoxel(res) && return derived(res.model, resolve(res))
+    n = length(res.status)
+    fitted_ok(i) = all(v -> isfinite(v[i]), values(res.params))
+    # The names, from one voxel (the same in every voxel); a voxel with finite parameters if
+    # there is one, so that the hook is not asked about NaNs.
+    i0 = something(findfirst(fitted_ok, 1:n), 1)
+    probe = derived(res.model, resolve(res, i0))
+    probe === nothing && return nothing
+    T = eltype(first(values(res.params)))
+    out = map(_ -> fill(T(NaN), size(res.status)), probe)   # the same names, a map each
+    Threads.@threads for i in 1:n
+        fitted_ok(i) || continue
+        d = derived(res.model, resolve(res, i))
+        foreach((a, x) -> (@inbounds a[i] = x), values(out), values(d))
+    end
+    return out
+end
+
+"""
     residuals(res, y)            one-voxel result: `y .- fitted(res)`
     residuals(res, data, i...)   dataset result: the data minus the fit, for one voxel
 

@@ -2901,6 +2901,1087 @@ offering NIfTI only. Why:
   standard orientation and back), memory-mapped reading of large files.
 - The command line's no-compile test (still to do from the plan), now with a `.mat` command.
 
+## Peripheral nerve SMT: the lab's protocol questions (2026-11-03, branch `nerve-smt`)
+
+A research branch, kept off `lean` until the owner has tested `lean` and the work here is
+accepted. It starts from `smt-proto` (SMT, SMTFreeWater, SMTT2, sphericalmean).
+
+### The questions (the owner's)
+
+The lab images peripheral nerves with diffusion MRI, today with about 10 averages over several
+gradient directions.
+
+1. **Directions, averages and b-values**: what is the best use of them for a nerve SMT protocol
+   under 10 minutes? With TR and the number of slices in the scan time, and a floor on the SNR of
+   the raw images (each direction's image, after the scanner's averages), below which they cannot
+   be registered for motion and distortion correction.
+2. **An echo-time dimension**: does repeating SMT at two echo times (`SMTT2`), using the
+   different T2s of the intra- and extra-axonal compartments, separate their signals better? And
+   does it fix the T2 weighting of the compartments in nerve, where single-TE SMT reports a
+   T2-weighted fraction, not the volume fraction (2026-11-03: v_ax 0.45, T2 90 and 50 ms, TE 80 ms
+   gives 0.66)?
+
+### How EQUIP answers them
+
+The quantity judged is the error of the fitted volume fraction v_ax (its bias and SD, so its
+RMSE), worst case over a set of nerve scenarios (healthy and pathological values; the T2s). Each
+source of error is a perturbation of the shell means, carried to v_ax by the fit's sensitivity
+(crlb's sandwich, and its bias from data made by another model):
+
+- **Noise**: σ²/(N_dirs·N_avg) per shell, from the per-image SNR (crlb's `averages`).
+- **The Rician floor**: the scanner's averages are (probably) complex, and shrink the floor; the
+  spherical mean averages magnitudes, and does not. At high b, where a nerve's signal is low, the
+  floor biases the shell means upward however many directions are averaged: this is where
+  averages can beat directions. Needs the Rician mean E|y| (closed form) for the bias, and the
+  Rician information (Devan 2020, Appendix) for crlb.
+- **Orientational sampling**: a finite direction set does not average the anisotropic signal
+  exactly. A nerve's fibers are one aligned population, the worst case. Closed form for a
+  direction set, by a Legendre expansion of one fiber's signal,
+  Var = Σ_{l≥2} a_l²/(2l+1) · (1/N²) Σ_ij P_l(g_i·g_j), its covariance across shells by the same
+  sum over the two shells' directions (the same fiber in every shell). Checked against
+  simulation (2026-11-03: white matter, b = 3000 s/mm², a Fibonacci set: 6 directions 17.2%
+  against 17.2%, 20: 3.41% against 3.42%, 64: 0.96% against 0.96%; 5% at about 15 directions, as
+  Schilling 2022's SNR = ∞ curve).
+- **T2 weighting**: single-TE SMT fitted to data with different compartment T2s (the bias, from
+  `simulate_with = SMTT2(...) => θ`), against SMTT2's own error at two TEs: bias against
+  precision, so RMSE, at the same scan time.
+- **Scan time**: T = Σ_shells N_dirs·N_avg·TR (+ the b = 0 images) for each TE, with TR set by the
+  number of slices and the time per slice (which depends on TE and the readout), and T1
+  recovery if TR is short. Under 10 minutes: the designer's `budget`, or a constraint.
+- **The registration floor**: for each shell, the per-image SNR (after the scanner's averages)
+  of its lowest-signal direction (parallel to the nerve) or of its mean, at least a threshold:
+  a designer constraint.
+- **Design variables**: each shell's b (continuous), N_dirs and N_avg (integers: enumerated),
+  the echo times (continuous; the minimum TE depends on b through the gradients), the number of
+  slices given. Validated by a full Monte Carlo of the pipeline: directional signals, the fibers'
+  orientation, noise with the scanner's averaging, the spherical mean, the fit.
+
+### To build here, in order
+
+1. The Rician mean and the Rician information (the floor's bias; crlb under Rician noise).
+   **Done** (2026-11-03, src/sim/rician.jl): `ricianmean(A, σ)` (σ√(π/2)·L₁/₂(−A²/2σ²), through
+   scaled Bessel functions, differentiable), `ricianvar`, `ricianinformation` (R(A/σ)/σ², by
+   quadrature, the expansion 1 − 1/(2s²) − 1/(4s⁴) above s = 40); `RicianMean(m; σ, averages,
+   averaging)`, a model whose signal is the magnitudes' mean; `riciannoise(m, θ; snr, averages,
+   averaging)`, crlb's keywords for a least-squares fit of magnitude data (`simulate_with` the
+   mean: the floor's bias; `Σ` the Rician variance: the sandwich's SD); `ricianbound`, the
+   Cramér–Rao bound of Rician data (crlb with σⱼ/√(NEXⱼRⱼ) and the matching weights). Built from
+   crlb's own keywords: its kernel is unchanged.
+   - Checked: the mean and variance against simulated magnitudes; R against Monte Carlo of the
+     score's variance (s = 1: 0.5214 against 0.5217; s = 3: 0.940 against 0.941).
+   - **The floor's bias, predicted**: SMT, black holes, protocol A, SNR 20 per direction, the
+     spherical mean a magnitude average: crlb predicts a bias of +0.071 in v_ax (truth 0.241),
+     montecarlo measures +0.069; SD 0.0243 against 0.0244. The floor's bias is three times the
+     SD there: what directions cannot average away and the scanner's complex averages can.
+     Fitting `RicianMean(SMT; σ)` (σ known) removes it.
+   - **Devan 2020, Fig. 1, with the Rician bound**: the v_ax precision efficiency of the five
+     protocols at SNR 20 is their figure within 5% everywhere but protocol D (3–8% low); black
+     holes A 0.90 against 0.90, B 0.90 against 0.905, C 0.83 against 0.825, E 0.68 against 0.68,
+     where the Gaussian bound was up to 13% high (A, B). So their Fig. 1 is the Rician CRLB at
+     SNR 20 per direction, each direction its own magnitude image.
+2. The orientational covariance for a direction set (closed form above), and direction sets
+   (electrostatic repulsion, Jones et al., Magn Reson Med 1999), tested against simulation.
+   **Done** (2026-11-03, src/models/diffusion/orientation.jl): `directionset(N)` (repulsion
+   between the directions and their opposites, from a Fibonacci spiral: deterministic; z ≥ 0;
+   second moment I/3 to 1e-9); `orientationcovariance(m, θ, sets; σ)` for the SMT models (each
+   model's directional signal `_profile`, its Legendre coefficients by 120-node Gauss–Legendre,
+   orders to 60); `RicianSphericalMean(m; σ)` and `sphericalmeannoise(m, θ; snr, directions,
+   averages, sets)`, crlb's keywords for the whole spherical-mean pipeline.
+   - Checked: the covariance against 20,000–50,000 random fiber orientations, cross-shell terms
+     too (1.135 against 1.163 ×10⁻⁶; diagonal within 1%), mean 0. Schilling 2022's minimal
+     directions at SNR = ∞ (v 0.6, λ 2 μm²/ms, 5%): 4, 7, 10, 16, 23, 28 at b = 1, 2, 3, 5, 8, 10
+     ms/μm², as their Fig. 4.
+   - **Found: the floor acts direction by direction.** A first comparison with the whole
+     pipeline simulated (one fiber population in a random orientation per voxel, a Rician image
+     per direction, the spherical mean, the SMT fit) matched the SD but not the bias: v_ax 0.156
+     simulated against 0.033 from the floor of the shell's mean signal (`riciannoise`). For one
+     aligned population the directions near the fibers have almost no signal at high b and sit
+     on the floor, and E|y| is convex in the signal, so the mean of magnitudes is above the
+     floor of the mean. With the floor applied to each direction's signal and averaged over the
+     angle (`RicianSphericalMean`), and the noise and orientation terms on the same footing
+     (`sphericalmeannoise`): bias 0.159 against 0.156 (30 directions, SNR 20), 0.172 against
+     0.158 (16–24 directions), 0.045 against 0.049 (8 directions, SNR 50); SD within 10–25%
+     (crlb is linear; simulated fits that reach D_ax's upper bound narrow the spread). With 6
+     directions the orientational SD (about 0.2) leaves the linear regime: the bias half the
+     simulated one. Candidates near that edge are for the Monte Carlo.
+   - **A first look at directions against averages** (SMT, b = 0, 1000, 2500, 4000 s/mm²; v 0.6,
+     D 2e-3; 120 acquisitions per diffusion shell; SNR 20 per acquisition; the scanner's
+     averages complex): RMSE of v_ax 0.162 for 120 directions × 1 average (the floor: bias 0.16),
+     0.105 (60 × 2), 0.069 (30 × 4), 0.058 (20 × 6), 0.074 (12 × 10: the orientational SD grows),
+     0.218 (6 × 20). Placeholder values; the lab's own come next (steps 3 and 4).
+   - **Floor corrections compared** (2026-11-03; the pipeline above: SMT, b = 0, 1000, 2500,
+     4000 s/mm², 4/30/30/30 directions, v 0.6, D 2e-3, one fiber population in a random
+     orientation, 2000 voxels, σ known). Bias, SD and RMSE of v_ax at SNR 20 per image, then 10:
+     | Method | SNR 20 | SNR 10 |
+     |---|---|---|
+     | least squares, no correction | +0.154, 0.056, 0.164 | +0.321, 0.079, 0.330 |
+     | Karlsen inversion of each shell mean, then least squares | +0.125, 0.058, 0.138 | +0.227, 0.097, 0.247 |
+     | Karlsen inversion of each direction, then the mean (Kaden's `--rician`) | +0.045, 0.060, 0.075 | +0.118, 0.105, 0.158 |
+     | √max(M² − σ², 0) of each direction, then the mean (NYU's SMI.m) | +0.071, 0.060, 0.093 | +0.167, 0.101, 0.195 |
+     | √\|M² − σ²\| of each direction, then the mean (NYU's DESIGNER v1 and v2) | +0.111, 0.057, 0.125 | +0.247, 0.088, 0.262 |
+     | E\|y\| of the shell mean as the model (`RicianMean`) | +0.124, 0.058, 0.137 | +0.223, 0.097, 0.243 |
+     | E\|y\| of each direction as the model (`RicianSphericalMean`) | −0.001, 0.044, 0.044 | −0.000, 0.080, 0.080 |
+
+     The Karlsen inversion (Magn Reson Med 1999;41:614, Eq. 4: the A whose E|y| is the measured
+     value, 0 below the floor σ√(π/2); the owner's `corrRicianBias.m`, and Kaden's
+     `ricedebias`, a Chebyshev fit of the same inverse, applied to every volume before the
+     spherical mean, Kaden et al., Magn Reson Med 2016;75:1752) is exact for the mean of an ROI
+     whose pixels share one A. A shell's spherical mean is not one: its directions have
+     different A, and E|y| is convex in A, so inverting the mean removes only the floor of the
+     mean (the same as fitting `RicianMean`: 0.125 against 0.124). Inverting each direction is
+     better but is the inverse of a single noisy value, biased at low SNR (below the floor it
+     clips to 0, above it is not). Modelling E|y| direction by direction inside the fit
+     (`RicianSphericalMean`) has no bias and the smallest SD, but assumes the directional
+     profile, one fiber population: right for a coherent nerve, not invariant to dispersion or
+     crossings as SMT itself is. Devan 2020 fitted their Rician simulations with Kaden's code
+     and does not say it used `--rician`.
+
+     NYU's correction (SMI.m's `NoiseBias = 'Rician'`, DESIGNER's `-rician`, σ from MP-PCA, each
+     direction's image before the spherical harmonics) is the high-SNR form of Gudbjartsson &
+     Patz (Magn Reson Med 1995), E|y| ≈ √(A² + σ²): right far above the floor, short of the
+     exact inversion near it; DESIGNER's absolute value also turns a value below σ into
+     √(σ² − M²), up to σ, where the floor should give 0. DESIGNER-v2 points to the other cure,
+     denoising complex data (`-phase`, not to be combined with `-rician`), which removes the
+     floor at its source. The owner's view (2026-11-03), which these numbers bear out: the floor
+     is a property of each direction's image; after the spherical mean the noise is close to
+     Gaussian (many directions), so least squares suits it, but its mean carries the average of
+     the directions' floors. A correction of each value works from one noisy value and cannot
+     be unbiased near the floor; the model of the mean (`RicianSphericalMean`) can.
+   - **Robustness of the corrections** (2026-11-03, bench/floor_robustness.jl, the same pipeline;
+     v_ax bias / RMSE, truth 0.6). σ misestimated (each correction given f × the true σ, the same
+     data), one fiber direction:
+     | Method | SNR 20, f 0.8 | f 1.0 | f 1.2 | SNR 10, f 0.8 | f 1.0 | f 1.2 |
+     |---|---|---|---|---|---|---|
+     | no correction | +0.156 / 0.165 | +0.156 / 0.165 | +0.156 / 0.165 | +0.321 / 0.330 | +0.321 / 0.330 | +0.321 / 0.330 |
+     | exact inversion per direction | +0.082 / 0.101 | +0.047 / 0.076 | +0.013 / 0.059 | +0.184 / 0.209 | +0.119 / 0.159 | +0.055 / 0.119 |
+     | SMI.m | +0.099 / 0.115 | +0.072 / 0.094 | +0.044 / 0.074 | +0.217 / 0.237 | +0.168 / 0.195 | +0.116 / 0.155 |
+     | DESIGNER | +0.121 / 0.134 | +0.112 / 0.126 | +0.109 / 0.123 | +0.259 / 0.273 | +0.246 / 0.261 | +0.243 / 0.257 |
+     | E\|y\| per direction in the model | +0.035 / 0.058 | +0.000 / 0.044 | −0.034 / 0.053 | +0.075 / 0.112 | +0.001 / 0.080 | −0.076 / 0.106 |
+
+     Fibers dispersed about the voxel's orientation (100 fibers from a Watson distribution; ODI
+     0.04, 0.16, 0.50 for κ = 16, 4, 1), σ right:
+     | Method | SNR 20, ODI 0.04 | 0.16 | 0.50 | SNR 10, ODI 0.04 | 0.16 | 0.50 |
+     |---|---|---|---|---|---|---|
+     | no correction | +0.128 / 0.141 | +0.057 / 0.084 | +0.035 / 0.069 | +0.288 / 0.301 | +0.187 / 0.212 | +0.138 / 0.172 |
+     | exact inversion per direction | +0.031 / 0.067 | −0.008 / 0.062 | −0.005 / 0.060 | +0.086 / 0.139 | −0.013 / 0.118 | −0.059 / 0.131 |
+     | SMI.m | +0.053 / 0.079 | +0.005 / 0.062 | −0.001 / 0.059 | +0.135 / 0.170 | +0.035 / 0.119 | −0.010 / 0.115 |
+     | DESIGNER | +0.085 / 0.103 | +0.016 / 0.063 | −0.000 / 0.059 | +0.207 / 0.227 | +0.088 / 0.138 | +0.022 / 0.111 |
+     | E\|y\| per direction in the model | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
+
+     - σ: every correction's bias moves in proportion to σ's error; the model's by ∓0.017 for
+       ±10% at SNR 20 (∓0.037 at SNR 10), and it keeps the lowest RMSE across ±20%. The
+       per-direction corrections fall short at the right σ, so a σ too high helps them.
+     - Dispersion lowers the floor's bias for every method (no correction: 0.157 at ODI 0 to
+       0.035 at 0.50, SNR 20): with the fibers spread, fewer directions sit near zero signal.
+       The model, which assumes one fiber direction, then over-corrects (−0.023 at ODI 0.04,
+       −0.079 at 0.16), while the per-direction corrections become about right at ODI 0.16. The
+       crossover is between ODI 0.04 and 0.16: below it the model is best, above it the exact
+       inversion per direction or SMI.m. The floor is worst where the fibers are coherent, which
+       is where the model is right.
+     - Worst RMSE over all ten conditions: SNR 20, no correction 0.166, exact inversion 0.101,
+       SMI.m 0.115, DESIGNER 0.134, the model 0.105; SNR 10, 0.332, 0.209, 0.237, 0.273, 0.181.
+     - Open: the nerve's dispersion (an input from the lab). The model could carry it, a Watson
+       ODF in `_profile` with κ fixed from elsewhere (the spherical mean itself holds almost no
+       information about κ; the l = 2 rotational invariant, NODDI or the literature do).
+   - **The spherical mean from a Rician spherical-harmonic fit** (2026-11-03, bench/floor_sh.jl,
+     the owner's question: the l = 0 coefficient is the spherical mean, so fit each shell's
+     directions with E|y| of an SH series and need no fiber ODF). v_ax bias / RMSE, σ right:
+     | Method | SNR 20, ODI 0 | 0.04 | 0.16 | 0.50 | SNR 10, ODI 0 | 0.04 | 0.16 | 0.50 |
+     |---|---|---|---|---|---|---|---|---|
+     | no correction | +0.157 / 0.166 | +0.128 / 0.141 | +0.057 / 0.084 | +0.035 / 0.069 | +0.323 / 0.332 | +0.288 / 0.301 | +0.187 / 0.212 | +0.138 / 0.172 |
+     | exact inversion per direction | +0.048 / 0.076 | +0.031 / 0.067 | −0.008 / 0.062 | −0.005 / 0.060 | +0.120 / 0.158 | +0.086 / 0.139 | −0.013 / 0.118 | −0.059 / 0.131 |
+     | E\|y\| per direction, one fiber direction | +0.001 / 0.044 | −0.023 / 0.049 | −0.079 / 0.091 | −0.096 / 0.105 | +0.002 / 0.080 | −0.036 / 0.087 | −0.125 / 0.147 | −0.166 / 0.181 |
+     | SH L = 2, E\|y\| | +0.015 / 0.074 | −0.037 / 0.069 | −0.075 / 0.102 | +0.000 / 0.059 | +0.051 / 0.121 | −0.016 / 0.116 | −0.113 / 0.177 | −0.043 / 0.162 |
+     | SH L = 4, E\|y\| | −0.094 / 0.109 | −0.070 / 0.094 | −0.032 / 0.077 | −0.002 / 0.061 | −0.069 / 0.139 | −0.055 / 0.139 | −0.115 / 0.181 | −0.147 / 0.222 |
+     | SH L = 6, E\|y\| | +0.021 / 0.065 | +0.014 / 0.062 | −0.019 / 0.066 | −0.006 / 0.061 | +0.090 / 0.141 | +0.060 / 0.127 | −0.042 / 0.128 | −0.088 / 0.147 |
+
+     - L = 6 has the smallest worst-case RMSE of every method (SNR 20: 0.066, against 0.076 for
+       the exact inversion per direction and 0.105 for the one-direction model; SNR 10: 0.147,
+       0.158, 0.181), and no ODF assumption. But it is no cure: L = 2 and 4 are biased by
+       truncation (a coherent bundle at b = 2500–4000 s/mm² is sharp on the sphere: L = 4 gives
+       −0.094 with no dispersion), L = 6 needs at least 28 directions per shell, its 28
+       coefficients from 30 values pool little across directions (SD about 0.06 against 0.044
+       for the one-direction model at SNR 20), and at SNR 10 its bias reaches ±0.09.
+     - Why no correction of the spherical mean can be free of the ODF: SMT's independence of the
+       ODF holds for the noise-free signal, the average of the directions' signals. The floor
+       acts on each direction through the nonlinear E|y|, so the mean of magnitudes depends on
+       how the signal is spread over directions, which is the ODF. A correction must assume an
+       ODF (the one-direction model), describe the directional signal freely (the SH fit, at the
+       cost of many coefficients), or work one noisy value at a time (the inversions). Averaging
+       complex data before the magnitude (the scanner's averages, or phase-corrected real data)
+       is the only route that keeps SMT's ODF independence at low SNR.
+     - The owner's follow-up: if the directional signal is fitted anyway, why the spherical mean?
+       A directional model, the SMT kernel convolved with a Watson ODF (orientation, κ, v_ax,
+       D_ax, S0: 6 parameters for the 94 images) and E|y| per direction, pools across directions
+       far more than 28 SH coefficients per shell and models the floor exactly; it gives up SMT's
+       robustness to the ODF's form (crossings, fascicles at angles), which matters less in a
+       single coherent nerve. Next to test, on the same pipeline.
+3. A protocol evaluator: shells (b, TE, N_dirs, N_avg), TR and slices in; scan time, the
+   registration check, and v_ax's bias, SD and RMSE out, from crlb with the terms above;
+   checked against the full Monte Carlo. For each kind of data: magnitude images (the
+   scanner's averages complex or magnitude; the floor correction the pipeline uses) or
+   phase-corrected real images ("Real-valued data", below).
+4. The search: N_dirs and N_avg enumerated, b and TE optimized (`optimize_protocol`), under the
+   budget and the SNR floor, worst case over the nerve scenarios; one TE (SMT) against two
+   (SMTT2), by the RMSE of the volume fraction.
+
+### Real-valued data: removing the floor at its source (2026-11-03)
+
+Every correction of magnitude data in step 2 pays somewhere: an assumed ODF, many SH
+coefficients, or one noisy value at a time. The floor itself goes away if each image is
+phase-corrected and its real part kept (Eichner et al., NeuroImage 2015): Gaussian noise with
+zero mean, negative values allowed. Then every average is linear (the scanner's repeats, the
+spherical mean, SH coefficients), least squares is unbiased with no σ needed for a correction,
+and SMT's independence of the ODF holds at any SNR. The other limits stay: the model's own
+assumptions (tortuosity, D_ax = De∥, exchange, the degeneracy without them). The lab has nerve
+DTI averaged on the scanner both as complex data and as magnitudes (repeats, not directions).
+
+- **Directions are no harder than repeats.** Each image's phase is removed from that image before
+  any average, so phases need not agree between directions or between repeats. The phase from
+  eddy currents (smooth: linear terms and a B0 offset that change with the gradient direction)
+  and from motion during the diffusion encoding (random from shot to shot) is absorbed by a
+  smooth phase estimated from each image; no calibration per direction is needed, and motion
+  phase could not be calibrated anyway. The geometric part of eddy currents (shifts, shears)
+  needs registration, as for magnitude data.
+- **What it needs**:
+  1. A complex coil combination (SENSE-type, or adaptive with coil sensitivities), exported as
+     complex or magnitude and phase images, or raw data with an own reconstruction. A sum of
+     squares discards the phase (and its noise is noncentral χ, not Rician).
+  2. A phase estimate per image, a low-pass filtered phase. Its error δφ lowers the real part to
+     A·cos δφ, about A·exp(−σ_φ²/2) for small Gaussian errors: a small downward bias, largest
+     where the phase changes fast (edges, vessels, pulsation) and at low SNR, where the
+     smoothed phase is itself noisy. The filter's width trades the two. Partial Fourier
+     reconstruction handles the phase too, and has to be taken into account.
+  3. A pipeline that keeps negative values: the phase correction in each image's own space, the
+     real part, then distortion and motion correction (linear interpolation keeps the noise
+     Gaussian, correlated in space). Any step that clips negatives brings the floor back.
+- **A check, and σ, from the imaginary part**: after the correction it should be noise alone
+  (mean 0, SD σ). Structure in it is signal lost from the real part; its SD is σ, without
+  MP-PCA or a background region.
+- **The lab's data measure the floor**: complex averaging already removed the shot-to-shot phase
+  of the repeats (the floor lowered by about √NEX, 3 for 10 averages), but each direction is
+  still a magnitude image. The complex and the magnitude averages of the same nerve data,
+  compared at the highest b in the directions along the nerve (the lowest signal), give the
+  floor's bias in the lab's own data: whether all of this matters there.
+- **What it changes in the design**: without the floor, a number of images gives the same noise
+  in the spherical mean however it is split between directions and averages; more directions
+  then only lower the orientational sampling error. The averages are set by the registration
+  floor (each image registrable, step 3), no longer by the Rician floor: 120 directions × 1
+  average, the worst of step 2's split with magnitude data, becomes the best if its images can
+  be registered.
+- **In EQUIP**: Gaussian noise on each direction, with `sphericalmeannoise`'s noise and
+  orientation terms and no floor (a real-data option to add: today it applies the floor
+  direction by direction); the phase errors, if they matter, a multiplicative bias per
+  direction, exp(−σ_φ²/2), through `simulate_with`, with σ_φ from the filter and the image's SNR.
+
+### SMT or SMI in disorganized nerve (2026-11-03, discussed with the owner)
+
+The question: in a neuroma, with axons in every direction, can SMI (Standard Model Imaging:
+Novikov et al., NeuroImage 2018; Coelho et al., NeuroImage 2022) give v_ax, or is SMT needed?
+
+- Both fit the same Standard Model (sticks, a zeppelin, optionally free water, convolved with
+  the ODF). SMT uses only the l = 0 rotational invariant (the spherical mean, independent of the
+  ODF) and makes v_ax identifiable from it by fixing the extra-axonal diffusivities (De∥ = D_ax,
+  tortuosity). SMI adds the l = 2 (and l = 4) invariants, S_l(b) = p_l·K_l(b), which give the
+  ODF's anisotropy p₂ and the equations that let D_a, De∥ and De⊥ be fitted separately (with
+  free water and, at several TEs, compartment T2s); its estimator is a regression trained on a
+  prior.
+- With an isotropic ODF, p₂ = 0: the l = 2 invariant is zero for any kernel, every direction's
+  signal is the spherical mean, and SMI has only the l = 0 data. Without SMT's constraints the
+  l = 0 data with linear encoding have two families of solutions (Jelescu et al., NeuroImage
+  2016); SMI's answer then comes from its prior. In a study of nerve against neuroma, SMI's
+  v_ax would be pinned partly by l = 2 data in one group and by the prior in the other: a group
+  difference could come from the information, not the tissue. SMT uses the same information in
+  both, valid as far as its constraints hold in both (fibrosis and disorganization are where
+  they may not; exchange breaks both).
+- What determines v_ax without l = 2: SMT's constraints; a second echo time (SMTT2: the
+  compartments' T2 contrast does not depend on orientation, so it adds l = 0 information where
+  l = 2 fails, a further reason for the TE question); planar or spherical b-tensor encoding,
+  if the scanner has it; a prior, knowingly.
+- The floor is mild in isotropic tissue (every direction at the spherical mean: the floor of the
+  mean is the mean of the floors), as the dispersion runs in step 2 show.
+- Tentative: v_ax from SMT or SMTT2, which treat both tissues alike; SMI's p₂ (from l = 2, no
+  kernel diffusivities needed) as the measure of disorganization. EQUIP can quantify it without
+  simulation: crlb of the l = 0 and l = 2 invariants as p₂ goes from nerve to neuroma (offered).
+
+### Inputs needed from the lab
+
+- Nerve tissue values: v_ax and D_ax (healthy, and the pathology to detect), the intra- and
+  extra-axonal T2s, T1 (for TR).
+- The scanner and sequence: the SNR of one b = 0 image at the shortest TE; the shortest TE for
+  each b (gradient strength, δ, Δ, readout); the time per slice; the number of slices; today's
+  protocol (b-values, directions, 10 averages) as the baseline.
+- How the scanner combines averages (complex or magnitude).
+- Whether the scanner can export complex (or magnitude and phase) images for diffusion EPI, and
+  its coil combination; the existing complex- and magnitude-averaged nerve DTI (to measure the
+  floor in the lab's data).
+- The nerve's fiber dispersion (ODI or Watson κ: NODDI, the l = 2 invariant, or published
+  values), which decides the floor correction (step 2, "Robustness of the corrections").
+- The registration floor: the SNR needed, and of which image (the weakest direction, or the
+  shell's mean).
+
+## Building blocks: one signal per family, parts switched on and off (2026-11-03, branch `blocks-proto`)
+
+(The families and `decay` were undone on 2026-11-06: "Reversed", at the end of this section. The
+blocks remain, as EQUIP's exported diffusion compartments.)
+
+The owner's request, after reading Microstructure.jl (roadmap item 7): a model family as one
+function made of building blocks, where parts are turned on and off, rather than a type per
+variant, "unless you're paying a huge computational price: it's cleaner from a maintenance and
+code perspective". Tried on two families: the T2 decays (six models) and SMT (three).
+
+### Decisions
+
+1. **Blocks** (src/models/blocks.jl; public names since, `decay`, `ball`, `stick`, `zeppelin`,
+   `powder`, below): `_relax(t, R)` = exp(−t·R) (R = 0: none); the diffusion
+   compartments `_stick`, `_zeppelin`, `_ball`, each in two views chosen by dispatch on the last
+   argument, a cosine t (one gradient direction) or `_SphericalMean()` (the average over
+   directions); the zeppelin is a stick with D∥ − D⊥ times exp(−b·D⊥), so both views follow from
+   the stick's. `_sphmean` moved there from smt.jl; `_optobs` reads an acquisition field a model
+   may not have (SMT's TE: `false`, Julia's strong zero, without it).
+2. **A part switched off is a role**: `Fixed(value; free = Free(...))`, fixed at a value that
+   removes it (an offset 0, a fraction 0, a T2 of Inf), with the role it takes when a call
+   switches it on: `fit(m, y; C = Free())` takes the template's start and bounds (the call's own
+   win). A complete set of values does not need it (`simulate`, `signal`, `nominal`, a
+   scenario's truth fill it in at its value); a real parameter such as T1MFA's B1 is still
+   required, as decided for strict values. Two predicates (models/interface.jl): `_switchable`,
+   a Fixed with such a role (filled in), and `_isoff`, switchable at a value that removes the
+   part, 0 or Inf: shown as `off` in the model's display, and left out of `leakage` (a relative
+   error of 0 or Inf means nothing; fix one in the call, `C = 0.0`, to include it). SMTFreeWater's
+   `Diso` = 3e-3 is switchable but not off: leakage keeps it. A scenario keeps the role when freed
+   (`base(r::Fixed, ...)` in errors/scenario.jl). A direct `signal!` call needs complete values,
+   the parts off included (`resolve(m, θ)` first), as documented; the CLI lists the parts off
+   among a model's flags (`--C`, `--fshort`, ...).
+3. **One family, small named types.** `AbstractT2Decay` (T2Decay, T2DecayOffset, T2BiexpDecay),
+   `AbstractR2Decay` (the rate forms) and `AbstractSMT` (SMT, SMTFreeWater, SMTT2): one
+   `signal!` per family (T2's time form converts to rates and calls the rate kernel, as before),
+   one table of parameters (`_t2_parts`, `_r2_parts`, `_smt_parts`), and each named model a
+   struct whose `parameters` change a few roles. Kept as types, rather than one type with a
+   preset type parameter or presets as named tuples of roles: the generic code that rebuilds a
+   model from its fields (`_with_precision`, `ProtocolDesign`), `Scenario`, `parameters(T)` and
+   the display names then work unchanged, and `T2DecayOffset(TE = ...)` stays what users write.
+4. **Order kept**: each table lists the parameters so that every named model's free parameters
+   keep the order they had (S0, fshort, T2short, T2, C), so its fits are unchanged to the bit.
+5. **Names**: the bi-exponential's long component is `T2` (`R2`), as the mono-exponential's
+   (it was `T2long`, `R2long`); 50 uses in tests, bench, precompile workloads, README.
+6. **Infinite fixed numbers are allowed** (a T2 of Inf). The per-voxel check now depends on where
+   a fixed value comes from: a map's value must be finite (NaN or Inf marks a bad voxel, as
+   before), a number must not be NaN.
+7. **Off parts are skipped**: a part whose weight is a plain number at exactly zero (`_skip(x::
+   AbstractFloat)`) is not computed, and a relaxation with rate 0 is 1 without an exp. A dual
+   number is never skipped, at zero too: it is being differentiated (a free parameter, or crlb's
+   and leakage's seeded fixed values). Tested: ∂S/∂fshort at fshort = 0 is S0·(e_short − e_main).
+8. **SMT's parts**: free water `fiso` (with `Diso`), a T2 per compartment (`T2ax`, `T2ex`,
+   `T2iso`, Inf: no T2 weighting; `TE` an optional field of every SMT model), and the
+   extra-axonal diffusivities as ties, `Dexpar = :Dax` and `Dexperp = p -> (1 − p.vax)·p.Dax`
+   (Kaden's assumptions), released in a call (`Dexperp = Free()`: SMT without the tortuosity
+   limit, as Microstructure.jl's SMT guide fits it). orientation.jl's three `_profile`s are one,
+   the same tissue function in the directional view; `Union{SMT,SMTFreeWater,SMTT2}` is
+   `AbstractSMT`. New combinations come free: two T2 components with an offset; SMT with free
+   water and compartment T2s together.
+
+### Measured
+
+- **Results** (bench snapshot of every built-in model, both precisions, 300 voxels at SNR 100,
+  starts and fits; scratch scripts snapshot.jl and compare.jl): the T2 family **bit-identical**
+  to before in Float64 and Float32 (starts, values, SSE, iterations, statuses), the models not
+  refactored too. The SMT family differs at rounding level, from one source: the zeppelin's
+  anisotropy is now D∥ex − D⊥ex = D_ax − (1 − v)·D_ax, not v·D_ax. Float64: at most 4e-12
+  (relative) for SMT and SMTFreeWater, 2.7e-4 for SMTT2, whose fit at SNR 100 is poorly
+  determined (S0's SD 4800) and amplifies rounding; Float32: single voxels move (SMTT2 v_ax by up
+  to 0.13), with the same convergence counts and the same means and SDs to every digit shown.
+- **Speed** (4 threads, 20,000 voxels, best of 3 runs alternated between the old code and the
+  new, µs per voxel):
+
+  | model | before | after | ratio |
+  |---|---|---|---|
+  | T2Decay | 0.40 | 0.44 | 1.10 |
+  | R2Decay | 0.49 | 0.56 | 1.14 |
+  | T2DecayOffset | 1.04 | 1.13 | 1.09 |
+  | R2DecayOffset | 0.81 | 0.95 | 1.17 |
+  | T2BiexpDecay | 4.79 | 4.98 | 1.04 |
+  | R2BiexpDecay | 6.34 | 6.42 | 1.01 |
+  | SMT | 0.61 | 0.59 | 0.97 |
+  | SMTFreeWater | 1.20 | 1.08 | 0.90 |
+  | SMTT2 | 5.06 | 4.61 | 0.91 |
+
+  The mono-exponentials pay 4–17% (0.04–0.14 µs per voxel, 0.1 s for a million voxels): the
+  extra fixed parameters carried through the fit. Before skipping (decision 7), the off parts
+  cost more: T2Decay's signal 2.4× and its fits +45%, SMT's signal 2× and fits +12%. The signal
+  timings alone vary ±30% between runs on this machine; only the alternated fit timings are
+  comparable.
+
+- **Blocks against written-out equations** (bench/blocks_cost.jl, the owner's question: is
+  building by parts slower than writing the equation out?). Each equation three ways in one
+  process, interleaved, best of 7, 4 threads:
+
+  | equation | how | signal! ns | fit µs/voxel | first fit s |
+  |---|---|---|---|---|
+  | T2 decay, 32 TEs | written | 93.0 | 0.445 | 0.57 |
+  | | blocks | 107.7 | 0.474 | 0.44 |
+  | | family (R2Decay, parts off) | 116.6 | 0.501 | 0.71 |
+  | ADC, 7 b | written (ADCDecay) | 22.6 | 0.234 | 0.60 |
+  | | blocks (`_relax(b, ADC)`, now `decay`) | 21.0 | 0.184 | 0.37 |
+  | SMT, 4 shells | written (before) | 60.7 | 0.583 | 1.02 |
+  | | blocks | 59.8 | 0.555 | 0.52 |
+  | | family (SMT, parts off) | 70.3 | 0.556 | 0.87 |
+
+  The blocks cost nothing that can be measured: they are inlined, and the ADC built from them
+  came out faster than the identical equation written out (0.18 against 0.23 µs), which says
+  that differences below about 20% are this machine's noise. What the T2 family pays, about 13%
+  of a 0.45 µs fit (0.06 µs per voxel), is the switched-off parts carried as fixed parameters
+  and their skip tests, consistent with the alternated timings above; SMT pays nothing, its cost
+  being in erf and exp. Diffusion hides the overhead, T2 shows it: one exp per echo is so cheap
+  that anything else is a visible fraction. Compilation (the first fit) stays under a second
+  either way. In a plain-number call (the signal! column) `_relax` tests its rate for zero; in a
+  fit the rate is a dual number and the test is not compiled at all.
+- **One exponential unit**: `decay(x, rate)` = exp(−x·rate) is it (named `_relax` at first),
+  for a T2 over TE (rate 1/T2), an ADC over b (rate D) and any decay; `ball(b, D)` is the same unit, and the stick's directional
+  view the unit at b·t². With the stick's spherical mean (√π·erf(x)/(2x)) and the rules for
+  combining (fractions that sum, products for a compartment's T2 weighting times its
+  diffusion), these are the pieces T2 and SMT are made of.
+
+- **Public names: `decay`, `ball`, and an explicit view** (2026-11-04, decided with the owner).
+  The blocks are a module, `EQUIP.Blocks`, exporting `decay(x, rate)` = exp(−x·rate), `ball`,
+  `stick`, `zeppelin` and `powder`:
+  - Plain names, since the leading underscore is Julia's mark of an internal name and these are
+    for writing models; a submodule rather than exports from EQUIP, so that `stick` and `ball`
+    stay out of user code that does not ask for them (`using EQUIP.Blocks` brings them in).
+    Internals (`_skip`, `_sphmean`, `_optobs`) keep the underscore.
+  - One exponential unit, in rate form, named `decay`: "relax" reads wrong for b ("for diffusion
+    we have an exponential decay with b"). A time constant is given as its rate, `decay(TE,
+    1/T2)`; the model's parameter, T2, is still what is fitted. The risk, written into its
+    docstring: `decay(TE, T2)` is exp(−TE·T2) and nothing reports it. `ball(b, D)` stays as its
+    own name (it is `decay(b, D)`), so diffusion models read like the compartment taxonomy.
+    (Tried first, the same day: `relax(t, T)` in the T2 form beside `relaxrate(t, R)`; replaced.)
+  - The view explicit: `stick(b, D, powder)` for the spherical mean (NMR's powder average),
+    `stick(b, D, ξ)` along one direction; `stick(b, D)` without a view is an error that says
+    which to write. (Tried first: the spherical mean as the two-argument method; the owner
+    preferred it explicit.) `powder` is the one value of a type, `Powder`, so the view is chosen
+    by dispatch, when compiling.
+  - Measured: a model written `S0 * decay(TE, 1/T2)` gives T2Decay's fits bit for bit (tested,
+    from the same start), and is no slower (examples/building_blocks.jl, 20,000 voxels, 32
+    echoes, 4 threads: 0.95 µs per voxel against T2Decay's 1.05): 1/T2 does not change between
+    echoes, so the compiler hoists it out of the loop. Every built-in model's fits are
+    bit-identical across the renames (the snapshot, both precisions).
+
+- **Directions per image: three vectors of numbers** (2026-11-04, decided with the owner). A
+  directional model (examples/directional_models.jl) takes each image's b and gradient direction.
+  Every generic routine assumes a per-observation acquisition field is a vector of numbers: the
+  signal's number type (`_signaltype`), the conversion to the fit's precision, the length checks,
+  the protocol designer's static vectors. A field of 3-vectors broke `signal` (`float(Any)`) and
+  stayed Float64 in a Float32 fit, for an `@mrimodel` and a hand-written model alike (tested).
+  The rule that TD and TR already follow (filled to one value per observation in their
+  constructors) is kept: the components go in as `gx, gy, gz = eachrow(bvec)`, views of a .bvec's
+  rows, with no change to EQUIP. Tested: `signal`, Float64 and Float32 fits correct (the fit
+  copies every field into a plain vector when it starts, so the views cost nothing there), the
+  lengths checked. A model holds the views: after changing a bvec, build a new model. A b-tensor
+  per image would follow the same rule, as six component vectors.
+- **Revised (2026-11-05, with the owner): one direction per image, as a vector, `g`.** The
+  owner's reason: a gradient direction is a vector, so it is passed as one. `g` holds one
+  `SVector{3}` per image (`Vector{SVector{3,T}}`), beside `b`; a model reads `x, y, z = g[j]` or
+  `dot(g[j], n)`. It gains no speed (the same three numbers are loaded) and no capability: what it
+  gives is one field instead of three, a direction as one value, `g = directionset(30)` directly
+  (which already returns SVectors), and, for b-tensor encoding later, one matrix per image instead
+  of six component vectors.
+  - **EQUIP needs two methods** (src/models/interface.jl): the conversion to the fit's precision
+    for a vector of static vectors (`Vector{SVector{N,T}}`), and `_signaltype` taking the number
+    type inside each entry. Tested from outside in a scratch script (dti_g.jl: DTI, 6 + 30
+    images, SNR 50, 2000 voxels): without them `signal` fails (`float(Any)`); with them `signal`,
+    `simulate`, Float64 and Float32 fits (`precision = Float32`; the fit's model then holds
+    `SVector{3,Float32}`) and crlb all work, every voxel converged, Dxx 1.6996e-3 ± 3.19e-5 in
+    both precisions, crlb 3.17e-5. `nobs` and `@mrimodel` already handle it (a vector, one entry
+    per observation; the macro's body gets `g[j]`, one direction). Also to add: a clear error for
+    a field that is neither numbers nor static vectors.
+  - **The alternatives, measured or read.** gx, gy, gz (the 2026-11-04 rule) works and needs
+    nothing, but takes three fields. An nobs×3 matrix with `@views gx, gy, gz = g[:, 1], g[:, 2],
+    g[:, 3]` in `signal!` works by hand (scratch dti_matrix.jl: the same fits, 3.1 µs per voxel),
+    but a Float32 fit kept it in Float64, `nobs` does not check its rows (only `eachindex` in the
+    model's own loop caught a short one), and `@mrimodel` passes a matrix whole, so the body
+    cannot index it; teaching the macro "rows are observations" would set that rule for every
+    model's matrix fields. A named tuple of three vectors needs four methods and the same macro
+    change.
+  - **Files.** `readbvec` stays in MRImages as it is, the file's 3×N matrix: MRImages is a
+    general package (like nibabel), without StaticArrays (which also invalidates MRImages'
+    compiled code, "MRImages" above), and a matrix is the easier form for rotating or flipping
+    directions. EQUIP converts: `diffusionencoding(bval, bvec) -> (b = ..., g = ...)`, from files
+    or arrays, splatted into any directional model (`DTI(; diffusionencoding("dwi.bval",
+    "dwi.bvec")...)`), with the checks (lengths, unit vectors, small b to 0), and `loaddata`
+    mapping a .bvec to `g`. Named with the owner: not `diffusion` (too broad), and not `diff…`,
+    which in Julia and MATLAB reads as "differences".
+  - **One supertype, a struct per model.** `abstract type DirectionalDiffusion <: MRIModel` (models
+    with fields `b` and `g`) carries what is shared, written once: the construction from files,
+    the checks, a summary display (shells and counts, not every vector), a default S0 start, the
+    command line. Julia types cannot inherit fields, so each model keeps its own four-line
+    struct. Rejected: one struct with a tag (`Diffusion{:DTI}`): dispatch works, but EQUIP
+    rebuilds models from the bare type (`Base.typename(typeof(m)).wrapper(...)`, in
+    `_with_precision` and ProtocolDesign), which would drop the tag, and every model would print
+    as "Diffusion" (the reason the T2 and SMT families kept named types). A macro that writes
+    the struct (`@directional DTI`; tested, the Float32 rebuild included) waits until there are
+    more than about five such models or their shared fields change together.
+  - **Built-in models written with `@mrimodel`** (the owner's suggestion): new single-equation
+    models (DTI, StickZeppelin, IVIM, perhaps DKI) with the macro, as compact as their equations;
+    by hand, QMTSIR (the full layout as the reference), the T2 and SMT families (one equation for
+    several named types, which the macro cannot express), and signals that do not split by
+    observation (EPG). The macro's measurements allow it (roadmap item 8: T2DecayOffset, T1MFA
+    and QMTSIR bit for bit and as fast), and `newmodel(M)` writes any of them out in full. The
+    macro needs a supertype option (`... <: DirectionalDiffusion`) and its own precision
+    conversion checked with `g`. The existing simple models (the T1 models, ADCDecay,
+    ADCKurtosis) move one at a time, each with the refactoring check.
+- **Revised again (2026-11-06, the owner): back to gx, gy, gz, converted once from the files.**
+  Having seen both written out by hand (scratch options/optionA.jl and optionB.jl, the same
+  fits), the owner prefers the three vectors, with one function doing the conversion:
+  `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz = ...)` (file names, or a
+  vector and a 3×N or N×3 matrix; the checks as above; the rows copied, so a model does not
+  hold views of the user's matrix), splatted into any directional model, `DTI(;
+  diffusionencoding("dwi.bval", "dwi.bvec")...)`. It needs no change to EQUIP's generic code (the
+  two methods for static-vector fields are not needed), and every routine keeps its rule: a
+  per-observation field is a vector of numbers. The rest of the 2026-11-05 decisions stand:
+  `readbvec` unchanged in MRImages; the name `diffusionencoding`; `DirectionalDiffusion`, now
+  with fields b, gx, gy, gz, a struct per model; new single-equation built-ins with
+  `@mrimodel` (its supertype option still to add). Still to add: a clear error for a field of
+  3-vectors or a matrix, pointing to `diffusionencoding`. A b-tensor per image, when it comes,
+  as six component vectors (the 2026-11-04 rule).
+- **Built (2026-11-06, branch `directions-proto`), with these decisions:**
+  - **`diffusionencoding`** (src/io/encoding.jl, exported): from file names or arrays (a 3×N
+    .bvec, or N×3; a 3×3 matrix read as a .bvec), returning plain `Vector{Float64}`s, copied. The
+    b-values are **kept as given**: the threshold (50 s/mm²) only says where a direction must be
+    a unit vector (within 1e-2; FSL writes 0 0 0 at b = 0). Proposed first: set b below it to 0,
+    as a cleaning step; dropped, because a b of 5 s/mm² is a real b-value and the model is more
+    accurate with it (DIPY's `b0_threshold` likewise marks the b = 0 images and changes no
+    value). Errors say what is wrong: a direction per b-value, the matrix's shape, which image
+    is not a unit vector and its length. `readbvec` is exported from EQUIP too.
+  - **`loaddata`** reads a `.bvec` beside the `.bval` into `found[:gx]`, `[:gy]`, `[:gz]`
+    through `diffusionencoding` (its errors given with the file's name), so the command line's
+    model building, which takes every found value whose name is a field of the model, gives a
+    directional model its directions with no flag; `equip info` labels them as from the .bvec.
+  - **No supertype** (the owner, 2026-11-06: "do we need a supertype? since we are using gx, gy,
+    gz"). Everything planned for `DirectionalDiffusion` works by field name: the keyword
+    constructors take `diffusionencoding`'s result, `loaddata` and the command line map by
+    name, the checks are in `diffusionencoding`, and the generic display already summarizes a
+    long vector (`b = 131 values from 0.0 to 2600.0`, checked). Add one when code must dispatch
+    on "a directional model" (a spherical mean of any of them, a shared log-linear start):
+    changing `<: MRIModel` to `<: DirectionalDiffusion` breaks nothing. The macro's supertype
+    option is not needed either.
+  - **Two blocks**, the owner's names (the second since replaced by Julia's `⋅`, below):
+    `fiberdirection(θ, φ)`, the unit vector as a tuple, and `fibercosine(g, n)`, the cosine
+    between one image's gradient direction and the
+    fiber (the dot product; for unit vectors also the projection; the view `ξ` of `stick` and
+    `zeppelin`). Plain tuples: no StaticArrays needed (measured: 0 bytes, the same speed as
+    the cosine written out or as `SVector(gx[j], gy[j], gz[j]) ⋅ n`, which differs by 8e-16).
+    Tried and dropped on the way: a `gdotn(g, n, j)` on `g = (gx, gy, gz)` (the owner disliked
+    passing j; all images at once allocated 608 bytes a call and fitted 70% slower); one
+    function taking the angles, `fibercosine(gx[j], gy[j], gz[j], θ, φ)`, which the owner
+    preferred to read but which recomputes the sines and cosines for every image: the
+    compiler does not move them out of the loop (stick–zeppelin, 66 images, 4000 voxels: fit
+    10.4 µs per voxel against 5.4 with n once per voxel; 9.7 with `sincos`); and our own `dot`
+    or `⋅` (extending LinearAlgebra's `dot` to tuples is type piracy, changing it for every
+    package; a `⋅` of our own would clash with LinearAlgebra's for anyone using both). The
+    spelling is US throughout now: "fibre" became "fiber" in every comment, docstring and doc
+    (the owner's choice, with the names). The cosine itself is **ξ**, not t (the owner,
+    2026-11-06: t reads as time in MRI): SMI's notation, ξ = ĝ·n̂ in its kernel K(b, ξ)
+    (Novikov et al., NeuroImage 2018), and the Legendre forms P_l(ξ) a later rotational-invariant
+    view would use. Renamed in the blocks (`stick(b, D, ξ)`), their docstrings, `_profile` and
+    the Legendre and Rician sums in orientation.jl, the examples, the tests, the Watson samplers
+    in bench/; the nerve example's `c` too. Only names changed: the view is passed by position.
+    And `fibercosine` takes two triples, `fibercosine(g, n)` with g = (gx[j], gy[j], gz[j]) and n
+    from `fiberdirection` (the owner, 2026-11-06: three numbers for g beside a tuple for n "feels
+    off"), so the line reads as the equation, ξ = g·n; symmetric in its arguments, tuples or
+    SVectors alike, and allocation-free (a tuple of three numbers is the three loads). Then
+    replaced by Julia's own dot (the owner: "or we could even do g⋅n!"): LinearAlgebra's `⋅`
+    takes any iterable containers, tuples included, so `ξ = g ⋅ n` needs no block of ours.
+    Measured against `fibercosine(g, n)` (stick–zeppelin, 66 images, 4000 voxels): signals and
+    fits bit-identical in both precisions, nothing allocated, the same speed within noise (10.6
+    against 11.4 µs per voxel, timed while the test suite ran). `EQUIP.Blocks` passes `⋅` on
+    (`using LinearAlgebra: ⋅; export ⋅`), so `using EQUIP.Blocks` is enough; it is the same
+    binding as LinearAlgebra's, so `using LinearAlgebra` beside it does not clash (checked).
+  - **Angle models by hand, not with `@mrimodel`** (revising "built-in models written with
+    `@mrimodel`" above for them): a macro body is one image's signal, so a direction made from
+    θ and φ in it is made for every image. Measured in examples/directional_models.jl (132
+    images, 300 voxels, 4 threads): by hand 12.8 µs per voxel, the same model with the macro
+    23.1, the same fits. DTI, with no angles, still suits the macro. Giving the macro a "once
+    per voxel" section would be new design work.
+  - **One value per observation, checked**: `nobs` (where every fit, signal and crlb starts)
+    refuses a vector field whose entries are not numbers, naming the field and the remedy
+    (`diffusionencoding`), where before a field of 3-vectors failed later as `float(Any)` or
+    stayed Float64 in a Float32 fit. The test is on the fields' types, settled when compiling:
+    `nobs` takes 2–3 ns with or without it (T2Decay, QMTSIR), no allocation. A matrix is not
+    checked: it is not a per-observation field (a lookup table, say).
+  - Tests: diffusionencoding (arrays, files, the layouts, copies, b kept, every error), a
+    .bvec in `loaddata` (and its errors), the blocks, a hand-written stick–zeppelin on them
+    (its signal against the equation written out, no allocation, fits in both precisions),
+    and the refusal of 3-vector fields by `signal`, `fit` and `nobs`. 27 tests; full runs: EQUIP 2106, CLI 124, MRImages 103.
+
+- **Reversed (2026-11-06, the owner): no families, no `decay`; every model in the standard
+  format, the blocks EQUIP's own diffusion functions.** In the owner's words: "outside of the
+  decay block the rest is diffusion ... maybe we remove that and just use blocks for diffusion,
+  consistent with Microstructure.jl"; "I don't want it to be its own module. These are just
+  functions that are used to build models more easily"; "I want decay removed. I do not like how
+  unreadable that code is, switching things on and off ... same for SMT"; "we want to maintain
+  standard EQUIP format throughout". So the family refactor above (decisions 1–8) is undone, by
+  `git revert` of its commit (8cc4bc7) with the later work kept:
+  - **Every model written out, its own struct, `parameters` and `signal!`**, as before the
+    refactor and as QMTSIR is: T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay,
+    R2BiexpDecay (in their own file again, `T2long`/`R2long` as before, kept by the owner: they
+    pair with `T2short`/`R2short`), SMT, SMTFreeWater,
+    SMTT2, each its own equation, with nothing switched on or off. Gone with the families: the
+    switchable roles (`Fixed(value; free = Free(...))`, `_switchable`, `_isoff`, the `off`
+    display, leakage's leaving them out), the skip of a part at zero (`_skip`), infinite fixed
+    numbers, SMT's optional TE and its ties for the extra-axonal diffusivities, and the
+    combinations no named model had (two T2 components with an offset; SMT with free water and
+    compartment T2s): write one as its own model.
+  - **The SMT models are written with the diffusion blocks**, `stick(b, D_ax, powder)` and
+    `zeppelin(b, D_ax, D⊥, powder)` (and `ball` for free water), each model its own `signal!`;
+    the three directional profiles in orientation.jl likewise, one per model, in the ξ view.
+  - **The blocks are plain functions of EQUIP, exported** (no module `EQUIP.Blocks`): `ball`,
+    `stick`, `zeppelin`, `powder`, `fiberdirection` and `⋅`. `using EQUIP` is all a model
+    needs; nothing clashed (no other name in EQUIP or its tests). They are the diffusion
+    compartments only (Microstructure.jl's carry a T2 each, as the paper of 2026 below
+    shows; here a compartment's T2 is written in the model); relaxation is written as its equation,
+    `exp(-TE / T2)`, which cannot be mistaken (`decay(TE, T2)` was exp(−TE·T2), silently wrong:
+    its docstring had to warn of it). No `decay`, public or internal.
+  - **Measured, the refactoring check** (every built-in model, 300 voxels at SNR 100, starts,
+    values, SSE, iterations, statuses, both precisions): against the code before this change
+    (directions-proto as committed), **bit-identical for every model**: the standard-format code
+    computes exactly what the family code did. Against the code before the family refactor: the
+    T2 models and all others bit-identical; the SMT models differ at rounding level, from the
+    one source recorded then (the zeppelin's anisotropy D_ax − D⊥, not v_ax·D_ax): Float64 at
+    most 6e-13 (SMT), 3e-12 (SMTFreeWater), 2.7e-4 for SMTT2 (poorly determined at SNR 100);
+    Float32, single voxels move. A model written `S0 * exp(-TE / T2)` gives T2Decay's fit to
+    rounding (dividing by T2 rounds differently from multiplying by 1/T2, as T2Decay does).
+  - bench/blocks_cost.jl is removed: it compared written-out equations, the blocks and the
+    families (its numbers are in "Measured" above); the blocks' cost was nothing measurable.
+  - Found on the way: `stick`'s docstring gave its spherical mean at b = 1000 s/mm², D = 2e-3
+    mm²/s, as 0.606; it is 0.598 (√π·erf(√2)/(2√2)), now tested.
+  - Tests: the family's 41 replaced by 18 on the blocks and the SMT models written with them
+    (each signal against Kaden's equation, each profile's mean against the signal); full runs
+    EQUIP 2084, CLI 124, MRImages 103.
+
+- **"Compartments", not "blocks"** (2026-11-06, the owner). The literature's word: the ball,
+  stick, zeppelin, tensor, cylinder, sphere and dot are the compartments of Panagiotaki et al.'s
+  taxonomy (NeuroImage 2012), and Microstructure.jl calls them so; a model of them is a
+  multi-compartment model ("kernel", in the standard-model and SMI papers, is one fiber
+  bundle's signal, its compartments together). src/models/blocks.jl is
+  src/models/compartments.jl, examples/building_blocks.jl is examples/compartments.jl, the
+  README's section is "Compartments". What is not a compartment is placed by what it is:
+  `powder` stays with them (the view that picks a compartment's spherical-mean signal, the
+  owner: it belongs with the compartments); `fiberdirection` moves to orientation.jl, beside
+  `directionset`, as the geometry that gives a directional compartment its view ξ = g ⋅ n. The
+  functions keep their names; only files, comments and docs change.
+
+- **`iso`, not `ball`** (2026-11-06, the owner, from Gong & Yendiki, "Microstructure.jl: A Julia
+  package for probabilistic microstructure model fitting with diffusion MRI", Imaging
+  Neuroscience 2026;4, doi:10.1162/IMAG.a.1102). Their compartments are Cylinder, Stick,
+  Zeppelin, Sphere and Iso; Iso (section 2.2.1.5, Eq. 5) is isotropic Gaussian diffusion, used
+  for CSF, an extra-cellular space, or with D = 0 for immobile water in ex vivo tissue, the
+  "dot" (their SANDIdot). So `iso(b, D)` is Panagiotaki's ball and, at D = 0, the dot: no dot of
+  its own is needed. Read from the paper, two more things: their Eqs. 6–8 write the cosine as
+  ξ = g·n, the notation chosen here; and each of their compartments carries a T2, a factor
+  e^(−t/T2) included only with multi-TE data (sections 2.2, 2.2.1), so EQUIP's compartments,
+  diffusion only with a compartment's T2 written in the model, differ from theirs there. (This
+  log had said "diffusion only, as Microstructure.jl's are"; corrected.)
+
+- **The zeppelin as its own equation** (2026-11-06, the owner: writing it through a stick,
+  `exp(−b·D⊥)·stick(b, D∥ − D⊥, view)`, "might be true mathematically, but I have never seen
+  this"). Each view is now its own method, written as Gong & Yendiki write it: along one
+  direction exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)) (their Eq. 7), and the spherical mean
+  exp(−b·D⊥)·√π·erf(√(b(D∥ − D⊥)))/(2√(b(D∥ − D⊥))) (their Eq. 1), through the same helper
+  `_sphmean` the stick's spherical mean uses (for b = 0 and the fit's dual numbers). Measured:
+  the spherical-mean form computes exactly what it did, so SMT, SMTFreeWater and SMTT2 give
+  bit-identical starts and fits, both precisions; the directional form rounds differently, at
+  most 2.3e-15 relative (b to 5000 s/mm², every ξ), with the same fits in
+  examples/directional_models.jl. EQUIP 2085 tests pass. Then written with the exponent split
+  as the spherical mean is (the owner): S(ξ) = exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²), every direction
+  seeing D⊥ and only the excess depending on the angle, as one exp of the two exponents (no
+  second exp per image); the paper's form stays in the comment.
+
+- **D⊥ > D∥, and the spherical means' helper** (2026-11-06, discussed with the owner). The
+  zeppelin's directional form is right for any D∥ and D⊥, but its spherical mean took √(b·(D∥ −
+  D⊥)) and threw a DomainError once b·(D∥ − D⊥) < −0.05 (tested: D∥ 0.5e-3, D⊥ 1e-3 mm²/s at b =
+  1000); a fit that strayed there would have stopped. Two levels, both decided:
+  - **The compartment is defined for both signs.** For D⊥ > D∥ (an oblate tensor) the mean over
+    directions of exp(+|a|·ξ²) is √π·erfi(√|a|)/(2√|a|): checked against the integral computed
+    numerically (0.4396004 both), and `erfi` takes the fit's dual numbers. The helper has three
+    branches: the series near 0 (either sign), erf for a > 0, erfi for a < 0.
+  - **What is physical is the model's to say**, by its parametrization, as Microstructure.jl
+    does ("to constrain D⊥ to be smaller than D∥, D⊥ is represented as D∥ multiplied by a
+    fraction between [0, 1]", Gong & Yendiki 2026, section 2.2.1.1): a model that fits D⊥ fits a
+    fraction `fperp` with bounds 0 and 1 and computes D⊥ = fperp·D∥; the struct (the
+    acquisition) does not change. SMT's tortuosity limit is the case fperp = 1 − v_ax; no
+    built-in model frees D⊥ today.
+  - **The helper renamed for what it computes**: `_sphmean` was not the spherical mean but one
+    factor of it (the owner found it confusing). It is `_meanexp(a)` = ∫₀¹ exp(−a·ξ²) dξ, the
+    mean over directions of exp(−a·ξ²), from which every axially symmetric compartment's
+    spherical mean is made (stick: _meanexp(b·D); zeppelin: exp(−b·D⊥)·_meanexp(b·(D∥ − D⊥));
+    a cylinder's would be the zeppelin's with its restricted D⊥, Gong & Yendiki Eq. 2; a sphere
+    is isotropic and needs none; a full tensor's has no erf form). Each method carries its
+    full equation in a comment above it, with the paper's equation number. Writing the closed
+    form out in every method instead was considered: each would repeat the three-way branch
+    (0/0 at b = 0 or D∥ = D⊥, the infinite derivative of √a at 0, the erfi case).
+  - Measured: every built-in model's starts and fits bit-identical to before (the positive
+    branch is the same expression); the SMT, compartment and direction test sets pass (134).
+
+- **The compartments live with the diffusion models** (2026-11-06, the owner):
+  src/models/diffusion/compartments.jl, included first in the diffusion group.
+
+- **DTI built in, written out by hand** (2026-11-07, the owner: "just build standard DTI like we
+  showed way back when ... We have the @mrimodel macro we can use later on to make more compact
+  code"). src/models/diffusion/dti.jl, in the standard format: the struct (`b`, `gx`, `gy`,
+  `gz`), `S0` and the six elements, and gᵀDg written out in `signal!`, as the papers write it.
+  This revises "built-in models written with `@mrimodel`" above for DTI; the macro is for making
+  the code compact later.
+  - **No `tensor` compartment, and no multi-tensor models** (discussed the same day). A tensor
+    has only the directional view: its spherical mean is a one-dimensional integral,
+    ∫₀¹ exp(−b·λ3·z² − b·(1 − z²)·(λ1 + λ2)/2)·I₀(b·(1 − z²)·(λ1 − λ2)/2) dz, the zeppelin's erf
+    form when λ1 = λ2, with no closed form otherwise and an eigendecomposition per call. And a
+    sum of full tensors is hard to fit: swapping two tensors (f ↔ 1 − f) gives the same signal,
+    identical starts cannot separate them, and parallel fibers are nearly degenerate. A model
+    with several fiber populations uses zeppelins with directions, which the compartments
+    already give. Also considered for gᵀDg (scratch gdg.jl: 132 images, duals for 7 parameters,
+    µs per signal): written out 2.11; `dot(g, D, g)` with D an SMatrix (Julia's three-argument
+    dot is gᵀDg) 2.25; `g' * D * g` 5.92, all allocation-free and equal to rounding. Written out
+    was chosen: the fastest, and g stays a tuple as in the other directional models. The names
+    `diffusivity` and `adc` for a gᵀDg helper were dropped with it (`adc` reads as ADCDecay's).
+  - **The start, `datastart`** (replaced on `loglinear-proto` by the generic `:loglinear`,
+    "The log-linear start" below): the weighted log-linear fit, ln y = ln S0 − b·gᵀDg, linear in ln
+    S0 and the six elements (the B-matrix design matrix), weights y² (Basser et al., J Magn
+    Reson B 1994). The 7×7 normal equations are summed image by image in static arrays (no
+    allocation), in Float64 at least (Float32 data too), and scaled to a unit diagonal before a
+    Cholesky factorization with `check = false`, which reports a failure rather than throwing.
+    Found on the way: a system the data cannot determine (one shell with no b = 0) is singular,
+    but rounding can leave it a tiny pivot, so the factorization succeeds and gives a nonsense
+    start. So a pivot below eps^(1/4) (1.2e-4) counts as undetermined. Measured (scratch
+    pivots.jl, 50 rotated tensors per case at SNR 30: white matter, grey matter, CSF and
+    2.5/0.1/0.1e-3; Float64 and Float32 data): the smallest pivot is 0.02 or more for every
+    determined design (one b = 0 and six directions; 6 b = 0 and 30; two shells with or without
+    b = 0; 4 + 64 + 64; directions within 3° of a plane), and 3e-7 or less for the undetermined
+    ones (one shell with no b = 0; five directions; all directions in one plane, or on one cone,
+    which cannot separate Dzz from Dxx + Dyy). When undetermined, the start is isotropic,
+    1/mean(b), as ADCDecay's.
+  - **Measured** (scratch check.jl: 6 b = 0 and 30 directions at b = 1000, a rotated tensor with
+    eigenvalues 1.7, 0.4, 0.3e-3 mm²/s, SNR 50, 2000 voxels, 4 threads). From noise-free data
+    the start is the tensor itself (5e-16 of λ1 in Float64, 7e-8 in Float32). All voxels
+    converged in both precisions. The data start took 4.0 iterations on average (Float64),
+    against 6.0 from a constant start (D = 1e-3·I), and gave the same fits (to 3e-8 of λ1;
+    Float32, 7e-5). Time per voxel: 2.4–2.6 µs, against 2.9 from the constant start.
+    examples/directional_models.jl now uses the built-in DTI, with the same results (its
+    direction 0.2° from the fibers; v_ax 0.600 ± 0.004).
+  - Not yet: FA, MD, AD, RD and the principal direction as maps (roadmap item 16's `propagate`
+    for their errors); DTI in the command line (`equip fit DTI`, which `loaddata`'s .bvec
+    reading already allows) and in the precompile workload (SMT is in neither).
+  - Tests: 37 (the signal against the matrix form, no allocation; the start exact on noise-free
+    data in both precisions, no allocation, and isotropic for the three undetermined designs;
+    fits in both precisions against the truth, crlb's SD and a constant start's fits); full runs
+    EQUIP 2119, CLI 124 (MRImages unchanged, 103).
+
+- **The log-linear start, `Free(start = :loglinear)`, from the model's own signal** (2026-11-07,
+  branch `loglinear-proto`; the owner: "we should be able to feed it signal instead of
+  recalculating and writing a custom function for both it and DKI"). DTI's `datastart` restated
+  the signal equation in a design matrix, and DKI would have needed a third copy. The log-linear
+  fit is Gauss–Newton on ln y, so EQUIP computes it from what the solver already has: `signal!`
+  evaluated in dual numbers gives S and ∂S/∂θ, hence the log residuals ln S − ln y and their
+  Jacobian (∂S/∂θ)/S; weights y² (times the fit's own weights). Where ln S is linear in the
+  parameters, the first step lands on the weighted log-linear fit from any point; where it is
+  nearly linear, a few steps reach it. The code is in src/fit/starts.jl (`_loglinear_start`), one
+  step of the voxel's start sequence, after `:data` and before `BestOf` and `:scale`; DTI's
+  parameters say `Free(start = :loglinear)` and its `datastart` is gone.
+  - **What moves:** the parameters at `:loglinear`, from 0 (their placeholder), and the `:scale`
+    parameter, the fit's intercept (without it the others would absorb the signal's level); the
+    rest stay at their starts. The scale is then set again by least squares on y, as for every
+    start. Found on the way: ln S is linear in ln S0, not in S0, so stepped in S0 the start crept
+    from S0 = 1 towards 1000 over all ten steps (48 µs for one voxel of 132 images instead of 9).
+    Since `:scale` multiplies the signal by definition, its step is taken on ln S0,
+    S0·exp(ΔS0/S0), which keeps DTI's first step exact.
+  - **Kept from DTI's start:** Float64 sums and solve (Float32 fits too); the system scaled to a
+    unit diagonal; the solver's own `_cholesky`, which reports failure rather than throwing; the
+    pivot threshold eps^(1/4) for a design that cannot determine the parameters ("DTI built in",
+    pivots.jl). New: a parameter the data do not measure at the current point (a zero column:
+    DKI's W while D = 0; Dzz when every direction lies in the xy plane) does not move that step;
+    a step that raises the weighted log-SSE is halved; it stops when the predicted decrease is
+    below √eps of the log-SSE, or after 10 steps. A changed behaviour: where the design cannot
+    give the parameters (one shell with no b = 0), they stay at 0 rather than at the isotropic
+    1/mean(b); the in-plane case now gives the in-plane elements exactly, the others 0.
+  - **For which parameters:** those on which ln S depends linearly or nearly, and for which 0 is
+    a valid value: diffusivities, rates, kurtosis. Not time constants (T2 = 0 is no signal):
+    T2Decay keeps its `datastart`, or a model uses the rate.
+  - **Measured, DTI** (scratch loglin_dti.jl: a rotated tensor 1.7, 0.4, 0.3e-3 mm²/s, Rician SNR
+    50, 2000 voxels, 4 threads), against DTI's former start (directions-proto):
+    | protocol | starts differ (of λ1) | fits differ | iterations | µs per voxel, fit (start alone) |
+    |---|---|---|---|---|
+    | 6 b = 0 + 30 at 1000 | 1.7e-14 | 1.3e-16 | 4.044, the same | 2.31 against 2.23 (1.24 against 1.05) |
+    | 4 + 64 at 1000 + 64 at 2500 | 4.1e-14 | 1.3e-16 | 4.447 against 4.448 | 7.21 against 6.20 (3.81 against 2.65) |
+    Float32: starts within 7e-8 of λ1, fits within 9e-5 (Float32's tolerance), iterations the
+    same to 0.01. No allocation. The cost, 4% and 16% of the fit, is two evaluations of the signal
+    in dual numbers (the step, then the check that nothing is left) where the hand-written start
+    summed the design matrix once.
+  - **Measured, DKI** (scratch loglin_dki.jl: examples/dki.jl's model and data, 22 parameters, 66
+    images, SNR 100, 2000 voxels, 4 threads), against its constant start (D = 1e-3·I, W = 0): all
+    converged from both; 4.6 iterations on average (at most 7) against 15.7 (at most 17); the fit
+    74.7 µs per voxel against 84.3 (the start itself 41 µs); the same fits (W within 5e-7). The
+    first call, compiling, 8.0 s, as before. The start's W1111 has mean 1.05 and SD 0.25, the fit's
+    0.99 and 0.25 (truth 1): the log fit's weighting is not the fit's, as expected.
+  - **Why not a library's least squares** (the owner's question, the same day): it was measured
+    on DTI's start (scratch wls_library.jl, 36 images, 1000 voxels): Julia's `\` (pivoted QR,
+    LAPACK) with the rows weighted, `(y .* A) \ (y .* log.(y))`, gives the same answer (to 9e-18
+    mm²/s) in 5.8 µs and 25 KB per voxel with the design matrix made once, 7.6 µs and 32 KB made
+    per voxel, against 1.5 µs and nothing for the static normal equations: a million voxels
+    would make about 30 GB of garbage, and collecting it stops every thread. (It also needs the
+    same care for y ≤ 0: the test crashed on negative data at b = 2500.) The solve itself is a
+    library's here too, the factorization of the small static system.
+  - examples/dki.jl uses it: 69 µs per voxel, 4.6 iterations on average, all 2000 converged,
+    the same means as before (Dxx 1.698e-3, W1111 0.988, W1122 0.332, MKT 0.997);
+    examples/directional_models.jl, on the built-in DTI, the same results as before.
+  - Tests: DTI's start checked through the fit (`LM(maxiter = 0)` returns the start): exact on
+    noise-free data in both precisions, the in-plane and one-shell designs, no positive data, no
+    allocation; and 6 for `:loglinear` itself (ADCDecay's start against `_loglinear_rate`, with
+    and without weights; ADCKurtosis's against the weighted polynomial fit; `Free` accepting it).
+    Full runs: EQUIP 2125, CLI 124.
+  - **Against DIPY** (2026-11-07, the owner's question; DIPY 1.12.1, NumPy 2.5, SciPy 1.18, cvxpy for
+    its DKI NLS; scratch dipycmp/equip_side.jl and dipy_side.py): the same simulated data, Rician,
+    a white-matter tensor (1.7, 0.4, 0.3e-3 mm²/s) in a random orientation per voxel, 20 000
+    voxels (DIPY's per-voxel loops on 2000, its DKI NLS on 500); DTI at SNR 50, DKI (isotropic
+    K = 1) at SNR 100. µs per voxel; DIPY's times were the same with 1 and 4 BLAS threads (its
+    fits loop over voxels in Python, or solve many small systems), and its parallel engines
+    (joblib) are not reachable for DKI in 1.12 (the keyword reaches `ls_fit_dki` and fails).
+
+    | | EQUIP, 1 thread | EQUIP, 4 threads | DIPY |
+    |---|---|---|---|
+    | DTI 36 images: weighted linear (EQUIP's `:loglinear` start; DIPY's WLS, its default) | 4.4 | 1.2 | 17.1 |
+    | DTI 36 images: nonlinear (EQUIP's fit; DIPY's NLLS, MINPACK) | 8.6 | 2.3 | 102 |
+    | DTI 36 images: DIPY's OLS (one pseudo-inverse for every voxel) | | | 1.4 |
+    | DTI 132 images: weighted linear | 14.8 | 4.0 | 33.2 |
+    | DTI 132 images: nonlinear | 28.3 | 7.5 | 158 |
+    | DKI 66 images: weighted linear | 168 | 42 | 312–338 |
+    | DKI 66 images: nonlinear (DIPY's NLS) | 320 | 81 | 208 |
+
+    The nonlinear fits find the same minimum: DIPY's NLLS against EQUIP's fit, the D elements
+    within 3e-7 of λ1 at most (median 7e-9; DKI 3e-7, W within 6e-6). The linear fits differ by
+    their weights: DIPY's WLS weights each image by the square of the signal OLS predicts
+    (Chung et al. 2006, the two-pass method), EQUIP's start by y²; the D elements differ by a median
+    of 1e-3 (36 images) to 5e-3 (132) of λ1. That matters at high b: RMSE of the D elements against
+    the truth, in units of λ1, 132 images: EQUIP's start 0.0112, DIPY's WLS 0.0062, DIPY's OLS
+    0.0240, the nonlinear fits 0.0065 (EQUIP) and 0.0066 (DIPY); at 36 images all 0.011–0.013.
+    Since the fit follows the start, EQUIP's estimates are the nonlinear ones either way.
+    - DTI: EQUIP is 5–12× faster per core than DIPY's NLLS, 20–45× on 4 threads, and 2–4× faster
+      per core than DIPY's linear WLS while also running the nonlinear fit after it.
+    - DKI: DIPY's NLS is 1.5× faster per core than EQUIP (208 against 320 µs); EQUIP is faster
+      only on threads (81). Two reasons, both EQUIP's model rather than its solver: DIPY
+      parameterizes DKI so that ln S is linear (D with V = MD²·W, W recovered after), so its
+      Jacobian is S times the design matrix, cheap, and its OLS start is already the log-linear
+      fit; EQUIP's DKI (examples/dki.jl) multiplies W by MD², so its `:loglinear` start takes
+      about five Gauss–Newton steps (168 µs, half the fit), and every evaluation carries 22
+      dual partials through MD² and the 15 monomials. To try: the DKI model in DIPY's linear
+      parameterization (the start then exact in one step), and weights from the predicted signal
+      in `:loglinear` (DIPY's WLS: a second step with S(θ)² as the weights).
+  - **EQUIP's fit against DIPY's WLS, the estimates users look at** (the owner: "also compare
+    with WLS"; scratch dipycmp/accuracy.py, the same data, the same voxels for every method:
+    2000 for DTI, 500 for DKI). Bias (mean − truth) and SD, relative to the truth (MD 0.8e-3
+    mm²/s, FA 0.763, MKT 1):
+
+    | | MD bias | MD SD | FA bias | FA SD |
+    |---|---|---|---|---|
+    | DTI 36: EQUIP's fit = DIPY's NLLS | −0.12% | 1.55% | −0.08% | 1.40% |
+    | DTI 36: DIPY's WLS | −0.03% | 1.55% | −0.06% | 1.41% |
+    | DTI 36: DIPY's OLS | 0.00% | 1.58% | −0.01% | 1.72% |
+    | DTI 36: EQUIP's start | −0.47% | 1.55% | −0.26% | 1.41% |
+    | DTI 132: EQUIP's fit = DIPY's NLLS | −0.53% | 0.98% | −0.17% | 0.67% |
+    | DTI 132: DIPY's WLS | −0.20% | 0.98% | −0.09% | 0.68% |
+    | DTI 132: DIPY's OLS | −2.72% | 2.85% | −1.92% | 1.73% |
+    | DTI 132: EQUIP's start | −1.98% | 1.00% | −0.64% | 0.69% |
+
+    DKI 66 (MD, then MKT): EQUIP's fit = DIPY's NLS +0.14%, 1.35%; +0.39%, 3.93%. DIPY's WLS
+    +0.19%, 1.35%; +0.58%, 3.92%. DIPY's OLS +0.13%, 1.41%; +0.10%, 4.40%. EQUIP's start
+    +0.20%, 1.35%; +1.37%, 3.91%.
+    So the nonlinear fit and DIPY's WLS are equally precise (the same SD everywhere); their biases
+    differ by a few tenths of a percent, either way (WLS less in DTI's MD at b = 2500, the
+    nonlinear fit less in MKT), far below the SD. Both fit a Gaussian model to Rician data, so
+    the floor at high b pulls MD down; EQUIP's `RicianMean` would model it (not tried on DTI).
+    EQUIP's start, weighted by y², is the most biased of the weighted fits at b = 2500 (MD −2.0%):
+    another reason for predicted-signal weights in `:loglinear`. Time, µs per voxel, EQUIP's
+    nonlinear fit against DIPY's WLS: DTI 36 images 8.6 (1 thread) and 2.3 (4) against 17.1; 132
+    images 28.3 and 7.5 against 33.2; DKI 320 and 81 against 312–338.
+  - **Predicted-signal weights in `:loglinear`** (2026-11-07, the owner: "test predicted-signal
+    weights"; a prototype switch, `EQUIP._LOGLINEAR_WEIGHTS[]`, default `:data`; scratch
+    dipycmp/weights_equip.jl and accuracy_weights.py, the DIPY comparison's data). The weights
+    of the log fit, four ways: `:data`, y² (as built); `:twopass`, one unweighted step, then one
+    weighted by the predicted signal² and stop (DIPY's WLS; DTI only, since DKI's W waits a
+    step); `:predicted`, the predicted signal² at every step until the predicted decrease is
+    below √eps (iteratively reweighted; the first step is unweighted by itself, the signal being
+    flat at the placeholder start); `:predictedstop`, the same, taking a step and stopping when
+    it gains under 1% of the weighted log-SSE. Bias in % of the truth (SD the same for all
+    within 0.02%), and µs per voxel on 4 threads (the start; the whole fit, its LM iterations):
+
+    | | `:data` | `:twopass` | `:predicted` | `:predictedstop` | DIPY's WLS | EQUIP's fit |
+    |---|---|---|---|---|---|---|
+    | DTI 36: MD bias | −0.48 | −0.04 | −0.01 | −0.01 | −0.04 | −0.13 |
+    | DTI 36: time (fit, iterations) | 1.27 (2.31, 4.04) | 1.18 (2.29, 3.81) | 2.29 (3.38, 3.91) | 1.56 (2.61, 3.91) | | |
+    | DTI 132: MD bias | −1.97 | −0.20 | −0.08 | −0.08 | −0.20 | −0.53 |
+    | DTI 132: time (fit, iterations) | 3.85 (7.32, 4.48) | 3.91 (6.89, 4.00) | 7.98 (10.9, 4.04) | 5.27 (8.52, 4.04) | | |
+    | DKI 66: MKT bias | +1.08 | | −0.25 | −0.21 | +0.29 | +0.10 |
+    | DKI 66: time (fit, iterations) | 41.8 (81.5, 4.69) | | 42.7 (80.0, 4.35) | 31.9 (67.7, 4.32) | | |
+
+    `:twopass` is DIPY's WLS exactly (within 1e-13 of λ1), which checks the implementation, and
+    costs nothing: the same two evaluations. Weighting by the prediction removes the start's
+    bias (y²'s noisy weights caused it); iterating the weights removes a little more, even
+    below the nonlinear fit's own Rician bias. `:predictedstop` is the one rule that does well
+    on both: the least biased start, DKI 17% faster than now (fewer start steps and LM
+    iterations), DTI 13–16% slower (it usually takes a third step). The fit's estimates are the
+    nonlinear fit's whichever start is used (all converged in every voxel).
+    - **Decided (the owner, the same day): predicted-signal weights, reweighted at every step,
+      stopping after a step that gains under a quarter of the weighted log-SSE**; the switch is
+      gone, and the y² weights with it. The cutoff, measured (scratch cutoff_equip.jl, µs per
+      voxel on 4 threads, the whole fit; every cutoff converged in every voxel):
+
+      | cutoff | DTI 36 | DTI 132 | DKI 66 | start's MD bias, DTI 132 |
+      |---|---|---|---|---|
+      | 1% | 2.79 | 8.57 | 66.0 | −0.08% |
+      | 5% | 2.44 | 8.74 | 64.9 | −0.09% |
+      | 10% | 2.34 | 8.62 | 64.6 | −0.09% |
+      | 25% | 2.26 | 7.24 | 65.7 | −0.17% |
+
+      At 25% the one-shell DTI start is DIPY's WLS exactly (the second step gains little); every
+      cutoff's start is within 0.04 SD of the start reweighted to convergence, so the loosest,
+      fastest one costs nothing that matters for a start. Final, the same data (scratch
+      equip_side.jl, accuracy.py; µs per voxel, 1 and 4 threads, the whole fit, with y²
+      weights before): DTI 36 images 8.70 and 2.39 (8.57, 2.30); 132 images 27.5 and 6.96
+      (28.3, 7.47); DKI 263 and 64.7 (320, 81.4): DKI 18–21% faster, DTI the same within noise.
+      The start's bias, now beside DIPY's WLS: DTI 132 MD −0.18% (DIPY −0.20%), FA −0.08%
+      (−0.09%); DKI MKT +0.09% (+0.58%). Against DIPY's NLS per core, DKI is now 263 against 208
+      µs (1.26× slower, from 1.5×). Tests: the start exact on noise-free data (ADCDecay,
+      ADCKurtosis, DTI) and within 0.05 SD of the fit reweighted to convergence, written out in
+      the test (measured 0.006 SD for ADCDecay, 0.001 for ADCKurtosis).
+      Full runs: EQUIP 2128, CLI 124; examples/dki.jl gives the same estimates (MKT 0.997, 4.2
+      iterations).
+  - **DKI in DIPY's parameterization** (2026-11-07, the owner: "try it and time against dipy";
+    scratch dipycmp/dkiv.jl; examples/dki.jl now written this way). DIPY fits V = MD²·W in place
+    of W (`dki_design_matrix`, then `result[6:21] / MD_square`), so ln S = ln S0 − b·gᵀDg +
+    b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6 is linear in all 22 parameters; W = V/MD² after the fit. In EQUIP the
+    signal loses its MD² factor and the 15 kurtosis parameters become V (in (mm²/s)²). The
+    comparison's DKI data (20 000 voxels), µs per voxel:
+
+    | | 1 thread: start | 1 thread: fit | 4 threads: start | 4 threads: fit | iterations |
+    |---|---|---|---|---|---|
+    | W form | 119 | 249 | 31.8 | 64.0 | 4.31 |
+    | V form (DIPY's) | 60.8 | 138 | 15.5 | 34.7 | 4.35 |
+    | DIPY NLS (serial) | | 208–232 | | | |
+    | DIPY WLS, its default (serial) | | 312–348 | | | |
+
+    The same fits: W from V within 7e-7 of the W form's (median 4e-9), D within 3e-8 of λ1,
+    the same RMSE against the truth (0.0701). The start halves (ln S now linear: the
+    reweighted steps stop early) and so does each LM iteration (the kurtosis terms no longer
+    carry D's derivatives through MD²). So EQUIP's DKI is now 1.5–1.7× faster per core than
+    DIPY's NLS and 6–7× on 4 threads; 2.3–2.5× and 9–10× than DIPY's default WLS. The example
+    (2000 voxels, 4 threads): 47 µs per voxel, 4.3 iterations, the same estimates as before to
+    every printed digit (MKT 0.9972, W1111 0.9878); K ≥ 0 checked as gᵀVg/(gᵀDg)², the same
+    sign as in W. The cost: V is what the fit returns, W is computed after it (one line in the
+    example; roadmap item 16's `propagate` would give its errors).
+  - **Reviewed, and revised (2026-11-07): exactly two passes.** The owner brought a review of
+    the fitting (from a chat), its issues ranked: (1) parameter scaling and conditioning, high;
+    (2) bounds, fixed parameters and AD consistency, high; (3) the low-SNR noise model, high for
+    MRI accuracy; (4) the log start's safeguards, moderate; (5) the reweighting stopping rule,
+    low to moderate; (6) the extra WLS passes, low. On 5 and 6: the 25% rule compared each
+    step's predicted gain with the log-misfit at the same point and weights, but that misfit is
+    mostly noise, so the rule depends on the SNR, and in parameter terms it is loose (a
+    Mahalanobis step of up to √((n − p)/2) standard errors, about 4 for 36 images); it worked
+    because each reweighting moves the estimates little, not by design. Decided: a fixed two
+    passes, OLS then WLS weighted by OLS's predicted signal² (Chung et al., NeuroImage 2006;
+    DIPY's WLS), for models whose ln S is linear in their parameters; for others two Gauss–
+    Newton steps, an approximate start that LM refines (rewrite such a model to be linear, as
+    DKI in V, or use `:data`). The first pass is unweighted by rule: with a parameter started
+    from a map the signal at the start is not flat, and weighting by it would make the first
+    pass something other than OLS. Measured (the DIPY comparison's data, µs per voxel on 1 and 4
+    threads, the whole fit; with the 25% rule before): DTI 36 images 8.13 and 2.23 (8.70, 2.39);
+    132 images 24.3 and 6.40 (27.5, 6.96); DKI in V 119 and 34.8 (138, 34.7); DKI in W 279 and
+    70.5 (263, 64.7, 6.1 iterations instead of 4.3: two passes are not enough where ln S is not
+    linear, and the W form is no longer used). On 1 and 2, step 1 of the response, tested:
+    - **Float32 at 22 parameters** (DKI in V, 200 voxels, SNR 100): every voxel converged in
+      both precisions, Float32 within 0.005 SD of Float64 (measured on 500 voxels; tested at
+      0.01 SD). Scaling: LM's Marquardt scaling makes its damping and tests unit-free, and a
+      Cholesky factorization's accuracy depends on the equilibrated matrix's condition, not on
+      the raw scales (S0 ~ 1000, D ~ 1e-3, V ~ 2e-7); the start equilibrates explicitly.
+    - **The start against the two passes written out** in the tests, to 1e-12 or better: DTI
+      (measured 1.3e-15 of λ1); DTI with the off-diagonal elements fixed (the diagonal's
+      columns); with a tie, Dzz = Dyy (the two columns merged); with Dxx started from a map
+      (held at the map's values, the others fitted to ln y − Xₓₓ·Dxx with weights from the whole
+      prediction); DKI in V on DIPY's `dki_design_matrix`; ADCDecay. A bound reached in the
+      start holds (an upper bound below the truth: the start and the fit stop there, converged;
+      a signal rising with b: ADC starts at its lower bound 0).
+    - Full runs: EQUIP 2147 (19 new), CLI 124.
+    - **Issues 3 and 4, measured** (2026-11-07, the owner: "look at both"; scratch
+      lowsnr/lowsnr.jl, A.txt and B.txt): DTI (4 b = 0, 64 directions at 1000 and at 2500) and
+      DKI in V (6 b = 0, 30 at 1000 and 2000), Rician noise, SNR (at b = 0) 10–50 for DTI and
+      20–100 for DKI, 2000 voxels a case, random orientations; WM (1.7, 0.4, 0.3e-3, DKI K = 1),
+      GM (0.8e-3 isotropic), CSF (3.0e-3 isotropic, K = 0). Three estimators: the two-pass WLS
+      (the start, DIPY's default), the Gaussian NLLS from it (EQUIP's fit), and least squares on
+      the Rician mean, `RicianMean(m; σ)` with the true σ, started from the Gaussian fit (free,
+      and with D's diagonal bounded to [0, 4e-3] mm²/s). Bias and SD in % of the truth (FA
+      and MKT of isotropic tissue: their mean):
+
+      | | SNR | WLS: MD bias | Gaussian NLLS: MD bias, SD | Rician: MD bias, SD | the other index: WLS, Gaussian, Rician |
+      |---|---|---|---|---|---|
+      | DTI WM | 10 | −10.6 | −11.4, 4.7 | +0.4, 5.3 | FA −3.3, −3.3, +0.1 |
+      | DTI WM | 20 | −2.0 | −3.0, 2.4 | +0.2, 2.5 | FA −0.8, −0.9, 0.0 |
+      | DTI WM | 30 | −0.8 | −1.4, 1.6 | 0.0, 1.7 | FA −0.3, −0.5, 0.0 |
+      | DTI WM | 50 | −0.2 | −0.6, 1.0 | 0.0, 1.0 | FA −0.1, −0.2, 0.0 |
+      | DTI GM | 10 | −6.8 | −11.7, 4.6 | +0.6, 5.6 | FA 0.114, 0.110, 0.123 |
+      | DTI GM | 20 | −0.6 | −2.7, 2.4 | +0.1, 2.5 | FA 0.058, 0.057, 0.058 |
+      | DTI CSF | 10 | −88.8 | −37.3, 3.4 | bounded: +14.0, 12.1 | FA 0.42, 0.15, bounded 0.49 |
+      | DTI CSF | 20 | −78.1 | −15.9, 2.4 | bounded: +9.1, 9.9 | FA 0.26, 0.11, bounded 0.31 |
+      | DTI CSF | 30 | −65.0 | −8.1, 2.1 | bounded: +2.4, 5.1 | FA 0.19, 0.09, bounded 0.16 |
+      | DTI CSF | 50 | −39.3 | −3.0, 1.5 | +0.4, 1.8 | FA 0.11, 0.06, 0.07 |
+      | DKI WM | 20 | +2.1 | +0.9, 7.2 | −0.4, 7.6 | MKT +10.3, +6.6 (SD 18.8), −8.2 (SD 26.7) |
+      | DKI WM | 30 | +1.0 | +0.4, 4.7 | −0.1, 4.9 | MKT +4.7, +2.7 (13.1), −3.1 (15.1) |
+      | DKI WM | 50 | +0.4 | +0.1, 2.9 | 0.0, 2.9 | MKT +1.9, +1.1 (7.8), −0.8 (8.1) |
+      | DKI WM | 100 | +0.1 | 0.0, 1.4 | 0.0, 1.4 | MKT +0.5, +0.3 (3.9), −0.2 (4.0) |
+      | DKI CSF | 20–100 | +27 to +38 | +24 to +32, 3–7 | fails (below) | MKT 0.33–0.48, 0.32–0.49 (truth 0) |
+
+      - **The noise model (3).** In tissue the Gaussian fits are biased low in MD by the floor
+        (−11% at SNR 10, −3% at 20, −1.4% at 30, −0.5% at 50, WM), and least squares on the
+        Rician mean removes it (≤ 0.6% at every SNR) at the cost of a slightly larger SD at SNR
+        10 (5.3% against 4.7%) and none from 20 up. The two-pass WLS is a little less biased
+        than the Gaussian NLLS in tissue (its weights, from a prediction that sits below the
+        floor-raised data, give the high-b images less say). The Rician fit is not a cure-all:
+        (a) where the high-b images are all floor (CSF at b = 2500 is 0.05% of S0), any large D
+        fits them, so unbounded it runs away (MD +10 000%, 20% of voxels not converged at SNR
+        10); with D's diagonal bounded to [0, 4e-3] it converges (98–100%) but stays biased and
+        noisy at low SNR (+14%, SD 12% at SNR 10; spurious FA 0.49); (b) for DKI's MKT it
+        overcorrects at low SNR (−8.2% at SNR 20) with a larger SD, so its RMSE is worse than
+        the Gaussian fit's (27.9% against 19.9% at SNR 20; 15.4 against 13.4 at 30); (c) DKI in
+        CSF fails with or without bounds (6–92% converged): at b = 2000 CSF is 0.25% of S0,
+        below the floor, and kurtosis and diffusivity trade off freely. The Gaussian DKI fit in
+        CSF invents kurtosis (MKT 0.32–0.49, truth 0) and overestimates MD by 24–32% at every
+        SNR up to 100: a property of the protocol and model, not the estimator (DKI in CSF is
+        usually masked out). Cost: the Rician fit is 10–40× slower (150–2000 µs per voxel on 4
+        threads against 7–120), the Bessel functions in dual numbers. σ must be known (the
+        simulation's here; in data, from the background or a noise scan; EQUIP has no estimator).
+      - **The start at the floor (4).** In WM and GM the two-pass start is within 1 SD of the fit
+        (99th percentile under 2 SD) and LM converges in 4–7 iterations everywhere. In CSF the
+        OLS pass is dragged by the floor at b = 2500: the start's MD is 39–89% low, 9–12 SD from
+        the fit, and LM needs 8–15 iterations (all 2000 converge). Weighting the first pass by
+        y² instead (variant B; the floor images then count little) brings CSF's start to 0.8–4
+        SD and saves 1–2 iterations there, but moves WM and GM's starts slightly further (GM at
+        SNR 20: 0.85 against 0.67 SD) and adds 0.1–0.3 iterations: no failures either way, so
+        no change. In DKI CSF 3–12 voxels in 2000 reach the 100-iteration limit in both variants:
+        the fit's ill-posedness, not the start's.
+      - Options, for the owner: the Rician fit as a documented choice for DTI in tissue at
+        SNR ≤ 30 (with D bounded, and `:loglinear` through `RicianMean` delegated to the wrapped
+        model, which is not yet so: here it was started from the Gaussian fit); a faster
+        `ricianmean` if it is used routinely; for DKI, the constraints (K ≥ 0, the signal not
+        rising with b; DIPY's CWLS) and masking CSF matter more than the noise model.
+  - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
+    from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
+    linearization point other than 0, if a model needs one.
+
+### Not done yet
+
+- The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
+  blocks and could be one family with switchable inversion efficiency and delay terms; ADCDecay
+  is T2Decay's equation in b (the same unit, `decay(b, ADC)`); QMTSIR stays as it is.
+- A third T2 component (e.g. CSF, for myelin water imaging's three pools): one more part.
+- From the same SMT tissue function: a Watson-dispersed directional model and SMI's rotational
+  invariants (roadmap item 7, Microstructure.jl notes).
+- `newmodel` writes roles as text; an off part is written as its value without the template.
+
 ## Scope so far
 
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
@@ -2945,8 +4026,9 @@ scope (decided 2026-10-31):
 **Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02), because magnitude data
 at low SNR are the common case where least squares is wrong, and every part of EQUIP (fit, the
 statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. After
-those, **a protocol design from a number of points** (item 14, 2026-11-03). The other items
-keep their numbers; the numbers are not an order.
+those, **a protocol design from a number of points** (item 14, 2026-11-03). Bayesian
+estimation (item 15) is recorded, not a priority. The other items keep their numbers; the
+numbers are not an order.
 
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
    `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
@@ -3306,13 +4388,72 @@ keep their numbers; the numbers are not an order.
      pulses).
 7. **Diffusion microstructure: NODDI and SMT**, many small fits on multi-shell data.
    - **SMT**, the spherical mean technique (Kaden et al., MRM 2016; NeuroImage 2016): averaging
-     the signal over directions within each shell removes the fibre orientation distribution;
+     the signal over directions within each shell removes the fiber orientation distribution;
      the microscopic model (per-axon parallel and perpendicular diffusivities; multi-compartment
      SMT with an intra-axonal stick and an extra-axonal compartment) is fitted to a few shell
      averages per voxel. Small, fast fits: a natural fit for EQUIP. It needs `erf` of dual
      numbers (SpecialFunctions with ForwardDiff provides it). The averaging per shell is a
      preprocessing step (needs the gradient directions, from the I/O layer), or the user gives
      shell averages.
+     - **Built** (2026-11-03, branch `smt-proto`, src/models/diffusion/smt.jl), in the form of
+       Devan et al., Magn Reson Imaging 2020;74:56 (the owner's group: SMT for multiple
+       sclerosis): `SMT(b = ...)`, two compartments, sticks (D⊥,in = 0) and a zeppelin with the
+       same D_ax and the tortuosity limit D⊥,ex = (1 − v_ax)·D_ax; parameters `S0` (`:scale`),
+       `vax` (0 to 1), `Dax` (mm²/s, 0 to 3e-3), b in s/mm² as for `ADCDecay`.
+       `sphericalmean(data, b; tol = 100)` averages each shell (b-values within 100 s/mm²
+       merged, as in Devan) and returns the shells' b and numbers of directions, which are
+       crlb's and montecarlo's `averages` (a shell's mean has σ/√N) and the fit's `weights`.
+       `SMT_PROTOCOLS` holds Devan's Table 2 (A–E, b and directions), `TISSUES` its Table 1
+       (`SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH`, from Bagnato et al. 2019).
+       - **Numerics**: the stick's spherical mean √π·erf(x)/(2x) is computed from x² = b·D,
+         by its Taylor series below x² = 0.05 (6 terms, error < 2e-12; no 0/0 at b = 0 and no
+         square root, whose derivative is infinite at 0), `erf` above; the two agree in value
+         and derivative at the switch, and both against the direction average they stand for
+         (∫₀¹ exp(−x²u²) du, quadrature, 1e-9). Integer coefficients, π converted to the
+         argument's type: a Float32 fit stays in Float32. SpecialFunctions was loaded by
+         ForwardDiff already: no new loading cost.
+       - **Against Devan 2020, Fig. 1** (v_ax precision efficiency 1/√(N·CRLB/v_ax²) of the five
+         protocols in the four tissues): crlb on spherical means, with averages and weights
+         = directions, at SNR 20 per direction gives their figure: normal white matter within
+         1–5% for every protocol (A 0.90 against 0.90, B 1.00 against 1.00, C 1.10 against
+         1.10, D 0.86 against 0.865), NAWM and T2 lesions within 6%, black holes up to 13%
+         higher (protocols A and B). Their CRLB is of the directional signals, the worst case
+         over fiber arrangements (isotropic, where each direction's signal is the spherical
+         mean: the same Fisher information as ours), with the Rician factor R(S, σ), which lowers
+         the information most where the signal is lowest: the high-b shells of A and B, in the
+         tissue with the lowest v_ax. So the figure's SNR (not stated) is 20, the SNR of their
+         simulations, and the remaining difference is Rician (item 13).
+       - **Fits** from the default starts (Gaussian, SNR 20, 5000 voxels per tissue, protocols
+         A and D): all converged, mean v_ax and D_ax within 0.006 and 0.05e-3 of the truth,
+         SDs within 5% of crlb's. 51 tests.
+       - **Variants** (2026-11-03, asked by the owner: free water, and compartment T2s, an area of
+         the lab's research; since "Building blocks", below, parts of one SMT equation, switched
+         on in a call): `SMTFreeWater(b)`, a third, isotropic compartment,
+         S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] (NODDI's; Diso fixed at 3e-3 mm²/s), `vax` the
+         fraction of the tissue without the free water (Devan's "relative" fraction); and
+         `SMTT2(b, TE)`, a T2 per compartment, S0·[v_ax·e^(−TE/T2ax)·S̄_ax + (1 − v_ax)·
+         e^(−TE/T2ex)·S̄_ex], for shells at several echo times (Veraart et al., NeuroImage 2018,
+         TEdDI; McKinnon & Jensen, Magn Reson Med 2019), `vax` the volume fraction (and the one
+         the tortuosity limit uses). `sphericalmean(data, b; TE)` groups by echo time, then
+         b-value, and returns a named tuple `(means, b, directions, TE)`.
+         - At one TE, SMT's fraction is T2-weighted, and not exactly the T2-weighted signal
+           fraction (the tortuosity limit uses it too): v_ax 0.45, T2 90 ms in and 50 ms out, TE
+           80 ms: SMT 0.664, the T2-weighted fraction 0.625.
+         - Both need protocols made for them. Free water (v_ax 0.45, D_ax 1.8e-3, f_iso 0.2;
+           b 0–4500 s/mm², 6 shells; SNR 50 per shell mean): crlb SD 0.10 in v_ax and 0.29 in
+           f_iso; at SNR 500, 0.010 and 0.029 (b = 100–300 added: f_iso 0.21, 0.021). T2s (T2
+           90 and 50 ms; 3 TEs, 70–130 ms, × 4 b-values; SNR 50): SD 0.48 in v_ax and 47% in
+           T2ax, and without an upper bound 14% of the fits wandered to T2s of hundreds of
+           seconds (now bounded at 1 s); 4 TEs, 60–200 ms: 0.31 and 27%; at SNR 500: 0.03–0.05,
+           3–5%. At SNR 500 both fit without bias (at most 10% of the SD, the nonlinear bias
+           from the noise itself, measured with 20,000 copies) and with crlb's SDs (within 2%).
+           A per-shell-mean SNR is the per-direction SNR × √directions: 20 × √30 ≈ 110.
+       - Not yet: the command line (`equip fit SMT` needs the spherical mean as a step, from the
+         `.bval`), Rician noise in the fits and in crlb (item 13; Devan's Appendix gives the
+         Rician Fisher information, the factor R(S, σ), which would close the black-hole gap
+         above), the single-compartment microscopic tensor (Kaden et al., MRM 2016), and the
+         number of directions a shell needs (Schilling et al., Magn Reson Imaging 2022: the
+         orientational sampling error of a finite direction set, besides the noise).
    - **NODDI** (Zhang et al., NeuroImage 2012): intra-neurite sticks with Watson orientation
      dispersion, an anisotropic extra-neurite compartment with tortuosity, isotropic CSF.
      - Needs the gradient direction of each observation: an acquisition field of 3-vectors
@@ -3324,6 +4465,60 @@ keep their numbers; the numbers are not an order.
      - The volume fractions are nearly linear, so variable projection applies in part
        (tortuosity ties the extra-neurite signal to the intra-neurite fraction); AMICO's
        linearization (Daducci et al., NeuroImage 2015) is the dictionary idea of item 4.
+   - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
+     github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
+     package for diffusion compartment models, estimated by MCMC or by neural networks trained
+     on simulated data. How it is built:
+     - Compartments are types (`Stick`, `Zeppelin`, `Iso`, `Cylinder` (Van Gelderen 1994),
+       `Sphere` (Neuman 1974), `Tensor`), each with its tissue values and a `t2` field, and a
+       signal for a `Protocol` (b, TE, Δ, δ, G, directions, and the SH order of each
+       measurement, all in SI units, converted from the text files' s/mm² and ms). A model is a
+       struct of compartments and fractions (`SANDI`, `ExCaliber`, `MTE_SMT`, `SMI`, ...);
+       `model_signals` sums fraction × compartment, then divides by the first (b = 0) signal.
+     - `t2 = 0` means no T2 weighting: the same compartments make the single-TE model and the
+       multi-TE one (MTE-SMT, MTE-NODDI: Gong et al., NeuroImage 2020), where the fractions
+       are no longer T2-weighted.
+     - Links between parameters are pairs of field paths (`"extra.dpara" => "axon.dpara"`);
+       a constrained diffusivity is a fraction of another (`dperp_frac` in [0, 1] for De⊥/De∥,
+       `p4_frac` for p₄/p₂), which keeps every bound a simple box.
+     - SMI's kernels (`Stick_kernel`, ...) give the l-th rotational invariant by projecting
+       the directional signal on P_l (200-node Gauss–Legendre on [0, 1]); the fODF enters as
+       p₂ (and p₄). `get_sh_order` picks a shell's SH order from its number of directions
+       (> 28 for order 6) and its b (order 4 up to b = 2500 s/mm², 6 up to 7000).
+       `correct_rician_bias` is √(S² − σ²) above σ, 0 below (NYU's SMI.m form). Spherical
+       means group the measurements by (b, TE, Δ, δ).
+     - The likelihood is a `Noisemodel` with a `logpdf`, Gaussian or Rician (Distributions'
+       `Rician`), with σ sampled as one more parameter in the MCMC.
+     - What EQUIP can take:
+       1. **Compartments as building blocks.** Small functions of one observation and the
+          cosine t between fiber and gradient (stick, zeppelin, ball, later cylinder and
+          sphere), each with its directional signal f(t), its spherical mean (closed form where
+          there is one), and its l-th Legendre projection. Today SMT, SMTFreeWater and SMTT2 are
+          three types with three `signal!`s and three `_profile`s, and orientation.jl takes
+          their `Union`; a model composed of compartments gives `_profile`, the rotational
+          invariants (an SMI model on observations (b, l)) and a Watson-dispersed directional
+          model (the nerve question, step 2) from one definition.
+       2. **Variants as roles, not types**, EQUIP's own idiom: one SMT with `T2ax = T2ex =
+          Fixed(Inf)` (exp(−TE/∞) = 1: no T2 weighting, and no sentinel 0), `fiso = Fixed(0)`,
+          De∥ tied to D_ax and De⊥ tied by the tortuosity formula. Freeing the T2s gives SMTT2,
+          freeing `fiso` SMTFreeWater, freeing De⊥ SMT without tortuosity (as Microstructure.jl's
+          SMT guide fits it), each in the call. To check: the speed and compile time of a model
+          with nine parameters, most of them fixed, against the three small types.
+       3. **Fractions for constrained diffusivities** (De⊥ = r·De∥, r in [0, 1]): box bounds,
+          which EQUIP's solver takes, instead of an inequality between two parameters.
+     - What not to take: mutable structs that hold the values, and links by field-path strings
+         (neither type-stable nor dual-number friendly: EQUIP keeps values in named tuples and
+         roles outside the model); dividing by the b = 0 signal (it puts that image's noise in
+         every value and drops it from the likelihood, which `logp_rician` does: EQUIP fits S0);
+         allocating vector code (the package needs no derivatives; EQUIP's fits do).
+     - Two cautions from our own runs: their SH order rule gives order 4 at b = 2500 s/mm², which
+       our coherent-fiber runs found biased (bench/floor_sh.jl); and an l = 2 rotational
+       invariant is a norm of 5 SH coefficients, so with noise it has a floor of its own (a
+       noncentral χ with 5 degrees of freedom): an SMI fit by least squares has to model it.
+     - Restricted compartments (`Cylinder`, `Sphere`) need Δ, δ and G per observation and a
+       decision on units (EQUIP: b in s/mm², D in mm²/s; radii and the gyromagnetic ratio favour
+       SI inside). Peripheral nerve axons are larger than the brain's, so axon diameter is a
+       candidate for crlb (their sensitivity criterion, z_α/(SNR·√n), is a rough version of it).
    - DTI, DKI with directions and IVIM stay under item 12.
 8. **Custom models, and coming from other fitters.** EQUIP's model interface (a struct,
    `parameters`, `signal!`) is short, but heavier than LsqFit's `model(x, p)` or MATLAB's
@@ -3678,6 +4873,11 @@ keep their numbers; the numbers are not an order.
      voxel dispatches to the right method at no run-time cost. Derivatives may need chunked
      dual numbers (`ForwardDiff.JacobianConfig`) at that size. The model interface does not
      change.
+   - **Compilation is the first limit, before ~30–40** (measured 2026-11-05 on a 22-parameter
+     DKI, item 17): the fit compiles in 8–9 s, but crlb's kernel, with all its pieces inlined,
+     took 118 s at 13 parameters and did not finish in 23 minutes at 22. Its pieces not inlined:
+     18 s and 46 s. To do: don't inline above some P (decided at compile time, from the type
+     parameter), after measuring the small models' kernels with and without.
 12. **Later**: GPU, more models (Rician-likelihood fitting moved to item 13, a priority):
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
@@ -3784,7 +4984,10 @@ keep their numbers; the numbers are not an order.
      - Limits: one seed, two biexponential truths, one SNR, solver time only.
    - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
 
-13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02).
+13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02). Started
+   on branch `nerve-smt` (2026-11-03): step 1 below, the expected magnitude as the model
+   (`RicianMean`), with the Rician bound (`ricianbound`) and crlb of least squares on magnitude
+   data (`riciannoise`); see "Peripheral nerve SMT".
    Magnitude images have Rician noise (Gudbjartsson & Patz, Magn Reson Med 1995): at low SNR
    the magnitude of a small signal sits on a floor of about σ√(π/2), and least squares, which
    assumes Gaussian noise, fits that floor as signal.
@@ -3870,3 +5073,512 @@ keep their numbers; the numbers are not an order.
    - **Tests**: the same optimum as from a given protocol (Table 2, the four tissues); the
      template's errors; the result from `start = m` no worse than `d(m)`; `ProtocolDesign(m, ...)`
      unchanged (the same objective values and search results, seeded).
+15. **Bayesian estimation: priors, their bound, sampling** (discussed 2026-11-03, after reading
+   Microstructure.jl's estimators; not a priority yet). Microstructure.jl fits by random-walk
+   Metropolis–Hastings per voxel (box priors, Gaussian or Rician likelihood, σ sampled too; the
+   posterior mean after burn-in, 0.24 s per voxel on 8 threads, about three days for a million
+   voxels, against 1–20 µs per voxel for EQUIP's fits), or by a network trained on signals
+   simulated from priors (uncertainty from dropout at test time). At high SNR the posterior is
+   close to Gaussian with covariance (JᵀJ/σ²)⁻¹, what `stderror` and crlb give; a sampler adds
+   information only where it is not: low SNR, bounds, degenerate models (the bi-exponential,
+   SMI's two branches, NODDI), where it shows the branches instead of landing on one. In order:
+   1. **Priors in the solver (MAP)**: a Gaussian prior is one more residual per parameter,
+      (θ − μ)/τ, appended to the least-squares problem: the LM solver and its speed unchanged.
+   2. **The prior in crlb**: its precision added to the Fisher information, the Bayesian
+      (van Trees) bound. Then crlb says, before any fit, how much of an estimate the data
+      determine and how much the prior does: the question for SMI in disorganized nerve (the
+      nerve SMT section), which a sampler's or a network's user cannot easily see.
+   3. **Sampling as an extension**: NUTS (AdvancedHMC.jl or Turing.jl, a weak dependency) with
+      EQUIP's exact ForwardDiff gradients, far more efficient than a random walk; for regions of
+      interest and validation, not whole volumes.
+   Networks trained on simulations stay out of scope (`simulate` and `scenarios` make the
+   training sets for anyone who wants one).
+16. **Error propagation: to derived quantities, from uncertain inputs, and the estimator's own
+   noise bias** (discussed 2026-11-05; not built). Three pieces, each the delta method with a
+   different Jacobian:
+   - **Outputs: `propagate(c, g)`.** A quantity g of the fitted parameters (FA, MD, AD, RD from
+     DTI's six elements; any index or ratio): SD √(J Σ Jᵀ) with Σ = `c.cov`, bias g(fit) − g(truth)
+     (the assumptions', exact) + ½ tr(H Σ) (the noise's, second order), a covariance when g gives
+     several. Tested in a scratch script (DTI, 6 + 30 images, eigenvalues 1.7, 0.4, 0.3e-3, SNR 50
+     and 20, against 20,000 Monte Carlo fits): every SD within 1%, the FA–MD correlation (−0.12),
+     FA's noise bias +1.16e-3 against +1.37e-3. Eigenvalues differentiate through StaticArrays'
+     closed-form 3×3 symmetric solver (`eigvals(Symmetric(SMatrix))`): gradients equal
+     Hellmann–Feynman's; Hessians finite unless the eigenvalue in question is repeated. FA from the
+     six elements as √(3/2)·‖D − MD·I‖/‖D‖ (Basser & Pierpaoli 1996; Ennis & Kindlmann 2006),
+     checked equal to the eigenvalue forms to 7e-16.
+   - **Inputs: a fixed parameter that was measured** (a B1 map, a T1 for MTsat). The fit's
+     sensitivity is leakage's dθ̂/dc. Its bias: crlb with the fit's fixed value at the map's (exact,
+     already in EQUIP); its random part, L·Σ_c·Lᵀ added to the covariance (independent scans; to
+     add, e.g. `crlb(m, θ; snr, uncertain = (B1 = 0.03,))`). Measured (T1MFA, FA 2–30°, T1 1 s, a
+     B1 map 5% high with a 3% SD, SNR 1000, 20,000 voxels): bias −0.0945 s predicted, −0.0919
+     measured; SD 0.0572 predicted, 0.0576 measured, with the slope taken where the fit runs (B1 =
+     1.05: dT1/dB1 = −1.76; at the truth, −2.03, it over-predicts the SD by 14%: VFA's T1 goes as
+     1/B1²). Errors in the data themselves (the spherical mean's Rician floor, noise and
+     orientational sampling) are the sandwich's and `simulate_with`'s: `sphericalmeannoise`.
+   - **The estimator's own noise bias** (Box, J R Stat Soc B 1971): a nonlinear least-squares fit
+     is biased at second order in the noise, b ≈ −½ (JᵀWJ)⁻¹JᵀW·d, dᵢ = tr(Cov·Hᵢ), Hᵢ the Hessian
+     of observation i's signal. An addition to crlb, not part of the sandwich (the sandwich is the
+     first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
+     crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
+     measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).
+17. **Directional diffusion: DTI, stick–zeppelin, DKI, and the acquisition they share**
+   (discussed 2026-11-04 and 05; examples/directional_models.jl, examples/dki.jl and scratch
+   scripts; not built).
+   The directions' rule is decided ("Directions per image", in the building-blocks section,
+   revised 2026-11-05 and back on 2026-11-06): `b`, `gx`, `gy`, `gz`, each a vector of numbers,
+   built from the files by `diffusionencoding` (no supertype: everything works by field name,
+   decided 2026-11-06).
+   What follows is what to build on it, in order.
+   - **A built-in DTI, written out: built 2026-11-07** (by hand, in the standard format, not with
+     `@mrimodel`: "DTI built in", in the compartments section). S = S0·exp(−b·gᵀDg),
+     gᵀDg = gx²Dxx + gy²Dyy + gz²Dzz + 2gxgyDxy + 2gxgzDxz + 2gygzDyz, the six elements fitted.
+     The owner kept this form over eigenvalues and angles (2026-11-05): the eigen form is degenerate where two eigenvalues are
+     equal (the angles of a prolate tensor's minor axes are undetermined), needs a relabel, and
+     its angles wrap; FA, MD, AD and RD and their errors come from `propagate` (item 16), not from
+     reparametrizing. The one place an eigen form would pay: nerve DTI with λ2 = λ3 tied (an
+     axially symmetric tensor, 4 numbers and a direction), when the fit itself should carry the
+     symmetry. The start: the log-linear fit, linear in ln S0 and the six elements (the B-matrix
+     design matrix, as DIPY's `design_matrix`), so no start needs tuning; since 2026-11-07 the
+     generic `:loglinear` start, from the signal ("The log-linear start"). Measured (scratch
+     dtiforms.jl, 6 + 30 images, Float64): written out, as an SMatrix product gᵀDg, and in
+     B-matrix form, the same speed within noise (2.5–2.8 µs per voxel): written out, as the papers
+     write it.
+   - **A built-in StickZeppelin**: one fiber, the stick's diffusivity also the zeppelin's parallel
+     one, D⊥ = (1 − v_ax)·D_ax by default (released in a call, as SMT's). The cosine ξ = g·n(θ, φ)
+     is computed in the signal, since it joins the acquisition and the parameters; the blocks take
+     a number. n as an SVector or three scalars (no allocation either way; a `[...]` vector
+     allocates 208 bytes per call: static arrays inside `signal!` are only notation, and must stay
+     static). n and −n are one fiber: a relabel (θ → π − θ, φ → φ + π) and φ wrapped. θ and φ from
+     DTI's principal direction, as the fit's start or fixed as per-voxel maps. Measured (the
+     example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, Float64 and
+     Float32. Written by hand with `fiberdirection` once per voxel and `ξ = g ⋅ n` per image
+     (12.8 µs per voxel; with `@mrimodel` 23.1: "Directions per image", built 2026-11-06).
+   - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
+     them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
+     ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),
+     splatted into any model's keyword constructor: `DTI(; diffusionencoding("dwi.bval",
+     "dwi.bvec")...)`. It checks the lengths,
+     transposes an N×3 table, checks unit vectors (atol 1e-2, as DIPY's gradient table) where b
+     is above a threshold (50 s/mm², DIPY's `b0_threshold`), and keeps b as given (decided
+     2026-11-06). DIPY's `GradientTable` is the
+     model: one object per acquisition, shared by every model, with b-tensors as `btens` (linear,
+     planar, spherical, cigar). Tried and dropped: an `Encoding` struct as a field of each model.
+     It breaks the per-observation rule for nothing (the cosine form costs the same, measured).
+   - **Constructors.** An outer constructor (`DTI(bval, bvec)`) is safe; an inner one removes the
+     positional constructor that `_with_precision` and `ProtocolDesign` rebuild models with; a
+     second keyword-only constructor overwrites `@mrimodel`'s (an error at precompile time in a
+     package). So: `diffusionencoding(...)` and the generated keyword constructors, and the
+     supertype `DirectionalDiffusion` for what the models share (decided 2026-11-05, dropped
+     2026-11-06).
+   - **The small things decided** (status.md): a clear error for a field of 3-vectors or a
+     matrix, pointing to `diffusionencoding`; `loaddata` mapping a .bvec to gx, gy, gz;
+     `readbvec` exported from EQUIP (now only in EQUIP.MRImages); the directional example
+     switched to `diffusionencoding`.
+   - **The B-matrix, when b-tensor data come.** B = γ²∫F(t)F(t)ᵀdt with F the gradient's
+     integral, S = S0·exp(−B:D); linear encoding is B = b·ggᵀ, so b and g say everything until
+     then. Planar and spherical encoding need all six elements: by the same rule, six component
+     vectors (Bxx, Byy, Bzz, Bxy, Bxz, Byz). The blocks in B form: ball exp(−D·tr B), stick
+     exp(−D·nᵀBn), zeppelin exp(−D⊥·tr B − (D∥ − D⊥)·nᵀBn), a tensor exp(−B:D) (no `tensor`
+     compartment: decided 2026-11-07, "DTI built in").
+   - **More views and blocks** (discussed, not built; status.md): a generic `rotinv(l)` view for
+     SMI's rotational invariants (`powder` is l = 0; one function, not l = 2 and 4 in every
+     block); a Watson-dispersed view; a cylinder of finite radius (axon diameter: first a crlb
+     check that the lab's δ, Δ and maximum gradient can measure it); kurtosis, EPG for multi-echo
+     T2, the SPGR steady state, exchange.
+   - **DKI, written out** (the owner's question, 2026-11-05: "I feel like that would be a mess";
+     examples/dki.jl). S = S0·exp(−b·gᵀDg + b²·MD²·Σ gᵢgⱼgₖgₗWᵢⱼₖₗ/6) (Jensen et
+     al., MRM 2005; ADCKurtosis is the same along one direction), 22 parameters: S0, D's six
+     elements, W's 15 distinct ones. The signal itself is short: Σ gᵢgⱼgₖgₗWᵢⱼₖₗ is the dot product
+     of the 15 elements with their monomials times their multiplicities (1, 4, 6, 12), one helper
+     function. Measured: 6 b = 0 and 30 directions at b = 1000 and 2000 (66 images), D's
+     eigenvalues 1.7, 0.4, 0.3e-3 mm²/s, an isotropic kurtosis K = 1, SNR 100, 2000 voxels, 4
+     threads:
+     - the fit: compiled in 8–9 s (under a second for the small models), 130–170 µs per voxel
+       in two runs (DTI's 2.5), all 2000 converged from W = 0 without a datastart; means right
+       (Dxx 1.698e-3, W1111 0.988, W1122 0.332, W1123 −0.0005 for 0); W1111's SD 0.25 at SNR
+       100, MKT's 0.040 (mean 0.997 for 1): the index is far better determined than the
+       elements it is made of. No voxel had K < 0 along a measured direction.
+     - crlb: did not finish compiling in 23 minutes (stopped). The cause, measured on the same
+       model with W's elements partly fixed (scratch dki_scaling.jl, dki_pieces.jl,
+       dki_noinline.jl): crlb's first call took 7 s at P = 7, 20 s at P = 10, 118 s at P = 13,
+       while the fit's stayed at 4–6 s. Each piece of the kernel compiles in under 3 s at P = 13
+       (the noise-free fit 2.2, `hessian!` 2.4, the rest under 1; about 7 s in all), and the
+       signal in nested dual numbers in 2 s, so neither the nested duals nor any one piece is it.
+       The kernel `_crlb!` alone took 43 s: every piece is `@inline`, so the kernel is one
+       function holding all their unrolled P×P static-array code, and the compiler's time grows
+       much faster than that code's size. With the kernel's calls marked `@noinline` (call-site
+       annotations, the pieces unchanged): the first crlb 18 s at P = 13 and 46 s at P = 22, then
+       0.5 ms a call (`crlb!` on its cache 0.1 ms); W1111's SD 0.242 predicted, 0.250 in the fits.
+       **Done, "crlb at many parameters" (2026-11-07, branch `noinline-proto`):** the kernel's
+       calls go through `@_piece` (src/errors/crlb.jl), which marks them `@noinline` when P >
+       `_CRLB_INLINE_MAXP` = 8 and leaves them inlined otherwise; P is a type parameter, so the
+       `? :` is folded when compiling. Measured (scratch noinline/kernel_speed.jl, one thread,
+       first crlb call in a fresh session, then `crlb!` on its cache; DKI in V with some of V's
+       elements fixed at the truth's for P = 10 and 13):
+
+       | model (P) | first call, all inlined | none inlined | threshold 8 | `crlb!`, all inlined | none inlined | threshold 8 |
+       |---|---|---|---|---|---|---|
+       | T2Decay (2) | 4.9 s | 4.4 s | 4.9 s | 1.02 µs | 1.15 µs | 1.04 µs |
+       | T1IR (3) | 3.0 | 2.9 | 3.0 | 3.42 | 3.91 | 3.37 |
+       | QMTSIR 5-point (4) | 4.0 | 3.9 | 3.8 | 2.95 | 3.07 | 2.88 |
+       | QMTSIR 16-point, kmf free (5) | 4.4 | 3.7 | 4.4 | 4.53 | 4.60 | 4.33 |
+       | SMT (3) | 2.4 | 1.9 | 2.4 | 1.14 | 1.17 | 1.12–1.65 |
+       | DTI (7) | 6.0 | 3.8 | 6.2 | 6.45 | 7.15 | 6.47 |
+       | DKI (10) | 17.0 | 8.4 | 8.3 | 36.4 | 35.7 | 36.1 |
+       | DKI (13) | 76.1 | 10.8 | 10.2 | 48.3 | 46.6 | 48.6 |
+       | DKI (22) | over 23 min | | 39.0 | | | 96.3 |
+
+       Not inlining costs the small models 2–14% of the kernel's time (T2Decay, T1IR, DTI the
+       most), and nothing from P = 10 up; so they keep it, and the threshold sits at 8, where the
+       inlined compile is still seconds (P = 7: 6 s; P = 10: 17 s). The values are bit-identical
+       in every case, inlined, not inlined or at the threshold (the same arithmetic, only how it
+       is compiled differs). Single timings vary by up to 40% on the cloud machine (QMTSIR
+       5-point once 5.07 µs, rerun 2.88): the table gives the reruns. Tested: crlb at P = 10 in
+       the DKI test set, its SD within 15% of 400 fits'. The fit's own `levmar` compiles in about
+       8 s at P = 22; it may meet the same cliff at more parameters. Full runs: EQUIP 2205 (the
+       CLI suite not rerun: the change is inside crlb's kernel, and the command line's crlb
+       models are below the threshold; 124 at the previous change).
+     Where it is a mess, and what to do about each:
+     - the names: 15 Wᵢⱼₖₗ keywords and their multiplicities, best generated, not typed.
+     - the indices: the mean kurtosis tensor, MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 +
+       W2233))/5 (Hansen et al., MRM 2013), is linear in W and simple (in the example); MK, AK
+       and RK need W rotated into D's eigenframe and, in Tabesh's closed forms (MRM 2011),
+       Carlson's elliptic integrals. All of them are functions of the fit, so `propagate` (item 16) gives their
+       errors; AK and RK inherit the eigenvectors' degeneracy where λ2 = λ3.
+     - the constraints: K(g) ≥ 0 in every direction, and the signal must not rise with b (b·D(g)·
+       K(g) < 3 at b_max), are conditions on many parameters at once, which box bounds cannot
+       state (ADCKurtosis notes the same for one direction). DIPY's constrained DKI solves a
+       convex problem for it (Dela Haije et al., NeuroImage 2020). Here: check them on the result,
+       or penalize them as residuals (as item 15's priors).
+     - the start: the log-linear fit is linear in 21 unknowns (ln S0, D, and MD²·W, from which W),
+       a datastart as DTI's; it was not needed at SNR 100.
+     - the size: 22 parameters fit in static arrays (item 11's limit is about 30–40), and the fit
+       is fast enough (a million voxels in about 3 minutes on 4 threads); crlb's compilation is
+       the limit, as above, and it is EQUIP's, not DKI's.
+18. **The spherical mean's pipeline errors, back with the nerve protocol work** (taken out of
+   `directions-proto` on 2026-11-06, the owner: "remove this section ... for now, I don't fully
+   understand it ... leave it on the roadmap while we add other models"). Built on `nerve-smt`
+   (2026-11-03; "Peripheral nerve SMT" above), where the code, its tests and the studies remain:
+   - `orientationcovariance(m, θ, sets)`: the covariance across shells of the error a finite
+     direction set makes in a spherical mean, for fibers in a random orientation, exact from the
+     Legendre coefficients of the model's directional signal (the addition theorem); added to
+     the noise's covariance in crlb, the fitted parameters' spread over orientations.
+   - `RicianSphericalMean(m; σ)`: the expected spherical mean of magnitude images, the Rician
+     floor acting direction by direction before the average (what the data are; the bias).
+   - `sphericalmeannoise(m, θ; snr, directions, averages)`: both, and each shell's Rician noise
+     over its directions, as crlb's keywords for the whole pipeline.
+   - bench/floor_corrections.jl, floor_robustness.jl, floor_sh.jl: the floor-correction studies
+     (their results above, "Peripheral nerve SMT").
+   What stays on `directions-proto`: `directionset` and `fiberdirection` (src/models/diffusion/
+   directions.jl), the Rician noise tools (`ricianmean`, `RicianMean`, `riciannoise`,
+   `ricianbound`), and `sphericalmean`. Two changes when it comes back, discussed with the owner:
+   - **Any fiber orientation distribution, not one population.** The directional signal of a
+     voxel is one bundle's kernel convolved with the ODF; averaged over random rotations, each
+     Legendre order l of the error takes a factor p_l², the ODF's normalized rotational invariant
+     (SMI's p_l): one population p_l = 1 (today's formula, the worst case, a nerve), isotropic
+     p_l = 0 for l ≥ 2, dispersion and crossings between (a Watson κ gives them).
+   - **Each SMT model's equation written once, over the view**, `_smtsignal(m, p, j, view)`:
+     `signal!` passes `powder`, the error analysis a cosine ξ, instead of a hand-written
+     directional profile per model (the owner disliked the duplication). The same per-model
+     function is the "kernel" of the literature, which a directional fit and SMI's rotational
+     invariants (a `rotinv(l)` view) could share.
+   Needed by the nerve SMT protocol evaluator and search (steps 3 and 4, waiting on the lab).
+19. **Derived quantities: the `derived` hook** (proposed 2026-11-07, the owner: "we have to
+   derive their radial, axial kurtosis, etc. anyway ... no one cares about the W terms
+   directly"; not built). What a user reads off a DTI or DKI fit is not its parameters (six
+   tensor elements, fifteen of V = MD²·W) but quantities computed from them: MD, FA, AD, RD; MK,
+   AK, RK, MKT. Each is a function of one voxel's parameters, so a model declares them once, and
+   every part of EQUIP that reports parameters reports them too: the fit's maps, `savemaps`, the
+   fit's standard errors, crlb, montecarlo, and a protocol design's objective. This is the
+   vehicle for item 16's outputs (`propagate`): the model, not the caller, knows its g.
+   - **The hook**, optional, as `datastart` and `relabel` are:
+
+     ```julia
+     derived(m, p) -> nothing or (name = value, ...)
+     ```
+
+     `p` is one voxel's every parameter by name, fitted and fixed, ties evaluated (what
+     `resolve` gives). The rules are `signal!`'s: no allocation (it runs once per voxel, and
+     inside crlb's kernel), generic in the number type (crlb and the fit's standard errors
+     differentiate it with dual numbers, the delta method), the same names in every voxel, NaN
+     where a quantity is undefined (FA of a zero tensor). The default, `nothing`, means none.
+     Written for DTI (`src/models/diffusion/dti.jl`, after its `signal!`):
+
+     ```julia
+     function derived(m::DTI, p)
+         D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+         λ = eigvals(Symmetric(D))                     # ascending; StaticArrays' closed form
+         MD = tr(D) / 3
+         FA = sqrt(3 / 2) * norm(D - MD * I) / norm(D) # Basser & Pierpaoli 1996, no eigenvalues
+         return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+     end
+     ```
+
+     and for DKI in V (with D, λ and the eigenvectors e₁, e₂, e₃ as above; K(n) = V(n)/(nᵀDn)²,
+     the apparent kurtosis along n, V(n) = Σ nᵢnⱼnₖnₗVᵢⱼₖₗ): MKT = (V1111 + V2222 + V3333 +
+     2(V1122 + V1133 + V2233))/(5·MD²) (Hansen et al., MRM 2013); AK = K(e₁); RK = the mean of
+     K over the circle ⊥ e₁; MK = the mean of K over the sphere.
+   - **Where it shows** (each a consequence of the hook, nothing per model):
+     - `derived(res)`: the maps of a dataset fit (numbers for one voxel), computed per voxel
+       from `resolve(res, i)` on threads, NaN where the voxel was not fitted, in the fit's
+       precision. Computed when asked, like `stderror(res)`, not stored in `FitResult`: the fit
+       pays nothing, and the result's type does not change.
+     - `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...), and with
+       `stderror = true` their standard errors (`FA_SE`), by the delta method from the fit's
+       own covariance: √(∇g Σ ∇gᵀ), ∇g from dual numbers through `derived`.
+     - `crlb` and `montecarlo`: the derived quantities in the same `bias`, `sd` and `rmse` named
+       tuples as the parameters (`c.sd.FA`, `mc.bias.MK`), and in the displayed table below
+       them. crlb's: the SD by the delta method; the bias, ∇g·(the parameters' bias) plus the
+       noise's own second-order term ½ tr(H Σ), H by nested duals (item 16: FA's noise bias,
+       +1.16e-3 predicted against +1.37e-3 measured at SNR 20). montecarlo's: measured from
+       each fit's derived values, so the two can be compared, as for the parameters.
+     - `ProtocolDesign` and `optimize_protocol`: an objective on a derived quantity, e.g. the
+       SD of MK, since they read crlb's named tuples (a DKI protocol designed for MK, not for
+       W1111).
+   - **Measured before (item 16)**: FA and MD's SDs by the delta method within 1% of 20 000
+     Monte Carlo fits (DTI, 6 + 30 images, SNR 50 and 20), the FA–MD correlation (−0.12) too;
+     eigenvalues differentiate through StaticArrays' 3×3 symmetric solver (gradients exact,
+     Hessians finite unless the eigenvalue is repeated); FA from the six elements checked
+     equal to the eigenvalue form to 7e-16.
+   - **Open questions, for the owner:**
+     - Names: MD, FA, AD, RD (DIPY's and most papers'), or FSL's L1, L2, L3 beside them; the
+       principal direction as three maps (V1x, V1y, V1z, FSL's V1) or not derived at all (its
+       sign is arbitrary, and at λ1 = λ2 it is undefined: no derivative for crlb).
+     - MK and RK: averages over a fixed direction set (simple, smooth for the delta method,
+       accurate to about 1e-3 with a few hundred directions: to measure against DIPY's analytic
+       values) or Tabesh et al.'s closed forms (MRM 2011, Carlson's elliptic integrals; DIPY's
+       default; special cases where eigenvalues are equal). Numerical first, I would suggest.
+     - DIPY clips K to [−3/7, 10] in MK, AK and RK by default; EQUIP would report the values
+       as computed and leave the K ≥ 0 check to the user (examples/dki.jl), unless the owner
+       prefers DIPY's convention.
+     - Also derived from a fit's parameters elsewhere: SMT's extra-axonal D⊥ (tortuosity),
+       qMT's exchange rate kfm = kmf·PSR, T1 from R1; a model can expose any of them.
+   - **Order:** the hook, `derived(res)` and `savemaps` with DTI's four; then crlb and
+     montecarlo (the delta method and the second-order bias, tested against Monte Carlo as in
+     item 16); then DKI built in (V form) with MK, AK, RK and MKT, checked against DIPY on the
+     comparison's data; then the standard-error maps and the protocol objective.
+   - **Step 1 built (2026-11-07, branch `loglinear-proto`):** the hook (`derived(::MRIModel, p)
+     = nothing`, exported, documented with `datastart` and `relabel`, in `newmodel`'s template
+     and the README); `derived(res)` (src/fit/result.jl: numbers for one voxel; for a dataset a
+     map per quantity in the fit's precision, on threads, from each voxel's `resolve(res, i)`, NaN
+     where a voxel's parameters are not finite; the names from one fitted voxel); `savemaps`
+     writing them after the parameters' maps (an error if a derived name is a parameter map's);
+     DTI's MD, FA, AD and RD (FA from the six elements by Frobenius norms, AD and RD from
+     StaticArrays' closed-form eigenvalues). Names as proposed (MD, FA, AD, RD); the principal
+     direction not derived yet (its sign, and λ1 = λ2). Tests: the four against the eigenvalues
+     (1e-12), no allocation, FA's gradient through dual numbers against finite differences
+     (1e-5), `derived(res)` for one voxel, a masked dataset and Float32, `nothing` for T2Decay,
+     and `savemaps` on a DTI fit read back from NIfTI. Full runs: EQUIP 2164, CLI 124.
+   - **The principal eigenvector added** (the owner, the same day): V1x, V1y, V1z (FSL's V1, as
+     three maps), from StaticArrays' closed-form `eigen` (no allocation; its derivatives with
+     dual numbers equal finite differences to 1e-9), put in the upper hemisphere (z ≥ 0, then
+     y ≥ 0, then x ≥ 0) so that neighbouring voxels agree, as `directionset`'s. Undefined where
+     λ1 = λ2 (oblate or isotropic tensors): the values there are arbitrary, and so are any
+     errors crlb would give them. Tested: D·e1 = λ1·e1, unit length, the hemisphere rule, and the
+     three maps written by `savemaps`. Full run: EQUIP 2168 (the CLI suite not rerun: the
+     command line has no DTI; 124 at the previous change).
+   - **Step 3 built: DKI, with MK, AK, RK and MKT as DIPY's** (2026-11-07, the owner: "build dki
+     with mk, ak, rk ... I would mirror dipy defaults"). src/models/diffusion/dki.jl, exported:
+     the model in V = MD²·W (examples/dki.jl's, now built in), every element at `:loglinear`;
+     `derived` gives DTI's quantities (MD, FA, AD, RD, V1) and the indices as DIPY 1.12's fit
+     methods compute them by default (`fit.mk()`, `ak()`, `rk()`, `mkt()`): MK and RK in Tabesh
+     et al.'s closed forms (Magn Reson Med 2011) with DIPY's functions `_F1m`, `_F2m`, `_G1m`,
+     `_G2m` and their limits where eigenvalues are nearly equal (2.5% for F; 1e5·eps absolute for
+     G), AK = Ŵ₁₁₁₁·MD²/λ1², MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 + W2233))/5 (Hansen
+     et al. 2013); each clipped to [−3/7, 10] (DIPY's fit methods' default; its fast path clips
+     MK, its slow Python path does not); MK, AK and RK 0 where an eigenvalue is below 2e-7 mm²/s.
+     W in D's eigenframe by polarization of the quartic form, W(u,u,v,v) = [W₄(u+v) + W₄(u−v) −
+     2W₄(u) − 2W₄(v)]/12, so no 81-element tensor is built. No allocation (2.9 µs per voxel for
+     all eleven quantities), differentiable (MK's gradient through dual numbers against finite
+     differences, 1e-5).
+     - **Against DIPY** (its own values, scratch dkiref/dipy_reference.py, for tensors reaching
+       every branch: a general tensor, a prolate one, an oblate one, isotropic D, clipped above
+       and below, a negative eigenvalue): AK, RK and MKT to 1e-14 where the principal direction
+       is defined; MK to DIPY's own error. Where λ1 = λ2 (oblate, isotropic D) e1 is undefined,
+       and AK and RK depend on which vector of the plane each eigensolver returns: they differ
+       from DIPY's (AK 0.4527 against 0.4536, oblate), as they would between any two programs;
+       MK and MKT agree.
+     - **DIPY's MK is 4e-5 off, from its Carlson tolerances**: R_F at errtol 3e-4 is about 1e-6
+       off, and MK's formula amplifies it. For the general tensor DIPY gives 1.985127; the sphere
+       average of K(n) by quadrature (64 Gauss–Legendre nodes in z × 256 in φ, converged to 12
+       digits) is 1.985204, and EQUIP's closed form with errtol 1e-12 gives it to 12 digits (at
+       1e-8, R_F was still 3e-10 off and MK 9e-9). So EQUIP keeps DIPY's definitions and clipping
+       but not its tolerances; its MK differs from DIPY's by at most a few 1e-5, far below any
+       noise. Also checked independently of DIPY: RK the circle average ⊥ e1 (1e-9), AK = K(e1)
+       (1e-12), and isotropic D and W giving K in all four.
+     - examples/dki.jl uses the built-in model (37 µs per voxel on 4 threads, 4.2 iterations,
+       every voxel converged; MK 2.032 against 2.038, AK 0.219 against 0.222, RK 5.38 against
+       5.39, MKT 0.997 against 1: for isotropic W and anisotropic D, MKT is K but MK is not).
+       The test model for DKI in V (test/runtests.jl) is replaced by the built-in one. Full
+       runs: EQUIP 2199, CLI 124.
+   - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
+     chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
+     works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'
+     columns are equal there), and the fit reaches the same answer as from its own start; but
+     T2Decay with T2 at `:loglinear` started at T2 = 0, no signal, and stayed at its lower bound,
+     where the fit stopped and reported convergence: a silent failure. Now `setup` checks that
+     the signal where the log fit starts is positive and finite in every observation and
+     otherwise refuses, naming the parameters and what to use (a rate, `:data`, a number); a
+     real-valued inversion recovery (a signal that changes sign) is refused the same way.
+   - **Step 2 built: crlb and montecarlo** (2026-11-07, the owner: "now add derived quantities
+     to crlb and montecarlo"; branch `derived-errors`). As planned, the derived quantities follow
+     the parameters in every named tuple of `CRLBResult` and `MonteCarloResult` (`c.sd.FA`,
+     `mc.bias.MK`), in their tables (below a line "derived from the parameters") and in a
+     sweep's rows; `cov`, `vcov`, `stderror`, `cor`, `cond` and `informationmatrix` stay the
+     parameters' (StatsAPI's coefficients; `_freenames(c)`, the first P names). crlb's, in
+     `_crlbresult` after the kernel (the kernel and the protocol optimizer unchanged): g(θ̂) at
+     the noise-free fit (θ̂ with the fit's fixed values, ties followed), the bias g(θ̂) − g(θ),
+     exact for what the fit assumes, and the SD by the delta method, √diag(∇g·C·∇gᵀ), ∇g by
+     `ForwardDiff.jacobian` through `derived` over the free parameters at θ̂ (static, P
+     partials); first order, as the parameters': the noise's own ½tr(∇²g·C) is not added, nor
+     Box's bias of the parameters (item 16; both for later, together). SD Inf when C is
+     (parameters not determined); on a bound, C's zero rows add nothing. montecarlo's: from
+     `derived(res)` of the copies' fits, against `derived(m, θ)`, every statistic as for the
+     parameters. A derived name equal to a parameter's is refused. Measured (scratch derr/):
+     - DTI, 6 b = 0 + 30 directions, eigenvalues 1.7, 0.4, 0.3e-3 along x, y, z, SNR 50, 20 000
+       fits: the SD ratios measured/predicted MD 0.995, FA 0.990, AD 0.993, RD 0.992 (± 0.005),
+       the parameters' 0.993–1.004. S0 fixed 5% low: FA biased +0.031 (+4.0%), MD −6.4%.
+     - DKI, 22 parameters, 6 + 30 + 30 images, the example's truth, SNR 100, 4000 fits: MD 0.992,
+       FA 0.987, AD 0.989, RD 0.987, MK 1.011, AK 0.986, RK 1.010, MKT 0.990 (± 0.011). MK's
+       measured bias −0.0039 ± 0.0005 (−0.19%) is the noise's own, which crlb leaves out.
+     - Speed: models with no derived quantities unchanged (QMTSIR 4-point `crlb!` 4.57 → 4.56
+       µs, a 400-setting sweep 2.06 → 2.05 ms; the branch is known when compiling). A first
+       version read the free names as `keys(c.fit)[1:P]` with P from the matrix's size, which the
+       compiler cannot type: the sweep 60% slower, until the names came from the result's type.
+       DTI's `crlb!` 6.1 → 12.2 µs (seven quantities and their 7×7 Jacobian through the
+       eigensolver); DKI's first crlb at P = 22 50 s (39 s before), 0.67 ms a call after.
+     - Eigen derivatives: dual numbers through StaticArrays' closed form are right at a diagonal
+       tensor too (∂V1y/∂Dxy = 1/(λ1 − λ2) = 769, perturbation theory's; finite differences
+       there flip the eigenvector's sign). Where two eigenvalues are equal they are not: the
+       eigenvectors of the pair have no derivative, so MK and RK come out NaN for a prolate D
+       (λ2 = λ3), V1 where λ1 = λ2; MD, FA, AD, RD, AK, MKT stay finite. Near it (relative gap r
+       between λ2 and λ3, W isotropic and anisotropic in the plane): MK's SD right down to r =
+       1e-7 (F's limits, 2.5% wide, are smooth); RK's right from r = 1e-4 (r = 1e-5: 12% off for
+       the anisotropic W; 1e-6: 100×), because G1 and G2 (DIPY's) switch to their limits only at
+       an absolute 1e5·eps, and their general forms lose digits before that; RK's value itself
+       is 3% off at r = 1e-7, as DIPY's would be. Not fixed: a dual-number rule for the
+       eigenvectors (perturbation theory, the pair's coupling dropped) would give finite
+       numbers there, but right ones only when W is symmetric in the pair's plane, and Tabesh's
+       limit forms in G use b, not (b + c)/2: silently wrong rather than NaN. Documented
+       instead: a truth with eigenvalues at least 0.01% apart, or montecarlo. To decide later:
+       G's threshold (relative, wider) at the price of DIPY parity in RK's last digits.
+       (Both fixed in the next step, "Truths from derived quantities": the eigenvector rule with
+       a guard that keeps NaN where it would be wrong, and G1, G2 without their cancellation.)
+     - V1 in montecarlo: each fit's is folded into the upper hemisphere, so for fibers near z = 0
+       (here along x) its components' statistics are the folded vectors' (V1x's mean 0, SD 1),
+       not crlb's (the unfolded vector's derivative). An angular error (the cone of
+       uncertainty) would be the quantity to report for directions; not built.
+     - Tests: R2 = 1/T2 on a test model (SD(T2)/T2² exactly; the bias with S0 assumed wrong;
+       the parameters' numbers, `vcov`, `cond`, `cor` as without it; a sweep's rows; montecarlo's
+       statistics of 1/T2; a clashing name refused); DTI's seven against the delta method
+       written out (1e-10) and MD, FA, AD, RD against 3000 fits (4 standard errors); DKI's MD,
+       FA, MK, AK, RK, MKT at P = 10 against 400 fits (15%). Full runs: EQUIP 2239, CLI 124.
+   - **Truths from derived quantities, and derivatives where eigenvalues are equal** (2026-11-07,
+     the owner asked how to simulate with derived quantities prescribed instead of Dxx and the
+     rest, and said yes to this; branch `derived-truths`).
+     - **The hook, `fromderived(M, q)`**, optional, exported, the reverse of `derived`: the
+       parameters that give the derived quantities `q`. `nominal` hands it the call's keywords
+       that are not parameters (src/sim/tissues.jl, `_fromderived`), merges what it makes with
+       the keywords that are (one given and made: refused), and checks the rest as before; a
+       model without it: the names are unknown parameters, as before. Derived quantities seldom
+       fix the parameters (MD and FA are two numbers, a tensor six), so the model says which sets
+       it takes and what it assumes, and refuses the rest naming what it takes.
+     - **DTI's**: an axially symmetric tensor about `direction` (three numbers, any length),
+       D = RD·I + (AD − RD)·nnᵀ, from (AD, RD) or (MD, FA) with δ = MD·FA/√(3 − 2FA²), λ1 = MD +
+       2δ, λ2 = λ3 = MD − δ (from FA² = 3δ²/(MD² + 2δ²); RD > 0 for FA < 1). Refused: one of a
+       pair, both pairs, no direction, FA ≥ 1, RD > AD (oblate: the six elements). A general
+       tensor: its elements.
+     - **DKI's**: D as DTI's; W from MKT alone (isotropic, W4 = MKT·|g|⁴) or (MK, AK, RK) (W
+       axially symmetric about the same axis: W∥ξ⁴ + 6W∥⊥ξ²ρ² + W⊥ρ⁴, three numbers; MK, AK and
+       RK are linear in W for a fixed D, so a 3×3 solve on `_kurtosisindices`, the unclipped
+       indices, now split from `derived`); V = MD²·W, its fifteen elements by least squares from
+       30 directions (exact to rounding). Or neither, and V's elements from the call. Values
+       outside DIPY's [−3/7, 10] refused. `derived` gives back MK, AK, RK to 1e-10, MD, FA, AD,
+       RD to 1e-12.
+     - **The eigensolver's derivatives** (`_symeigen`, dti.jl): for dual numbers, the values'
+       decomposition (StaticArrays' closed form) and each partial by first-order perturbation
+       theory, dλᵢ = uᵢᵀdDuᵢ, duᵢ = Σⱼ uⱼ(uⱼᵀdDuᵢ)/(λᵢ − λⱼ), the term of an equal pair dropped
+       (equal to 1e-6 relative; the closed form splits an exact pair by up to 1.5e-8, measured
+       over 10 000 rotations). Differentiating the closed form instead gave NaN for every
+       quantity of a prolate tensor. Checked against central differences: DTI's seven for a
+       rotated tensor with distinct eigenvalues (2e-9) and an exactly prolate one (3e-10); AD's
+       Hessian through nested duals (3e-9). Values unchanged (numbers take the closed form).
+     - **The guard** (`_nopartials`: the value kept, every derivative NaN): dropping the pair's
+       term is right for what does not depend on the basis chosen in the pair's plane. Where
+       λ1 = λ2, e1 is not defined: AD, RD, V1 (DTI), AK and RK (DKI) get NaN derivatives. Where
+       a pair is equal, MK and RK are right when W is symmetric about the third axis in that
+       plane (its quartic form constant around the plane's circle at 5 angles, W(k, k, n, n) at
+       3: `_symmetricin`, checked only where a pair is equal) and NaN otherwise. Why that is the
+       condition: near an equal pair (gap δ) the eigenvectors turn within the plane at a rate
+       1/δ, and MK changes with that turn at a rate proportional to δ times W's asymmetry in the
+       plane; the product has a finite limit, which the dropped term misses, unless W is
+       symmetric there.
+     - **G1 and G2 without their cancellation**: with s = √(c/b), G1 = (a + b + c)²(s + 2)/
+       (18b²(1 + s)²) and G2 = (a + b + c)²/(3√(bc)(√b + √c)²), exact rewritings of DIPY's (the
+       factor (b − c)² cancels), no branch, their limits at b = c. DIPY's agree to rounding
+       where accurate (1e-12; the DIPY reference tests unchanged); near b = c theirs lost digits
+       (RK 3% off at a gap of 1e-7, its derivative 12% at 1e-5). F1 and F2 keep DIPY's limits
+       (2.5% wide, means of the pair: smooth).
+     - **Measured** (scratch derr/): the gap scan again (W isotropic, and W asymmetric about the
+       axis): isotropic, RK 4.3403 ± 0.0792 and MK 1.7919 ± 0.0266 at every gap from 0 to 1e-5
+       (before: NaN at 0, RK ± 9.1 at 1e-6, ± 1.6e5 at 1e-7); asymmetric, NaN at gaps ≤ 1e-6 (the
+       guard), RK ± 0.1152 from 1e-5 (before: 0.1287 at 1e-5, wrong). At the axially symmetric
+       truth (AD 1.7e-3, RD 0.35e-3, MK 1, AK 0.8, RK 1.3, axis θ = 0.3, φ = 1.2; 6 + 30 + 30
+       images; 22 parameters): MK, AK, RK, AD, RD's gradients against central differences in
+       random directions, 3e-10; against 4000 fits, SD ratios at SNR 100 MD 0.998, FA 1.008, AD
+       1.011, RD 1.000, MK 1.030, AK 1.026, RK 1.046, MKT 1.018 (± 0.011), and at SNR 400, the
+       same noise, MK 1.008, RK 1.015, the others as at 100: RK's relative SD is 16% at SNR 100,
+       so its 4.6% there is the delta method's first order (it shrinks with the noise), while the
+       nearly linear ones keep one sample's fluctuation (common random numbers).
+     - **Speed**: unchanged. `derived` 0.79 µs (DTI), 2.53 µs (DKI), as before; DTI's `crlb!`
+       14.3 µs both; DKI's 0.166 → 0.147 ms, its first crlb 47.5 → 44.6 s.
+     - Not done: tissue presets by derived quantities (`nominal(DTI, :WM_DTI; direction)`), and a
+       sweep over a derived quantity (`vary = :FA => 0.2:0.1:0.9`), which would go through the
+       same hook. Full runs: EQUIP 2283, CLI 124.
+20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
+   roadmap for everything"; not built). Magnitude data are Rician: where the true signal
+   approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
+   SIR's early TIs), the measured signal sits on a floor of about 1.25σ, and every fit that
+   assumes Gaussian noise reads the floor as signal. Measured for DTI and DKI ("Issues 3 and 4,
+   measured", item 17's review): MD 11% low at SNR 10 in white matter, 3% at 20, 1.4% at 30,
+   0.5% at 50; least squares on the Rician mean removes it in tissue (≤ 0.6%).
+   - **What exists:** `RicianMean(m; σ)` (src/sim/rician.jl), a model whose signal is the
+     expected magnitude of `m`'s, for any model, already fittable: `fit(RicianMean(m; σ),
+     data)`; and the Rician noise for crlb (`riciannoise`, `ricianbound`). The study fitted it
+     started from the Gaussian fit's maps, by hand.
+   - **What to build:**
+     - **One way to ask for it, for any model**, e.g. `fit(m, data; noise = :rician, σ)`:
+       the Gaussian fit first (its starts, `:loglinear`, `datastart`, `:scale`, which assume
+       the signal itself), then the Rician fit from it. Today the starts go through
+       `RicianMean`'s signal, where `:scale` is wrong (the Rician mean is not proportional to
+       S0) and the log start is poorly determined near the floor.
+     - **σ as a map:** one σ per voxel (noise varies across the image with coil sensitivity
+       and parallel imaging), not only one per observation, and so σ held like a fixed
+       parameter; and where σ comes from: the image background (Rayleigh), a noise scan, or
+       MP-PCA (Veraart et al., NeuroImage 2016). EQUIP estimates none of them yet.
+     - **Bounds where the signal can vanish below the floor:** there any large decay rate
+       fits the floor equally, and an unbounded fit runs away (DTI in CSF at b = 2500: MD
+       +10 000%, 20% of voxels not converged at SNR 10; with D's diagonal at most 4e-3 mm²/s,
+       98–100% converged). Each model's defaults to say which bounds the Rician fit needs.
+     - **Speed:** the fit was 10–40× slower than the Gaussian one (150–2000 µs per voxel on 4
+       threads against 7–120), from the Bessel functions in dual numbers. A cheaper
+       `ricianmean` (a rational or tabulated approximation with its derivative, accurate to
+       well below the noise) would make it routine.
+     - **The objective:** least squares on the Rician mean (as now) is consistent but not
+       efficient at low SNR; the Rician likelihood itself (maximum likelihood) is, and is not a
+       sum of squares: Fisher scoring or iteratively reweighted least squares around LM, a
+       solver option. Measured, the least-squares version overcorrects DKI's MKT at SNR 20
+       (−8%, its RMSE above the Gaussian fit's): the likelihood may not, to test.
+     - **Coils:** a sum-of-squares reconstruction from L coils is noncentral χ, not Rician
+       (Constantinides et al., MRM 1997); `ricianmean` generalizes with L (and an effective
+       σ and L for parallel imaging).
+     - **crlb with it:** the Rician fit's own errors (the sandwich with the Rician variance),
+       beside the Gaussian fit's floor bias that `riciannoise` already gives: so a protocol
+       can be designed for the estimator that will be used.
+   - **For every model:** DTI and DKI at high b; T2Decay and T2BiexpDecay at long TE (myelin
+     water's short component and the floor are confounded); T1IR, R1IR and QMTSIR with
+     magnitude data near the inversion's null; ADCDecay, ADCKurtosis, the SMT models (their
+     spherical means already have `averaging = :magnitude` in `RicianMean`). Tests: the floor
+     bias recovered against simulations for each, the no-information cases with bounds, σ maps.
+   - **Not the remedy for everything:** where the data have no information (CSF at b = 2000 in
+     DKI: 0.25% of S0, below the floor) no noise model recovers it; mask, or constrain.

@@ -147,6 +147,11 @@ parameters(::Type{<:QMTSIR}) = (
     `M0 = Free(start = 1000.0)`, but not move it to another parameter;
   - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
     log-linear fit, `T2 = Free(start = :data, lower = ...)`;
+  - `:loglinear`: the weighted linear fit of ln y with ln S, computed by EQUIP from the
+    model's own signal in two passes, OLS then WLS weighted by OLS's predicted signal² (DIPY's
+    WLS; the `:scale` parameter as the intercept), for models whose ln S is linear in the
+    parameters and for which 0 is a valid value (diffusivities, rates; not T2): DTI's tensor,
+    `Dxx = Free(start = :loglinear)`, DKI written in V = MD²·W. No code in the model;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
     `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.
@@ -305,6 +310,11 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
+| | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted (no bounds); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
+| | `DKI(b = ..., gx = ..., gy = ..., gz = ...)` | diffusion kurtosis (Jensen et al., MRM 2005) in DIPY's parameterization, V = MD²·W: S0·exp(−b·gᵀDg + b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6), every element from the two-pass WLS (`:loglinear`); derived: DTI's quantities and MK, AK, RK as DIPY's fit methods give them by default (Tabesh et al., MRM 2011, analytic), MKT (Hansen et al., MRM 2013), clipped to [−3/7, 10] | S0, D's six, V's fifteen | |
+| | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
+| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
+| | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 
 ## Writing a model
@@ -348,6 +358,77 @@ res = fit(m, data; mask)                 # crlb, montecarlo, simulate, design: a
   roles as written, the docstring kept), to edit and `include`: the same fits.
   `newmodel(:Name; acquisition = [:TE], parameters = [:S0, :T2])` writes a blank one, with
   TODOs.
+
+### Compartments
+
+The diffusion compartments EQUIP's own models are made of, exported by EQUIP for writing yours
+(`using EQUIP` brings them; b in s/mm², D in mm²/s). The names are Microstructure.jl's (Gong &
+Yendiki, Imaging Neuroscience 2026), for the compartments of Panagiotaki et al.'s taxonomy
+(NeuroImage 2012), where `iso` is the "ball":
+
+| compartment | signal |
+|---|---|
+| `iso(b, D)` | exp(−b·D): isotropic Gaussian diffusion (free water, an extra-cellular space, an ADC), the same in every view; with D = 0, immobile water (a "dot") |
+| `stick(b, D, powder)`, `stick(b, D, ξ)` | a stick's spherical mean (powder average), √π·erf(√(bD))/(2√(bD)); along one direction at cosine ξ to the fiber, exp(−b·D·ξ²) |
+| `zeppelin(b, D∥, D⊥, powder)`, `zeppelin(b, D∥, D⊥, ξ)` | an axially symmetric tensor: its spherical mean, exp(−b·D⊥)·√π·erf(√(b(D∥ − D⊥)))/(2√(b(D∥ − D⊥))); along one direction at cosine ξ to the fiber, exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²) |
+
+A stick or a zeppelin takes its view explicitly, `powder` (its spherical mean) or a cosine ξ
+(along one gradient direction); without one it is an error that says which to write. A zeppelin
+with D⊥ > D∥ (oblate) is allowed in both views (its spherical mean then takes erfi); to keep
+D⊥ ≤ D∥ in a model that fits D⊥, give it a fraction, D⊥ = fperp·D∥ with bounds 0 and 1. The
+cosine comes from two helpers, not compartments themselves:
+
+| helper | gives |
+|---|---|
+| `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
+| `directionset(N)` | N gradient directions spread evenly over the sphere (electrostatic repulsion), to simulate a scheme |
+| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated |
+
+The compartments are diffusion only. Relaxation is written in the model as its equation, as the
+paper writes it: `exp(-TE / T2)`, `1 - 2exp(-TI / T1)`, and a compartment's T2 as a factor of it,
+`vax * exp(-TE / T2ax) * stick(...)`, in a model whose acquisition has several echo times.
+(Microstructure.jl's compartments carry a T2 each instead, used only with multi-TE data.)
+
+```julia
+using EQUIP
+
+@mrimodel ThreePool(TE; S0 = Free(start = :scale, lower = 0), fmw = Free(start = 0.1, lower = 0, upper = 0.5),
+                    fcsf = Free(start = 0.05, lower = 0, upper = 0.5), T2mw = Free(start = 0.015),
+                    T2ie = Free(start = 0.08), T2csf = 2.0) =                # CSF's T2 known
+    S0 * (fmw * exp(-TE / T2mw) + (1 - fmw - fcsf) * exp(-TE / T2ie) + fcsf * exp(-TE / T2csf))
+
+@mrimodel IVIM(b; S0 = Free(start = :scale, lower = 0), f = Free(start = 0.1, lower = 0, upper = 0.5),
+               Dstar = Free(start = 0.02), D = Free(start = 1e-3, lower = 0)) =
+    S0 * (f * iso(b, Dstar) + (1 - f) * iso(b, D))
+
+@mrimodel SMTwithT2(b, TE; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+                    Dax = Free(start = 2e-3, lower = 0), T2ax = Free(start = 0.08), T2ex = Free(start = 0.05)) =
+    S0 * (vax * exp(-TE / T2ax) * stick(b, Dax, powder) +
+          (1 - vax) * exp(-TE / T2ex) * zeppelin(b, Dax, (1 - vax) * Dax, powder))
+
+@mrimodel NerveZ(b, ξ; S0 = Free(start = :scale, lower = 0), vax = Free(start = 0.5, lower = 0, upper = 1),
+                 Dax = Free(start = 2e-3, lower = 0)) =                        # ξ = g·z, fibers along z
+    S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
+```
+
+The compartments are inlined: a model written with them is as fast as the equation written out.
+More, each fitted to simulated data (inversion recovery, a T2 decay against the built-in T2Decay):
+examples/compartments.jl.
+
+A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
+four acquisition fields, `b`, `gx`, `gy`, `gz`, each one value per image, and
+`diffusionencoding` makes them from a .bval and a .bvec (checked: a direction per b-value, unit
+vectors where b > 50):
+
+```julia
+acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., gx = ..., gy = ..., gz = ...)
+m = DTI(; acq...)                                     # built in; any model with these fields
+```
+
+With fiber angles, write `signal!` by hand and compute the direction once per voxel,
+`n = fiberdirection(θ, φ)`, then `ξ = (gx[j], gy[j], gz[j]) ⋅ n` for each image: an
+`@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
+and the fit takes about twice as long (examples/directional_models.jl times both).
 
 ### By hand
 
@@ -413,7 +494,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   acquisition. (A model may define `parameters(m::StretchedDecay)` on the instance instead;
   its type then cannot be asked.)
 - **Starting values** are declared with each `Free` role (see Free and fixed parameters): a
-  number, `:scale`, `:data`, `BestOf(values)`, or a function of the model for a start that
+  number, `:scale`, `:data`, `:loglinear`, `BestOf(values)`, or a function of the model for a start that
   depends on the acquisition. If fits can end in a wrong local minimum from one start, give the
   parameter several values to try: T1IR's is
   `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5
@@ -428,6 +509,20 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
   change the signal. The default changes nothing.
+- **`derived`** (optional): quantities computed from one voxel's parameters, reported beside
+  them. DTI's: `derived(m::DTI, p) = (MD = ..., FA = ..., AD = ..., RD = ..., V1x = ..., V1y =
+  ..., V1z = ...)`, from the six tensor elements (V1: the principal eigenvector, z ≥ 0). `p` holds every parameter, fitted and fixed; the rules are `signal!`'s (no
+  allocation, generic in the number type, so their errors can come from the fit's). For a fit,
+  `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
+  asked; `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
+  `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
+  them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
+  (docs/design.md, item 19).
+- **`fromderived`** (optional): the reverse, for `nominal`: `fromderived(::Type{<:MyModel}, q)`
+  returns the parameters that give the derived quantities in `q` (the call's keywords that are
+  not parameters), so that a truth can be prescribed by them (Simulation, below). Derived
+  quantities seldom fix the parameters alone, so a model says which sets it takes and what it
+  assumes for the rest, and refuses anything else. The default, `nothing`, means none.
 
 ## Simulation
 
@@ -469,8 +564,20 @@ free parameter must come from the tissue or a keyword: `nominal(QMTSIR(...), :WM
 -0.95)` needs Sf, an inversion efficiency, not a tissue property. Without a tissue, one that
 starts from the data (`:data`, e.g. T2Decay's T2) or from `BestOf` values (the
 inversion-recovery models' T1) must be given: `nominal(T2Decay(TE = te); T2 = 0.08)`. The error
-names each and lists what `nominal` takes for every parameter. Typing a model at the REPL shows
-the same table, with its acquisition:
+names each and lists what `nominal` takes for every parameter.
+
+A model with derived quantities can take them in place of its parameters (its `fromderived`).
+DTI and DKI: an axially symmetric tensor, from MD and FA, or AD and RD, and the direction of its
+axis; DKI's kurtosis from MKT alone (W isotropic) or from MK, AK and RK (W axially symmetric
+about the same axis), or V's elements as parameters. `derived` gives them back:
+
+```julia
+θ = nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = fiberdirection(0.3, 1.2))
+θ = nominal(DKI; S0 = 1000, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MK = 1.0, AK = 0.8, RK = 1.3)
+derived(DKI(; acq...), θ)                     # (MD = 0.0008, FA = 0.762, ..., MK = 1.0, AK = 0.8, RK = 1.3, MKT = ...)
+```
+
+Typing a model at the REPL shows the same table, with its acquisition:
 
 ```
 julia> m = QMTSIR(TI = [0.01, 0.05, 0.277, 1.0], TD = 2.5)
@@ -626,6 +733,19 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   montecarlo's to measure (`montecarlo(m, θ; snr, averages, noise = :rician, averaging =
   :magnitude)`). One σ, the usual case for separately acquired images with the same readout,
   costs nothing extra.
+- **Derived quantities** (a model's `derived`, above, e.g. DTI's MD, FA, AD, RD and V1,
+  DKI's MK, AK, RK, MKT) come after the parameters in every named tuple, `c.sd.FA`,
+  `mc.bias.MK`, in the tables and in a sweep's rows. crlb's: the noise-free fit's value g(θ̂),
+  the bias g(θ̂) − g(θ), and the SD by the delta method, √(∇g·C·∇gᵀ) (C the parameters'
+  covariance, ∇g by dual numbers through `derived`), first order in the noise as the
+  parameters'; montecarlo's: from each copy's fit, so it also measures the noise's own bias of a
+  nonlinear quantity (FA's, MK's at low SNR). Measured: DTI (6 b = 0 and 30 directions, SNR 50)
+  and DKI (22 parameters, SNR 100), every SD within 1.5% of 4000–20 000 fits'. NaN where
+  `derived` has no derivative: AD, RD, V1, AK and RK where λ1 = λ2 (no principal direction);
+  MK and RK where two of D's eigenvalues are equal and W is not symmetric about the third axis
+  (the axially symmetric truths `nominal` makes are: finite). A principal direction is folded into
+  one hemisphere in each fit, so montecarlo's V1 near the fold (fibers in the x–y plane) is the
+  folded vectors'. `vcov`, `stderror`, `cor` and `cond` stay the parameters'.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`
@@ -681,8 +801,16 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, s; snr = 200))
   biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
-- Not modelled by crlb: Rician noise (the magnitude floor, and the floor that averaging
-  magnitude images keeps), bounds reached by noisy fits, nonlinearity at low SNR. That is what
+- Rician noise, from its own functions: `crlb(m, θ; riciannoise(m, θ; snr, averages,
+  averaging)...)` predicts a least-squares fit of magnitude data, its bias from the noise floor
+  (exactly: the fit of the magnitudes' mean, `RicianMean`) and its SD (with the Rician variance);
+  `ricianbound(m, θ; snr, ...)` is the Cramér–Rao bound of Rician data (the information
+  R(A/σ)/σ² per observation, as in Devan et al., Magn Reson Imaging 2020, Appendix), what no
+  estimator beats. `averaging = :complex` (the scanner's averages: the floor falls) or
+  `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself
+  removes the floor's bias when σ is known. `ricianmean`, `ricianvar`, `ricianinformation` for
+  one value.
+- Not modelled by crlb: bounds reached by noisy fits, nonlinearity at low SNR. That is what
   montecarlo is for.
 
 ## Protocol design
@@ -760,8 +888,10 @@ savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map,
 - `loaddata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
   given; their size and geometry checked), the intensity scaling applied; `precision = Float32`
   for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
-  `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), and `b`
-  from an FSL `.bval` beside the data. Nothing is converted: seconds and degrees, as in BIDS.
+  `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), `b`
+  from an FSL `.bval` beside the data, and `gx`, `gy`, `gz` from a `.bvec` beside that
+  (checked as `diffusionencoding` checks them). Nothing is converted: seconds and degrees, as in
+  BIDS.
 - MATLAB: `loaddata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
   observations along the last dimension after up to three spatial ones (`nx×ny×nz×N`,
   `nx×ny×N`, or `nvoxels×N` for voxels already masked); `loadmap("data.mat:mask", info)`;
@@ -771,7 +901,9 @@ savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map,
   names where they exist (`T1map`, `R1map`, `T2map`, `S0map`, ...), the status and SSE maps,
   and with `stderror = true` the standard errors; beside each a JSON sidecar recording how it
   was made (the model, its acquisition, each parameter's role, the precision, EQUIP's version).
-- `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is).
+- `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
+  `readbvec(path)`: an FSL `.bvec` as its 3×N matrix; `diffusionencoding(bval, bvec)`: both,
+  as a directional model's `b`, `gx`, `gy`, `gz` (from file names or from those arrays).
   `writetable(path, rows)`: crlb's and montecarlo's rows as TSV.
 - Any image: `img = readimage(path)` gives `img.data`, `img.header` (the geometry), `img.meta`
   (the sidecar, every entry as it is); `writeimage(path, MRImage(values, img))` writes values
@@ -832,7 +964,9 @@ Inside each LM step, the free values θ become dual numbers and are merged with 
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
 Before the first step, each voxel's start is set from the roles: numbers and maps as given; the
-model's own estimates from the data for parameters declared `:data`; then a `BestOf` parameter at
+model's own estimates from the data for parameters declared `:data`; those declared `:loglinear`
+from Gauss–Newton steps on ln y (the log-residuals' derivatives from the same dual numbers); then
+a `BestOf` parameter at
 the value that fits that voxel best, with the `:scale` parameter at its least-squares value for
 each (or, without `BestOf`, for the start).
 

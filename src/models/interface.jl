@@ -80,6 +80,15 @@ each voxel's starting value comes from:
   A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
   log-linear fit for T2. Only for parameters the model's `datastart` estimates;
+- `:loglinear`: the weighted linear fit of ln y with ln S, the model's own signal, in two
+  passes from 0: OLS, then WLS weighted by OLS's predicted signal² (DIPY's WLS), with the
+  `:scale` parameter as its intercept; the other parameters stay at their starts. For models
+  whose ln S is linear in these parameters (DTI's tensor; DKI written in V = MD²·W; ADCDecay's
+  ADC): then exactly the two-pass WLS. Otherwise two Gauss–Newton steps, an approximate start
+  that the fit refines. Not for time constants (T2 = 0 is no signal: use the rate, or `:data`)
+  or signals that change sign: the signal at the start must be positive and finite in every
+  observation, checked when the fit is set up. No code in the model: the derivatives come from
+  `signal!`, as the fit's own;
 - [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
 - a function of the model, `m -> ...`, for a start that depends on the acquisition: called
   once per fit with the model, it gives any of the above, e.g. ADCDecay's
@@ -99,8 +108,8 @@ fit(m, data; PSR = Free(lower = -Inf))     # no lower bound (the model's is 0)
 ```
 """
 struct Free
-    start::Any                         # a number, a map, :scale, :data, a BestOf, a function of the
-                                       # model (m -> ...), or nothing (keep the default)
+    start::Any                         # a number, a map, :scale, :data, :loglinear, a BestOf, a
+                                       # function of the model (m -> ...), or nothing (the default)
     lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
     upper::Union{Nothing,Float64}
     # The one constructor, by keyword: `Free()`, `Free(start = 0.8)`, `Free(start = :scale,
@@ -108,10 +117,10 @@ struct Free
     # `Free(start, lower, upper)` Julia would otherwise define, so every Free is made here: the
     # start is checked, numbers become Float64, and `new` (only available inside) builds it.
     function Free(; start = nothing, lower = nothing, upper = nothing)
-        start === nothing || start === :scale || start === :data || start isa Real ||
-            start isa AbstractArray || start isa BestOf || start isa Function ||
+        start === nothing || start === :scale || start === :data || start === :loglinear ||
+            start isa Real || start isa AbstractArray || start isa BestOf || start isa Function ||
             throw(ArgumentError("Free: the start must be a number, a map, :scale, :data, " *
-                                "BestOf(values) or a function of the model, got $(repr(start))"))
+                                ":loglinear, BestOf(values) or a function of the model, got $(repr(start))"))
         tofloat(x) = x === nothing ? nothing : Float64(x)
         return new(start isa Real ? Float64(start) : start, tofloat(lower), tofloat(upper))
     end
@@ -352,6 +361,46 @@ The default returns `θ` unchanged.
 """
 relabel(::MRIModel, θ) = θ
 
+"""
+    derived(m, p) -> nothing or (name = value, ...)
+
+Optional: quantities computed from one voxel's parameters and reported beside them: DTI's MD,
+FA, AD, RD and principal eigenvector from its six tensor elements, a kurtosis model's MK from D
+and V. `p` holds every parameter by name, fitted and fixed, ties evaluated (what
+[`resolve`](@ref) gives). The rules
+are `signal!`'s: no allocation, generic in the number type (dual numbers, so that their errors
+can come from the fit's by the delta method), the same names in every voxel, and NaN where a
+quantity is undefined. `derived(res)` computes them for a fit (maps for a dataset),
+[`savemaps`](@ref) writes them beside the parameters' maps, and [`crlb`](@ref) and
+[`montecarlo`](@ref) report their bias, SD and RMSE after the parameters' (`c.sd.FA`). A name
+must not be a parameter's. The default, `nothing`, means none.
+A sketch, DTI's without its eigenvector (the whole one is in src/models/diffusion/dti.jl):
+
+```julia
+function derived(m::DTI, p)
+    D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+    λ = eigvals(Symmetric(D))                       # ascending
+    MD = tr(D) / 3
+    return (MD = MD, FA = sqrt(3 / 2) * norm(D - MD * I) / norm(D), AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+end
+```
+"""
+derived(::MRIModel, p) = nothing
+
+"""
+    fromderived(M, q) -> nothing or (parameter = value, ...)
+
+Optional, the reverse of [`derived`](@ref): the parameters that give the derived quantities in
+`q`, for [`nominal`](@ref) to make a truth from them, e.g. `nominal(DTI; S0 = 1000, MD = 0.8e-3,
+FA = 0.7, direction = (1, 0, 0))`. `M` is the model's type; `q` holds the keywords of the call
+that are not parameters. Derived quantities seldom fix the parameters alone (MD and FA are two
+numbers, a tensor has six), so a model says which sets it takes and what it assumes for the
+rest (DTI: a tensor axially symmetric about `direction`), and refuses anything else, naming
+what it takes. It returns the parameters it sets; the others come from the call or the model as
+usual. The default, `nothing`: none (the names are then unknown parameters).
+"""
+fromderived(::Type{<:MRIModel}, q::NamedTuple) = nothing
+
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision
 # -------------------------------------------------------------------------------------------------
@@ -368,6 +417,7 @@ acquisition settings, e.g. `TI` and `TD`). Throws an error if they differ. A mod
 fields of another kind can define its own method.
 """
 function nobs(m::MRIModel)
+    _checkfields(m)
     # Each field's length if it is a vector, -1 if not: a tuple (`map` over the tuple of fields,
     # each field's type known), so nothing is allocated. It is called for every noise level
     # crlb is given; collecting the lengths in an array cost 35–65 ns and 80–240 bytes a call.
@@ -381,6 +431,26 @@ function nobs(m::MRIModel)
                                 "different lengths, $(filter(>=(0), collect(lens)))"))
     return n
 end
+# A per-observation field holds numbers, one per observation: every generic routine relies on
+# it (the lengths, the signal's number type, the conversion to the fit's precision). A vector of
+# anything else (3-vectors as gradient directions, one per image) is said here, where every fit,
+# signal and crlb starts, with what to write instead; otherwise it would fail later, obscurely
+# (`float(Any)`), or stay Float64 in a Float32 fit. The test is on the fields' types, so the
+# compiler settles it when compiling: nothing at run time. A matrix is not checked: it is not a
+# per-observation field (a lookup table, say), and `nobs` does not count it.
+@inline _checkfields(m) =
+    any(x -> x isa AbstractVector && !(eltype(x) <: Number), _fields(m)) ? _badfield(m) : nothing
+@noinline function _badfield(m)
+    names = fieldnames(typeof(m))
+    f = names[findfirst(f -> (x = getfield(m, f); x isa AbstractVector && !(eltype(x) <: Number)),
+                        names)]
+    T = eltype(getfield(m, f))
+    throw(ArgumentError("$(nameof(typeof(m))): the field `$f` holds $T values; a field with " *
+        "one value per observation must hold numbers. Gradient directions go in as three " *
+        "fields of numbers, gx, gy and gz: `diffusionencoding(bval, bvec)` makes them (and b) " *
+        "from a .bval and a .bvec, or from a 3×N matrix"))
+end
+
 # `nobs` is StatsAPI's function (imported in EQUIP.jl); this adds a method for every
 # MRIModel. A specific model can add its own, more specific method, e.g.
 # `nobs(m::T2Spectrum) = length(m.TE)`, and Julia will pick that one for it.

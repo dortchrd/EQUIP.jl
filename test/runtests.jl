@@ -3,10 +3,12 @@
 using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
+using StaticArrays: SVector, SMatrix
 using Random
-using Statistics: mean, std, cov, median
+using Statistics: mean, std, var, cov, median
 using Test
 import NIfTI, JSON                  # io tests: NIfTI files with a chosen geometry; sidecars
+import SpecialFunctions, ForwardDiff   # SMT: erf, and derivatives of the stick's spherical mean
 using MAT                           # io tests: MATLAB files (MRImages' extension)
 using EQUIP.MRImages: samegeometry, readmat, writemat
 
@@ -33,13 +35,17 @@ EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(st
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
 # A T2 decay that records whether subnormal numbers are flushed to zero while it is evaluated.
+# Dataset fits call it from several threads at once, so the record is kept under a lock (pushing
+# to one vector from several threads is a data race: Julia 1.13 stops it with an error).
 const FLUSHED = Bool[]
+const FLUSHED_LOCK = ReentrantLock()
 struct FlushProbe <: MRIModel
     TE::Vector{Float64}
 end
 EQUIP.parameters(::FlushProbe) = (S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6))
 function EQUIP.signal!(out, m::FlushProbe, p)
-    push!(FLUSHED, get_zero_subnormals())
+    flushed = get_zero_subnormals()                       # this thread's mode, read before the lock
+    lock(() -> push!(FLUSHED, flushed), FLUSHED_LOCK)
     out .= p.S0 .* exp.(-m.TE ./ p.T2)
     return out
 end
@@ -98,9 +104,80 @@ end
 end
 
 # A tie by a formula of another parameter, and a free parameter with no start (given in the call).
+# T2Decay's equation written as a user writes it, relaxation as its equation, T2 fitted
+@mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
+    S0 * exp(-TE / T2)
+
+# A directional model written by hand (examples/directional_models.jl): one fiber n(θ, φ), the
+# compartments' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
+Base.@kwdef struct DirStickZeppelin{A,X,Y,Z} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+EQUIP.parameters(::Type{<:DirStickZeppelin}) = (S0 = Free(start = :scale, lower = 0),
+    vax = Free(start = 0.5, lower = 0, upper = 1), Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
+    θ = Free(start = 0.5, lower = 0, upper = π), φ = Free(start = 0.0, lower = -π, upper = π))
+function EQUIP.signal!(out, m::DirStickZeppelin, p)
+    (; b, gx, gy, gz) = m
+    (; S0, vax, Dax, θ, φ) = p
+    n = fiberdirection(θ, φ)
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        ξ = (gx[j], gy[j], gz[j]) ⋅ n
+        out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
+    end
+    return out
+end
+# The same acquisition given as one 3-vector per image: refused, with what to write instead
+Base.@kwdef struct DirVectors{A,G} <: MRIModel
+    b::A
+    g::G
+end
+EQUIP.parameters(::Type{<:DirVectors}) = (S0 = Free(start = :scale, lower = 0),)
+EQUIP.signal!(out, m::DirVectors, p) = (out .= p.S0; out)
+
+# Gauss–Legendre nodes and weights on [0, 1] (n of them, exact for polynomials of degree 2n − 1),
+# by Newton's method on P_n from the Chebyshev guesses: the tests average a compartment's
+# directional view over ξ ∈ [0, 1] with them (its spherical mean)
+function gausslegendre01(n)
+    x, w = zeros(n), zeros(n)
+    for i in 1:n
+        z = cos(π * (i - 0.25) / (n + 0.5))
+        for _ in 1:100
+            p0, p1 = 1.0, z
+            for k in 2:n
+                p0, p1 = p1, ((2k - 1) * z * p1 - (k - 1) * p0) / k
+            end
+            dp = n * (z * p1 - p0) / (z^2 - 1)
+            dz = p1 / dp
+            z -= dz
+            abs(dz) < 1e-15 && break
+        end
+        p0, p1 = 1.0, z
+        for k in 2:n
+            p0, p1 = p1, ((2k - 1) * z * p1 - (k - 1) * p0) / k
+        end
+        dp = n * (z * p1 - p0) / (z^2 - 1)
+        x[i] = (1 + z) / 2                       # [−1, 1] → [0, 1]
+        w[i] = 1 / ((1 - z^2) * dp^2)            # 2/((1 − z²)P'²), halved for [0, 1]
+    end
+    return x, w
+end
+const GL01 = gausslegendre01(120)
+
 @mrimodel TieFormula(t; A = Free(start = :scale), k1 = Free(start = 1.0), k2 = 0.5 * k1) =
     A * (exp(-k1 * t) + exp(-k2 * t))
 @mrimodel NoStart(t; A = Free(start = :scale), k) = A * exp(-k * t)
+
+# Derived quantities (the `derived` hook) on a T2 decay: R2 = 1/T2, whose SD by the delta method
+# is SD(T2)/T2² exactly; and a model whose derived quantity takes a parameter's name (refused).
+@mrimodel DerivedT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
+    S0 * exp(-TE / T2)
+EQUIP.derived(::DerivedT2, p) = (R2 = 1 / p.T2,)
+@mrimodel ClashT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
+    S0 * exp(-TE / T2)
+EQUIP.derived(::ClashT2, p) = (T2 = p.T2, R2 = 1 / p.T2)
 
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
@@ -2282,6 +2359,18 @@ end
         niwrite(path("dwi.nii"), Float32.(Y[:, :, :, 1:4]))
         write(path("dwi.bval"), "0 500 1000 2000\n")
         @test loaddata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
+        # and an FSL .bvec beside both: gx, gy, gz (0 0 0 at b = 0), checked by diffusionencoding
+        write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0\n")
+        fd = loaddata(path("dwi.nii"))[2].found
+        @test fd[:gx] == [0, 1, 0, 0.6] && fd[:gy] == [0, 0, 1, 0.8] && fd[:gz] == zeros(4)
+        @test (; (k => fd[k] for k in (:b, :gx, :gy, :gz))...) ==
+              diffusionencoding(path("dwi.bval"), path("dwi.bvec"))
+        write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0.5\n")          # image 4 not unit
+        @test occursin("dwi.bvec (with", msg(() -> loaddata(path("dwi.nii")))) &&
+              occursin("unit vectors", msg(() -> loaddata(path("dwi.nii"))))
+        write(path("dwi.bvec"), "0 1 0\n0 0 1\n0 0 0\n")                      # three images, not four
+        @test occursin("one direction per image", msg(() -> loaddata(path("dwi.nii"))))
+        rm(path("dwi.bvec"))
         # Mistakes
         NIfTI.niwrite(path("other.nii"), NIfTI.NIVolume(Float32.(Y[:, :, :, 1])))
         niwrite(path("small.nii"), zeros(Float32, 4, 4, 2))
@@ -2321,6 +2410,26 @@ end
         @test startswith(t2.meta["Software"], "EQUIP ")
         @test occursin("one voxel's", msg(() -> savemaps(path("x_"), fit(m, Y[1, 1, 1, :]), info)))
         @test occursin("the data were 6×5×2", msg(() -> savemaps(path("x_"), fit(m, Y[1:2, :, :, :]), info)))
+        # a model's derived quantities, written beside its parameters (DTI: MD, FA, AD, RD)
+        gd = directionset(12)
+        bvd = [0.0; fill(1000.0, 12)]
+        Gd = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(gd)])
+        mdt = DTI(; diffusionencoding(bvd, Gd)...)
+        Yt = simulate(mdt, (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0);
+                      snr = 50, n = 12, noise = :rician, rng = MersenneTwister(5))
+        niwrite(path("dti.nii.gz"), Float32.(reshape(Yt, 3, 2, 2, 13)))
+        write(path("dti.bval"), join(bvd, " ") * "\n")
+        write(path("dti.bvec"), join((join(Gd[k, :], " ") for k in 1:3), "\n") * "\n")
+        dtd, dti_info = loaddata(path("dti.nii.gz"))
+        rdt = fit(DTI(; (k => dti_info.found[k] for k in (:b, :gx, :gy, :gz))...), dtd)
+        wd = savemaps(path("dti/sub-01_"), rdt, dti_info)
+        @test basename.(wd) == ["sub-01_S0map.nii.gz", "sub-01_Dxx.nii.gz", "sub-01_Dyy.nii.gz",
+                                "sub-01_Dzz.nii.gz", "sub-01_Dxy.nii.gz", "sub-01_Dxz.nii.gz", "sub-01_Dyz.nii.gz",
+                                "sub-01_MD.nii.gz", "sub-01_FA.nii.gz", "sub-01_AD.nii.gz", "sub-01_RD.nii.gz",
+                                "sub-01_V1x.nii.gz", "sub-01_V1y.nii.gz", "sub-01_V1z.nii.gz",
+                                "sub-01_status.nii.gz", "sub-01_SSE.nii.gz"]
+        fa = readimage(wd[9])
+        @test isequal(fa.data, Float64.(Float32.(derived(rdt).FA))) && fa.meta["Map"] == "FA"
 
         # MATLAB files: the data as an array, observations last; maps back in its own shape
         S = reshape(Y, 60, 8)                                  # voxels already masked: nvoxels×N
@@ -2357,6 +2466,754 @@ end
         f = writetable(path("tables/t.tsv"), rows)
         @test readlines(f) == ["name\tPSR\tn", "WM\t0.1\t3", "GM\t0.05\t4"]
         @test_throws ArgumentError writetable(path("e.tsv"), [])
+    end
+
+    @testset "SMT and its variants: the spherical mean technique (Kaden 2016; Devan et al., MRI 2020)" begin
+        rng = MersenneTwister(21)
+        # The mean over directions of exp(−a·ξ²), ∫₀¹ exp(−a·ξ²) dξ (ξ = cos ψ: uniform over the
+        # sphere), what the spherical means are made of: its series near 0, erf for a > 0 and
+        # erfi for a < 0 (a zeppelin with D⊥ > D∥), the same (values and derivatives) on both
+        # sides of each switch
+        f(a) = sqrt(π) * SpecialFunctions.erf(sqrt(a)) / (2 * sqrt(a))
+        fneg(a) = sqrt(π) * SpecialFunctions.erfi(sqrt(-a)) / (2 * sqrt(-a))
+        for a in (1e-3, 0.0499999, 0.0500001, 0.7, 12.0)
+            @test EQUIP._meanexp(a) ≈ f(a) rtol = 1e-11
+            @test ForwardDiff.derivative(EQUIP._meanexp, a) ≈ ForwardDiff.derivative(f, a) rtol = 1e-8
+            @test EQUIP._meanexp(-a) ≈ fneg(-a) rtol = 1e-11
+            @test ForwardDiff.derivative(EQUIP._meanexp, -a) ≈ ForwardDiff.derivative(fneg, -a) rtol = 1e-8
+        end
+        @test EQUIP._meanexp(0.0) == 1 && ForwardDiff.derivative(EQUIP._meanexp, 0.0) ≈ -1 / 3
+        @test EQUIP._meanexp(-3f0) isa Float32 && EQUIP._meanexp(3f0) isa Float32
+        u = range(0, 1; length = 200_001)                         # the trapezoid rule over cos ψ
+        trap(g) = (sum(g.(u)) - (g(0) + g(1)) / 2) * step(u)
+        b, D, Dperp = 2000.0, 2.0e-3, 0.7e-3
+        @test stick(b, D, powder) ≈ trap(c -> exp(-b * D * c^2)) rtol = 1e-9                         # stick
+        @test zeppelin(b, D, Dperp, powder) ≈ trap(c -> exp(-b * (Dperp + (D - Dperp) * c^2))) rtol = 1e-9  # zeppelin
+        @test zeppelin(b, Dperp, D, powder) ≈ trap(c -> exp(-b * (D + (Dperp - D) * c^2))) rtol = 1e-9  # D⊥ > D∥
+        # The model: S0 at b = 0; free diffusion when v_ax = 0 (D⊥ = D_ax); sticks alone when 1
+        m = SMT(b = [0.0, 1000.0, 3000.0])
+        @test signal(m, (S0 = 2.0, vax = 0.4, Dax = 2e-3))[1] == 2.0
+        @test signal(m, (S0 = 1.0, vax = 0.0, Dax = 2e-3)) ≈ exp.(-m.b .* 2e-3)
+        @test signal(m, (S0 = 1.0, vax = 1.0, Dax = 2e-3)) ≈ [1.0; f.(m.b[2:3] .* 2e-3)]
+        @test nominal(m, :SMT_cBH).vax == 0.241 && nominal(m, :SMT_NWM).Dax == 1.9e-3
+
+        # Devan 2020, Fig. 1: the vax precision efficiency 1/√(N·CRLB/vax²) of the five
+        # protocols, for an isotropic fiber arrangement (their worst case, where each direction's
+        # signal is the spherical mean). At SNR 20 per direction (their simulations' SNR; Fig. 1
+        # does not say), with the shells' means weighted by their directions, it is their figure:
+        # within 5% for normal white matter, 15% for the others. Theirs adds the Rician factor,
+        # which lowers the precision most where the signal is lowest (protocols A and B's
+        # b = 3790–4230 shells, in black holes, the lowest vax): ours is higher there.
+        fig1 = (SMT_NWM = (A = 0.90, B = 1.00, C = 1.10, D = 0.865, E = 0.84),     # read off the plot
+                SMT_NAWM = (A = 1.10, B = 1.06, C = 1.05, D = 0.83, E = 0.82),
+                SMT_cBH = (A = 0.90, B = 0.905, C = 0.825, D = 0.685, E = 0.68),
+                SMT_T2lesion = (A = 1.11, B = 1.06, C = 0.99, D = 0.79, E = 0.79))
+        for name in keys(fig1), P in keys(SMT_PROTOCOLS)
+            pr = SMT_PROTOCOLS[P]
+            ms = SMT(b = pr.b)
+            θ = nominal(ms, name)
+            c = crlb(ms, θ; snr = 20, averages = pr.directions, weights = pr.directions)
+            eff = θ.vax / (c.sd.vax * sqrt(sum(pr.directions)))
+            @test eff ≈ fig1[name][P] rtol = (name === :SMT_NWM ? 0.06 : 0.15)
+        end
+
+        # Fits from the default starts: unbiased, and as precise as crlb says (Gaussian, SNR 20,
+        # chronic black hole, protocol A), in both precisions
+        pr = SMT_PROTOCOLS.A
+        ms = SMT(b = pr.b)
+        θ = nominal(ms, :SMT_cBH)
+        Y = simulate(ms, θ; snr = 20, averages = pr.directions, noise = :gaussian, n = 2000, rng)
+        c = crlb(ms, θ; snr = 20, averages = pr.directions, weights = pr.directions)
+        for T in (Float64, Float32)
+            r = fit(ms, T.(Y); weights = pr.directions, precision = T)
+            @test all(isconverged, r.status) && eltype(r.params.vax) == T
+            @test abs(mean(r.params.vax) - θ.vax) < 4 * c.sd.vax / sqrt(2000)
+            @test std(r.params.vax) ≈ c.sd.vax rtol = 0.1
+            @test std(r.params.Dax) ≈ c.sd.Dax rtol = 0.1
+        end
+
+        # sphericalmean: the volumes of each shell averaged (b-values within 100 s/mm² merged),
+        # observations last, any shape; the shells' b and their numbers of volumes
+        bvals = [0, 1000, 5, 995, 3000, 1010, 2990, 0]
+        data = reshape(Float64.(1:2*3*8), 2, 3, 8)
+        means, shells, dirs = sphericalmean(data, bvals)
+        @test size(means) == (2, 3, 3) && dirs == [3, 3, 2]
+        @test shells ≈ [5 / 3, (995 + 1000 + 1010) / 3, 2995]
+        @test means[1, 1, :] ≈ [mean(data[1, 1, [1, 3, 8]]), mean(data[1, 1, [2, 4, 6]]), mean(data[1, 1, [5, 7]])]
+        @test sphericalmean(data, bvals; tol = 10)[3] == [3, 2, 1, 2]          # 1010 more than 10 above 995
+        @test sphericalmean(collect(1.0:4.0), [0, 0, 1000, 1000])[1] == [1.5, 3.5]
+        @test_throws DimensionMismatch sphericalmean(data, bvals[1:7])
+
+        # SMTFreeWater: SMT when fiso = 0, free diffusion when 1. SMTT2: SMT times exp(−TE/T2)
+        # when the T2s are equal; at one TE with different T2s, SMT's fraction is T2-weighted
+        # (0.664 here, the T2-weighted signal fraction 0.625, the volume fraction 0.45)
+        bs = [0.0, 500, 1000, 2000, 3000, 4500]
+        t3 = (S0 = 1.0, vax = 0.45, Dax = 1.8e-3)
+        @test signal(SMTFreeWater(b = bs), (; t3..., fiso = 0.0, Diso = 3e-3)) ≈ signal(SMT(b = bs), t3)
+        @test signal(SMTFreeWater(b = bs), (; t3..., fiso = 1.0, Diso = 3e-3)) ≈ exp.(-bs .* 3e-3)
+        bt, tt = repeat([0.0, 1000, 2500, 4500], 4), repeat([0.06, 0.1, 0.15, 0.2]; inner = 4)
+        mt = SMTT2(b = bt, TE = tt)
+        @test signal(mt, (; t3..., T2ax = 0.07, T2ex = 0.07)) ≈ signal(SMT(b = bt), t3) .* exp.(-tt ./ 0.07)
+        m1 = SMTT2(b = [0.0, 1000, 2500, 4000], TE = fill(0.08, 4))
+        y1 = signal(m1, (; t3..., T2ax = 0.09, T2ex = 0.05))
+        @test fit(SMT(b = m1.b), y1).params.vax ≈ 0.6642 atol = 1e-3
+        # Fits at SNR 500 per shell mean: as precise as crlb says, and their bias small next to
+        # it (both variants; the bias of a nonlinear fit from the noise itself, measured at up to
+        # 10% of the SD with 20,000 copies: crlb's `bias` is that of wrong fixed values, 0 here)
+        for (mv, tv) in ((SMTFreeWater(b = bs), (; t3..., fiso = 0.2, Diso = 3e-3)),
+                         (mt, (; t3..., T2ax = 0.09, T2ex = 0.05)))
+            Yv = simulate(mv, tv; snr = 500, noise = :gaussian, n = 2000, rng)
+            rv, cv = fit(mv, Yv), crlb(mv, tv; snr = 500)
+            @test all(isconverged, rv.status)
+            for k in keys(rv.params)
+                k === :S0 && continue
+                @test abs(mean(rv.params[k]) - tv[k]) < 0.2 * cv.sd[k]
+                @test std(rv.params[k]) ≈ cv.sd[k] rtol = 0.1
+            end
+        end
+        # sphericalmean with echo times: one shell per (TE, b), by TE then b
+        tes = [0.08, 0.08, 0.08, 0.08, 0.12, 0.12, 0.1205, 0.12]
+        bv = [0, 1000, 1005, 0, 0, 1000, 990, 2000]
+        sm = sphericalmean(collect(1.0:8.0), bv; TE = tes)
+        @test isapprox(sm.TE, [0.08, 0.08, 0.12, 0.12, 0.12]; atol = 1e-3)   # (a shell's mean TE)
+        @test sm.b ≈ [0, 1002.5, 0, 995, 2000]
+        @test sm.directions == [2, 2, 1, 2, 1] && sm.means ≈ [2.5, 2.5, 5, 6.5, 8]
+        @test sphericalmean(collect(1.0:8.0), bv).TE === nothing
+        @test_throws DimensionMismatch sphericalmean(collect(1.0:8.0), bv; TE = tes[1:7])
+    end
+
+    @testset "Rician noise: mean, variance, information; RicianMean, riciannoise, ricianbound" begin
+        rng = MersenneTwister(31)
+        # The mean and variance of a magnitude against simulated ones; the limits
+        for a in (0.0, 0.7, 2.0, 6.0)
+            y = abs.(a .+ randn(rng, 400_000) .+ im .* randn(rng, 400_000))
+            @test ricianmean(a, 1.0) ≈ mean(y) atol = 4 * std(y) / sqrt(400_000)
+            @test ricianvar(a, 1.0) ≈ var(y) rtol = 0.01
+        end
+        @test ricianmean(0.0, 2.0) ≈ 2 * sqrt(π / 2)
+        @test ricianvar(0.0, 1.0) ≈ 2 - π / 2
+        @test ricianmean(300.0, 1.0) ≈ 300 + 1 / 600 rtol = 1e-10
+        @test ricianmean(999.9, 1.0) ≈ 999.9 + 1 / (2 * 999.9) + 1 / (8 * 999.9^3) rtol = 1e-12  # (its switch)
+        @test ricianmean(1.0, 1e-6) ≈ 1.0                                        # (Bessel's range)
+        @test ricianvar(999.0, 1.0) ≈ ricianvar(1001.0, 1.0) rtol = 1e-6          # across its switch
+        @test ForwardDiff.derivative(a -> ricianmean(a, 1.0), 1.3) ≈
+              (ricianmean(1.3 + 1e-6, 1.0) - ricianmean(1.3 - 1e-6, 1.0)) / 2e-6 rtol = 1e-6
+        # The information R(s)/σ²: the variance of the score against Monte Carlo; 0 at A = 0, and
+        # its quadrature and its expansion agree at the switch (s = 40)
+        for a in (1.0, 3.0)
+            y = abs.(a .+ randn(rng, 1_000_000) .+ im .* randn(rng, 1_000_000))
+            score = y .* (SpecialFunctions.besselix.(1, y .* a) ./ SpecialFunctions.besselix.(0, y .* a)) .- a
+            @test ricianinformation(a, 1.0) ≈ var(score) rtol = 0.01
+        end
+        @test ricianinformation(0.0, 1.0) == 0 && ricianinformation(2.0, 2.0) ≈ ricianinformation(1.0, 1.0) / 4
+        @test EQUIP._ricianR(39.999) ≈ EQUIP._ricianR(40.001) rtol = 1e-7
+
+        # RicianMean: the model's signal through the Rician mean; complex averaging divides σ by
+        # √NEX, magnitude averaging leaves it
+        pr = SMT_PROTOCOLS.A
+        m = SMT(b = pr.b)
+        θ = nominal(m, :SMT_cBH)
+        σ = θ.S0 / 20
+        @test signal(RicianMean(m; σ), θ) ≈ ricianmean.(signal(m, θ), σ)
+        @test RicianMean(m; σ, averages = 4).σ == fill(σ / 2, 3)
+        @test RicianMean(m; σ, averages = 4, averaging = :magnitude).σ == fill(σ, 3)
+        @test parameters(RicianMean(m; σ)) == parameters(m) && nobs(RicianMean(m; σ)) == 3
+
+        # crlb of the least-squares fit of magnitude data (riciannoise) against montecarlo:
+        # black holes, protocol A, SNR 20 per direction, the spherical mean a magnitude average.
+        # The floor biases v_ax by about 0.07 (29%, three times its SD); predicted within 10%.
+        kw = riciannoise(m, θ; snr = 20, averages = pr.directions, averaging = :magnitude)
+        c = crlb(m, θ; kw..., weights = pr.directions)
+        mc = montecarlo(m, θ; snr = 20, averages = pr.directions, noise = :rician,
+                        averaging = :magnitude, weights = pr.directions, n = 5000, rng)
+        @test c.bias.vax ≈ mc.bias.vax rtol = 0.1
+        @test c.bias.vax > 2 * c.sd.vax
+        @test c.sd.vax ≈ mc.sd.vax rtol = 0.1
+        @test c.bias.Dax ≈ mc.bias.Dax rtol = 0.15
+        # Fitting the Rician mean itself (σ known) removes the floor's bias
+        Y = simulate(m, θ; snr = 20, averages = pr.directions, noise = :rician, averaging = :magnitude,
+                     n = 2000, rng)
+        rr = fit(RicianMean(m; σ), Y; weights = pr.directions)
+        @test abs(mean(rr.params.vax) - θ.vax) < 0.25 * c.sd.vax
+        @test mean(fit(m, Y; weights = pr.directions).params.vax) - θ.vax > 2 * c.sd.vax
+
+        # The Rician bound against Devan et al. 2020, Fig. 1: with the Rician information, the
+        # v_ax precision efficiency of the five protocols at SNR 20 per direction is their figure
+        # within 9% in every tissue (within 3% but protocol D, 5-8%), where the Gaussian one is up
+        # to 13% off (black holes, A and B)
+        fig1 = (SMT_NWM = (A = 0.90, B = 1.00, C = 1.10, D = 0.865, E = 0.84),
+                SMT_NAWM = (A = 1.10, B = 1.06, C = 1.05, D = 0.83, E = 0.82),
+                SMT_cBH = (A = 0.90, B = 0.905, C = 0.825, D = 0.685, E = 0.68),
+                SMT_T2lesion = (A = 1.11, B = 1.06, C = 0.99, D = 0.79, E = 0.79))
+        for name in keys(fig1), P in keys(SMT_PROTOCOLS)
+            p = SMT_PROTOCOLS[P]
+            ms = SMT(b = p.b)
+            t = nominal(ms, name)
+            sd = ricianbound(ms, t; snr = 20, averages = p.directions, averaging = :magnitude).sd.vax
+            eff = t.vax / (sd * sqrt(sum(p.directions)))
+            @test eff ≈ fig1[name][P] rtol = (P === :D ? 0.09 : 0.05)
+        end
+        # A bound: never below the Gaussian information's SD at the same σ
+        @test ricianbound(m, θ; snr = 20).sd.vax >= crlb(m, θ; snr = 20, weights = ones(3)).sd.vax
+    end
+
+    @testset "Compartments: iso, stick, zeppelin and the powder view, exported by EQUIP" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
+        @test Set(names(EQUIP)) ⊇ Set([:iso, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
+        @test !isdefined(EQUIP, :ball)
+        @test !isdefined(EQUIP, :Blocks) && !isdefined(EQUIP, :decay) && !isdefined(EQUIP, :_decay)
+        @test iso(1000.0, 1e-3) == exp(-1.0) && iso(0.0, 3e-3) == 1 && iso(4000.0, 0.0) == 1    # D = 0: a dot
+        @test stick(1000f0, 2f-3, powder) isa Float32 && stick(1000f0, 2f-3, 0.5f0) isa Float32
+        @test stick(0.0, 2e-3, powder) == 1 && stick(1000.0, 2e-3, 0.0) == 1 && stick(1000.0, 2e-3, 1.0) ≈ exp(-2)
+        @test stick(1000.0, 2e-3, powder) ≈ 0.5981440066613041 rtol = 1e-14                # √π·erf(√2)/(2√2)
+        x, w = GL01                                            # Gauss–Legendre on [0, 1]: the mean over ξ
+        @test stick(2500.0, 2e-3, powder) ≈ sum(w .* [stick(2500.0, 2e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(2500.0, 2e-3, 0.5e-3, powder) ≈ sum(w .* [zeppelin(2500.0, 2e-3, 0.5e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(1000.0, 1e-3, 1e-3, powder) ≈ iso(1000.0, 1e-3)
+        # D⊥ > D∥ (oblate): defined in both views, the spherical mean the mean of the directional one
+        @test zeppelin(1000.0, 0.5e-3, 1e-3, powder) ≈ sum(w .* [zeppelin(1000.0, 0.5e-3, 1e-3, ξ) for ξ in x]) rtol = 1e-12
+        @test zeppelin(1000f0, 0.5f-3, 1f-3, powder) isa Float32
+        # no view: an error that says which to write
+        @test occursin("stick(b, D, powder)", msg(() -> stick(1000.0, 2e-3)))
+        @test occursin("zeppelin(b, D∥, D⊥, powder)", msg(() -> zeppelin(1000.0, 2e-3, 0.5e-3)))
+        # the SMT models are written with them: each one's signal is Kaden's equation written out
+        bs = [0.0, 1000, 2500, 4000]
+        sph(x2) = x2 == 0 ? 1.0 : sqrt(π) * SpecialFunctions.erf(sqrt(x2)) / (2 * sqrt(x2))
+        θs = (S0 = 1.0, vax = 0.6, Dax = 2.0e-3)
+        Dperp = 0.4 * 2.0e-3
+        @test signal(SMT(b = bs), θs) ≈ [0.6 * sph(b * 2e-3) + 0.4 * exp(-b * Dperp) * sph(b * 1.2e-3) for b in bs] rtol = 1e-10
+        bt, tt = [bs; bs], [fill(0.07, 4); fill(0.12, 4)]
+        θt = (; θs..., T2ax = 0.09, T2ex = 0.05)
+        smtt2(b, TE, p) = p.S0 * (p.vax * exp(-TE / p.T2ax) * stick(b, p.Dax, powder) +
+                                  (1 - p.vax) * exp(-TE / p.T2ex) * zeppelin(b, p.Dax, (1 - p.vax) * p.Dax, powder))
+        @test smtt2.(bt, tt, Ref(θt)) ≈ signal(SMTT2(b = bt, TE = tt), θt) rtol = 1e-12
+        # relaxation is written as its equation: exp(-TE / T2) gives T2Decay's fit, from the same
+        # start, to rounding (T2Decay multiplies by the rate 1/T2, this divides by T2)
+        te = collect(0.01:0.01:0.32)
+        m = T2Decay(TE = te)
+        yb2 = simulate(m, (S0 = 1000.0, T2 = 0.08); σ = 5.0, noise = :gaussian, rng = MersenneTwister(21))
+        rb, rm = fit(BlockT2(TE = te), yb2), fit(m, yb2; T2 = Free(start = 0.05))
+        @test rb.params.T2 ≈ rm.params.T2 rtol = 1e-10
+        @test rb.params.S0 ≈ rm.params.S0 rtol = 1e-10
+    end
+
+    @testset "Directions per image: diffusionencoding, fiberdirection, g ⋅ n" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        rng = MersenneTwister(5)
+        # direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
+        # moment I/3, which averages order 2 exactly)
+        dirs = directionset(30)
+        @test length(dirs) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, dirs) && dirs == directionset(30)
+        @test norm(sum(g * g' for g in dirs) / 30 - I / 3) < 1e-6
+        @test length(directionset(1)) == 1
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 4); collect.(dirs); collect.(dirs)])   # 3×64, FSL: 0 0 0 at b = 0
+        bv = [fill(0.0, 2); fill(5.0, 2); fill(1000.0, 30); fill(2500.0, 30)]
+        acq = diffusionencoding(bv, G)
+        @test keys(acq) == (:b, :gx, :gy, :gz) && all(v -> v isa Vector{Float64}, values(acq))
+        @test acq.b == bv && (acq.gx, acq.gy, acq.gz) == (G[1, :], G[2, :], G[3, :])   # b kept as given
+        @test diffusionencoding(bv, permutedims(G)) == acq                           # N×3 too
+        @test diffusionencoding(1:3, [1 0 0; 0 1 0; 0 0 1]).gy == [0, 1, 0]          # 3×3: a .bvec
+        Gc = copy(G); a2 = diffusionencoding(bv, Gc); Gc[1, 5] = 9.0
+        @test a2.gx[5] == G[1, 5]                                                    # copied
+        # mistakes, said with what is wrong
+        @test occursin("one direction per image", msg(() -> diffusionencoding(bv[1:63], G)))
+        @test occursin("3×N or N×3", msg(() -> diffusionencoding(bv, [G; G[1:1, :]])))
+        @test occursin("image 5", msg(() -> diffusionencoding(bv, 2 .* G))) &&
+              occursin("unit vectors", msg(() -> diffusionencoding(bv, 2 .* G)))
+        @test diffusionencoding(bv, 2 .* G; b0threshold = 3000).gx == 2 .* G[1, :]   # (checked above it)
+        # from the files, as dcm2niix writes them
+        dir = mktempdir()
+        write(joinpath(dir, "dwi.bval"), join(bv, " ") * "\n")
+        write(joinpath(dir, "dwi.bvec"), join((join(G[k, :], " ") for k in 1:3), "\n") * "\n")
+        @test diffusionencoding(joinpath(dir, "dwi.bval"), joinpath(dir, "dwi.bvec")) == acq
+        # the directional view: a fiber's direction, and its cosine with a gradient direction
+        n = fiberdirection(0.7, 0.3)
+        @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
+        # the cosine is Julia's dot, exported by EQUIP too (the same function: no clash with LinearAlgebra)
+        @test EQUIP.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(EQUIP)
+        @test Tuple(dirs[3]) ⋅ n ≈ dot(dirs[3], SVector(n))                     # two tuples
+        @test dirs[3] ⋅ n == Tuple(dirs[3]) ⋅ n                                  # or an SVector
+        @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5
+        tdot(g, n) = @allocated g ⋅ n
+        @test (tdot((1.0, 2.0, 3.0), n); tdot((1.0, 2.0, 3.0), n) == 0)
+        # a directional model on it: its signal is the stick and zeppelin written out, no allocation
+        m = DirStickZeppelin(; acq...)
+        θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, θ = 0.7, φ = 0.3)
+        ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
+        Dp = 0.4 * 1.9e-3
+        @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * ξ^2) +
+                                        0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * ξ^2))) rtol = 1e-12
+        out = zeros(64); signal!(out, m, θ)
+        allocs(m, out, θ) = @allocated signal!(out, m, θ)
+        @test allocs(m, out, θ) == 0
+        # fitted in both precisions, from the true direction's neighborhood
+        Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng)
+        for T in (Float64, Float32)
+            r = fit(m, Y; precision = T, θ = Free(start = 0.6), φ = Free(start = 0.2))
+            @test eltype(r.params.vax) == T && count(isconverged, r.status) == 200
+            @test abs(mean(r.params.vax) - 0.6) < 0.01 && abs(mean(r.params.θ) - 0.7) < 0.01
+        end
+        # one 3-vector per image is refused where every fit and signal starts, naming the remedy
+        mv = DirVectors(b = bv, g = [SVector(c...) for c in eachcol(G)])
+        for f in (() -> signal(mv, (S0 = 1.0,)), () -> fit(mv, Y), () -> nobs(mv))
+            @test occursin("the field `g` holds", msg(f)) && occursin("diffusionencoding", msg(f))
+        end
+    end
+
+    @testset "DTI: the diffusion tensor, written out, from the log-linear start" begin
+        rng = MersenneTwister(8)
+        dirs = directionset(30)
+        bv = [fill(0.0, 6); fill(1000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(dirs)])       # 3×36, as a .bvec
+        m = DTI(; diffusionencoding(bv, G)...)
+        @test nobs(m) == 36 && keys(parameters(m)) == (:S0, :Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        # a rotated prolate tensor (eigenvalues 1.7, 0.4, 0.3e-3 mm²/s): S0·exp(−b·gᵀDg), no allocation
+        Q = Matrix(qr(randn(rng, 3, 3)).Q)
+        D = Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q'
+        θ = (S0 = 1000.0, Dxx = D[1, 1], Dyy = D[2, 2], Dzz = D[3, 3], Dxy = D[1, 2], Dxz = D[1, 3], Dyz = D[2, 3])
+        @test signal(m, θ) ≈ [1000 * exp(-bv[j] * (G[:, j]' * D * G[:, j])) for j in 1:36] rtol = 1e-12
+        out = zeros(36)
+        allocs(m, out, θ) = @allocated signal!(out, m, θ)
+        @test (allocs(m, out, θ); allocs(m, out, θ) == 0)
+        # the start, `:loglinear` (the weighted log-linear fit, from the signal): the tensor itself
+        # from noise-free data, in both precisions; no allocation in a voxel's fit
+        y = signal(m, θ)
+        start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
+        for (T, tol) in ((Float64, 1e-12), (Float32, 1e-5))
+            s = start(m, T.(y); precision = T)
+            @test eltype(s.Dxx) == T && all(k -> abs(s[k] - θ[k]) < tol * 1.7e-3, keys(θ)[2:7])
+        end
+        c = init(m)
+        allocfit(c, y) = @allocated fit!(c, y)
+        @test (allocfit(c, y); allocfit(c, y) == 0)
+        # on noisy data: the two passes written out, OLS then WLS weighted by OLS's predicted
+        # signal (DIPY's WLS); with the off-diagonal elements fixed, the same on the diagonal's
+        # columns; with a tie (Dzz = Dyy), on the two columns merged; with Dxx started from a map,
+        # Dxx held at the map's values and the others fitted to ln y − Xₓₓ·Dxx, the weights from
+        # the whole prediction
+        X = [ones(36) -bv .* G[1, :] .^ 2 -bv .* G[2, :] .^ 2 -bv .* G[3, :] .^ 2 -2bv .* G[1, :] .* G[2, :] -2bv .* G[1, :] .* G[3, :] -2bv .* G[2, :] .* G[3, :]]
+        twopass(X, l, off = 0) = (u = X \ l; w = exp.(X * u .+ off); (w .* X) \ (w .* l))
+        yn = simulate(m, θ; snr = 30, n = 1, noise = :rician, rng = MersenneTwister(21))[1, :]
+        tol = 1e-12 * 1.7e-3
+        u = twopass(X, log.(yn))
+        sn = start(m, yn)
+        @test all(k -> abs(sn[k] - u[k]) < tol, 2:7) && keys(sn)[2:7] == (:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        sf, uf = start(m, yn; Dxy = 0.0, Dxz = 0.0, Dyz = 0.0), twopass(X[:, 1:4], log.(yn))
+        @test keys(sf) == (:S0, :Dxx, :Dyy, :Dzz) && all(k -> abs(sf[k] - uf[k]) < tol, 2:4)
+        st, ut = start(m, yn; Dzz = Fixed(:Dyy)), twopass([X[:, 1:2] X[:, 3] .+ X[:, 4] X[:, 5:7]], log.(yn))
+        @test all(k -> abs(st[k] - ut[k]) < tol, 2:6) && keys(st)[2:6] == (:Dxx, :Dyy, :Dxy, :Dxz, :Dyz)
+        Yn = simulate(m, θ; snr = 30, n = 3, noise = :rician, rng = MersenneTwister(22))
+        dxx = [1.5e-3, 1.6e-3, 1.7e-3]
+        sm = fit(m, Yn; solver = LM(maxiter = 0), Dxx = Free(start = dxx)).params
+        @test sm.Dxx == dxx
+        for i in 1:3
+            ui = twopass(X[:, [1, 3, 4, 5, 6, 7]], log.(Yn[i, :]) .- X[:, 2] .* dxx[i], X[:, 2] .* dxx[i])
+            @test all(k -> abs(sm[k][i] - ui[k - 1]) < tol, 3:7)
+        end
+        # ... where the data cannot give all six: directions in one plane give the in-plane
+        # elements (the others, unmeasured, stay at 0); one shell with no b = 0 gives none
+        inplane = [[cos(a), sin(a), 0.0] for a in range(0, π; length = 13)[1:12]]
+        mp = DTI(; diffusionencoding([0.0; fill(1000.0, 12)], reduce(hcat, [[[0.0, 0.0, 0.0]]; inplane]))...)
+        sp = start(mp, signal(mp, θ))
+        @test all(k -> abs(sp[k] - θ[k]) < 1e-12 * 1.7e-3, (:Dxx, :Dyy, :Dxy)) && sp.Dzz == sp.Dxz == sp.Dyz == 0
+        m1 = DTI(; diffusionencoding(fill(1000.0, 30), reduce(hcat, collect.(dirs)))...)
+        s1 = start(m1, signal(m1, θ))
+        @test all(k -> s1[k] == 0, keys(θ)[2:7]) && s1.S0 > 0
+        @test all(k -> start(m, -y)[k] == 0, keys(θ)[2:7])                  # no positive data
+        # what is read off the tensor (`derived`): MD, FA, AD and RD against the eigenvalues; no
+        # allocation; differentiable with dual numbers (FA's gradient against finite differences)
+        λ, Ev = eigen(Symmetric(D))
+        dv = derived(m, θ)
+        @test keys(dv) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z)
+        # the principal eigenvector, in the upper hemisphere (z ≥ 0): D·e1 = λ1·e1, unit length
+        e1 = [dv.V1x, dv.V1y, dv.V1z]
+        @test D * e1 ≈ λ[3] * e1 rtol = 1e-10
+        @test norm(e1) ≈ 1 && dv.V1z >= 0 && abs(dot(e1, Ev[:, 3])) ≈ 1
+        @test EQUIP._upperhemisphere(SVector(0.6, 0.0, -0.8)) == SVector(-0.6, -0.0, 0.8)
+        @test EQUIP._upperhemisphere(SVector(0.6, -0.8, 0.0)) == SVector(-0.6, 0.8, -0.0)
+        @test dv.MD ≈ mean(λ) rtol = 1e-12
+        @test dv.FA ≈ sqrt(1.5 * sum((λ .- mean(λ)) .^ 2) / sum(λ .^ 2)) rtol = 1e-12
+        @test dv.AD ≈ λ[3] rtol = 1e-12
+        @test dv.RD ≈ (λ[1] + λ[2]) / 2 rtol = 1e-12
+        allocd(m, θ) = @allocated derived(m, θ)
+        @test (allocd(m, θ); allocd(m, θ) == 0)
+        names6 = (:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        faof(x) = derived(m, merge(θ, NamedTuple{names6}(Tuple(x)))).FA
+        x0 = [θ[k] for k in names6]
+        gfa = ForwardDiff.gradient(faof, x0)
+        h = 1e-9
+        gfd = [(faof(x0 .+ h .* (1:6 .== k)) - faof(x0 .- h .* (1:6 .== k))) / 2h for k in 1:6]
+        @test gfa ≈ gfd rtol = 1e-5
+        # for a fit: numbers for one voxel; for a dataset, maps (NaN outside the mask), each voxel's
+        # its own parameters'; nothing for a model that derives nothing
+        r1 = fit(m, y)
+        @test derived(r1) == derived(m, resolve(r1))
+        Yd = simulate(m, θ; snr = 50, n = 20, noise = :rician, rng = MersenneTwister(23))
+        maskd = [isodd(i) for i in 1:20]
+        rd = fit(m, Yd; mask = maskd)
+        dd = derived(rd)
+        @test keys(dd) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z) && size(dd.FA) == (20,) && eltype(dd.FA) == Float64
+        @test all(isnan, dd.FA[.!maskd]) && all(i -> dd.FA[i] == derived(m, resolve(rd, i)).FA, findall(maskd))
+        @test eltype(derived(fit(m, Yd; precision = Float32)).MD) == Float32
+        @test derived(fit(T2Decay(TE = [0.01, 0.02, 0.04]), [900.0, 800.0, 650.0])) === nothing
+        # fitted in both precisions: the truth on average, the SD that crlb predicts, and the same
+        # fits as from a constant start
+        Y = simulate(m, θ; snr = 50, n = 300, noise = :gaussian, rng)
+        c = crlb(m, θ; snr = 50)
+        const0 = (Dxx = Free(start = 1e-3), Dyy = Free(start = 1e-3), Dzz = Free(start = 1e-3),
+                  Dxy = Free(start = 0.0), Dxz = Free(start = 0.0), Dyz = Free(start = 0.0))
+        for T in (Float64, Float32)
+            r = fit(m, Y; precision = T)
+            @test eltype(r.params.Dxx) == T && count(isconverged, r.status) == 300
+            for k in keys(const0)
+                @test abs(mean(r.params[k]) - θ[k]) < 4 * c.sd[k] / sqrt(300)
+                @test std(r.params[k]) ≈ c.sd[k] rtol = 0.15
+            end
+            rc = fit(m, Y; precision = T, const0...)
+            @test all(k -> maximum(abs.(r.params[k] .- rc.params[k])) < (T == Float64 ? 1e-6 : 1e-3) * 1.7e-3, keys(const0))
+        end
+    end
+
+    @testset "Derived quantities in crlb and montecarlo: after the parameters, by the delta method" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        te = collect(0.01:0.01:0.16)
+        # R2 = 1/T2 after the parameters in every named tuple: its SD SD(T2)/T2² (the delta
+        # method), its bias the change in 1/T2 when the fit assumes something wrong; the
+        # parameters' own numbers, covariance, cond and cor as without it
+        m = DerivedT2(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.05)
+        c, c0 = crlb(m, θ; snr = 100), crlb(BlockT2(TE = te), θ; snr = 100)    # (BlockT2: none)
+        @test keys(c.sd) == (:S0, :T2, :R2) && keys(c0.sd) == (:S0, :T2)
+        @test c.sd.S0 == c0.sd.S0 && c.sd.T2 == c0.sd.T2 && vcov(c) == vcov(c0)
+        @test c.sd.R2 ≈ c.sd.T2 / θ.T2^2 rtol = 1e-12
+        @test c.fit.R2 ≈ 20 && c.bias.R2 == 0 && c.relsd.R2 ≈ c.sd.R2 / 20
+        @test stderror(c) == stderror(c0) && cond(c) == cond(c0) && cor(c) == cor(c0)
+        cb = crlb(m, θ; snr = 100, S0 = 950.0)          # S0 assumed 5% low: T2 biased, R2 with it
+        @test keys(cb.sd) == (:T2, :R2)
+        @test cb.fit.R2 ≈ 1 / cb.fit.T2 rtol = 1e-12
+        @test cb.bias.R2 ≈ 1 / cb.fit.T2 - 20 rtol = 1e-10
+        @test cb.rmse.R2 ≈ hypot(cb.bias.R2, cb.sd.R2)
+        @test occursin("derived from the parameters", sprint(show, MIME"text/plain"(), c))
+        @test !occursin("derived", sprint(show, MIME"text/plain"(), c0))
+        # in a sweep's table, a row per derived quantity, with its true value
+        s = crlb(m, θ; snr = [50, 100])
+        @test length(s.rows) == 6 && s.rows[3].parameter == :R2 && s.rows[3].truth ≈ 20
+        @test s.rows[6].sd ≈ c.sd.R2 rtol = 1e-12
+        # montecarlo: the same statistics of each copy's 1/T2, against crlb's
+        mc = montecarlo(m, θ; snr = 100, noise = :gaussian, n = 2000, rng = MersenneTwister(41))
+        r2 = 1 ./ mc.result.params.T2
+        @test keys(mc.sd) == keys(c.sd) && keys(mc.crlb.sd) == keys(c.sd)
+        @test mc.mean.R2 ≈ mean(r2) && mc.sd.R2 ≈ std(r2) && mc.bias.R2 ≈ mean(r2) - 20
+        @test mc.se_sd.R2 ≈ mc.sd.R2 / sqrt(2 * 1999)
+        @test abs(mc.sd.R2 / c.sd.R2 - 1) < 4 * mc.se_sd.R2 / c.sd.R2
+        @test length(stderror(mc)) == 2 && size(vcov(mc)) == (2, 2)
+        @test occursin("derived from each copy's fit", sprint(show, MIME"text/plain"(), mc))
+        sm = montecarlo(m, θ; snr = [50, 100], noise = :gaussian, n = 200, rng = MersenneTwister(43))
+        @test length(sm.rows) == 6 && sm.rows[3].parameter == :R2 && sm.rows[3].truth ≈ 20
+        # a derived quantity named as a parameter: refused
+        @test occursin("the name of a parameter", msg(() -> crlb(ClashT2(TE = te), θ; snr = 100)))
+        # DTI (a rotated tensor, eigenvalues 1.7, 0.4, 0.3e-3 mm²/s): the seven quantities by the
+        # delta method, ∇g·C·∇gᵀ with ∇g through `derived` (written out here); MD, FA, AD and RD
+        # within Monte Carlo's standard errors of the fits' SDs. (V1 is not compared: each fit's is
+        # folded into the upper hemisphere, which crlb's derivative does not see.)
+        bv = [fill(0.0, 6); fill(1000.0, 30)]
+        md = DTI(; diffusionencoding(bv, reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(directionset(30))]))...)
+        Q = Matrix(qr(randn(MersenneTwister(8), 3, 3)).Q)
+        D = Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q'
+        θd = (S0 = 1000.0, Dxx = D[1, 1], Dyy = D[2, 2], Dzz = D[3, 3], Dxy = D[1, 2], Dxz = D[1, 3], Dyz = D[2, 3])
+        cd = crlb(md, θd; snr = 30)
+        names = (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z)
+        @test keys(cd.sd) == (keys(θd)..., names...) && length(stderror(cd)) == 7
+        ∇ = ForwardDiff.jacobian(x -> collect(values(derived(md, NamedTuple{keys(θd)}(Tuple(x))))), collect(values(θd)))
+        sdd = sqrt.(diag(∇ * vcov(cd) * ∇'))
+        @test all(j -> isapprox(cd.sd[names[j]], sdd[j]; rtol = 1e-10), 1:7)
+        @test all(k -> cd.bias[k] == 0 && cd.fit[k] ≈ derived(md, θd)[k], names)
+        mcd = montecarlo(md, θd; snr = 30, noise = :gaussian, n = 3000, rng = MersenneTwister(42))
+        for k in (:MD, :FA, :AD, :RD)
+            @test abs(mcd.sd[k] / cd.sd[k] - 1) < 4 * mcd.se_sd[k] / cd.sd[k]
+        end
+    end
+
+    @testset "Truths from derived quantities (nominal), and derivatives where eigenvalues are equal" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        FD = EQUIP.ForwardDiff
+        n = fiberdirection(0.3, 1.2)
+        # DTI: an axially symmetric tensor from (MD, FA) or (AD, RD) and its axis; `derived` gives
+        # them back, V1 the axis (in the upper hemisphere)
+        bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(directionset(30)); collect.(directionset(30))])
+        mt = DTI(; diffusionencoding(bv[1:36], G[:, 1:36])...)
+        θ = nominal(DTI; S0 = 1000.0, MD = 0.8e-3, FA = 0.7, direction = n)
+        d = derived(mt, θ)
+        @test keys(θ) == keys(parameters(DTI)) && θ.S0 == 1000
+        @test d.MD ≈ 0.8e-3 rtol = 1e-12
+        @test d.FA ≈ 0.7 rtol = 1e-12
+        @test d.RD ≈ d.MD - (d.AD - d.MD) / 2 rtol = 1e-10
+        @test abs(dot([d.V1x, d.V1y, d.V1z], collect(n))) ≈ 1 rtol = 1e-12
+        θx = nominal(mt; AD = 1.7e-3, RD = 0.35e-3, direction = (2, 0, 0))     # any length
+        @test θx == (S0 = 1.0, Dxx = 1.7e-3, Dyy = 0.35e-3, Dzz = 0.35e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
+        # what it refuses, and what it says
+        @test occursin("give the direction", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7)))
+        @test occursin("MD and FA together", msg(() -> nominal(DTI; MD = 0.8e-3, direction = n)))
+        @test occursin("not both", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, AD = 1e-3, RD = 1e-4, direction = n)))
+        @test occursin("unknown `Fa`", msg(() -> nominal(DTI; Fa = 0.7)))
+        @test occursin("oblate", msg(() -> nominal(DTI; AD = 0.3e-3, RD = 0.5e-3, direction = n)))
+        @test occursin("0 ≤ FA < 1", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 1.0, direction = n)))
+        @test occursin("three finite numbers", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, direction = (0, 0, 0))))
+        @test occursin("give one or the other", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, direction = n, Dxx = 1e-3)))
+        @test occursin("unknown parameter `FA`", msg(() -> nominal(T2Decay; T2 = 0.08, FA = 0.7)))  # no hook
+        # DKI: D as DTI's; W isotropic from MKT alone, the same whatever the axis (V1111 = MD²·MKT,
+        # V1122 = MD²·MKT/3), or axially symmetric about it from MK, AK and RK, given back
+        mk = DKI(; diffusionencoding(bv, G)...)
+        θi = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MKT = 1.0)
+        MD2 = ((1.7e-3 + 0.7e-3) / 3)^2
+        @test θi.V1111 ≈ MD2 && θi.V2222 ≈ MD2 && θi.V1122 ≈ MD2 / 3 && abs(θi.V1123) < 1e-12 * MD2
+        @test derived(mk, θi).MKT ≈ 1 rtol = 1e-12
+        θi2 = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = n, MKT = 1.0)
+        V(p) = [p[k] for k in keys(p)[8:22]]
+        @test V(θi2) ≈ V(θi) rtol = 1e-10
+        θk = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 1.0, AK = 0.8, RK = 1.3)
+        dk = derived(mk, θk)
+        @test all(k -> isapprox(dk[k], (MK = 1.0, AK = 0.8, RK = 1.3)[k]; rtol = 1e-10), (:MK, :AK, :RK))
+        @test dk.AD ≈ 1.7e-3 rtol = 1e-12
+        @test dk.RD ≈ 0.35e-3 rtol = 1e-12
+        W = V(θk) ./ dk.MD^2                     # symmetric about n: the same K at each angle to it
+        W4(x) = dot(EQUIP._kurtosisweights(x...), W)
+        u = normalize(cross(collect(n), [1.0, 0, 0])); w = cross(collect(n), u)
+        ring = [W4(cos(0.4) .* collect(n) .+ sin(0.4) .* (cos(φ) .* u .+ sin(φ) .* w)) for φ in 0:0.5:3]
+        @test maximum(ring) - minimum(ring) < 1e-10 * maximum(abs, ring)
+        @test occursin("the kurtosis: give MKT", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 1.0)))
+        @test occursin("outside [−3/7, 10]", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 11.0, AK = 1.0, RK = 1.0)))
+        @test occursin("no value for `V1111`", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n)))
+        # the eigensolver's derivatives (perturbation theory, `_symeigen`): DTI's quantities against
+        # central differences for a rotated tensor with distinct eigenvalues, and for an exactly
+        # prolate one (λ2 = λ3), where differentiating the closed form gave NaN; second
+        # derivatives through nested duals; an oblate one (λ1 = λ2): AD, RD and V1 NaN (e1 is not
+        # defined), MD and FA not
+        Q = Matrix(qr(randn(MersenneTwister(8), 3, 3)).Q)
+        el(D) = [D[1, 1], D[2, 2], D[3, 3], D[1, 2], D[1, 3], D[2, 3]]
+        mat(x) = SMatrix{3,3}(x[1], x[4], x[5], x[4], x[2], x[6], x[5], x[6], x[3])
+        q(x) = collect(values(first(EQUIP._tensorindices(mat(x)))))
+        central(f, x, h) = reduce(hcat, [(f(x .+ h .* (1:6 .== k)) .- f(x .- h .* (1:6 .== k))) ./ 2h for k in 1:6])
+        for λ in ([1.7e-3, 0.4e-3, 0.3e-3], [1.7e-3, 0.4e-3, 0.4e-3])
+            x = el(Q * Diagonal(λ) * Q')
+            J = FD.jacobian(q, x)
+            @test all(isfinite, J)
+            @test J ≈ central(q, x, 1e-10) rtol = 1e-6
+        end
+        x3 = el(Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q')
+        gad(x) = FD.gradient(y -> q(y)[3], x)
+        @test FD.jacobian(gad, x3) ≈ central(gad, x3, 1e-10) rtol = 1e-6
+        Jo = FD.jacobian(q, el(Q * Diagonal([1.7e-3, 1.7e-3, 0.4e-3]) * Q'))
+        @test all(isfinite, Jo[1:2, :]) && all(isnan, Jo[3:7, :])
+        # DKI at its axially symmetric truth (D prolate, W symmetric about the axis): MK, AK and
+        # RK differentiable, against central differences in random directions; with W made
+        # asymmetric, MK's and RK's derivatives NaN (the basis in D's equal pair matters), AK's not
+        names = keys(θk)[2:22]
+        x0 = [θk[k] for k in names]
+        ind(x) = (r = derived(mk, merge(θk, NamedTuple{names}(Tuple(x)))); [r.MK, r.AK, r.RK, r.AD, r.RD])
+        J = FD.jacobian(ind, x0)
+        rng = MersenneTwister(5)
+        for _ in 1:3
+            v = randn(rng, 21) .* abs.(x0 .+ 1e-4 * maximum(abs, x0))
+            @test J * v ≈ (ind(x0 .+ 1e-6 .* v) .- ind(x0 .- 1e-6 .* v)) ./ 2e-6 rtol = 1e-7
+        end
+        θa = merge(θk, (V2223 = 0.1 * θk.V1111,))
+        Ja = FD.jacobian(ind, [θa[k] for k in names])
+        @test all(isnan, Ja[1, :]) && all(isnan, Ja[3, :]) && all(isfinite, Ja[2, :])
+        # G1 and G2 without their cancellation: DIPY's forms where those are accurate, and their
+        # limits at b = c; RK where λ2 and λ3 are 1e-7 apart, its value at equality (DIPY's form: 3% off)
+        G1d(a, b, c) = (a + b + c)^2 / (18b * (b - c)^2) * (2b + (c^2 - 3b * c) / sqrt(b * c))
+        G2d(a, b, c) = (a + b + c)^2 / (3 * (b - c)^2) * ((b + c) / sqrt(b * c) - 2)
+        @test EQUIP._G1(1.7, 0.4, 0.3) ≈ G1d(1.7, 0.4, 0.3) rtol = 1e-12
+        @test EQUIP._G2(1.7, 0.4, 0.3) ≈ G2d(1.7, 0.4, 0.3) rtol = 1e-12
+        @test EQUIP._G1(1.7, 0.4, 0.4) ≈ (1.7 + 0.8)^2 / (24 * 0.16) rtol = 1e-14
+        @test EQUIP._G2(1.7, 0.4, 0.4) ≈ (1.7 + 0.8)^2 / (12 * 0.16) rtol = 1e-14
+        θn = merge(θi, (Dzz = 0.35e-3 * (1 - 1e-7),))
+        @test derived(mk, θn).RK ≈ derived(mk, θi).RK rtol = 1e-6
+        # crlb at the axially symmetric truth, along x (V's off-diagonal elements and the pairs
+        # fixed at the truth's: P = 10, as the DKI test set's): MK, AK and RK finite (NaN before),
+        # against 400 fits
+        θxk = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MK = 1.0, AK = 0.8, RK = 1.3)
+        fixk = NamedTuple{(:V1112, :V1113, :V1222, :V2223, :V1333, :V2333, :V1123, :V1223, :V1233, :V1122, :V1133, :V2233)}(
+            map(k -> θxk[k], (:V1112, :V1113, :V1222, :V2223, :V1333, :V2333, :V1123, :V1223, :V1233, :V1122, :V1133, :V2233)))
+        ck = crlb(mk, θxk; snr = 200, fixk...)
+        @test all(k -> isfinite(ck.sd[k]) && ck.sd[k] > 0, (:MK, :AK, :RK, :AD, :RD))
+        Yk = simulate(mk, θxk; snr = 200, n = 400, noise = :gaussian, rng = MersenneTwister(33))
+        dkf = derived(fit(mk, Yk; fixk...))
+        for k in (:MK, :AK, :RK)
+            @test std(dkf[k]) ≈ ck.sd[k] rtol = 0.15
+        end
+    end
+
+    @testset "The log-linear start, :loglinear, from the model's own signal" begin
+        b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
+        start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
+        # ADCDecay: ln S is linear in ADC. The start is the two passes, OLS then WLS weighted by
+        # OLS's predicted signal (written out here): on noise-free data the truth; the fit's own
+        # weights all 2, the same start
+        m = ADCDecay(b = b)
+        ll = (ADC = Free(start = :loglinear, lower = 0),)
+        @test start(m, signal(m, (S0 = 1000.0, ADC = 0.8e-3)); ll...).ADC ≈ 0.8e-3 rtol = 1e-12
+        twopass(X, y) = (u = X \ log.(y); w = exp.(X * u); (w .* X) \ (w .* log.(y)))
+        y = simulate(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40, n = 1, noise = :rician, rng = MersenneTwister(3))[1, :]
+        @test start(m, y; ll...).ADC ≈ twopass([ones(8) -b], y)[2] rtol = 1e-12
+        @test start(m, y; weights = fill(2.0, 8), ll...).ADC ≈ start(m, y; ll...).ADC rtol = 1e-12
+        # bounds hold in the start: an upper bound below the truth is where the start stops (and
+        # the fit, which reports convergence there); a signal rising with b starts at the lower 0
+        y0 = signal(m, (S0 = 1000.0, ADC = 0.8e-3))
+        llu = (ADC = Free(start = :loglinear, lower = 0, upper = 0.5e-3),)
+        @test start(m, y0; llu...).ADC == 0.5e-3
+        ru = fit(m, y0; llu...)
+        @test ru.params.ADC == 0.5e-3 && isconverged(ru)
+        @test start(m, reverse(y0); ll...).ADC == 0
+        # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is not linear in (ADC, K), so the two
+        # passes are two Gauss–Newton steps (K, whose column is zero at ADC = 0, moves in the
+        # second only): an approximate start, from which the fit reaches the same minimum as from
+        # the model's own start
+        mk = ADCKurtosis(b = b)
+        llk = (ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
+        θk = (S0 = 1000.0, ADC = 1e-3, K = 0.9)
+        yk = simulate(mk, θk; snr = 80, n = 1, noise = :gaussian, rng = MersenneTwister(4))[1, :]
+        sk = start(mk, yk; llk...)
+        @test isfinite(sk.ADC) && 0 <= sk.K <= 3
+        rk, rd = fit(mk, yk; llk...), fit(mk, yk)
+        @test isconverged(rk) && isconverged(rd)
+        @test rk.params.ADC ≈ rd.params.ADC rtol = 1e-6
+        @test rk.params.K ≈ rd.params.K rtol = 1e-5
+        # where it cannot work, an error at once rather than a fit stuck at a bound: a time
+        # constant (T2 = 0 is no signal) and a signal that changes sign (real-valued IR)
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        te = collect(0.01:0.01:0.32)
+        e1 = msg(() -> fit(T2Decay(TE = te), signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08)); T2 = Free(start = :loglinear)))
+        @test occursin("`T2` start at :loglinear", e1) && occursin("R2, not T2", e1)
+        mir = R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2], magnitude = false)
+        @test occursin("not positive and finite", msg(() -> fit(mir, signal(mir, (M0 = 1000.0, Sf = -0.95, R1 = 1.1)); R1 = Free(start = :loglinear))))
+        # and where it suits, a rate: R2Decay's start is the log-linear fit's
+        mr = R2Decay(TE = te)
+        @test start(mr, signal(mr, (S0 = 1000.0, R2 = 12.5)); R2 = Free(start = :loglinear, lower = 0)).R2 ≈ 12.5 rtol = 1e-12
+        # a start Free accepts, and names among the others
+        @test Free(start = :loglinear).start === :loglinear
+        @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))
+    end
+
+    @testset "DKI: the start's two passes, Float32 at 22 parameters, and MK, AK, RK as DIPY's" begin
+        dirs = directionset(30)
+        bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(dirs); collect.(dirs)])
+        m = DKI(; diffusionencoding(bv, G)...)
+        VN = (:V1111, :V2222, :V3333, :V1112, :V1113, :V1222, :V2223, :V1333, :V2333,
+              :V1122, :V1133, :V2233, :V1123, :V1223, :V1233)
+        MD2 = (0.8e-3)^2                     # D's eigenvalues 1.7, 0.4, 0.3e-3; isotropic K = 1
+        θ = merge((S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0),
+                  NamedTuple{VN}((MD2, MD2, MD2, 0, 0, 0, 0, 0, 0, MD2 / 3, MD2 / 3, MD2 / 3, 0, 0, 0)))
+        Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng = MersenneTwister(31))
+        # the start: OLS then WLS on the design matrix of DIPY's dki_design_matrix, ln S0 first
+        X = zeros(66, 22)
+        for j in 1:66
+            g1, g2, g3 = G[:, j]
+            X[j, 1] = 1
+            X[j, 2:7] = -bv[j] .* [g1^2, g2^2, g3^2, 2g1 * g2, 2g1 * g3, 2g2 * g3]
+            X[j, 8:22] = bv[j]^2 .* EQUIP._kurtosisweights(g1, g2, g3) ./ 6
+        end
+        y = Y[1, :]
+        u = (X \ log.(y)); w = exp.(X * u); u = (w .* X) \ (w .* log.(y))
+        s = fit(m, y; solver = LM(maxiter = 0)).params
+        @test all(k -> abs(s[k] - u[k]) < 1e-10 * abs(u[k]) + 1e-12 * 1.7e-3, 2:7)
+        @test all(k -> abs(s[k] - u[k]) < 1e-10 * abs(u[k]) + 1e-12 * MD2, 8:22)
+        # Float32 against Float64: every voxel converged in both; within a hundredth of an SD
+        r64, r32 = fit(m, Y), fit(m, Float32.(Y); precision = Float32)
+        @test count(isconverged, r64.status) == 200 && count(isconverged, r32.status) == 200
+        @test eltype(r32.params.V1111) == Float32
+        for k in (:Dxx, :Dxy, :V1111, :V1122, :V1123)
+            @test maximum(abs.(r32.params[k] .- r64.params[k])) < 0.01 * std(r64.params[k])
+        end
+        # The indices. DIPY 1.12.1's own values, from its fit methods' defaults (analytic; K
+        # clipped to [−3/7, 10]; 0 where an eigenvalue is not positive), for tensors reaching each
+        # branch: D's six elements in EQUIP's order, W's fifteen in DIPY's (= V's / MD²). MK to
+        # 1e-4 (DIPY's Carlson tolerances leave it up to 4e-5 off; EQUIP's are tighter), the
+        # others to 1e-10; for an oblate tensor (λ1 = λ2) the principal direction is undefined,
+        # so only MK and MKT are compared.
+        ref = [
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (1.3, 0.8, 1.1, 0.05, -0.04, 0.03, 0.02, -0.06, 0.04, 0.3833333333333333, 0.30333333333333334, 0.35333333333333333, 0.01, -0.02, 0.03),
+             (MK = 1.985126560318915, AK = 0.25190150071599327, RK = 4.928360541116469, MKT = 1.056), true),
+            ((1.00630090511318e-3, 4.0079204446461897e-4, 9.929070504222013e-4, -1.8257837975696443e-4, -6.495694567140111e-4, 1.807057372959184e-4),
+             (1.05, 0.8, 0.95, 0.025, -0.02, 0.015, 0.01, -0.03, 0.02, 0.325, 0.285, 0.31, 0.005, -0.01, 0.015),
+             (MK = 1.7884832070798407, AK = 0.21453206523688922, RK = 4.527171910218768, MKT = 0.928), true),
+            ((9.887202716779727e-4, 4.1513374418994744e-4, 8.961459841320801e-4, 8.122273370343272e-5, -3.422637994503159e-5, 2.4645630324970035e-4),
+             (0.85, 0.6, 0.75, 0.025, -0.02, 0.015, 0.01, -0.03, 0.02, 0.2583333333333333, 0.21833333333333332, 0.24333333333333332, 0.005, -0.01, 0.015),
+             (MK = 0.96582247883616, AK = NaN, RK = NaN, MKT = 0.728), false),
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (40.0, 40.0, 40.0, 0, 0, 0, 0, 0, 0, 40 / 3, 40 / 3, 40 / 3, 0, 0, 0),
+             (MK = 10.0, AK = 8.858131487889272, RK = 10.0, MKT = 10.0), true),
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (-2.0, -2.0, -2.0, 0, 0, 0, 0, 0, 0, -2 / 3, -2 / 3, -2 / 3, 0, 0, 0),
+             (MK = -3 / 7, AK = -3 / 7, RK = -3 / 7, MKT = -3 / 7), true),
+            ((1.0239365153816144e-3, 3.114924633970135e-5, 9.449142382786847e-4, -1.1779997918414874e-4, -6.499587429340172e-4, 3.500531488178132e-4),
+             (1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1 / 3, 1 / 3, 1 / 3, 0, 0, 0),
+             (MK = 0.0, AK = 0.0, RK = 0.0, MKT = 1.0), true)]   # a negative eigenvalue
+        withW(Dl, kt) = (md = (Dl[1] + Dl[2] + Dl[3]) / 3;
+            merge((S0 = 1.0,), NamedTuple{(:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)}(Dl), NamedTuple{VN}(Tuple(md^2 .* kt))))
+        for (Dl, kt, r, frame) in ref
+            d = derived(m, withW(Dl, kt))
+            @test d.MK ≈ r.MK rtol = 1e-4
+            @test d.MKT ≈ r.MKT rtol = 1e-10
+            frame && @test d.AK ≈ r.AK rtol = 1e-10
+            frame && @test d.RK ≈ r.RK rtol = 1e-10
+        end
+        # independent of DIPY, for the first tensor: MK is the mean of K(n) = MD²·W(n)/D(n)² over
+        # the sphere (Gauss–Legendre in z, uniform in φ), RK its mean over the circle ⊥ e1, AK
+        # K(e1); and isotropic D and W give K in all four
+        Dl, kt = ref[1][1], ref[1][2]
+        pg = withW(Dl, kt)
+        D = Symmetric([Dl[1] Dl[4] Dl[5]; Dl[4] Dl[2] Dl[6]; Dl[5] Dl[6] Dl[3]])
+        mdg = tr(D) / 3
+        Kn(n) = mdg^2 * dot(EQUIP._kurtosisweights(n...), collect(kt)) / dot(n, D * n)^2
+        Jg = SymTridiagonal(zeros(64), [k / sqrt(4k^2 - 1) for k in 1:63])
+        zg = eigen(Jg); zs, wz = zg.values, 2 .* zg.vectors[1, :] .^ 2
+        MKavg = sum(wz[i] * sum(Kn([sqrt(1 - zs[i]^2) * cos(φ), sqrt(1 - zs[i]^2) * sin(φ), zs[i]]) for φ in (0:255) .* (π / 128)) / 256 for i in 1:64) / 2
+        Eg = eigen(D)
+        e1, e2, e3 = Eg.vectors[:, 3], Eg.vectors[:, 2], Eg.vectors[:, 1]
+        dg = derived(m, pg)
+        @test dg.MK ≈ MKavg rtol = 1e-9
+        @test dg.RK ≈ mean(Kn(cos(t) .* e2 .+ sin(t) .* e3) for t in (0:719) .* (π / 360)) rtol = 1e-9
+        @test dg.AK ≈ Kn(e1) rtol = 1e-12
+        di = derived(m, withW((0.8e-3, 0.8e-3, 0.8e-3, 0.0, 0.0, 0.0), (1.2, 1.2, 1.2, 0, 0, 0, 0, 0, 0, 0.4, 0.4, 0.4, 0, 0, 0)))
+        @test all(k -> di[k] ≈ 1.2, (:MK, :AK, :RK, :MKT))
+        # D's own, as DTI's; no allocation; differentiable (MK's gradient against finite differences)
+        @test keys(dg) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z, :MK, :AK, :RK, :MKT)
+        @test all(k -> dg[k] == derived(DTI(b = [0.0], gx = [0.0], gy = [0.0], gz = [0.0]), pg)[k], (:MD, :FA, :AD, :RD, :V1x))
+        allocdk(m, p) = @allocated derived(m, p)
+        @test (allocdk(m, pg); allocdk(m, pg) == 0)
+        fmk(x) = derived(m, merge(pg, (Dxx = x[1], V1111 = x[2]))).MK
+        gmk = ForwardDiff.gradient(fmk, [pg.Dxx, pg.V1111])
+        hs = (1e-10, 1e-12)
+        gfd = [(fmk([pg.Dxx + hs[1], pg.V1111]) - fmk([pg.Dxx - hs[1], pg.V1111])) / 2hs[1],
+               (fmk([pg.Dxx, pg.V1111 + hs[2]]) - fmk([pg.Dxx, pg.V1111 - hs[2]])) / 2hs[2]]
+        @test gmk ≈ gfd rtol = 1e-5
+        # and a fit's: the maps, with the truth's on average
+        dr = derived(r64)
+        @test keys(dr) == keys(dg) && abs(mean(dr.MKT) - 1) < 0.02
+        # crlb above the kernel's inlining threshold (P > 8: its pieces called as functions, so
+        # that it compiles; at P = 22 it did not finish in 23 minutes inlined): here P = 10 (V's
+        # off-diagonal elements fixed at the truth's), its SD against 400 fits'
+        fixV = (V1112 = 0.0, V1113 = 0.0, V1222 = 0.0, V2223 = 0.0, V1333 = 0.0, V2333 = 0.0,
+                V1123 = 0.0, V1223 = 0.0, V1233 = 0.0, V1122 = MD2 / 3, V1133 = MD2 / 3, V2233 = MD2 / 3)
+        @test EQUIP._CRLB_INLINE_MAXP < 10
+        c10 = crlb(m, θ; snr = 100, fixV...)
+        Y10 = simulate(m, θ; snr = 100, n = 400, noise = :gaussian, rng = MersenneTwister(32))
+        r10 = fit(m, Y10; fixV...)
+        @test count(isconverged, r10.status) == 400
+        for k in (:Dxx, :Dyy, :V1111, :V3333)
+            @test std(r10.params[k]) ≈ c10.sd[k] rtol = 0.15
+        end
+        # and the indices, by the delta method through the closed forms, against the fits' own
+        d10 = derived(r10)
+        for k in (:MD, :FA, :MK, :AK, :RK, :MKT)
+            @test std(d10[k]) ≈ c10.sd[k] rtol = 0.15
+        end
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

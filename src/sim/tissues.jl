@@ -27,6 +27,11 @@ SIR tissue classes at 3 T (Dortch et al., Magn Reson Med 2018;80:1824, Table 1),
 shared by all classes there (Sm = 0.83, Sf = −1.0; R1m = R1f, QMTSIR's default; M0f = 1 and
 SNR = 200 at thermal equilibrium): `SIR_WM_I`, `SIR_WM_II` (maximum and mean white matter),
 `SIR_GM`, `SIR_lesion` (RRMS lesion).
+
+SMT values in multiple sclerosis (Bagnato et al., Ann Clin Transl Neurol 2019, as summarized by
+Devan et al., Magn Reson Imaging 2020;74:56, Table 1; `vax` as a fraction, `Dax` in mm²/s):
+`SMT_NWM` (normal white matter, internal capsule), `SMT_NAWM` (normal-appearing white matter in
+MS), `SMT_T2lesion` (T2-hyperintense lesion), `SMT_cBH` (chronic black hole, T1-hypointense).
 """
 const TISSUES = (
     # Stanisz et al. 2005, Table 1, 3 T: T1 and T2 (s)
@@ -34,7 +39,7 @@ const TISSUES = (
     muscle = (T1 = 1.412, T2 = 0.050),          # skeletal muscle
     heart = (T1 = 1.471, T2 = 0.047),
     kidney = (T1 = 1.194, T2 = 0.056),
-    cartilage_0 = (T1 = 1.168, T2 = 0.027),     # collagen fibres at 0° to the field
+    cartilage_0 = (T1 = 1.168, T2 = 0.027),     # collagen fibers at 0° to the field
     cartilage_55 = (T1 = 1.156, T2 = 0.043),    # at 55° (the magic angle)
     WM = (T1 = 1.084, T2 = 0.069),
     GM = (T1 = 1.820, T2 = 0.099),
@@ -49,6 +54,11 @@ const TISSUES = (
     SIR_WM_II = (PSR = 0.12, kmf = 10.0, R1f = 1.0, Sf = -1.0, Sm = 0.83),
     SIR_GM = (PSR = 0.08, kmf = 15.0, R1f = 0.7, Sf = -1.0, Sm = 0.83),
     SIR_lesion = (PSR = 0.05, kmf = 20.0, R1f = 0.5, Sf = -1.0, Sm = 0.83),
+    # Devan et al. 2020, Table 1 (from Bagnato et al. 2019): v_ax (fraction), D_ax (μm²/ms → mm²/s)
+    SMT_NWM = (vax = 0.607, Dax = 1.9e-3),
+    SMT_NAWM = (vax = 0.450, Dax = 1.8e-3),
+    SMT_T2lesion = (vax = 0.365, Dax = 1.7e-3),
+    SMT_cBH = (vax = 0.241, Dax = 1.7e-3),
 )
 
 """
@@ -81,6 +91,11 @@ each parameter, the value comes from, in order:
 3. the model, [`parameters`](@ref)`(m)`: a fixed parameter's value ([`defaults`](@ref)`(m)`,
    e.g. QMTSIR's `kmf = 12.5`), 1 for the scale parameter (`M0`, `S0`, `M0f`), and, without a
    tissue, a free parameter's start.
+
+A model with derived quantities can take them in place of its parameters (its
+[`fromderived`](@ref)): `nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0))`
+makes the six elements of an axially symmetric tensor (DTI's and DKI's docstrings say what each
+takes).
 
 Every value is in the result, the model's included, so a script shows everything its data were
 made with. Ties are kept as written (`R1m = :R1f`), so they follow later changes;
@@ -122,7 +137,7 @@ _call(M::Type{<:MRIModel}) = "nominal($(nameof(M))"
 
 function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; changes...)
     roles = _roles(m)                            # a model's starts computed for its acquisition
-    ch = values(changes)                         # the keywords as a named tuple
+    ch = _fromderived(m, values(changes), keys(roles))   # derived quantities → the parameters
     _check_names("nominal(m; ...)", keys(ch), keys(roles))
     _reject_roles(ch)
     function pick(n)                             # the keyword's value, the tissue's, the model's
@@ -138,11 +153,28 @@ function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; change
     return q
 end
 
+# The keywords that are not parameters go to the model's `fromderived` (derived quantities, e.g.
+# DTI's MD and FA, and what else it takes, such as a direction); the parameters it makes join the
+# keywords that are parameters. A parameter both given and made is refused. A model without the
+# hook (`nothing`): the keywords as given, so that `_check_names` names the unknown ones.
+function _fromderived(m::_ModelOrType, ch::NamedTuple, names)
+    extra = Tuple(n for n in keys(ch) if !(n in names))
+    isempty(extra) && return ch                  # the usual case: parameters only
+    made = fromderived(m isa Type ? m : typeof(m), NamedTuple{extra}(map(n -> ch[n], extra)))
+    made === nothing && return ch
+    both = Tuple(n for n in keys(made) if haskey(ch, n))
+    isempty(both) || throw(ArgumentError("$(_modelname(m)): $(join(("`$n`" for n in both), ", ")) " *
+        "given, and also made from $(join(("`$n`" for n in extra), ", ")): give one or the other"))
+    given = Tuple(n for n in keys(ch) if n in names)
+    return merge(NamedTuple{given}(map(n -> ch[n], given)), made)
+end
+
 # A free parameter without a value: say why, how to give it, and what `nominal` takes for every
 # parameter (the table the model's REPL display shows).
 function _nominal_error(m, roles, q, call, starts, missing)
     start(n) = roles[n] isa Free ? roles[n].start : nothing
     why(n) = start(n) === :data ? "it starts from the data" :
+             start(n) === :loglinear ? "it starts from the log-linear fit" :
              start(n) isa BestOf ? "it starts from BestOf values" :
              start(n) isa Function ? "its start is computed from the acquisition" :
              "it has no start"
