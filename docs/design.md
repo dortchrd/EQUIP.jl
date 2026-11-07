@@ -5235,7 +5235,9 @@ numbers are not an order.
        is compiled differs). Single timings vary by up to 40% on the cloud machine (QMTSIR
        5-point once 5.07 µs, rerun 2.88): the table gives the reruns. Tested: crlb at P = 10 in
        the DKI test set, its SD within 15% of 400 fits'. The fit's own `levmar` compiles in about
-       8 s at P = 22; it may meet the same cliff at more parameters.
+       8 s at P = 22; it may meet the same cliff at more parameters. Full runs: EQUIP 2205 (the
+       CLI suite not rerun: the change is inside crlb's kernel, and the command line's crlb
+       models are below the threshold; 124 at the previous change).
      Where it is a mess, and what to do about each:
      - the names: 15 Wᵢⱼₖₗ keywords and their multiplicities, best generated, not typed.
      - the indices: the mean kurtosis tensor, MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 +
