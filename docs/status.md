@@ -8,7 +8,7 @@ measurements behind each item are in docs/design.md (roadmap items by number).
 | branch | what it is | state |
 |---|---|---|
 | `lean` | everything accepted; the prototype chain (SMT through truths from derived quantities) merged on 2026-11-07, commit f3fd99d (lean before it: 5414c60) | Last full runs: EQUIP 2283, CLI 124, MRImages 103 |
-| `derived-sweeps` | the working branch, off `lean`: tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013), `fromderived(M)`, the truth by derived quantities in `Scenario`, `simulate`, `crlb` and `montecarlo`, sweeps over a derived quantity (`vary = :FA => ...`) | to merge when the owner has seen it. Last full runs: EQUIP (running when committed), CLI (running when committed) |
+| `derived-sweeps` | the working branch, off `lean`: tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013), `fromderived(M)`, the truth by derived quantities in `Scenario`, `simulate`, `crlb` and `montecarlo`, sweeps over a derived quantity (`vary = :FA => ...`) | to merge when the owner has seen it. Last full runs: EQUIP 2331, CLI 124 |
 
 **The rule from now on:** one working branch at a time, made from `lean`; merged into `lean`
 when its suites pass and the owner has seen it; then deleted. No chains of prototypes on top of

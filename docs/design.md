@@ -5575,6 +5575,10 @@ numbers are not an order.
      - Measured on the way: DTI fitted to DKI's signal (K = 1 isotropic, b to 2000 s/mm²; MD
        0.8e-3, FA 0.7) by `simulate_with`: MD biased −0.20e-3 (−25%) and FA +0.15, the kurtosis
        the tensor leaves out (why DTI is fitted on b ≤ 1000).
+     - Full runs: EQUIP 2331, CLI 124. (The first run caught a regression the new check made:
+       `scenarios(QMTSIR, ...; vary = :T1 => ...)` said "takes parameters" about derived
+       quantities QMTSIR does not have; now only a name the model's hook takes is refused that
+       way, the rest as before, "not a parameter".)
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
