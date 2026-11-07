@@ -260,12 +260,26 @@ values (static vectors work), as a protocol optimizer needs. `t` from `_crlb_tru
 number, a vector (one variance per observation) or a `_FullNoise` (`_kernelnoise`). With `dm`
 and `dt` the data come from another model (the sandwich only).
 """
+# The kernel's pieces, inlined for models with few free parameters and called as functions for
+# many (roadmap items 11 and 17). Inlined, the pieces' unrolled P×P static-array code becomes one
+# function, and the compiler's time grows much faster than that code's size: the first crlb took
+# 17 s at P = 10, 76 s at P = 13 and did not finish in 23 minutes at P = 22 (DKI), while each
+# piece alone compiles in seconds. Called as functions above `_CRLB_INLINE_MAXP`, which costs the
+# small models' kernel nothing measurable where it is inlined; P is a type parameter, so the
+# choice is made when compiling (the `? :` is folded) and costs nothing at run time.
+# Measurements: docs/design.md, "crlb at many parameters".
+const _CRLB_INLINE_MAXP = 8
+
+macro _piece(call)
+    esc(:(P > _CRLB_INLINE_MAXP ? (@noinline $call) : $call))
+end
+
 _crlb!(c::CRLBCache, m::MRIModel, t::NamedTuple, σ2) = _crlb!(c, m, t, σ2, m, t)
 function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIModel,
                 dt::NamedTuple) where {F,P,T}
     # ① The noise-free fit θ̂, from the truth's free values θt. A parameter it leaves on a bound
     #    is held there: masked by u below (u = 0 for it, 1 for the others).
-    θ̂, θt, r = noisefree!(c, m, t, dm, dt)
+    θ̂, θt, r = @_piece noisefree!(c, m, t, dm, dt)
     pinned = map(_near, θ̂, c.lower) .| map(_near, θ̂, c.upper)
     u = map(p -> ifelse(p, zero(T), one(T)), pinned)
 
@@ -277,7 +291,7 @@ function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIMod
     #    duals): copied, not evaluated again (the unbiased kernel 25–35% faster, results
     #    identical).
     exact = r.sse <= _EXACT^2 * _sumsq(c.y, c.w)      # (weighted: Σwr² against Σwy²)
-    H, G = r.iterations == 0 && iszero(r.sse) && θ̂ == r.θ ? _startrows!(c) : hessian!(c, m, θ̂, exact)
+    H, G = r.iterations == 0 && iszero(r.sse) && θ̂ == r.θ ? (@_piece _startrows!(c)) : (@_piece hessian!(c, m, θ̂, exact))
     Hm = (u * u') .* H + Diagonal(one(T) .- u)
     nan = fill(T(NaN), SMatrix{P,P,T})
     out(C, ∇b) = (fit = θ̂, truth = θt, bias = θ̂ - θt, cov = C, status = r.status, pinned,
@@ -287,23 +301,23 @@ function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIMod
     #    nearly dependent columns of J₀ (`_determined`), or H not positive definite: Inf (no
     #    negative variance hidden by abs(), as in the MATLAB code).
     N = _ncounted(c)                                 # (weighted: the positive weights)
-    _, okH = _cholesky(Hm)
-    (N >= count(!, pinned) && _determined(G, u) && okH) || return out(_infcov(u), nan)
+    _, okH = @_piece _cholesky(Hm)
+    (N >= count(!, pinned) && (@_piece _determined(G, u)) && okH) || return out(_infcov(u), nan)
 
     # ④ The covariance. The sandwich, H⁻¹(J₀ᵀΣJ₀)H⁻¹ ...
     if !c.biased
-        M = exact ? meat(c.jbuf, σ2, u, c.w) : meat(c.hbuf, σ2, u, c.w)    # J₀ᵀWΣWJ₀
-        return out(sandwich(Hm, M), nan)
+        M = exact ? (@_piece meat(c.jbuf, σ2, u, c.w)) : (@_piece meat(c.hbuf, σ2, u, c.w))    # J₀ᵀWΣWJ₀
+        return out((@_piece sandwich(Hm, M)), nan)
     end
     #    ... or Eq. 3: J_t (the true signal's Jacobian at the truth, in `c.fitbuf`), the bias
     #    gradient ∇b = H⁻¹J₀ᵀJ_t − I, and F = J_tᵀΣ⁻¹J_t.
-    attruth!(c.fitbuf, c, m, t, θt)
-    K = exact ? crossgram(c.jbuf, c.fitbuf, u, c.w) : crossgram(c.hbuf, c.fitbuf, u, c.w)
-    ∇b = biasgradient(Hm, K)
-    Fm = information(c.fitbuf, σ2)
-    _, okF = _cholesky(Fm)
-    (N >= P && _determined(Fm, ones(SVector{P,T})) && okF) || return out(_infcov(u), ∇b)
-    return out(biasedcrlb(∇b, Fm), ∇b)
+    @_piece attruth!(c.fitbuf, c, m, t, θt)
+    K = exact ? (@_piece crossgram(c.jbuf, c.fitbuf, u, c.w)) : (@_piece crossgram(c.hbuf, c.fitbuf, u, c.w))
+    ∇b = @_piece biasgradient(Hm, K)
+    Fm = @_piece information(c.fitbuf, σ2)
+    _, okF = @_piece _cholesky(Fm)
+    (N >= P && (@_piece _determined(Fm, ones(SVector{P,T}))) && okF) || return out(_infcov(u), ∇b)
+    return out((@_piece biasedcrlb(∇b, Fm)), ∇b)
 end
 
 # The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A

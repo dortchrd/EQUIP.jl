@@ -3015,6 +3015,19 @@ end
         # and a fit's: the maps, with the truth's on average
         dr = derived(r64)
         @test keys(dr) == keys(dg) && abs(mean(dr.MKT) - 1) < 0.02
+        # crlb above the kernel's inlining threshold (P > 8: its pieces called as functions, so
+        # that it compiles; at P = 22 it did not finish in 23 minutes inlined): here P = 10 (V's
+        # off-diagonal elements fixed at the truth's), its SD against 400 fits'
+        fixV = (V1112 = 0.0, V1113 = 0.0, V1222 = 0.0, V2223 = 0.0, V1333 = 0.0, V2333 = 0.0,
+                V1123 = 0.0, V1223 = 0.0, V1233 = 0.0, V1122 = MD2 / 3, V1133 = MD2 / 3, V2233 = MD2 / 3)
+        @test EQUIP._CRLB_INLINE_MAXP < 10
+        c10 = crlb(m, θ; snr = 100, fixV...)
+        Y10 = simulate(m, θ; snr = 100, n = 400, noise = :gaussian, rng = MersenneTwister(32))
+        r10 = fit(m, Y10; fixV...)
+        @test count(isconverged, r10.status) == 400
+        for k in (:Dxx, :Dyy, :V1111, :V3333)
+            @test std(r10.params[k]) ≈ c10.sd[k] rtol = 0.15
+        end
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

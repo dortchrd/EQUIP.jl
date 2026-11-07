@@ -5209,10 +5209,33 @@ numbers are not an order.
        much faster than that code's size. With the kernel's calls marked `@noinline` (call-site
        annotations, the pieces unchanged): the first crlb 18 s at P = 13 and 46 s at P = 22, then
        0.5 ms a call (`crlb!` on its cache 0.1 ms); W1111's SD 0.242 predicted, 0.250 in the fits.
-       To do (with item 11): don't inline the pieces above some P. P is a type parameter, so
-       `P > 8 ? (@noinline f(x)) : f(x)` costs nothing at run time; measure the small models'
-       kernel (ProtocolDesign calls it millions of times) before and after, and choose the
-       threshold from that. The fit's own `levmar` may meet the same cliff at more parameters.
+       **Done, "crlb at many parameters" (2026-11-07, branch `noinline-proto`):** the kernel's
+       calls go through `@_piece` (src/errors/crlb.jl), which marks them `@noinline` when P >
+       `_CRLB_INLINE_MAXP` = 8 and leaves them inlined otherwise; P is a type parameter, so the
+       `? :` is folded when compiling. Measured (scratch noinline/kernel_speed.jl, one thread,
+       first crlb call in a fresh session, then `crlb!` on its cache; DKI in V with some of V's
+       elements fixed at the truth's for P = 10 and 13):
+
+       | model (P) | first call, all inlined | none inlined | threshold 8 | `crlb!`, all inlined | none inlined | threshold 8 |
+       |---|---|---|---|---|---|---|
+       | T2Decay (2) | 4.9 s | 4.4 s | 4.9 s | 1.02 µs | 1.15 µs | 1.04 µs |
+       | T1IR (3) | 3.0 | 2.9 | 3.0 | 3.42 | 3.91 | 3.37 |
+       | QMTSIR 5-point (4) | 4.0 | 3.9 | 3.8 | 2.95 | 3.07 | 2.88 |
+       | QMTSIR 16-point, kmf free (5) | 4.4 | 3.7 | 4.4 | 4.53 | 4.60 | 4.33 |
+       | SMT (3) | 2.4 | 1.9 | 2.4 | 1.14 | 1.17 | 1.12–1.65 |
+       | DTI (7) | 6.0 | 3.8 | 6.2 | 6.45 | 7.15 | 6.47 |
+       | DKI (10) | 17.0 | 8.4 | 8.3 | 36.4 | 35.7 | 36.1 |
+       | DKI (13) | 76.1 | 10.8 | 10.2 | 48.3 | 46.6 | 48.6 |
+       | DKI (22) | over 23 min | | 39.0 | | | 96.3 |
+
+       Not inlining costs the small models 2–14% of the kernel's time (T2Decay, T1IR, DTI the
+       most), and nothing from P = 10 up; so they keep it, and the threshold sits at 8, where the
+       inlined compile is still seconds (P = 7: 6 s; P = 10: 17 s). The values are bit-identical
+       in every case, inlined, not inlined or at the threshold (the same arithmetic, only how it
+       is compiled differs). Single timings vary by up to 40% on the cloud machine (QMTSIR
+       5-point once 5.07 µs, rerun 2.88): the table gives the reruns. Tested: crlb at P = 10 in
+       the DKI test set, its SD within 15% of 400 fits'. The fit's own `levmar` compiles in about
+       8 s at P = 22; it may meet the same cliff at more parameters.
      Where it is a mess, and what to do about each:
      - the names: 15 Wᵢⱼₖₗ keywords and their multiplicities, best generated, not typed.
      - the indices: the mean kurtosis tensor, MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 +
