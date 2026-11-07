@@ -3728,7 +3728,15 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     would make about 30 GB of garbage, and collecting it stops every thread. (It also needs the
     same care for y ≤ 0: the test crashed on negative data at b = 2500.) The solve itself is a
     library's here too, the factorization of the small static system.
-  - Not yet: examples/dki.jl on `:loglinear`; ADCDecay and ADCKurtosis (their starts are numbers
+  - examples/dki.jl uses it: 69 µs per voxel, 4.6 iterations on average, all 2000 converged,
+    the same means as before (Dxx 1.698e-3, W1111 0.988, W1122 0.332, MKT 0.997);
+    examples/directional_models.jl, on the built-in DTI, the same results as before.
+  - Tests: DTI's start checked through the fit (`LM(maxiter = 0)` returns the start): exact on
+    noise-free data in both precisions, the in-plane and one-shell designs, no positive data, no
+    allocation; and 6 for `:loglinear` itself (ADCDecay's start against `_loglinear_rate`, with
+    and without weights; ADCKurtosis's against the weighted polynomial fit; `Free` accepting it).
+    Full runs: EQUIP 2125, CLI 124.
+  - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
 
