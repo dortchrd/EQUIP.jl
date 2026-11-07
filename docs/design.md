@@ -3736,6 +3736,43 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     allocation; and 6 for `:loglinear` itself (ADCDecay's start against `_loglinear_rate`, with
     and without weights; ADCKurtosis's against the weighted polynomial fit; `Free` accepting it).
     Full runs: EQUIP 2125, CLI 124.
+  - **Against DIPY** (2026-11-07, the owner's question; DIPY 1.12.1, NumPy 2.5, SciPy 1.18, cvxpy for
+    its DKI NLS; scratch dipycmp/equip_side.jl and dipy_side.py): the same simulated data, Rician,
+    a white-matter tensor (1.7, 0.4, 0.3e-3 mm²/s) in a random orientation per voxel, 20 000
+    voxels (DIPY's per-voxel loops on 2000, its DKI NLS on 500); DTI at SNR 50, DKI (isotropic
+    K = 1) at SNR 100. µs per voxel; DIPY's times were the same with 1 and 4 BLAS threads (its
+    fits loop over voxels in Python, or solve many small systems), and its parallel engines
+    (joblib) are not reachable for DKI in 1.12 (the keyword reaches `ls_fit_dki` and fails).
+
+    | | EQUIP, 1 thread | EQUIP, 4 threads | DIPY |
+    |---|---|---|---|
+    | DTI 36 images: weighted linear (EQUIP's `:loglinear` start; DIPY's WLS, its default) | 4.4 | 1.2 | 17.1 |
+    | DTI 36 images: nonlinear (EQUIP's fit; DIPY's NLLS, MINPACK) | 8.6 | 2.3 | 102 |
+    | DTI 36 images: DIPY's OLS (one pseudo-inverse for every voxel) | | | 1.4 |
+    | DTI 132 images: weighted linear | 14.8 | 4.0 | 33.2 |
+    | DTI 132 images: nonlinear | 28.3 | 7.5 | 158 |
+    | DKI 66 images: weighted linear | 168 | 42 | 312–338 |
+    | DKI 66 images: nonlinear (DIPY's NLS) | 320 | 81 | 208 |
+
+    The nonlinear fits find the same minimum: DIPY's NLLS against EQUIP's fit, the D elements
+    within 3e-7 of λ1 at most (median 7e-9; DKI 3e-7, W within 6e-6). The linear fits differ by
+    their weights: DIPY's WLS weights each image by the square of the signal OLS predicts
+    (Chung et al. 2006, the two-pass method), EQUIP's start by y²; the D elements differ by a median
+    of 1e-3 (36 images) to 5e-3 (132) of λ1. That matters at high b: RMSE of the D elements against
+    the truth, in units of λ1, 132 images: EQUIP's start 0.0112, DIPY's WLS 0.0062, DIPY's OLS
+    0.0240, the nonlinear fits 0.0065 (EQUIP) and 0.0066 (DIPY); at 36 images all 0.011–0.013.
+    Since the fit follows the start, EQUIP's estimates are the nonlinear ones either way.
+    - DTI: EQUIP is 5–12× faster per core than DIPY's NLLS, 20–45× on 4 threads, and 2–4× faster
+      per core than DIPY's linear WLS while also running the nonlinear fit after it.
+    - DKI: DIPY's NLS is 1.5× faster per core than EQUIP (208 against 320 µs); EQUIP is faster
+      only on threads (81). Two reasons, both EQUIP's model rather than its solver: DIPY
+      parameterizes DKI so that ln S is linear (D with V = MD²·W, W recovered after), so its
+      Jacobian is S times the design matrix, cheap, and its OLS start is already the log-linear
+      fit; EQUIP's DKI (examples/dki.jl) multiplies W by MD², so its `:loglinear` start takes
+      about five Gauss–Newton steps (168 µs, half the fit), and every evaluation carries 22
+      dual partials through MD² and the 15 monomials. To try: the DKI model in DIPY's linear
+      parameterization (the start then exact in one step), and weights from the predicted signal
+      in `:loglinear` (DIPY's WLS: a second step with S(θ)² as the weights).
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
