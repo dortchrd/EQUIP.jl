@@ -8,6 +8,7 @@ measurements behind each item are in docs/design.md (roadmap items by number).
 | branch | what it is | state |
 |---|---|---|
 | `lean` | everything accepted; the prototype chain (SMT through truths from derived quantities) merged on 2026-11-07, commit f3fd99d (lean before it: 5414c60) | Last full runs: EQUIP 2283, CLI 124, MRImages 103 |
+| `derived-sweeps` | the working branch, off `lean`: tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013), `fromderived(M)`, the truth by derived quantities in `Scenario`, `simulate`, `crlb` and `montecarlo`, sweeps over a derived quantity (`vary = :FA => ...`) | to merge when the owner has seen it. Last full runs: EQUIP (running when committed), CLI (running when committed) |
 
 **The rule from now on:** one working branch at a time, made from `lean`; merged into `lean`
 when its suites pass and the owner has seen it; then deleted. No chains of prototypes on top of
@@ -38,9 +39,10 @@ in `lean`), or make `lean` the default branch.
 
 ## Loose ends, in one list
 
-Working on now:
-- Tissue presets by derived quantities (`nominal(DTI, :WM; direction)`), and sweeps over a
-  derived quantity (`crlb(...; vary = :FA => 0.2:0.1:0.9)`): item 19.
+Working on now (branch `derived-sweeps`):
+- Built: tissue presets by derived quantities (`nominal(DTI, :DKI_CC_splenium; direction)`) and
+  sweeps over a derived quantity (`crlb(m, (S0, MD, FA, direction); vary = :FA => ...)`).
+- To choose (the owner): a source with AK, and with cortical GM and CSF, for the presets.
 
 Derived quantities (item 19; crlb, montecarlo and `nominal` done):
 - Standard-error maps for derived quantities from the fit's own covariance (`savemaps` writing

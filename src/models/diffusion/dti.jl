@@ -124,19 +124,25 @@ end
 # from AD and RD, or from MD and FA: λ1 = MD + 2δ, λ2 = λ3 = MD − δ (their mean is MD), and
 # FA² = 3δ²/(MD² + 2δ²) gives δ = MD·FA/√(3 − 2FA²), with RD > 0 for every FA < 1. A general
 # tensor (three different eigenvalues): give its six elements.
-fromderived(::Type{<:DTI}, q::NamedTuple) = _axialtensor(DTI, q, ()).elements
+fromderived(::Type{<:DTI}, q::NamedTuple) = _axialtensor(DTI, q).elements
+fromderived(::Type{<:DTI}) = (:MD, :FA, :AD, :RD, :direction)
 
-# The six elements of an axially symmetric tensor from `q` (DTI's and DKI's: `others` are the
-# names the caller takes beside these), with AD, RD, MD and the unit vector n.
-function _axialtensor(M, q::NamedTuple, others::Tuple)
+# The six elements of an axially symmetric tensor from `q` (DTI's and DKI's: the names the model
+# takes are `fromderived(M)`), with AD, RD, MD and the unit vector n.
+function _axialtensor(M, q::NamedTuple)
     model = nameof(M)
     takes = "MD and FA, or AD and RD, with the direction of the tensor's axis " *
             "(`direction = (x, y, z)`, e.g. `fiberdirection(θ, φ)`)"
-    unknown = Tuple(n for n in keys(q) if !(n in (:MD, :FA, :AD, :RD, :direction, others...)))
+    others = Tuple(n for n in fromderived(M) if !(n in (:MD, :FA, :AD, :RD, :direction)))
+    unknown = Tuple(n for n in keys(q) if !(n in fromderived(M)))
     isempty(unknown) || throw(ArgumentError("nominal($model; ...): unknown " *
         "$(join(("`$n`" for n in unknown), ", ")): neither a parameter of $model " *
         "($(join(keys(parameters(M)), ", "))) nor a derived quantity it takes ($takes" *
         (isempty(others) ? "" : "; and $(join(others, ", "))") * ")"))
+    for n in keys(q)
+        n === :direction || q[n] isa Real || throw(ArgumentError("nominal($model; ...): `$n` " *
+            "must be a number (derived quantities make one voxel's truth), got $(repr(q[n]))"))
+    end
     mf, ar = haskey(q, :MD) || haskey(q, :FA), haskey(q, :AD) || haskey(q, :RD)
     mf && ar && throw(ArgumentError("nominal($model; ...): give MD and FA, or AD and RD, not both"))
     mf || ar || throw(ArgumentError("nominal($model; ...): the tensor: give $takes"))

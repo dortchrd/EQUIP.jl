@@ -389,6 +389,7 @@ derived(::MRIModel, p) = nothing
 
 """
     fromderived(M, q) -> nothing or (parameter = value, ...)
+    fromderived(M) -> (name, ...)
 
 Optional, the reverse of [`derived`](@ref): the parameters that give the derived quantities in
 `q`, for [`nominal`](@ref) to make a truth from them, e.g. `nominal(DTI; S0 = 1000, MD = 0.8e-3,
@@ -398,8 +399,14 @@ numbers, a tensor has six), so a model says which sets it takes and what it assu
 rest (DTI: a tensor axially symmetric about `direction`), and refuses anything else, naming
 what it takes. It returns the parameters it sets; the others come from the call or the model as
 usual. The default, `nothing`: none (the names are then unknown parameters).
+
+`fromderived(M)`, with the type alone, lists the names it takes (the default: none). With it, a
+tissue preset can give derived quantities ([`nominal`](@ref)`(DTI, :DKI_CC_splenium; direction)`
+takes the preset's MD and FA, and leaves its T1 alone), and a sweep can vary one
+(`crlb(m, θ; vary = :FA => 0.2:0.1:0.9)`, with θ given by its derived quantities).
 """
 fromderived(::Type{<:MRIModel}, q::NamedTuple) = nothing
+fromderived(::Type{<:MRIModel}) = ()
 
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision

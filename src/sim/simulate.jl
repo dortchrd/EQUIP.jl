@@ -69,7 +69,9 @@ function simulate(m::MRIModel, truth::NamedTuple; snr = nothing, Ïƒ = nothing, Î
 
     # The truth, checked once, as `resolve` checks one voxel's (every parameter, no roles, ties
     # that name a parameter): in the model's order, with ties by name as `_Tie`s, so each voxel
-    # only reads its numbers and follows its ties (`_voxel`, below).
+    # only reads its numbers and follows its ties (`_voxel`, below). A truth given by derived
+    # quantities (the model's `fromderived`: DTI's MD, FA and direction) becomes its parameters.
+    truth = _fromderived(m, truth, keys(parameters(m)))
     q = map(_tie, _complete(nameof(typeof(m)), parameters(m), truth))
 
     # The voxels: the size of the maps, or n copies, or one voxel.

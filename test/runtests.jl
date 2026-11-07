@@ -3047,6 +3047,61 @@ end
         end
     end
 
+    @testset "The truth by derived quantities: tissue presets, Scenario, simulate, sweeps" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(directionset(30)); collect.(directionset(30))])
+        mt = DTI(; diffusionencoding(bv[1:36], G[:, 1:36])...)
+        mk = DKI(; diffusionencoding(bv, G)...)
+        # the presets (Lätt et al. 2013, Table 1): MD and FA for DTI, the axially symmetric
+        # tensor's RD within 4% of the table's; MK and RK for DKI, with AK given in the call
+        rd = (DKI_CC_splenium = 0.31e-3, DKI_CC_genu = 0.36e-3, DKI_CC_body = 0.38e-3,
+              DKI_PLIC = 0.45e-3, DKI_centrum_semiovale = 0.47e-3, DKI_corona_radiata = 0.56e-3,
+              DKI_frontal_WM = 0.66e-3, DKI_thalamus = 0.73e-3, DKI_putamen = 0.73e-3, DKI_caudate = 0.80e-3)
+        for (name, r) in pairs(rd)
+            d = derived(mt, nominal(DTI, name; S0 = 1000.0, direction = (1, 0, 0)))
+            @test d.MD ≈ tissue(name).MD rtol = 1e-12
+            @test d.FA ≈ tissue(name).FA rtol = 1e-12
+            @test d.RD ≈ r rtol = 0.04
+        end
+        dk = derived(mk, nominal(DKI, :DKI_CC_splenium; S0 = 1000.0, direction = (1, 0, 0), AK = 0.8))
+        @test all(k -> isapprox(dk[k], (MK = 1.32, AK = 0.8, RK = 2.72)[k]; rtol = 1e-10), (:MK, :AK, :RK))
+        @test occursin("give AK too", msg(() -> nominal(DKI, :DKI_CC_splenium; direction = (1, 0, 0))))
+        @test derived(mt, nominal(DTI, :DKI_CC_splenium; FA = 0.5, direction = (1, 0, 0))).FA ≈ 0.5   # the keyword wins
+        @test occursin("no value for `T2`", msg(() -> nominal(T2Decay(TE = [0.01, 0.02]), :DKI_thalamus)))
+        # a truth by derived quantities: a Scenario keeps it as given (`given`), with its
+        # parameters; simulate and crlb take it, the same as by its parameters
+        spec = (S0 = 1000.0, MD = 0.8e-3, FA = 0.7, direction = fiberdirection(0.3, 1.2))
+        θ = nominal(DTI; spec...)
+        s = Scenario(DTI, spec)
+        @test s.truth == Scenario(DTI, θ).truth && s.given == spec
+        @test simulate(mt, spec; snr = 50, noise = :rician, n = 3, rng = MersenneTwister(2)) ==
+              simulate(mt, θ; snr = 50, noise = :rician, n = 3, rng = MersenneTwister(2))
+        @test crlb(mt, spec; snr = 50).sd == crlb(mt, θ; snr = 50).sd
+        @test scenarios(DTI, spec).results[1].truth == s.truth          # (a named tuple: a tissue)
+        # a sweep over FA: MD and the direction held as given, each setting the crlb of its own
+        # truth; montecarlo's too; a parameter varied as before
+        sw = crlb(mt, spec; snr = 50, vary = :FA => [0.3, 0.6])
+        @test [r.fit.FA for r in sw.results] ≈ [0.3, 0.6] && all(r -> r.fit.MD ≈ 0.8e-3, sw.results)
+        @test sw.results[2].sd == crlb(mt, merge(spec, (FA = 0.6,)); snr = 50).sd
+        @test count(r -> r.parameter == :FA, sw.rows) == 2 && sw.settings[1] == (FA = 0.3,)
+        msw = montecarlo(mt, spec; snr = 50, noise = :gaussian, n = 50, vary = :FA => [0.3, 0.6], rng = MersenneTwister(3))
+        @test [r.crlb.fit.FA for r in msw.results] ≈ [0.3, 0.6]
+        @test crlb(mt, spec; snr = 50, vary = :S0 => [500.0, 1000.0]).results[2].sd == crlb(mt, θ; snr = 50).sd
+        # refused: a derived quantity varied with a truth given by parameters (what would stay
+        # fixed?); a name the model does not take; `scenarios`' vary, which takes parameters
+        @test occursin("given by its parameters", msg(() -> crlb(mt, θ; snr = 50, vary = :FA => [0.3])))
+        @test occursin("the derived quantities it takes", msg(() -> crlb(mt, spec; snr = 50, vary = :Fa => [0.3])))
+        @test occursin("takes parameters", msg(() -> scenarios(DTI, spec; vary = :FA => [0.3])))
+        # data from another model, by derived quantities: DTI fitted to DKI's signal with K = 1
+        # (b to 2000 s/mm²): the kurtosis the tensor leaves out biases MD down and FA up
+        m66 = DTI(; diffusionencoding(bv, G)...)
+        θk = merge(spec, (MKT = 1.0,))
+        cw = crlb(m66, θ; snr = 50, simulate_with = mk => θk)
+        @test cw.bias.MD < 0 && cw.bias.FA > 0
+        @test cw.bias == crlb(m66, θ; snr = 50, simulate_with = mk => nominal(DKI; θk...)).bias
+    end
+
     @testset "The log-linear start, :loglinear, from the model's own signal" begin
         b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
         start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params

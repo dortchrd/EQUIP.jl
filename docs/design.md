@@ -5535,6 +5535,46 @@ numbers are not an order.
      - Not done: tissue presets by derived quantities (`nominal(DTI, :WM_DTI; direction)`), and a
        sweep over a derived quantity (`vary = :FA => 0.2:0.1:0.9`), which would go through the
        same hook. Full runs: EQUIP 2283, CLI 124.
+   - **Tissue presets and sweeps by derived quantities** (2026-11-07, the owner: "do both";
+     branch `derived-sweeps`, the first off `lean` after the merge).
+     - **`fromderived(M)`**, the type alone: the names the hook takes (DTI: MD, FA, AD, RD,
+       direction; DKI: those and MK, AK, RK, MKT; the default `()`). `_axialtensor` checks
+       against it, and refuses a derived quantity that is not a number.
+     - **A tissue's derived quantities**: `nominal` hands the hook the tissue's values of the
+       names it takes, under the keywords (a keyword wins), and leaves the rest of the tissue
+       alone (a preset's T1 for DTI, its MK for DTI).
+     - **Presets, `DKI_...`** (src/sim/tissues.jl): Lätt et al., J Magn Reson Imaging
+       2013;37:610, Table 1 (36 healthy adults, 19–64 years; 3 T, Philips Achieva; 15
+       directions, b = 0, 500, 1000, 2500, 2750 s/mm²; the DKI model by nonlinear least squares
+       in Matlab; regional means), ten regions: CC splenium, genu, body, PLIC, centrum
+       semiovale, corona radiata, frontal subcortical WM, thalamus, putamen, caudate head; MD
+       (the table's μm²/ms, as mm²/s), FA, MK, RK. Not the globus pallidus (its MK, the authors
+       say, may be biased). The table gives RD too (headed "mm²/s", a misprint: its values are
+       μm²/ms, as MD's), and the axially symmetric tensor from MD and FA reproduces it within 4%
+       in every region (thalamus 3.6%, frontal WM 3.7%, the rest under 2%): checked in the tests.
+       No AK in the paper (its authors: biased by the non-Gaussian noise), so DKI's (MK, AK, RK)
+       needs AK in the call; its error says so. Read from PMC (pmc.ncbi.nlm.nih.gov, added to the
+       environment's allowed hosts for it). A second source with AK, and CSF and cortical GM
+       values, are still to choose (the owner's call: which study, which protocol).
+     - **The truth by derived quantities, everywhere a truth goes**: `Scenario` (so `crlb(m, θ)`
+       and `montecarlo(m, θ)`), `crlb!`, `simulate`, and `simulate_with`'s data truth convert
+       through `_fromderived`; the scenario keeps the truth as given in a new field, `given`
+       (its parameters in `truth`, as before). Bit-identical to giving the parameters (tested
+       for simulate and crlb).
+     - **Sweeps over a derived quantity**: `vary` may name what the model's hook takes; each
+       setting's truth is made again from the truth as given with the varied value in place
+       (`_truth_of`), so what stays fixed is what was given: with MD and FA given, varying FA
+       holds MD (and the direction). Varying a derived quantity of a truth given by its
+       parameters is refused (what would stay fixed?); so is `scenarios`' `vary` over one (its
+       truths are completed by `nominal` first; crlb and montecarlo take the spec). Such
+       settings take crlb's checked path, not the numbers-only fast one.
+     - **Speed**: unchanged once the names come from the cache's types (`_parameternames(c)`):
+       QMTSIR 4-point `crlb!` 4.54–4.59 µs (lean 4.51–4.54), a 400-setting sweep 2.01–2.06 ms
+       (2.04), DTI's `crlb!` 12.5 µs (12.2–12.4); with `keys(parameters(c.model))` in `crlb!`,
+       which builds the model's roles each call, 3–6% slower.
+     - Measured on the way: DTI fitted to DKI's signal (K = 1 isotropic, b to 2000 s/mm²; MD
+       0.8e-3, FA 0.7) by `simulate_with`: MD biased −0.20e-3 (−25%) and FA +0.15, the kurtosis
+       the tensor leaves out (why DTI is fitted on b ≤ 1000).
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a

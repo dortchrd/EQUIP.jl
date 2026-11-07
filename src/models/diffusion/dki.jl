@@ -190,14 +190,17 @@ end
 #   - neither: V's fifteen elements from the call (`V1111 = ...`).
 # V = MD²·W. The values must be within DIPY's range [−3/7, 10] (`derived` clips them), and MK,
 # AK, RK need RD above `_EVALMIN` (they are 0 below it).
+fromderived(::Type{<:DKI}) = (:MD, :FA, :AD, :RD, :direction, :MK, :AK, :RK, :MKT)
 function fromderived(::Type{<:DKI}, q::NamedTuple)
     kurt = (:MK, :AK, :RK, :MKT)
-    t = _axialtensor(DKI, q, kurt)
+    t = _axialtensor(DKI, q)
     given = Tuple(n for n in kurt if haskey(q, n))
     isempty(given) && return t.elements
     sets = "MKT (W isotropic), or MK, AK and RK (W axially symmetric about the direction)"
     given in ((:MKT,), (:MK, :AK, :RK)) ||
-        throw(ArgumentError("nominal(DKI; ...): the kurtosis: give $sets; got $(join(given, ", "))"))
+        throw(ArgumentError("nominal(DKI; ...): the kurtosis: give $sets; got " *
+            "$(join(given, ", "))" * (given == (:MK, :RK) ? ": give AK too (the `DKI_` tissue " *
+            "presets have MK and RK only: Lätt et al. 2013 did not report AK)" : "")))
     for k in given
         _KMIN <= q[k] <= _KMAX || throw(ArgumentError("nominal(DKI; ...): $k = $(q[k]) is " *
             "outside [−3/7, 10], DIPY's range, where `derived` clips it"))

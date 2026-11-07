@@ -35,7 +35,10 @@
 A truth and the fit judged against it: what [`crlb`](@ref) and [`montecarlo`](@ref) take, with
 a protocol (a model with its acquisition): `crlb(m, s; snr = 200)`. Made from a model's type `M`
 (or a model `m`: only its type is kept, not its acquisition) and the truth θ, every parameter's
-true value (numbers, or ties), as for [`simulate`](@ref): e.g. `nominal(QMTSIR, :SIR_WM_I)`.
+true value (numbers, or ties), as for [`simulate`](@ref): e.g. `nominal(QMTSIR, :SIR_WM_I)`. Or,
+for a model with derived quantities ([`fromderived`](@ref)), the truth by them, as `nominal` takes
+them: `Scenario(DTI, (S0 = 1000.0, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)))`; a sweep can
+then vary one of them (`crlb(m, θ; vary = :FA => 0.2:0.1:0.9)`, the others held as given).
 
 The fit is built from the truth:
 
@@ -55,7 +58,8 @@ Fields: `model` (the type), `truth` (every parameter in model order, as given), 
 parameter's role in the fit, [`Free`](@ref) or [`Fixed`](@ref)), `starts`, `wrong` (the fixed
 parameters whose value in the fit, a tie followed at the truth, differs from the truth's, each as
 `(fit = ..., truth = ...)`; empty when the fit is unbiased), `attruth` (the estimated
-parameters that start at their true value) and `weights` (`nothing`, or a vector).
+parameters that start at their true value), `weights` (`nothing`, or a vector) and `given` (the
+truth as given: `truth`, or the derived quantities it was given by).
 
 crlb's noise-free fit always starts at the truth, whatever `starts` says; montecarlo's fits
 start where the scenario says. In a sweep over true values (`vary`), the starts taken from the
@@ -69,7 +73,7 @@ crlb(QMTSIR(; SIR_5POINT...), Scenario(QMTSIR, θ; kmf = Free()); snr = 200)
 montecarlo(QMTSIR(; SIR_4POINT...), Scenario(QMTSIR, θ; kmf = 12.5, starts = :model); noise = :rician, snr = 200)
 ```
 """
-struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple,V}
+struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple,V,G<:NamedTuple}
     model::Type{M}        # the model's type, without an acquisition (e.g. QMTSIR)
     truth::T              # every parameter's true value, in model order, as given (ties kept)
     roles::R              # every parameter's role in the fit: Free(start, bounds) or Fixed(value)
@@ -77,6 +81,7 @@ struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple,V}
     wrong::W              # (name = (fit = value, truth = value), ...): the fixed values that are wrong
     attruth::A            # the estimated parameters that start at their true value
     weights::V            # nothing, or the fit's weights (Vector{Float64}, one per observation)
+    given::G              # the truth as given: `truth`, or the derived quantities it was given by
 end
 
 Scenario(M::Type{<:MRIModel}, θ::NamedTuple; starts::Symbol = :truth, weights = nothing,
@@ -97,6 +102,10 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, 
         "estimated parameter starts at its true value) or :model (the model's own starting " *
         "rules, as `fit` starts a real fit), got $(repr(starts))"))
     name = nameof(M)
+    # A truth given by derived quantities (DTI's MD, FA and direction: the model's `fromderived`)
+    # becomes its parameters; kept as given too, for a sweep that varies one (`_truth_of`).
+    asgiven = θ
+    θ = _fromderived(M, θ, keys(own))
     truth = _complete(name, own, θ)           # checked: every parameter, model order, ties kept
     any(values(map(_hasmap, truth))) && throw(ArgumentError("a scenario is one voxel's truth: " *
         "give numbers, not maps. For maps, simulate and fit them, then `compare`"))
@@ -134,14 +143,14 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, 
     # The weights, checked as `fit` checks them (finite, ≥ 0, one positive); their number is
     # checked against a protocol's observations when the scenario meets one (`_check_protocol`).
     w = weights === nothing ? nothing : _checked_weights(weights, length(weights), Float64)
-    return _checked_scenario(M, truth, θt, roles, starts, given, w)
+    return _checked_scenario(M, truth, θt, roles, starts, given, w, asgiven)
 end
 
 # The rest in a function of its own (a "function barrier"): after the changes the compiler no
 # longer knows the roles' type in the function above (a change can make any parameter Free or
 # Fixed); here it does again, so the `map`s below compile to straight-line code, not a lookup
 # per parameter (the constructor 2.5× faster; docs/design.md, "Scenario").
-function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w) where {K}
+function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w, asgiven) where {K}
     # Checked as `setup` checks a fit's roles: something to estimate, ties that name a parameter
     # that is not a tie, bounds in order.
     isfree = map(r -> r isa Free, roles)
@@ -156,7 +165,7 @@ function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w
     fitvalues = map((r, v) -> r isa Fixed ? r.value : v, roles, θt)   # free ones at the truth
     names = NamedTuple{K}(K)                  # each parameter's name, by name
     attruth = starts === :truth ? _names(map((f, n) -> f && !(n in given), isfree, names)) : ()
-    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth, w)
+    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth, w, asgiven)
 end
 
 # The names whose flag is true, in order; the entries of `x` with those names.

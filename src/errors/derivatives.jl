@@ -812,6 +812,7 @@ function _datasource(m::MRIModel, θ::NamedTuple, simulate_with)
         return m, θ
     end
     dm, dθ = simulate_with.first, simulate_with.second
+    dθ = _fromderived(dm, dθ, keys(parameters(dm)))   # given by derived quantities: parameters
     _nomaps(θ)
     _nomaps(dθ)
     nobs(dm) == nobs(m) || throw(DimensionMismatch("the data's model has $(nobs(dm)) " *

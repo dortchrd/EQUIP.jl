@@ -522,7 +522,9 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   returns the parameters that give the derived quantities in `q` (the call's keywords that are
   not parameters), so that a truth can be prescribed by them (Simulation, below). Derived
   quantities seldom fix the parameters alone, so a model says which sets it takes and what it
-  assumes for the rest, and refuses anything else. The default, `nothing`, means none.
+  assumes for the rest, and refuses anything else; `fromderived(::Type{<:MyModel})` lists the
+  names it takes (what a tissue preset may give it, and a sweep may vary). The default,
+  `nothing` and `()`, means none.
 
 ## Simulation
 
@@ -575,7 +577,16 @@ about the same axis), or V's elements as parameters. `derived` gives them back:
 θ = nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = fiberdirection(0.3, 1.2))
 θ = nominal(DKI; S0 = 1000, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MK = 1.0, AK = 0.8, RK = 1.3)
 derived(DKI(; acq...), θ)                     # (MD = 0.0008, FA = 0.762, ..., MK = 1.0, AK = 0.8, RK = 1.3, MKT = ...)
+θ = nominal(DTI, :DKI_CC_splenium; S0 = 1000, direction = (1, 0, 0))   # a preset's MD and FA
 ```
+
+The `DKI_` presets in `TISSUES` are regional values in healthy adults at 3 T (Lätt et al., J Magn
+Reson Imaging 2013;37:610, Table 1: corpus callosum splenium, genu and body, internal capsule,
+centrum semiovale, corona radiata, frontal white matter, thalamus, putamen, caudate): MD, FA,
+MK and RK. DTI takes their MD and FA; DKI their MK and RK too, with AK given in the call (the
+paper did not report it). The direction is always yours. Wherever a truth goes, `simulate`,
+`Scenario`, `crlb` and `montecarlo` (and `simulate_with`'s), it can be given by derived
+quantities in the same way, and a sweep can then vary one (below).
 
 Typing a model at the REPL shows the same table, with its acquisition:
 
@@ -719,7 +730,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
 - **Sweeps:** `snr = [100, 200, 400]` and `vary = :kmf => 5:2.5:20` (true values; several as
   `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`; the fit stays the scenario's, so with
   `kmf = 12.5` this is the bias of that assumption against the truth, the paper's Fig. 2B; starts
-  taken from the truth follow it), and scenarios side by side, by name,
+  taken from the truth follow it; a derived quantity, with the truth given by derived
+  quantities: `crlb(m, (S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)); snr = 50,
+  vary = :FA => 0.2:0.1:0.9)` holds MD and the direction as given), and scenarios side by side, by name,
   `crlb(m, (assumed = s, fitted = Scenario(QMTSIR, θ; kmf = Free())); snr = 200)`, run every
   combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
   (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed

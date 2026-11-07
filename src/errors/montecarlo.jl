@@ -101,7 +101,8 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
   One number is drawn from it, the seed of the noise.
 - `solver`, `precision`: the fits' options, as for `fit`.
 - Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = :kmf => 5:2.5:20` (true values; the
-  fit stays the scenario's, and starts taken from the truth follow it), every combination; the
+  fit stays the scenario's, and starts taken from the truth follow it; a derived quantity, `vary
+  = :FA => ...`, with the truth given by derived quantities), every combination; the
   result is a [`Sweep`](@ref) of `MonteCarloResult`s, with a table in `s.rows`. Every setting's
   noise comes from the same seed ("common random numbers"): the settings see the same noise, so
   differences between them are not noise, and adding a setting does not change the others'
@@ -168,7 +169,7 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
     if _issweep(snr, vary, fits)             # a sweep: one run per setting (sweep.jl)
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
         results = [_montecarlo(m, _scenario_of(st, s),
-                               _truth_of(st, _scenario_of(st, s).truth, simulate_with),
+                               _truth_of(st, _scenario_of(st, s), simulate_with),
                                _snr_of(st, snr), σ, Σ, n, options, noise, averages,
                                averaging, seed, _data_of(st, simulate_with)) for st in settings]
         return Sweep(settings, results, _rows(settings, results))

@@ -127,7 +127,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
   true values of a parameter; several parameters as a vector of pairs, every combination). The
   fit stays the scenario's, so with `kmf = 12.5` this is the bias of that assumption against the
   true kmf (Dortch 2018 Fig. 2B). Every combination is computed, the first keyword varying
-  slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`.
+  slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`. A derived quantity too,
+  when the truth is given by derived quantities ([`fromderived`](@ref)): `crlb(m, (S0 = 1000.0,
+  MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)); snr = 50, vary = :FA => 0.2:0.1:0.9)`, the
+  others held as given (here MD and the direction).
 - Fits side by side: scenarios by name, `crlb(m, (fixed = Scenario(m, θ), free = Scenario(m, θ;
   kmf = Free())); snr = 200)`: one more axis of the sweep (the last, so a table has the fits of
   one case next to each other).
@@ -209,11 +212,13 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches.one
         # Numbers varied in the fitted model's truth: each setting's truth needs no second check
         # (`_crlb_varied!`); otherwise (a tie varied, data from another model) `crlb!` checks it.
-        numbers = simulate_with === nothing && all(v -> all(x -> x isa Real, v), values(vary))
+        # (A derived quantity varied, `vary = :FA => ...`: each truth made again and checked.)
+        numbers = simulate_with === nothing && all(v -> all(x -> x isa Real, v), values(vary)) &&
+                  all(k -> haskey(parameters(m), k), keys(vary))
         resultof(st) = numbers ?
-            _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, nothing);
+            _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s), nothing);
                           snr = _snr_of(st, snr), σ, Σ, averages) :
-            crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s).truth, simulate_with);
+            crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s), simulate_with);
                   snr = _snr_of(st, snr), σ, Σ, averages,
                   simulate_with = _data_of(st, simulate_with))
         results = [resultof(st) for st in settings]
@@ -242,12 +247,17 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
         "derivatives with respect to the fitted model's parameters"))
     # The data: from the model at `truth`, or from another model (`simulate_with = m2 => θ2`),
     # with `truth` then the reference values the fit is judged against; `snr` is relative to
-    # the data's scale parameter.
+    # the data's scale parameter. Either may be given by derived quantities (`fromderived`).
+    truth = _fromderived(c.model, truth, _parameternames(c))
     dm, dt = _datasource(c.model, truth, simulate_with)
     t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
     Σn = noisecovariance(dm, dt; snr, σ, Σ, averages)
     return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages)
 end
+
+# Every parameter's name, from the cache's types (its free ones and its fixed ones): known when
+# compiling, where `keys(parameters(m))` would build the model's roles on every call.
+_parameternames(c::CRLBCache{F}) where {F} = (F..., keys(c.fixed)...)
 
 # One setting of a sweep: `truth` is a scenario's truth (checked when the scenario was made: in
 # model order, every parameter, no roles, no maps) with numbers in place of the varied values,

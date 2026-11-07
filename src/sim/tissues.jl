@@ -32,6 +32,18 @@ SMT values in multiple sclerosis (Bagnato et al., Ann Clin Transl Neurol 2019, a
 Devan et al., Magn Reson Imaging 2020;74:56, Table 1; `vax` as a fraction, `Dax` in mm²/s):
 `SMT_NWM` (normal white matter, internal capsule), `SMT_NAWM` (normal-appearing white matter in
 MS), `SMT_T2lesion` (T2-hyperintense lesion), `SMT_cBH` (chronic black hole, T1-hypointense).
+
+Diffusion and kurtosis values in healthy adults at 3 T (Lätt et al., J Magn Reson Imaging
+2013;37:610, Table 1: 36 volunteers, 19–64 years; 15 directions, b = 0, 500, 1000, 2500 and
+2750 s/mm², the kurtosis tensor fitted by nonlinear least squares; the regional means): MD
+(mm²/s), FA, MK and RK, by region: `DKI_CC_splenium`, `DKI_CC_genu`, `DKI_CC_body` (corpus
+callosum), `DKI_PLIC` (internal capsule, posterior limb), `DKI_centrum_semiovale`,
+`DKI_corona_radiata`, `DKI_frontal_WM` (frontal subcortical white matter), `DKI_thalamus`,
+`DKI_putamen`, `DKI_caudate` (its head). Derived quantities, not parameters: a model takes them
+through its [`fromderived`](@ref), with the direction of the fibers given in the call, DTI an
+axially symmetric tensor from MD and FA (its RD within 4% of the table's), DKI also W from MK and
+RK, and AK, which the paper did not report (biased by the noise floor, its authors said):
+`nominal(DKI, :DKI_CC_splenium; S0 = 1000.0, direction = (1, 0, 0), AK = 0.8)`.
 """
 const TISSUES = (
     # Stanisz et al. 2005, Table 1, 3 T: T1 and T2 (s)
@@ -59,6 +71,19 @@ const TISSUES = (
     SMT_NAWM = (vax = 0.450, Dax = 1.8e-3),
     SMT_T2lesion = (vax = 0.365, Dax = 1.7e-3),
     SMT_cBH = (vax = 0.241, Dax = 1.7e-3),
+    # Lätt et al. 2013, Table 1 (36 healthy adults, 3 T): MD (μm²/ms → mm²/s) and FA, MK and RK.
+    # Derived quantities, for models that take them (`fromderived`: DTI's MD and FA; DKI's MK and
+    # RK too, with AK given in the call, since the paper did not report it); a direction too.
+    DKI_CC_splenium = (MD = 0.89e-3, FA = 0.83, MK = 1.32, RK = 2.72),
+    DKI_CC_genu = (MD = 0.93e-3, FA = 0.80, MK = 1.06, RK = 2.07),
+    DKI_CC_body = (MD = 0.92e-3, FA = 0.78, MK = 1.17, RK = 2.54),
+    DKI_PLIC = (MD = 0.89e-3, FA = 0.71, MK = 1.23, RK = 2.04),   # internal capsule, posterior limb
+    DKI_centrum_semiovale = (MD = 0.80e-3, FA = 0.63, MK = 1.09, RK = 1.72),
+    DKI_corona_radiata = (MD = 0.84e-3, FA = 0.53, MK = 1.09, RK = 1.49),
+    DKI_frontal_WM = (MD = 0.91e-3, FA = 0.48, MK = 0.94, RK = 1.23),   # frontal subcortical WM
+    DKI_thalamus = (MD = 0.87e-3, FA = 0.32, MK = 0.86, RK = 0.92),
+    DKI_putamen = (MD = 0.79e-3, FA = 0.15, MK = 0.67, RK = 0.61),
+    DKI_caudate = (MD = 0.87e-3, FA = 0.14, MK = 0.61, RK = 0.59),    # caudate head
 )
 
 """
@@ -95,7 +120,8 @@ each parameter, the value comes from, in order:
 A model with derived quantities can take them in place of its parameters (its
 [`fromderived`](@ref)): `nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0))`
 makes the six elements of an axially symmetric tensor (DTI's and DKI's docstrings say what each
-takes).
+takes). A tissue can give them too, the names the model takes (`fromderived(M)`), a keyword
+winning: `nominal(DTI, :DKI_CC_splenium; direction = (1, 0, 0))` (the preset's MD and FA).
 
 Every value is in the result, the model's included, so a script shows everything its data were
 made with. Ties are kept as written (`R1m = :R1f`), so they follow later changes;
@@ -137,7 +163,7 @@ _call(M::Type{<:MRIModel}) = "nominal($(nameof(M))"
 
 function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; changes...)
     roles = _roles(m)                            # a model's starts computed for its acquisition
-    ch = _fromderived(m, values(changes), keys(roles))   # derived quantities → the parameters
+    ch = _fromderived(m, values(changes), keys(roles), props)   # derived quantities → parameters
     _check_names("nominal(m; ...)", keys(ch), keys(roles))
     _reject_roles(ch)
     function pick(n)                             # the keyword's value, the tissue's, the model's
@@ -154,17 +180,27 @@ function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; change
 end
 
 # The keywords that are not parameters go to the model's `fromderived` (derived quantities, e.g.
-# DTI's MD and FA, and what else it takes, such as a direction); the parameters it makes join the
-# keywords that are parameters. A parameter both given and made is refused. A model without the
-# hook (`nothing`): the keywords as given, so that `_check_names` names the unknown ones.
-function _fromderived(m::_ModelOrType, ch::NamedTuple, names)
+# DTI's MD and FA, and what else it takes, such as a direction), with the tissue's values of the
+# names it takes (`fromderived(M)`; a keyword wins over the tissue's value); the parameters it
+# makes join the keywords that are parameters. A parameter both given and made is refused. A
+# model without the hook (`nothing`): the keywords as given, so that `_check_names` names the
+# unknown ones. Also how a scenario's truth, `simulate`'s and crlb's data truth may be given by
+# derived quantities (no tissue there).
+function _fromderived(m::_ModelOrType, ch::NamedTuple{K}, names, props::NamedTuple = (;)) where {K}
+    # The usual case, parameters only and no tissue: K and the names are known when compiling,
+    # so this is one check, folded (crlb! takes this path for every truth).
+    isempty(props) && all(n -> n in names, K) && return ch
+    M = m isa Type ? m : typeof(m)
     extra = Tuple(n for n in keys(ch) if !(n in names))
-    isempty(extra) && return ch                  # the usual case: parameters only
-    made = fromderived(m isa Type ? m : typeof(m), NamedTuple{extra}(map(n -> ch[n], extra)))
+    fromtissue = Tuple(n for n in keys(props) if n in fromderived(M) && !(n in names) && !haskey(ch, n))
+    isempty(extra) && isempty(fromtissue) && return ch       # the usual case: parameters only
+    q = merge(NamedTuple{fromtissue}(map(n -> props[n], fromtissue)),
+              NamedTuple{extra}(map(n -> ch[n], extra)))
+    made = fromderived(M, q)
     made === nothing && return ch
     both = Tuple(n for n in keys(made) if haskey(ch, n))
     isempty(both) || throw(ArgumentError("$(_modelname(m)): $(join(("`$n`" for n in both), ", ")) " *
-        "given, and also made from $(join(("`$n`" for n in extra), ", ")): give one or the other"))
+        "given, and also made from $(join(("`$n`" for n in keys(q)), ", ")): give one or the other"))
     given = Tuple(n for n in keys(ch) if n in names)
     return merge(NamedTuple{given}(map(n -> ch[n], given)), made)
 end

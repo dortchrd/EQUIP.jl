@@ -63,8 +63,11 @@ function _sweep_settings(m::_ModelOrType, snr, vary::NamedTuple, fits::NamedTupl
     for (k, v) in pairs(vary)
         k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fits in a " *
             "sweep; for several fits, give scenarios side by side: `crlb(m, (a = s1, b = s2); ...)`"))
-        haskey(roles, k) || throw(ArgumentError("`vary = :$k => ...`: not a parameter of " *
-            "$(_modelname(m)); the parameters are $(keys(roles))"))
+        M = m isa Type ? m : typeof(m)
+        haskey(roles, k) || k in fromderived(M) || throw(ArgumentError("`vary = :$k => ...`: " *
+            "not a parameter of $(_modelname(m)); the parameters are $(keys(roles))" *
+            (isempty(fromderived(M)) ? "" :
+             ", and the derived quantities it takes, $(join(fromderived(M), ", "))")))
         v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = :$k => ...`: give " *
             "the values as a vector or a range, e.g. `:$k => [5.0, 10.0]` or `:$k => 5:2.5:20`"))
     end
@@ -85,10 +88,23 @@ _scenario_of(setting, s) = haskey(setting, :fit) ? s[setting.fit] : s
 _varied(setting) = Base.structdiff(setting, NamedTuple{(:snr, :fit)})
 _datamodel(m, ::Nothing) = m
 _datamodel(m, s::Pair) = s.first
-_truth_of(setting, truth, ::Nothing) = merge(truth, _varied(setting))
-_truth_of(setting, truth, ::Pair) = truth
+_truth_of(setting, s::Scenario, ::Pair) = s.truth
+function _truth_of(setting, s::Scenario, ::Nothing)
+    v = _varied(setting)
+    all(n -> haskey(s.truth, n), keys(v)) && return merge(s.truth, v)   # parameters varied
+    # A derived quantity varied (`vary = :FA => ...`): each setting's truth made again from the
+    # truth as given (`s.given`, e.g. MD, FA and the direction), with the varied values in place,
+    # so that what stays fixed is what the truth was given by: with MD and FA given, MD.
+    for n in keys(v)
+        haskey(s.truth, n) || haskey(s.given, n) || throw(ArgumentError("`vary = :$n => ...`: " *
+            "$n is a derived quantity, and the truth was given by its parameters: give it by " *
+            "its derived quantities, e.g. `(S0 = ..., MD = ..., FA = ..., direction = ...)` for " *
+            "DTI, so that what stays fixed while $n varies is what you gave"))
+    end
+    return _fromderived(s.model, merge(s.given, v), keys(s.truth))
+end
 _data_of(setting, ::Nothing) = nothing
-_data_of(setting, s::Pair) = s.first => merge(s.second, _varied(setting))
+_data_of(setting, s::Pair) = s.first => merge(s.second, _varied(setting))   # derived: `_datasource`
 
 # The fixed values of a sweep's fits, one line per scenario side by side, or one for all; with
 # the truth where it differs, unless the truth varies.
@@ -291,6 +307,12 @@ function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = false,
     named = _named_truths(M, truths)               # name => complete truth, or nothing => one
     ax = _varyaxes(vary)
     haskey(ax, :tissue) && throw(ArgumentError("`vary = :tissue => ...`: `tissue` names the truths; give several truths instead"))
+    for n in keys(ax)
+        haskey(parameters(M), n) || throw(ArgumentError("`scenarios`: `vary = :$n => ...` takes " *
+            "parameters; to vary a derived quantity, give crlb or montecarlo the truth by its " *
+            "derived quantities: `crlb(m, (S0 = ..., MD = ..., FA = ..., direction = ...); " *
+            "vary = :FA => ...)`"))
+    end
     # Every combination of the varied values (crlb's order: the first slowest), then the box's
     # center first, as calcVmax evaluates it first.
     combos = isempty(ax) ? NamedTuple[(;)] : _sweep_settings(M, nothing, ax)
