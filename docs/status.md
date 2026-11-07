@@ -14,9 +14,15 @@ Each branch builds on the one above it.
 | `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), orientational sampling (`directionset`, `orientationcovariance`, `sphericalmeannoise`), the floor-correction studies (bench/floor_*.jl), the real-data and SMT-or-SMI notes | not merged |
 | `blocks-proto` | `EQUIP.Blocks` (`decay`, `ball`, `stick`, `zeppelin`, `powder`); the T2 and SMT families as one equation each with parts switched on and off (both undone on `directions-proto`); examples/building_blocks.jl, examples/directional_models.jl, examples/dki.jl; roadmap items 15–17 | not merged; includes lean's item 14. Last full runs: EQUIP 2079, CLI 124, MRImages 103 |
 | `directions-proto` | `diffusionencoding` (a .bval and a .bvec as b, gx, gy, gz, checked), `loaddata` reading a .bvec, `readbvec` exported; `fiberdirection` and Julia's `⋅` (ξ = g ⋅ n); the compartments (`iso`, `stick`, `zeppelin`, `powder`; "building blocks" until 2026-11-06) exported by EQUIP itself (no module), diffusion only, no `decay`; the T2 and SMT families undone, every model in the standard format again; `nobs` refusing a field of 3-vectors; "fibre" spelled "fiber" throughout; the spherical mean's pipeline errors (`orientationcovariance`, `RicianSphericalMean`, `sphericalmeannoise`) and the floor studies taken out, to return with the nerve protocol work (design.md, roadmap item 18); the built-in `DTI`, written out, starting from the weighted log-linear fit | not merged. Last full runs: EQUIP 2119, CLI 124, MRImages 103 |
+| `loglinear-proto` | `Free(start = :loglinear)`: the weighted log-linear fit computed by EQUIP from the model's own signal (Gauss–Newton on ln y with the solver's dual numbers); DTI on it, its `datastart` removed (the same starts and fits, 4–16% slower in all); DKI from it, 4.6 iterations instead of 15.7, 11% faster | not merged. Last full runs: EQUIP (running when committed), CLI 124 |
 
 ## Done recently
 
+- **`:loglinear`, the log-linear start from the model's signal** (2026-11-07, branch
+  `loglinear-proto`; design.md, "The log-linear start"). The owner's point: a start should not
+  restate the signal equation. Gauss–Newton on ln y with ∂ln S from `signal!`'s dual numbers;
+  DTI uses it (no `datastart`), DKI converges in a third of the iterations. Not yet: the DKI
+  example on it; ADCDecay, ADCKurtosis, R2Decay.
 - **DTI, built in** (2026-11-07; src/models/diffusion/dti.jl, design.md "DTI built in"). The
   standard format, gᵀDg written out, the six elements fitted with no bounds; each voxel starts
   from the weighted log-linear fit (exact on noise-free data, an isotropic start when the

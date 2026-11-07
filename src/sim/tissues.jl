@@ -153,6 +153,7 @@ end
 function _nominal_error(m, roles, q, call, starts, missing)
     start(n) = roles[n] isa Free ? roles[n].start : nothing
     why(n) = start(n) === :data ? "it starts from the data" :
+             start(n) === :loglinear ? "it starts from the log-linear fit" :
              start(n) isa BestOf ? "it starts from BestOf values" :
              start(n) isa Function ? "its start is computed from the acquisition" :
              "it has no start"

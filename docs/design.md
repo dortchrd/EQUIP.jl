@@ -3642,7 +3642,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     dot is gᵀDg) 2.25; `g' * D * g` 5.92, all allocation-free and equal to rounding. Written out
     was chosen: the fastest, and g stays a tuple as in the other directional models. The names
     `diffusivity` and `adc` for a gᵀDg helper were dropped with it (`adc` reads as ADCDecay's).
-  - **The start, `datastart`:** the weighted log-linear fit, ln y = ln S0 − b·gᵀDg, linear in ln
+  - **The start, `datastart`** (replaced on `loglinear-proto` by the generic `:loglinear`,
+    "The log-linear start" below): the weighted log-linear fit, ln y = ln S0 − b·gᵀDg, linear in ln
     S0 and the six elements (the B-matrix design matrix), weights y² (Basser et al., J Magn
     Reson B 1994). The 7×7 normal equations are summed image by image in static arrays (no
     allocation), in Float64 at least (Float32 data too), and scaled to a unit diagonal before a
@@ -3672,6 +3673,64 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     data in both precisions, no allocation, and isotropic for the three undetermined designs;
     fits in both precisions against the truth, crlb's SD and a constant start's fits); full runs
     EQUIP 2119, CLI 124 (MRImages unchanged, 103).
+
+- **The log-linear start, `Free(start = :loglinear)`, from the model's own signal** (2026-11-07,
+  branch `loglinear-proto`; the owner: "we should be able to feed it signal instead of
+  recalculating and writing a custom function for both it and DKI"). DTI's `datastart` restated
+  the signal equation in a design matrix, and DKI would have needed a third copy. The log-linear
+  fit is Gauss–Newton on ln y, so EQUIP computes it from what the solver already has: `signal!`
+  evaluated in dual numbers gives S and ∂S/∂θ, hence the log residuals ln S − ln y and their
+  Jacobian (∂S/∂θ)/S; weights y² (times the fit's own weights). Where ln S is linear in the
+  parameters, the first step lands on the weighted log-linear fit from any point; where it is
+  nearly linear, a few steps reach it. The code is in src/fit/starts.jl (`_loglinear_start`), one
+  step of the voxel's start sequence, after `:data` and before `BestOf` and `:scale`; DTI's
+  parameters say `Free(start = :loglinear)` and its `datastart` is gone.
+  - **What moves:** the parameters at `:loglinear`, from 0 (their placeholder), and the `:scale`
+    parameter, the fit's intercept (without it the others would absorb the signal's level); the
+    rest stay at their starts. The scale is then set again by least squares on y, as for every
+    start. Found on the way: ln S is linear in ln S0, not in S0, so stepped in S0 the start crept
+    from S0 = 1 towards 1000 over all ten steps (48 µs for one voxel of 132 images instead of 9).
+    Since `:scale` multiplies the signal by definition, its step is taken on ln S0,
+    S0·exp(ΔS0/S0), which keeps DTI's first step exact.
+  - **Kept from DTI's start:** Float64 sums and solve (Float32 fits too); the system scaled to a
+    unit diagonal; the solver's own `_cholesky`, which reports failure rather than throwing; the
+    pivot threshold eps^(1/4) for a design that cannot determine the parameters ("DTI built in",
+    pivots.jl). New: a parameter the data do not measure at the current point (a zero column:
+    DKI's W while D = 0; Dzz when every direction lies in the xy plane) does not move that step;
+    a step that raises the weighted log-SSE is halved; it stops when the predicted decrease is
+    below √eps of the log-SSE, or after 10 steps. A changed behaviour: where the design cannot
+    give the parameters (one shell with no b = 0), they stay at 0 rather than at the isotropic
+    1/mean(b); the in-plane case now gives the in-plane elements exactly, the others 0.
+  - **For which parameters:** those on which ln S depends linearly or nearly, and for which 0 is
+    a valid value: diffusivities, rates, kurtosis. Not time constants (T2 = 0 is no signal):
+    T2Decay keeps its `datastart`, or a model uses the rate.
+  - **Measured, DTI** (scratch loglin_dti.jl: a rotated tensor 1.7, 0.4, 0.3e-3 mm²/s, Rician SNR
+    50, 2000 voxels, 4 threads), against DTI's former start (directions-proto):
+    | protocol | starts differ (of λ1) | fits differ | iterations | µs per voxel, fit (start alone) |
+    |---|---|---|---|---|
+    | 6 b = 0 + 30 at 1000 | 1.7e-14 | 1.3e-16 | 4.044, the same | 2.31 against 2.23 (1.24 against 1.05) |
+    | 4 + 64 at 1000 + 64 at 2500 | 4.1e-14 | 1.3e-16 | 4.447 against 4.448 | 7.21 against 6.20 (3.81 against 2.65) |
+    Float32: starts within 7e-8 of λ1, fits within 9e-5 (Float32's tolerance), iterations the
+    same to 0.01. No allocation. The cost, 4% and 16% of the fit, is two evaluations of the signal
+    in dual numbers (the step, then the check that nothing is left) where the hand-written start
+    summed the design matrix once.
+  - **Measured, DKI** (scratch loglin_dki.jl: examples/dki.jl's model and data, 22 parameters, 66
+    images, SNR 100, 2000 voxels, 4 threads), against its constant start (D = 1e-3·I, W = 0): all
+    converged from both; 4.6 iterations on average (at most 7) against 15.7 (at most 17); the fit
+    74.7 µs per voxel against 84.3 (the start itself 41 µs); the same fits (W within 5e-7). The
+    first call, compiling, 8.0 s, as before. The start's W1111 has mean 1.05 and SD 0.25, the fit's
+    0.99 and 0.25 (truth 1): the log fit's weighting is not the fit's, as expected.
+  - **Why not a library's least squares** (the owner's question, the same day): it was measured
+    on DTI's start (scratch wls_library.jl, 36 images, 1000 voxels): Julia's `\` (pivoted QR,
+    LAPACK) with the rows weighted, `(y .* A) \ (y .* log.(y))`, gives the same answer (to 9e-18
+    mm²/s) in 5.8 µs and 25 KB per voxel with the design matrix made once, 7.6 µs and 32 KB made
+    per voxel, against 1.5 µs and nothing for the static normal equations: a million voxels
+    would make about 30 GB of garbage, and collecting it stops every thread. (It also needs the
+    same care for y ≤ 0: the test crashed on negative data at b = 2500.) The solve itself is a
+    library's here too, the factorization of the small static system.
+  - Not yet: examples/dki.jl on `:loglinear`; ADCDecay and ADCKurtosis (their starts are numbers
+    from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
+    linearization point other than 0, if a model needs one.
 
 ### Not done yet
 
@@ -4838,8 +4897,9 @@ numbers are not an order.
      its angles wrap; FA, MD, AD and RD and their errors come from `propagate` (item 16), not from
      reparametrizing. The one place an eigen form would pay: nerve DTI with λ2 = λ3 tied (an
      axially symmetric tensor, 4 numbers and a direction), when the fit itself should carry the
-     symmetry. `datastart`: the log-linear fit, linear in ln S0 and the six elements (the B-matrix
-     design matrix, as DIPY's `design_matrix`), so no start needs tuning. Measured (scratch
+     symmetry. The start: the log-linear fit, linear in ln S0 and the six elements (the B-matrix
+     design matrix, as DIPY's `design_matrix`), so no start needs tuning; since 2026-11-07 the
+     generic `:loglinear` start, from the signal ("The log-linear start"). Measured (scratch
      dtiforms.jl, 6 + 30 images, Float64): written out, as an SMatrix product gᵀDg, and in
      B-matrix form, the same speed within noise (2.5–2.8 µs per voxel): written out, as the papers
      write it.

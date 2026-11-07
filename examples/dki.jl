@@ -10,8 +10,9 @@
 # measurements and what remains to do are roadmap item 17 in docs/design.md.
 #
 #   - the signal is short; the length is in the 15 names and their multiplicities in the sum
-#   - the fit converges from W = 0 with no special start, 130–170 µs per voxel on 4 threads
-#     (DTI's 2.5)
+#   - the start: the log-linear fit, `Free(start = :loglinear)`, which EQUIP computes from this
+#     signal (no start written here): about 5 iterations per voxel, against 16 from W = 0
+#     (docs/design.md, "The log-linear start")
 #   - not here: crlb. Its first call does not finish compiling at 22 parameters (stopped after
 #     23 minutes); the fix, measured (46 s), is in design.md, item 17
 #   - the indices: MKT, linear in W, below (SD 0.04 at SNR 100, where W1111's is 0.25); MK, AK
@@ -37,17 +38,17 @@ import EQUIP: parameters, signal!
     gz::Z
 end
 
-# The 15 distinct elements of W, by their indices (1 = x, 2 = y, 3 = z). All start at 0 (Gaussian
-# diffusion); no bounds, since K ≥ 0 is a condition on all of them at once, not on each.
+# The 15 distinct elements of W, by their indices (1 = x, 2 = y, 3 = z). Every element of D and W
+# starts from the weighted log-linear fit (`:loglinear`: Gauss–Newton steps on ln y from 0; W's
+# columns are 0 until D has moved, so W waits a step). No bounds, since K ≥ 0 is a condition on
+# all of them at once, not on each.
+const LOGLIN = Free(start = :loglinear)        # one role, the same for all 21 elements
 parameters(::Type{<:DKI}) = (
     S0 = Free(start = :scale, lower = 0),
-    Dxx = Free(start = 1e-3), Dyy = Free(start = 1e-3), Dzz = Free(start = 1e-3),    # mm²/s
-    Dxy = Free(start = 0.0), Dxz = Free(start = 0.0), Dyz = Free(start = 0.0),
-    W1111 = Free(start = 0.0), W2222 = Free(start = 0.0), W3333 = Free(start = 0.0),
-    W1112 = Free(start = 0.0), W1113 = Free(start = 0.0), W1222 = Free(start = 0.0),
-    W2223 = Free(start = 0.0), W1333 = Free(start = 0.0), W2333 = Free(start = 0.0),
-    W1122 = Free(start = 0.0), W1133 = Free(start = 0.0), W2233 = Free(start = 0.0),
-    W1123 = Free(start = 0.0), W1223 = Free(start = 0.0), W1233 = Free(start = 0.0),
+    Dxx = LOGLIN, Dyy = LOGLIN, Dzz = LOGLIN, Dxy = LOGLIN, Dxz = LOGLIN, Dyz = LOGLIN,   # mm²/s
+    W1111 = LOGLIN, W2222 = LOGLIN, W3333 = LOGLIN, W1112 = LOGLIN, W1113 = LOGLIN,
+    W1222 = LOGLIN, W2223 = LOGLIN, W1333 = LOGLIN, W2333 = LOGLIN, W1122 = LOGLIN,
+    W1133 = LOGLIN, W2233 = LOGLIN, W1123 = LOGLIN, W1223 = LOGLIN, W1233 = LOGLIN,
 )
 
 # Σᵢⱼₖₗ gᵢgⱼgₖgₗWᵢⱼₖₗ over all 81 terms is a sum over the 15 distinct elements, each times its
@@ -100,8 +101,8 @@ Y = simulate(m, θ; snr = 100, n = 2000, noise = :gaussian, rng = MersenneTwiste
 t = @elapsed fit(m, Y[1:10, :])                 # (voxels × images)
 @printf("first fit, compiling for 22 parameters: %.1f s\n", t)
 t = @elapsed (r = fit(m, Y))
-@printf("2000 voxels: %.0f µs per voxel, %d threads; converged %d of 2000\n",
-        t / 2000 * 1e6, Threads.nthreads(), count(isconverged, r.status))
+@printf("2000 voxels: %.0f µs per voxel, %d threads; converged %d of 2000, %.1f iterations on average\n",
+        t / 2000 * 1e6, Threads.nthreads(), count(isconverged, r.status), mean(r.iterations))
 for k in (:Dxx, :Dyy, :W1111, :W1122, :W1123)
     @printf("  %-6s mean %10.4g  SD %9.3g  (truth %.4g)\n", k, mean(r.params[k]), std(r.params[k]), θ[k])
 end

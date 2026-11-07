@@ -2747,24 +2747,27 @@ end
         out = zeros(36)
         allocs(m, out, θ) = @allocated signal!(out, m, θ)
         @test (allocs(m, out, θ); allocs(m, out, θ) == 0)
-        # the start, the weighted log-linear fit: the tensor itself from noise-free data, in both
-        # precisions, with no allocation
+        # the start, `:loglinear` (the weighted log-linear fit, from the signal): the tensor itself
+        # from noise-free data, in both precisions; no allocation in a voxel's fit
         y = signal(m, θ)
+        start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
         for (T, tol) in ((Float64, 1e-12), (Float32, 1e-5))
-            d = EQUIP.datastart(m, T.(y), (;))
-            @test eltype(values(d)) == T && all(k -> abs(d[k] - θ[k]) < tol * 1.7e-3, keys(d))
+            s = start(m, T.(y); precision = T)
+            @test eltype(s.Dxx) == T && all(k -> abs(s[k] - θ[k]) < tol * 1.7e-3, keys(θ)[2:7])
         end
-        ds(m, y) = @allocated EQUIP.datastart(m, y, (;))
-        @test (ds(m, y); ds(m, y) == 0)
-        # ... and an isotropic one, 1/mean(b), when the data cannot give the six: directions in one
-        # plane, one shell with no b = 0, no positive data
-        isotropic(d, D0) = d.Dxx == d.Dyy == d.Dzz ≈ D0 && d.Dxy == d.Dxz == d.Dyz == 0
+        c = init(m)
+        allocfit(c, y) = @allocated fit!(c, y)
+        @test (allocfit(c, y); allocfit(c, y) == 0)
+        # ... where the data cannot give all six: directions in one plane give the in-plane
+        # elements (the others, unmeasured, stay at 0); one shell with no b = 0 gives none
         inplane = [[cos(a), sin(a), 0.0] for a in range(0, π; length = 13)[1:12]]
         mp = DTI(; diffusionencoding([0.0; fill(1000.0, 12)], reduce(hcat, [[[0.0, 0.0, 0.0]]; inplane]))...)
+        sp = start(mp, signal(mp, θ))
+        @test all(k -> abs(sp[k] - θ[k]) < 1e-12 * 1.7e-3, (:Dxx, :Dyy, :Dxy)) && sp.Dzz == sp.Dxz == sp.Dyz == 0
         m1 = DTI(; diffusionencoding(fill(1000.0, 30), reduce(hcat, collect.(dirs)))...)
-        @test isotropic(EQUIP.datastart(mp, signal(mp, θ), (;)), 1 / mean(mp.b))
-        @test isotropic(EQUIP.datastart(m1, signal(m1, θ), (;)), 1e-3)
-        @test isotropic(EQUIP.datastart(m, -y, (;)), 1 / mean(bv))
+        s1 = start(m1, signal(m1, θ))
+        @test all(k -> s1[k] == 0, keys(θ)[2:7]) && s1.S0 > 0
+        @test all(k -> start(m, -y)[k] == 0, keys(θ)[2:7])                  # no positive data
         # fitted in both precisions: the truth on average, the SD that crlb predicts, and the same
         # fits as from a constant start
         Y = simulate(m, θ; snr = 50, n = 300, noise = :gaussian, rng)
@@ -2781,6 +2784,31 @@ end
             rc = fit(m, Y; precision = T, const0...)
             @test all(k -> maximum(abs.(r.params[k] .- rc.params[k])) < (T == Float64 ? 1e-6 : 1e-3) * 1.7e-3, keys(const0))
         end
+    end
+
+    @testset "The log-linear start, :loglinear, from the model's own signal" begin
+        b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
+        start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
+        # ADCDecay: ln S is linear in ADC, so the start is the weighted log-linear fit itself, the
+        # same as `_loglinear_rate` (T2Decay's start); with weights all 2, the same again
+        m = ADCDecay(b = b)
+        y = simulate(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40, n = 1, noise = :rician, rng = MersenneTwister(3))[1, :]
+        @test start(m, y; ADC = Free(start = :loglinear, lower = 0)).ADC ≈ EQUIP._loglinear_rate(b, y) rtol = 1e-10
+        @test start(m, y; weights = fill(2.0, 8), ADC = Free(start = :loglinear, lower = 0)).ADC ≈
+              EQUIP._loglinear_rate(b, y) rtol = 1e-10
+        # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is linear in (ln S0, ADC, ADC²·K), not in
+        # K, and K's column is zero at ADC = 0 (K waits a step): a few steps reach the weighted fit
+        # of that polynomial
+        mk = ADCKurtosis(b = b)
+        yk = simulate(mk, (S0 = 1000.0, ADC = 1e-3, K = 0.9); snr = 80, n = 1, noise = :gaussian,
+                      rng = MersenneTwister(4))[1, :]
+        u = (yk .* [ones(8) -b b .^ 2 / 6]) \ (yk .* log.(yk))       # rows times √(y²)
+        sk = start(mk, yk; ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
+        @test sk.ADC ≈ u[2] rtol = 1e-6
+        @test sk.K ≈ u[3] / u[2]^2 rtol = 1e-6
+        # a start Free accepts, and names among the others
+        @test Free(start = :loglinear).start === :loglinear
+        @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

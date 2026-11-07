@@ -80,6 +80,12 @@ each voxel's starting value comes from:
   A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
   log-linear fit for T2. Only for parameters the model's `datastart` estimates;
+- `:loglinear`: the weighted fit of ln y with ln S, the model's own signal (Gauss–Newton steps
+  from 0, weights y²), with the `:scale` parameter as its intercept; the other parameters stay at
+  their starts. For parameters on which ln S depends linearly, or nearly, and for which 0 is a
+  valid value: diffusivities, rates, kurtosis (DTI's tensor, exact in one step; DKI's, a few), not
+  time constants (T2 = 0 is no signal: use the rate, or `:data`). No code in the model: the
+  derivatives come from `signal!`, as the fit's own;
 - [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
 - a function of the model, `m -> ...`, for a start that depends on the acquisition: called
   once per fit with the model, it gives any of the above, e.g. ADCDecay's
@@ -99,8 +105,8 @@ fit(m, data; PSR = Free(lower = -Inf))     # no lower bound (the model's is 0)
 ```
 """
 struct Free
-    start::Any                         # a number, a map, :scale, :data, a BestOf, a function of the
-                                       # model (m -> ...), or nothing (keep the default)
+    start::Any                         # a number, a map, :scale, :data, :loglinear, a BestOf, a
+                                       # function of the model (m -> ...), or nothing (the default)
     lower::Union{Nothing,Float64}      # nothing: keep the default (no bound in a model's parameters)
     upper::Union{Nothing,Float64}
     # The one constructor, by keyword: `Free()`, `Free(start = 0.8)`, `Free(start = :scale,
@@ -108,10 +114,10 @@ struct Free
     # `Free(start, lower, upper)` Julia would otherwise define, so every Free is made here: the
     # start is checked, numbers become Float64, and `new` (only available inside) builds it.
     function Free(; start = nothing, lower = nothing, upper = nothing)
-        start === nothing || start === :scale || start === :data || start isa Real ||
-            start isa AbstractArray || start isa BestOf || start isa Function ||
+        start === nothing || start === :scale || start === :data || start === :loglinear ||
+            start isa Real || start isa AbstractArray || start isa BestOf || start isa Function ||
             throw(ArgumentError("Free: the start must be a number, a map, :scale, :data, " *
-                                "BestOf(values) or a function of the model, got $(repr(start))"))
+                                ":loglinear, BestOf(values) or a function of the model, got $(repr(start))"))
         tofloat(x) = x === nothing ? nothing : Float64(x)
         return new(start isa Real ? Float64(start) : start, tofloat(lower), tofloat(upper))
     end

@@ -147,6 +147,11 @@ parameters(::Type{<:QMTSIR}) = (
     `M0 = Free(start = 1000.0)`, but not move it to another parameter;
   - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
     log-linear fit, `T2 = Free(start = :data, lower = ...)`;
+  - `:loglinear`: the weighted fit of ln y with ln S, computed by EQUIP from the model's own
+    signal (Gauss–Newton steps from 0, weights y², the `:scale` parameter as the intercept), for
+    parameters on which ln S depends linearly or nearly, and for which 0 is a valid value
+    (diffusivities, rates, kurtosis; not T2): DTI's tensor, `Dxx = Free(start = :loglinear)`
+    (exact in one step), DKI's (a few). No code in the model;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
     `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.
@@ -305,7 +310,7 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
-| | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted (no bounds); each voxel starts from the weighted log-linear fit; the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
+| | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted (no bounds); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
 | | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
 | | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
 | | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
@@ -488,7 +493,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   acquisition. (A model may define `parameters(m::StretchedDecay)` on the instance instead;
   its type then cannot be asked.)
 - **Starting values** are declared with each `Free` role (see Free and fixed parameters): a
-  number, `:scale`, `:data`, `BestOf(values)`, or a function of the model for a start that
+  number, `:scale`, `:data`, `:loglinear`, `BestOf(values)`, or a function of the model for a start that
   depends on the acquisition. If fits can end in a wrong local minimum from one start, give the
   parameter several values to try: T1IR's is
   `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5
@@ -919,7 +924,9 @@ Inside each LM step, the free values θ become dual numbers and are merged with 
 into the full named tuple `p`. Then `signal!` fills a buffer of duals (values plus derivatives),
 and JᵀJ, Jᵀr and the SSE are summed from it. The Jacobian matrix itself is never stored.
 Before the first step, each voxel's start is set from the roles: numbers and maps as given; the
-model's own estimates from the data for parameters declared `:data`; then a `BestOf` parameter at
+model's own estimates from the data for parameters declared `:data`; those declared `:loglinear`
+from Gauss–Newton steps on ln y (the log-residuals' derivatives from the same dual numbers); then
+a `BestOf` parameter at
 the value that fits that voxel best, with the `:scale` parameter at its least-squares value for
 each (or, without `BestOf`, for the start).
 
