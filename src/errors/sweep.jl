@@ -307,8 +307,9 @@ function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = false,
     named = _named_truths(M, truths)               # name => complete truth, or nothing => one
     ax = _varyaxes(vary)
     haskey(ax, :tissue) && throw(ArgumentError("`vary = :tissue => ...`: `tissue` names the truths; give several truths instead"))
-    for n in keys(ax)
-        haskey(parameters(M), n) || throw(ArgumentError("`scenarios`: `vary = :$n => ...` takes " *
+    for n in keys(ax)      # a derived quantity the model takes (others: "not a parameter", below)
+        haskey(parameters(M), n) || !(n in fromderived(M isa Type ? M : typeof(M))) ||
+            throw(ArgumentError("`scenarios`: `vary = :$n => ...` takes " *
             "parameters; to vary a derived quantity, give crlb or montecarlo the truth by its " *
             "derived quantities: `crlb(m, (S0 = ..., MD = ..., FA = ..., direction = ...); " *
             "vary = :FA => ...)`"))
