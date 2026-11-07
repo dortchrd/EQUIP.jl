@@ -3773,6 +3773,33 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
       dual partials through MD² and the 15 monomials. To try: the DKI model in DIPY's linear
       parameterization (the start then exact in one step), and weights from the predicted signal
       in `:loglinear` (DIPY's WLS: a second step with S(θ)² as the weights).
+  - **EQUIP's fit against DIPY's WLS, the estimates users look at** (the owner: "also compare
+    with WLS"; scratch dipycmp/accuracy.py, the same data, the same voxels for every method:
+    2000 for DTI, 500 for DKI). Bias (mean − truth) and SD, relative to the truth (MD 0.8e-3
+    mm²/s, FA 0.763, MKT 1):
+
+    | | MD bias | MD SD | FA bias | FA SD |
+    |---|---|---|---|---|
+    | DTI 36: EQUIP's fit = DIPY's NLLS | −0.12% | 1.55% | −0.08% | 1.40% |
+    | DTI 36: DIPY's WLS | −0.03% | 1.55% | −0.06% | 1.41% |
+    | DTI 36: DIPY's OLS | 0.00% | 1.58% | −0.01% | 1.72% |
+    | DTI 36: EQUIP's start | −0.47% | 1.55% | −0.26% | 1.41% |
+    | DTI 132: EQUIP's fit = DIPY's NLLS | −0.53% | 0.98% | −0.17% | 0.67% |
+    | DTI 132: DIPY's WLS | −0.20% | 0.98% | −0.09% | 0.68% |
+    | DTI 132: DIPY's OLS | −2.72% | 2.85% | −1.92% | 1.73% |
+    | DTI 132: EQUIP's start | −1.98% | 1.00% | −0.64% | 0.69% |
+
+    DKI 66 (MD, then MKT): EQUIP's fit = DIPY's NLS +0.14%, 1.35%; +0.39%, 3.93%. DIPY's WLS
+    +0.19%, 1.35%; +0.58%, 3.92%. DIPY's OLS +0.13%, 1.41%; +0.10%, 4.40%. EQUIP's start
+    +0.20%, 1.35%; +1.37%, 3.91%.
+    So the nonlinear fit and DIPY's WLS are equally precise (the same SD everywhere); their biases
+    differ by a few tenths of a percent, either way (WLS less in DTI's MD at b = 2500, the
+    nonlinear fit less in MKT), far below the SD. Both fit a Gaussian model to Rician data, so
+    the floor at high b pulls MD down; EQUIP's `RicianMean` would model it (not tried on DTI).
+    EQUIP's start, weighted by y², is the most biased of the weighted fits at b = 2500 (MD −2.0%):
+    another reason for predicted-signal weights in `:loglinear`. Time, µs per voxel, EQUIP's
+    nonlinear fit against DIPY's WLS: DTI 36 images 8.6 (1 thread) and 2.3 (4) against 17.1; 132
+    images 28.3 and 7.5 against 33.2; DKI 320 and 81 against 312–338.
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
