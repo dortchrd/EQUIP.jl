@@ -5343,7 +5343,7 @@ numbers are not an order.
      direction not derived yet (its sign, and λ1 = λ2). Tests: the four against the eigenvalues
      (1e-12), no allocation, FA's gradient through dual numbers against finite differences
      (1e-5), `derived(res)` for one voxel, a masked dataset and Float32, `nothing` for T2Decay,
-     and `savemaps` on a DTI fit read back from NIfTI.
+     and `savemaps` on a DTI fit read back from NIfTI. Full runs: EQUIP 2164, CLI 124.
    - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
      chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
      works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'
