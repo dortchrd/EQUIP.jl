@@ -2442,6 +2442,7 @@ end
         @test basename.(wd) == ["sub-01_S0map.nii.gz", "sub-01_Dxx.nii.gz", "sub-01_Dyy.nii.gz",
                                 "sub-01_Dzz.nii.gz", "sub-01_Dxy.nii.gz", "sub-01_Dxz.nii.gz", "sub-01_Dyz.nii.gz",
                                 "sub-01_MD.nii.gz", "sub-01_FA.nii.gz", "sub-01_AD.nii.gz", "sub-01_RD.nii.gz",
+                                "sub-01_V1x.nii.gz", "sub-01_V1y.nii.gz", "sub-01_V1z.nii.gz",
                                 "sub-01_status.nii.gz", "sub-01_SSE.nii.gz"]
         fa = readimage(wd[9])
         @test isequal(fa.data, Float64.(Float32.(derived(rdt).FA))) && fa.meta["Map"] == "FA"
@@ -2838,9 +2839,15 @@ end
         @test all(k -> start(m, -y)[k] == 0, keys(θ)[2:7])                  # no positive data
         # what is read off the tensor (`derived`): MD, FA, AD and RD against the eigenvalues; no
         # allocation; differentiable with dual numbers (FA's gradient against finite differences)
-        λ = eigvals(Symmetric(D))
+        λ, Ev = eigen(Symmetric(D))
         dv = derived(m, θ)
-        @test keys(dv) == (:MD, :FA, :AD, :RD)
+        @test keys(dv) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z)
+        # the principal eigenvector, in the upper hemisphere (z ≥ 0): D·e1 = λ1·e1, unit length
+        e1 = [dv.V1x, dv.V1y, dv.V1z]
+        @test D * e1 ≈ λ[3] * e1 rtol = 1e-10
+        @test norm(e1) ≈ 1 && dv.V1z >= 0 && abs(dot(e1, Ev[:, 3])) ≈ 1
+        @test EQUIP._upperhemisphere(SVector(0.6, 0.0, -0.8)) == SVector(-0.6, -0.0, 0.8)
+        @test EQUIP._upperhemisphere(SVector(0.6, -0.8, 0.0)) == SVector(-0.6, 0.8, -0.0)
         @test dv.MD ≈ mean(λ) rtol = 1e-12
         @test dv.FA ≈ sqrt(1.5 * sum((λ .- mean(λ)) .^ 2) / sum(λ .^ 2)) rtol = 1e-12
         @test dv.AD ≈ λ[3] rtol = 1e-12
@@ -2862,7 +2869,7 @@ end
         maskd = [isodd(i) for i in 1:20]
         rd = fit(m, Yd; mask = maskd)
         dd = derived(rd)
-        @test keys(dd) == (:MD, :FA, :AD, :RD) && size(dd.FA) == (20,) && eltype(dd.FA) == Float64
+        @test keys(dd) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z) && size(dd.FA) == (20,) && eltype(dd.FA) == Float64
         @test all(isnan, dd.FA[.!maskd]) && all(i -> dd.FA[i] == derived(m, resolve(rd, i)).FA, findall(maskd))
         @test eltype(derived(fit(m, Yd; precision = Float32)).MD) == Float32
         @test derived(fit(T2Decay(TE = [0.01, 0.02, 0.04]), [900.0, 800.0, 650.0])) === nothing

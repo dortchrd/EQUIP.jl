@@ -5344,6 +5344,13 @@ numbers are not an order.
      (1e-12), no allocation, FA's gradient through dual numbers against finite differences
      (1e-5), `derived(res)` for one voxel, a masked dataset and Float32, `nothing` for T2Decay,
      and `savemaps` on a DTI fit read back from NIfTI. Full runs: EQUIP 2164, CLI 124.
+   - **The principal eigenvector added** (the owner, the same day): V1x, V1y, V1z (FSL's V1, as
+     three maps), from StaticArrays' closed-form `eigen` (no allocation; its derivatives with
+     dual numbers equal finite differences to 1e-9), put in the upper hemisphere (z ≥ 0, then
+     y ≥ 0, then x ≥ 0) so that neighbouring voxels agree, as `directionset`'s. Undefined where
+     λ1 = λ2 (oblate or isotropic tensors): the values there are arbitrary, and so are any
+     errors crlb would give them. Tested: D·e1 = λ1·e1, unit length, the hemisphere rule, and the
+     three maps written by `savemaps`.
    - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
      chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
      works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'

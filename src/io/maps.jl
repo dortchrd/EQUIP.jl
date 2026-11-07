@@ -19,7 +19,7 @@ _mapname(p::Symbol) = haskey(_MAPNAMES, p) ? _MAPNAMES[p] : String(p)
 Write a dataset fit's maps (`res` from `fit(m, data)`, `info` from [`loaddata`](@ref)): each
 free parameter (BIDS names where they exist: `T1map`, `R1map`, `T2map`, `S0map`, ...; else the
 parameter's name), the quantities the model derives from them ([`derived`](@ref): DTI's `MD`,
-`FA`, `AD`, `RD`), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
+`FA`, `AD`, `RD`, `V1x`, `V1y`, `V1z`), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
 and its SSE, and with `stderror = true` each parameter's standard error (`T2map_SE`). Values
 are Float32, NaN outside the mask. Returns the files written.
 

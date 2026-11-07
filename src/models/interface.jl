@@ -365,12 +365,14 @@ relabel(::MRIModel, θ) = θ
     derived(m, p) -> nothing or (name = value, ...)
 
 Optional: quantities computed from one voxel's parameters and reported beside them: DTI's MD,
-FA, AD and RD from its six tensor elements, a kurtosis model's MK from D and V. `p` holds every
-parameter by name, fitted and fixed, ties evaluated (what [`resolve`](@ref) gives). The rules
+FA, AD, RD and principal eigenvector from its six tensor elements, a kurtosis model's MK from D
+and V. `p` holds every parameter by name, fitted and fixed, ties evaluated (what
+[`resolve`](@ref) gives). The rules
 are `signal!`'s: no allocation, generic in the number type (dual numbers, so that their errors
 can come from the fit's by the delta method), the same names in every voxel, and NaN where a
 quantity is undefined. `derived(res)` computes them for a fit (maps for a dataset) and
 [`savemaps`](@ref) writes them beside the parameters' maps. The default, `nothing`, means none.
+A sketch, DTI's without its eigenvector (the whole one is in src/models/diffusion/dti.jl):
 
 ```julia
 function derived(m::DTI, p)

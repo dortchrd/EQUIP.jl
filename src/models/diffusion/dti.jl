@@ -82,15 +82,27 @@ end
 # The quantities read off a tensor (`derived`: the maps beside the six elements): the mean
 # diffusivity MD = tr(D)/3; the fractional anisotropy FA = √(3/2)·‖D − MD·I‖/‖D‖ (Basser &
 # Pierpaoli, J Magn Reson B 1996; Frobenius norms, so no eigenvalues: equal to the eigenvalue
-# form to rounding); the axial diffusivity AD = λ1 and the radial RD = (λ2 + λ3)/2, from the
-# eigenvalues (StaticArrays' closed form for a symmetric 3×3 matrix: no allocation, and
-# differentiable with dual numbers, for their errors later). A tensor that noise made not
-# positive definite gives the values as computed (an eigenvalue can be negative); a zero tensor,
-# FA = NaN.
+# form to rounding); the axial diffusivity AD = λ1 and the radial RD = (λ2 + λ3)/2; and the
+# principal eigenvector, e1, as its three components V1x, V1y, V1z (FSL's V1), the fibers'
+# direction. Eigenvalues and eigenvectors from StaticArrays' closed form for a symmetric 3×3
+# matrix: no allocation, and differentiable with dual numbers (checked against finite
+# differences). An eigenvector's sign is arbitrary (e1 and −e1 are one direction): it is put in
+# the upper hemisphere, z ≥ 0 (then y ≥ 0, then x ≥ 0 on the boundary), as `directionset`'s,
+# so that neighbouring voxels agree. Where λ1 = λ2 (an oblate or isotropic tensor) e1 is not
+# defined: any vector of the plane is one, and the values there are arbitrary. A tensor that
+# noise made not positive definite gives the values as computed (an eigenvalue can be
+# negative); a zero tensor, FA = NaN.
 function derived(::DTI, p)
     D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
-    λ = eigvals(Symmetric(D))                                    # ascending
+    E = eigen(Symmetric(D))                                      # values ascending
+    λ, e1 = E.values, _upperhemisphere(E.vectors[:, 3])
     MD = tr(D) / 3
     FA = sqrt(oftype(MD, 3) / 2) * norm(D - MD * I) / norm(D)
-    return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+    return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2, V1x = e1[1], V1y = e1[2], V1z = e1[3])
+end
+
+# v or −v, whichever has z > 0 (on the equator y > 0, then x > 0): one sign for one direction.
+@inline function _upperhemisphere(v)
+    flip = v[3] < 0 || (v[3] == 0 && (v[2] < 0 || (v[2] == 0 && v[1] < 0)))
+    return flip ? -v : v
 end

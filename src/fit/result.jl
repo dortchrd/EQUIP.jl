@@ -95,14 +95,14 @@ end
     derived(res) -> nothing or (name = value, ...)
 
 The quantities the model derives from its parameters ([`derived`](@ref)`(m, p)`: DTI's MD,
-FA, AD and RD), for a fit: numbers for one voxel, maps for a dataset, in the fit's precision,
+FA, AD, RD and principal eigenvector), for a fit: numbers for one voxel, maps for a dataset, in the fit's precision,
 NaN where a voxel was not fitted. `nothing` for a model that derives none. Computed when
 asked, on threads, from every voxel's parameters ([`resolve`](@ref)), so the fit itself pays
 nothing.
 
 ```julia
 r = fit(DTI(; acq...), dwi; mask)
-d = derived(r)           # (MD = map, FA = map, AD = map, RD = map)
+d = derived(r)           # (MD = map, FA = map, AD = map, RD = map, V1x = map, V1y = map, V1z = map)
 ```
 """
 function derived(res::FitResult)
