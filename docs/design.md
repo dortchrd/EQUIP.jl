@@ -3668,6 +3668,10 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
   - Not yet: FA, MD, AD, RD and the principal direction as maps (roadmap item 16's `propagate`
     for their errors); DTI in the command line (`equip fit DTI`, which `loaddata`'s .bvec
     reading already allows) and in the precompile workload (SMT is in neither).
+  - Tests: 37 (the signal against the matrix form, no allocation; the start exact on noise-free
+    data in both precisions, no allocation, and isotropic for the three undetermined designs;
+    fits in both precisions against the truth, crlb's SD and a constant start's fits); full runs
+    EQUIP 2119, CLI 124 (MRImages unchanged, 103).
 
 ### Not done yet
 
