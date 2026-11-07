@@ -2732,6 +2732,57 @@ end
         end
     end
 
+    @testset "DTI: the diffusion tensor, written out, from the log-linear start" begin
+        rng = MersenneTwister(8)
+        dirs = directionset(30)
+        bv = [fill(0.0, 6); fill(1000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(dirs)])       # 3×36, as a .bvec
+        m = DTI(; diffusionencoding(bv, G)...)
+        @test nobs(m) == 36 && keys(parameters(m)) == (:S0, :Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        # a rotated prolate tensor (eigenvalues 1.7, 0.4, 0.3e-3 mm²/s): S0·exp(−b·gᵀDg), no allocation
+        Q = Matrix(qr(randn(rng, 3, 3)).Q)
+        D = Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q'
+        θ = (S0 = 1000.0, Dxx = D[1, 1], Dyy = D[2, 2], Dzz = D[3, 3], Dxy = D[1, 2], Dxz = D[1, 3], Dyz = D[2, 3])
+        @test signal(m, θ) ≈ [1000 * exp(-bv[j] * (G[:, j]' * D * G[:, j])) for j in 1:36] rtol = 1e-12
+        out = zeros(36)
+        allocs(m, out, θ) = @allocated signal!(out, m, θ)
+        @test (allocs(m, out, θ); allocs(m, out, θ) == 0)
+        # the start, the weighted log-linear fit: the tensor itself from noise-free data, in both
+        # precisions, with no allocation
+        y = signal(m, θ)
+        for (T, tol) in ((Float64, 1e-12), (Float32, 1e-5))
+            d = EQUIP.datastart(m, T.(y), (;))
+            @test eltype(values(d)) == T && all(k -> abs(d[k] - θ[k]) < tol * 1.7e-3, keys(d))
+        end
+        ds(m, y) = @allocated EQUIP.datastart(m, y, (;))
+        @test (ds(m, y); ds(m, y) == 0)
+        # ... and an isotropic one, 1/mean(b), when the data cannot give the six: directions in one
+        # plane, one shell with no b = 0, no positive data
+        isotropic(d, D0) = d.Dxx == d.Dyy == d.Dzz ≈ D0 && d.Dxy == d.Dxz == d.Dyz == 0
+        inplane = [[cos(a), sin(a), 0.0] for a in range(0, π; length = 13)[1:12]]
+        mp = DTI(; diffusionencoding([0.0; fill(1000.0, 12)], reduce(hcat, [[[0.0, 0.0, 0.0]]; inplane]))...)
+        m1 = DTI(; diffusionencoding(fill(1000.0, 30), reduce(hcat, collect.(dirs)))...)
+        @test isotropic(EQUIP.datastart(mp, signal(mp, θ), (;)), 1 / mean(mp.b))
+        @test isotropic(EQUIP.datastart(m1, signal(m1, θ), (;)), 1e-3)
+        @test isotropic(EQUIP.datastart(m, -y, (;)), 1 / mean(bv))
+        # fitted in both precisions: the truth on average, the SD that crlb predicts, and the same
+        # fits as from a constant start
+        Y = simulate(m, θ; snr = 50, n = 300, noise = :gaussian, rng)
+        c = crlb(m, θ; snr = 50)
+        const0 = (Dxx = Free(start = 1e-3), Dyy = Free(start = 1e-3), Dzz = Free(start = 1e-3),
+                  Dxy = Free(start = 0.0), Dxz = Free(start = 0.0), Dyz = Free(start = 0.0))
+        for T in (Float64, Float32)
+            r = fit(m, Y; precision = T)
+            @test eltype(r.params.Dxx) == T && count(isconverged, r.status) == 300
+            for k in keys(const0)
+                @test abs(mean(r.params[k]) - θ[k]) < 4 * c.sd[k] / sqrt(300)
+                @test std(r.params[k]) ≈ c.sd[k] rtol = 0.15
+            end
+            rc = fit(m, Y; precision = T, const0...)
+            @test all(k -> maximum(abs.(r.params[k] .- rc.params[k])) < (T == Float64 ? 1e-6 : 1e-3) * 1.7e-3, keys(const0))
+        end
+    end
+
     @testset "@mrimodel: a model from a function of one observation" begin
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         mmerr(ex) = try macroexpand(@__MODULE__, ex); "" catch e; sprint(showerror, e isa LoadError ? e.error : e) end

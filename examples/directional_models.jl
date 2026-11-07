@@ -3,7 +3,7 @@
 #
 #   1. sticks and a zeppelin along one fiber direction n(θ, φ), the same parallel diffusivity,
 #      the tortuosity limit for the extra-axonal radial one (Kaden's tissue, without averaging)
-#   2. the standard tensor (DTI), S0·exp(−b·gᵀDg)
+#   2. the standard tensor (DTI, built in), S0·exp(−b·gᵀDg)
 #   3. the two together: DTI's principal direction as the fibers' direction, fixed (per-voxel
 #      maps) or as the start of a fit of θ and φ
 #
@@ -13,10 +13,10 @@
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the
 # compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n`
 # (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is written by
-# hand for that reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
-# computed for every image and its fit takes about twice as long (both are timed at the end).
-# DTI has no angles, and the macro suits it. A stick and a zeppelin are tensors (D = D∥·nnᵀ;
-# D = D⊥·I + (D∥ − D⊥)·nnᵀ): checked below.
+# hand for that reason: written with `@mrimodel`, whose body runs once per image, its sines and
+# cosines are computed for every image and its fit takes about twice as long (both are timed at
+# the end). DTI is built in (src/models/diffusion/dti.jl), written out the same way. A stick and
+# a zeppelin are tensors (D = D∥·nnᵀ; D = D⊥·I + (D∥ − D⊥)·nnᵀ): checked below.
 #
 # Run from the repository folder (about 30 s):
 #   julia -t 4 --project=. examples/directional_models.jl
@@ -72,10 +72,8 @@ end
 end
 
 # --- 2. the standard tensor (DTI): S0·exp(−b·gᵀDg), six elements ---------------------------------
-@mrimodel DTI(b, gx, gy, gz; S0 = Free(start = :scale, lower = 0),
-              Dxx = Free(start = 1e-3), Dyy = Free(start = 1e-3), Dzz = Free(start = 1e-3),
-              Dxy = Free(start = 0.0), Dxz = Free(start = 0.0), Dyz = Free(start = 0.0)) =
-    S0 * exp(-b * (gx^2 * Dxx + gy^2 * Dyy + gz^2 * Dzz + 2gx * gy * Dxy + 2gx * gz * Dxz + 2gy * gz * Dyz))
+# Built into EQUIP (src/models/diffusion/dti.jl): the six elements fitted, each voxel starting
+# from the weighted log-linear fit. Used below, on the b ≤ 1000 images.
 
 m = StickZeppelin(; acq...)                                 # `...`: b, gx, gy, gz as keywords
 display(m); println()

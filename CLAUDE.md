@@ -36,7 +36,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
-  (src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
+  start; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
   evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)

@@ -83,6 +83,7 @@ include("diffusion/compartments.jl")    # the compartments: iso, stick, zeppelin
                                         # powder (exported), for the diffusion models below
 include("diffusion/adc_decay.jl")       # ADCDecay
 include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, one direction
+include("diffusion/dti.jl")             # DTI: the diffusion tensor, one image per gradient direction
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
 include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

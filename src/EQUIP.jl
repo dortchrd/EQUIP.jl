@@ -26,7 +26,7 @@ module EQUIP
 # function that another package owns. We do that for a few standard function names, so that our
 # `fit` IS StatsBase's `fit` (and our `init` is SciML's `init`): loading those packages together
 # then causes no name clash.
-using LinearAlgebra                        # dot, Diagonal, diag
+using LinearAlgebra                        # dot, Diagonal, diag; cholesky (DTI's start)
 import LinearAlgebra: cond                 # cond(c): a crlb result's condition number
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
@@ -60,7 +60,7 @@ export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit
 export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
-export ADCDecay, ADCKurtosis, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS       # diffusion models
+export ADCDecay, ADCKurtosis, DTI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS  # diffusion models
 export sphericalmean, directionset
 export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation

@@ -3624,6 +3624,51 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
 - **The compartments live with the diffusion models** (2026-11-06, the owner):
   src/models/diffusion/compartments.jl, included first in the diffusion group.
 
+- **DTI built in, written out by hand** (2026-11-07, the owner: "just build standard DTI like we
+  showed way back when ... We have the @mrimodel macro we can use later on to make more compact
+  code"). src/models/diffusion/dti.jl, in the standard format: the struct (`b`, `gx`, `gy`,
+  `gz`), `S0` and the six elements, and gᵀDg written out in `signal!`, as the papers write it.
+  This revises "built-in models written with `@mrimodel`" above for DTI; the macro is for making
+  the code compact later.
+  - **No `tensor` compartment, and no multi-tensor models** (discussed the same day). A tensor
+    has only the directional view: its spherical mean is a one-dimensional integral,
+    ∫₀¹ exp(−b·λ3·z² − b·(1 − z²)·(λ1 + λ2)/2)·I₀(b·(1 − z²)·(λ1 − λ2)/2) dz, the zeppelin's erf
+    form when λ1 = λ2, with no closed form otherwise and an eigendecomposition per call. And a
+    sum of full tensors is hard to fit: swapping two tensors (f ↔ 1 − f) gives the same signal,
+    identical starts cannot separate them, and parallel fibers are nearly degenerate. A model
+    with several fiber populations uses zeppelins with directions, which the compartments
+    already give. Also considered for gᵀDg (scratch gdg.jl: 132 images, duals for 7 parameters,
+    µs per signal): written out 2.11; `dot(g, D, g)` with D an SMatrix (Julia's three-argument
+    dot is gᵀDg) 2.25; `g' * D * g` 5.92, all allocation-free and equal to rounding. Written out
+    was chosen: the fastest, and g stays a tuple as in the other directional models. The names
+    `diffusivity` and `adc` for a gᵀDg helper were dropped with it (`adc` reads as ADCDecay's).
+  - **The start, `datastart`:** the weighted log-linear fit, ln y = ln S0 − b·gᵀDg, linear in ln
+    S0 and the six elements (the B-matrix design matrix), weights y² (Basser et al., J Magn
+    Reson B 1994). The 7×7 normal equations are summed image by image in static arrays (no
+    allocation), in Float64 at least (Float32 data too), and scaled to a unit diagonal before a
+    Cholesky factorization with `check = false`, which reports a failure rather than throwing.
+    Found on the way: a system the data cannot determine (one shell with no b = 0) is singular,
+    but rounding can leave it a tiny pivot, so the factorization succeeds and gives a nonsense
+    start. So a pivot below eps^(1/4) (1.2e-4) counts as undetermined. Measured (scratch
+    pivots.jl, 50 rotated tensors per case at SNR 30: white matter, grey matter, CSF and
+    2.5/0.1/0.1e-3; Float64 and Float32 data): the smallest pivot is 0.02 or more for every
+    determined design (one b = 0 and six directions; 6 b = 0 and 30; two shells with or without
+    b = 0; 4 + 64 + 64; directions within 3° of a plane), and 3e-7 or less for the undetermined
+    ones (one shell with no b = 0; five directions; all directions in one plane, or on one cone,
+    which cannot separate Dzz from Dxx + Dyy). When undetermined, the start is isotropic,
+    1/mean(b), as ADCDecay's.
+  - **Measured** (scratch check.jl: 6 b = 0 and 30 directions at b = 1000, a rotated tensor with
+    eigenvalues 1.7, 0.4, 0.3e-3 mm²/s, SNR 50, 2000 voxels, 4 threads). From noise-free data
+    the start is the tensor itself (5e-16 of λ1 in Float64, 7e-8 in Float32). All voxels
+    converged in both precisions. The data start took 4.0 iterations on average (Float64),
+    against 6.0 from a constant start (D = 1e-3·I), and gave the same fits (to 3e-8 of λ1;
+    Float32, 7e-5). Time per voxel: 2.4–2.6 µs, against 2.9 from the constant start.
+    examples/directional_models.jl now uses the built-in DTI, with the same results (its
+    direction 0.2° from the fibers; v_ax 0.600 ± 0.004).
+  - Not yet: FA, MD, AD, RD and the principal direction as maps (roadmap item 16's `propagate`
+    for their errors); DTI in the command line (`equip fit DTI`, which `loaddata`'s .bvec
+    reading already allows) and in the precompile workload (SMT is in neither).
+
 ### Not done yet
 
 - The other families: the T1 models (inversion and saturation recovery, MFA) share relaxation
@@ -4778,11 +4823,13 @@ numbers are not an order.
    scripts; not built).
    The directions' rule is decided ("Directions per image", in the building-blocks section,
    revised 2026-11-05 and back on 2026-11-06): `b`, `gx`, `gy`, `gz`, each a vector of numbers,
-   built from the files by `diffusionencoding`, in models of a supertype `DirectionalDiffusion`.
+   built from the files by `diffusionencoding` (no supertype: everything works by field name,
+   decided 2026-11-06).
    What follows is what to build on it, in order.
-   - **A built-in DTI, written out** (with `@mrimodel`). S = S0·exp(−b·gᵀDg), gᵀDg = gx²Dxx +
-     gy²Dyy + gz²Dzz + 2gxgyDxy + 2gxgzDxz + 2gygzDyz, the six elements fitted. The owner kept this form over
-     eigenvalues and angles (2026-11-05): the eigen form is degenerate where two eigenvalues are
+   - **A built-in DTI, written out: built 2026-11-07** (by hand, in the standard format, not with
+     `@mrimodel`: "DTI built in", in the compartments section). S = S0·exp(−b·gᵀDg),
+     gᵀDg = gx²Dxx + gy²Dyy + gz²Dzz + 2gxgyDxy + 2gxgzDxz + 2gygzDyz, the six elements fitted.
+     The owner kept this form over eigenvalues and angles (2026-11-05): the eigen form is degenerate where two eigenvalues are
      equal (the angles of a prolate tensor's minor axes are undetermined), needs a relabel, and
      its angles wrap; FA, MD, AD and RD and their errors come from `propagate` (item 16), not from
      reparametrizing. The one place an eigen form would pay: nerve DTI with λ2 = λ3 tied (an
@@ -4800,15 +4847,16 @@ numbers are not an order.
      static). n and −n are one fiber: a relabel (θ → π − θ, φ → φ + π) and φ wrapped. θ and φ from
      DTI's principal direction, as the fit's start or fixed as per-voxel maps. Measured (the
      example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, Float64 and
-     Float32. Written by hand with `fiberdirection` once per voxel and `fibercosine` per image
+     Float32. Written by hand with `fiberdirection` once per voxel and `ξ = g ⋅ n` per image
      (12.8 µs per voxel; with `@mrimodel` 23.1: "Directions per image", built 2026-11-06).
    - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
      them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
      ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),
      splatted into any model's keyword constructor: `DTI(; diffusionencoding("dwi.bval",
      "dwi.bvec")...)`. It checks the lengths,
-     transposes an N×3 table, checks unit vectors (atol 1e-2, as DIPY's gradient table) and sets
-     b below a threshold to 0 (50 s/mm², DIPY's `b0_threshold`). DIPY's `GradientTable` is the
+     transposes an N×3 table, checks unit vectors (atol 1e-2, as DIPY's gradient table) where b
+     is above a threshold (50 s/mm², DIPY's `b0_threshold`), and keeps b as given (decided
+     2026-11-06). DIPY's `GradientTable` is the
      model: one object per acquisition, shared by every model, with b-tensors as `btens` (linear,
      planar, spherical, cigar). Tried and dropped: an `Encoding` struct as a field of each model.
      It breaks the per-observation rule for nothing (the cosine form costs the same, measured).
@@ -4816,7 +4864,8 @@ numbers are not an order.
      positional constructor that `_with_precision` and `ProtocolDesign` rebuild models with; a
      second keyword-only constructor overwrites `@mrimodel`'s (an error at precompile time in a
      package). So: `diffusionencoding(...)` and the generated keyword constructors, and the
-     supertype `DirectionalDiffusion` for what the models share (decided 2026-11-05).
+     supertype `DirectionalDiffusion` for what the models share (decided 2026-11-05, dropped
+     2026-11-06).
    - **The small things decided** (status.md): a clear error for a field of 3-vectors or a
      matrix, pointing to `diffusionencoding`; `loaddata` mapping a .bvec to gx, gy, gz;
      `readbvec` exported from EQUIP (now only in EQUIP.MRImages); the directional example
@@ -4825,8 +4874,8 @@ numbers are not an order.
      integral, S = S0·exp(−B:D); linear encoding is B = b·ggᵀ, so b and g say everything until
      then. Planar and spherical encoding need all six elements: by the same rule, six component
      vectors (Bxx, Byy, Bzz, Bxy, Bxz, Byz). The blocks in B form: ball exp(−D·tr B), stick
-     exp(−D·nᵀBn), zeppelin exp(−D⊥·tr B − (D∥ − D⊥)·nᵀBn), a tensor exp(−B:D). A `tensor` block
-     waits for this decision.
+     exp(−D·nᵀBn), zeppelin exp(−D⊥·tr B − (D∥ − D⊥)·nᵀBn), a tensor exp(−B:D) (no `tensor`
+     compartment: decided 2026-11-07, "DTI built in").
    - **More views and blocks** (discussed, not built; status.md): a generic `rotinv(l)` view for
      SMI's rotational invariants (`powder` is l = 0; one function, not l = 2 and 4 in every
      block); a Watson-dispersed view; a cylinder of finite radius (axon diameter: first a crlb
