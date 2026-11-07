@@ -147,12 +147,11 @@ parameters(::Type{<:QMTSIR}) = (
     `M0 = Free(start = 1000.0)`, but not move it to another parameter;
   - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
     log-linear fit, `T2 = Free(start = :data, lower = ...)`;
-  - `:loglinear`: the weighted fit of ln y with ln S, computed by EQUIP from the model's own
-    signal (Gauss–Newton steps from 0, each image weighted by the predicted signal², reweighted
-    at every step, as DIPY's WLS and then further; the `:scale` parameter as the intercept), for
-    parameters on which ln S depends linearly or nearly, and for which 0 is a valid value
-    (diffusivities, rates, kurtosis; not T2): DTI's tensor, `Dxx = Free(start = :loglinear)`
-    (exact in one step), DKI's (a few). No code in the model;
+  - `:loglinear`: the weighted linear fit of ln y with ln S, computed by EQUIP from the
+    model's own signal in two passes, OLS then WLS weighted by OLS's predicted signal² (DIPY's
+    WLS; the `:scale` parameter as the intercept), for models whose ln S is linear in the
+    parameters and for which 0 is a valid value (diffusivities, rates; not T2): DTI's tensor,
+    `Dxx = Free(start = :loglinear)`, DKI written in V = MD²·W. No code in the model;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
     `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.

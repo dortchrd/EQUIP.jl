@@ -129,6 +129,31 @@ function EQUIP.signal!(out, m::DirStickZeppelin, p)
     end
     return out
 end
+# DKI in V = MD²·W (examples/dki.jl's model): ln S linear in all 22 parameters, every element
+# starting from :loglinear; for the start's two passes and for Float32 at 22 parameters
+const TDKI_V = (:V1111, :V2222, :V3333, :V1112, :V1113, :V1222, :V2223, :V1333, :V2333,
+                :V1122, :V1133, :V2233, :V1123, :V1223, :V1233)
+Base.@kwdef struct TestDKIV{A,X,Y,Z} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+EQUIP.parameters(::Type{<:TestDKIV}) = merge((S0 = Free(start = :scale, lower = 0),),
+    NamedTuple{(:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz, TDKI_V...)}(ntuple(_ -> Free(start = :loglinear), 21)))
+@inline tdkiweights(x, y, z) = SVector(x^4, y^4, z^4, 4x^3 * y, 4x^3 * z, 4x * y^3, 4y^3 * z,
+    4x * z^3, 4y * z^3, 6x^2 * y^2, 6x^2 * z^2, 6y^2 * z^2, 12x^2 * y * z, 12x * y^2 * z, 12x * y * z^2)
+function EQUIP.signal!(out, m::TestDKIV, p)
+    (; b, gx, gy, gz) = m
+    V = SVector(p.V1111, p.V2222, p.V3333, p.V1112, p.V1113, p.V1222, p.V2223, p.V1333, p.V2333,
+                p.V1122, p.V1133, p.V2233, p.V1123, p.V1223, p.V1233)
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        gDg = gx[j]^2 * p.Dxx + gy[j]^2 * p.Dyy + gz[j]^2 * p.Dzz +
+              2gx[j] * gy[j] * p.Dxy + 2gx[j] * gz[j] * p.Dxz + 2gy[j] * gz[j] * p.Dyz
+        out[j] = p.S0 * exp(-b[j] * gDg + b[j]^2 * dot(tdkiweights(gx[j], gy[j], gz[j]), V) / 6)
+    end
+    return out
+end
 # The same acquisition given as one 3-vector per image: refused, with what to write instead
 Base.@kwdef struct DirVectors{A,G} <: MRIModel
     b::A
@@ -2758,6 +2783,30 @@ end
         c = init(m)
         allocfit(c, y) = @allocated fit!(c, y)
         @test (allocfit(c, y); allocfit(c, y) == 0)
+        # on noisy data: the two passes written out, OLS then WLS weighted by OLS's predicted
+        # signal (DIPY's WLS); with the off-diagonal elements fixed, the same on the diagonal's
+        # columns; with a tie (Dzz = Dyy), on the two columns merged; with Dxx started from a map,
+        # Dxx held at the map's values and the others fitted to ln y − Xₓₓ·Dxx, the weights from
+        # the whole prediction
+        X = [ones(36) -bv .* G[1, :] .^ 2 -bv .* G[2, :] .^ 2 -bv .* G[3, :] .^ 2 -2bv .* G[1, :] .* G[2, :] -2bv .* G[1, :] .* G[3, :] -2bv .* G[2, :] .* G[3, :]]
+        twopass(X, l, off = 0) = (u = X \ l; w = exp.(X * u .+ off); (w .* X) \ (w .* l))
+        yn = simulate(m, θ; snr = 30, n = 1, noise = :rician, rng = MersenneTwister(21))[1, :]
+        tol = 1e-12 * 1.7e-3
+        u = twopass(X, log.(yn))
+        sn = start(m, yn)
+        @test all(k -> abs(sn[k] - u[k]) < tol, 2:7) && keys(sn)[2:7] == (:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        sf, uf = start(m, yn; Dxy = 0.0, Dxz = 0.0, Dyz = 0.0), twopass(X[:, 1:4], log.(yn))
+        @test keys(sf) == (:S0, :Dxx, :Dyy, :Dzz) && all(k -> abs(sf[k] - uf[k]) < tol, 2:4)
+        st, ut = start(m, yn; Dzz = Fixed(:Dyy)), twopass([X[:, 1:2] X[:, 3] .+ X[:, 4] X[:, 5:7]], log.(yn))
+        @test all(k -> abs(st[k] - ut[k]) < tol, 2:6) && keys(st)[2:6] == (:Dxx, :Dyy, :Dxy, :Dxz, :Dyz)
+        Yn = simulate(m, θ; snr = 30, n = 3, noise = :rician, rng = MersenneTwister(22))
+        dxx = [1.5e-3, 1.6e-3, 1.7e-3]
+        sm = fit(m, Yn; solver = LM(maxiter = 0), Dxx = Free(start = dxx)).params
+        @test sm.Dxx == dxx
+        for i in 1:3
+            ui = twopass(X[:, [1, 3, 4, 5, 6, 7]], log.(Yn[i, :]) .- X[:, 2] .* dxx[i], X[:, 2] .* dxx[i])
+            @test all(k -> abs(sm[k][i] - ui[k - 1]) < tol, 3:7)
+        end
         # ... where the data cannot give all six: directions in one plane give the in-plane
         # elements (the others, unmeasured, stay at 0); one shell with no b = 0 gives none
         inplane = [[cos(a), sin(a), 0.0] for a in range(0, π; length = 13)[1:12]]
@@ -2789,36 +2838,72 @@ end
     @testset "The log-linear start, :loglinear, from the model's own signal" begin
         b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
         start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
-        # ADCDecay: ln S is linear in ADC. The start is the log-linear fit weighted by the
-        # predicted signal², reweighted (the first step unweighted, the second DIPY's WLS), and
-        # stopped once a step gains little: on noise-free data the truth; on noisy data within a
-        # few hundredths of an SD of the fit reweighted to convergence (written out here); the
-        # fit's own weights all 2, the same start
+        # ADCDecay: ln S is linear in ADC. The start is the two passes, OLS then WLS weighted by
+        # OLS's predicted signal (written out here): on noise-free data the truth; the fit's own
+        # weights all 2, the same start
         m = ADCDecay(b = b)
         ll = (ADC = Free(start = :loglinear, lower = 0),)
         @test start(m, signal(m, (S0 = 1000.0, ADC = 0.8e-3)); ll...).ADC ≈ 0.8e-3 rtol = 1e-12
-        irls(X, y) = (u = X \ log.(y); for _ in 1:50; w = exp.(X * u); u = (w .* X) \ (w .* log.(y)); end; u)
+        twopass(X, y) = (u = X \ log.(y); w = exp.(X * u); (w .* X) \ (w .* log.(y)))
         y = simulate(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40, n = 1, noise = :rician, rng = MersenneTwister(3))[1, :]
-        sd = crlb(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40).sd.ADC
-        @test abs(start(m, y; ll...).ADC - irls([ones(8) -b], y)[2]) < 0.05 * sd
+        @test start(m, y; ll...).ADC ≈ twopass([ones(8) -b], y)[2] rtol = 1e-12
         @test start(m, y; weights = fill(2.0, 8), ll...).ADC ≈ start(m, y; ll...).ADC rtol = 1e-12
-        # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is linear in (ln S0, ADC, ADC²·K), not in
-        # K, and K's column is zero at ADC = 0 (K waits a step): a few steps reach the reweighted
-        # fit of that polynomial
+        # bounds hold in the start: an upper bound below the truth is where the start stops (and
+        # the fit, which reports convergence there); a signal rising with b starts at the lower 0
+        y0 = signal(m, (S0 = 1000.0, ADC = 0.8e-3))
+        llu = (ADC = Free(start = :loglinear, lower = 0, upper = 0.5e-3),)
+        @test start(m, y0; llu...).ADC == 0.5e-3
+        ru = fit(m, y0; llu...)
+        @test ru.params.ADC == 0.5e-3 && isconverged(ru)
+        @test start(m, reverse(y0); ll...).ADC == 0
+        # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is not linear in (ADC, K), so the two
+        # passes are two Gauss–Newton steps (K, whose column is zero at ADC = 0, moves in the
+        # second only): an approximate start, from which the fit reaches the same minimum as from
+        # the model's own start
         mk = ADCKurtosis(b = b)
         llk = (ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
         θk = (S0 = 1000.0, ADC = 1e-3, K = 0.9)
-        s0 = start(mk, signal(mk, θk); llk...)
-        @test s0.ADC ≈ 1e-3 rtol = 1e-10
-        @test s0.K ≈ 0.9 rtol = 1e-8
         yk = simulate(mk, θk; snr = 80, n = 1, noise = :gaussian, rng = MersenneTwister(4))[1, :]
-        u = irls([ones(8) -b b .^ 2 / 6], yk)
-        sk, ck = start(mk, yk; llk...), crlb(mk, θk; snr = 80)
-        @test abs(sk.ADC - u[2]) < 0.05 * ck.sd.ADC
-        @test abs(sk.K - u[3] / u[2]^2) < 0.05 * ck.sd.K
+        sk = start(mk, yk; llk...)
+        @test isfinite(sk.ADC) && 0 <= sk.K <= 3
+        rk, rd = fit(mk, yk; llk...), fit(mk, yk)
+        @test isconverged(rk) && isconverged(rd)
+        @test rk.params.ADC ≈ rd.params.ADC rtol = 1e-6
+        @test rk.params.K ≈ rd.params.K rtol = 1e-5
         # a start Free accepts, and names among the others
         @test Free(start = :loglinear).start === :loglinear
         @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))
+    end
+
+    @testset "DKI in V = MD²·W: the start's two passes, and Float32 at 22 parameters" begin
+        dirs = directionset(30)
+        bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(dirs); collect.(dirs)])
+        m = TestDKIV(; diffusionencoding(bv, G)...)
+        MD2 = (0.8e-3)^2                     # D's eigenvalues 1.7, 0.4, 0.3e-3; isotropic K = 1
+        θ = merge((S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0),
+                  NamedTuple{TDKI_V}((MD2, MD2, MD2, 0, 0, 0, 0, 0, 0, MD2 / 3, MD2 / 3, MD2 / 3, 0, 0, 0)))
+        Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng = MersenneTwister(31))
+        # the start: OLS then WLS on the design matrix of DIPY's dki_design_matrix, ln S0 first
+        X = zeros(66, 22)
+        for j in 1:66
+            g1, g2, g3 = G[:, j]
+            X[j, 1] = 1
+            X[j, 2:7] = -bv[j] .* [g1^2, g2^2, g3^2, 2g1 * g2, 2g1 * g3, 2g2 * g3]
+            X[j, 8:22] = bv[j]^2 .* tdkiweights(g1, g2, g3) ./ 6
+        end
+        y = Y[1, :]
+        u = (X \ log.(y)); w = exp.(X * u); u = (w .* X) \ (w .* log.(y))
+        s = fit(m, y; solver = LM(maxiter = 0)).params
+        @test all(k -> abs(s[k] - u[k]) < 1e-10 * abs(u[k]) + 1e-12 * 1.7e-3, 2:7)
+        @test all(k -> abs(s[k] - u[k]) < 1e-10 * abs(u[k]) + 1e-12 * MD2, 8:22)
+        # Float32 against Float64: every voxel converged in both; within a hundredth of an SD
+        r64, r32 = fit(m, Y), fit(m, Float32.(Y); precision = Float32)
+        @test count(isconverged, r64.status) == 200 && count(isconverged, r32.status) == 200
+        @test eltype(r32.params.V1111) == Float32
+        for k in (:Dxx, :Dxy, :V1111, :V1122, :V1123)
+            @test maximum(abs.(r32.params[k] .- r64.params[k])) < 0.01 * std(r64.params[k])
+        end
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin

@@ -80,13 +80,13 @@ each voxel's starting value comes from:
   A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
   log-linear fit for T2. Only for parameters the model's `datastart` estimates;
-- `:loglinear`: the weighted fit of ln y with ln S, the model's own signal (Gauss–Newton steps
-  from 0, each image weighted by the predicted signal², reweighted at every step), with the
-  `:scale` parameter as its intercept; the other parameters stay at their starts. For
-  parameters on which ln S depends linearly, or nearly, and for which 0 is a
-  valid value: diffusivities, rates, kurtosis (DTI's tensor, exact in one step; DKI's, a few), not
-  time constants (T2 = 0 is no signal: use the rate, or `:data`). No code in the model: the
-  derivatives come from `signal!`, as the fit's own;
+- `:loglinear`: the weighted linear fit of ln y with ln S, the model's own signal, in two
+  passes from 0: OLS, then WLS weighted by OLS's predicted signal² (DIPY's WLS), with the
+  `:scale` parameter as its intercept; the other parameters stay at their starts. For models
+  whose ln S is linear in these parameters (DTI's tensor; DKI written in V = MD²·W; ADCDecay's
+  ADC): then exactly the two-pass WLS. Otherwise two Gauss–Newton steps, an approximate start.
+  Not for time constants (T2 = 0 is no signal: use the rate, or `:data`). No code in the model:
+  the derivatives come from `signal!`, as the fit's own;
 - [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
 - a function of the model, `m -> ...`, for a start that depends on the acquisition: called
   once per fit with the model, it gives any of the above, e.g. ADCDecay's

@@ -3875,6 +3875,40 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     every printed digit (MKT 0.9972, W1111 0.9878); K ≥ 0 checked as gᵀVg/(gᵀDg)², the same
     sign as in W. The cost: V is what the fit returns, W is computed after it (one line in the
     example; roadmap item 16's `propagate` would give its errors).
+  - **Reviewed, and revised (2026-11-07): exactly two passes.** The owner brought a review of
+    the fitting (from a chat), its issues ranked: (1) parameter scaling and conditioning, high;
+    (2) bounds, fixed parameters and AD consistency, high; (3) the low-SNR noise model, high for
+    MRI accuracy; (4) the log start's safeguards, moderate; (5) the reweighting stopping rule,
+    low to moderate; (6) the extra WLS passes, low. On 5 and 6: the 25% rule compared each
+    step's predicted gain with the log-misfit at the same point and weights, but that misfit is
+    mostly noise, so the rule depends on the SNR, and in parameter terms it is loose (a
+    Mahalanobis step of up to √((n − p)/2) standard errors, about 4 for 36 images); it worked
+    because each reweighting moves the estimates little, not by design. Decided: a fixed two
+    passes, OLS then WLS weighted by OLS's predicted signal² (Chung et al., NeuroImage 2006;
+    DIPY's WLS), for models whose ln S is linear in their parameters; for others two Gauss–
+    Newton steps, an approximate start that LM refines (rewrite such a model to be linear, as
+    DKI in V, or use `:data`). The first pass is unweighted by rule: with a parameter started
+    from a map the signal at the start is not flat, and weighting by it would make the first
+    pass something other than OLS. Measured (the DIPY comparison's data, µs per voxel on 1 and 4
+    threads, the whole fit; with the 25% rule before): DTI 36 images 8.13 and 2.23 (8.70, 2.39);
+    132 images 24.3 and 6.40 (27.5, 6.96); DKI in V 119 and 34.8 (138, 34.7); DKI in W 279 and
+    70.5 (263, 64.7, 6.1 iterations instead of 4.3: two passes are not enough where ln S is not
+    linear, and the W form is no longer used). On 1 and 2, step 1 of the response, tested:
+    - **Float32 at 22 parameters** (DKI in V, 200 voxels, SNR 100): every voxel converged in
+      both precisions, Float32 within 0.005 SD of Float64 (measured on 500 voxels; tested at
+      0.01 SD). Scaling: LM's Marquardt scaling makes its damping and tests unit-free, and a
+      Cholesky factorization's accuracy depends on the equilibrated matrix's condition, not on
+      the raw scales (S0 ~ 1000, D ~ 1e-3, V ~ 2e-7); the start equilibrates explicitly.
+    - **The start against the two passes written out** in the tests, to 1e-12 or better: DTI
+      (measured 1.3e-15 of λ1); DTI with the off-diagonal elements fixed (the diagonal's
+      columns); with a tie, Dzz = Dyy (the two columns merged); with Dxx started from a map
+      (held at the map's values, the others fitted to ln y − Xₓₓ·Dxx with weights from the whole
+      prediction); DKI in V on DIPY's `dki_design_matrix`; ADCDecay. A bound reached in the
+      start holds (an upper bound below the truth: the start and the fit stop there, converged;
+      a signal rising with b: ADC starts at its lower bound 0).
+    - Still to do, from the review: 3, the low-SNR noise model (Rician against Gaussian fits at
+      SNR 10–30, `RicianMean`), and 4, the start at the noise floor (CSF, very low SNR: the OLS
+      pass weights every image alike).
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
