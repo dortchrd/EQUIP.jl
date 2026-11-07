@@ -5165,3 +5165,77 @@ numbers are not an order.
      function is the "kernel" of the literature, which a directional fit and SMI's rotational
      invariants (a `rotinv(l)` view) could share.
    Needed by the nerve SMT protocol evaluator and search (steps 3 and 4, waiting on the lab).
+19. **Derived quantities: the `derived` hook** (proposed 2026-11-07, the owner: "we have to
+   derive their radial, axial kurtosis, etc. anyway ... no one cares about the W terms
+   directly"; not built). What a user reads off a DTI or DKI fit is not its parameters (six
+   tensor elements, fifteen of V = MD²·W) but quantities computed from them: MD, FA, AD, RD; MK,
+   AK, RK, MKT. Each is a function of one voxel's parameters, so a model declares them once, and
+   every part of EQUIP that reports parameters reports them too: the fit's maps, `savemaps`, the
+   fit's standard errors, crlb, montecarlo, and a protocol design's objective. This is the
+   vehicle for item 16's outputs (`propagate`): the model, not the caller, knows its g.
+   - **The hook**, optional, as `datastart` and `relabel` are:
+
+     ```julia
+     derived(m, p) -> nothing or (name = value, ...)
+     ```
+
+     `p` is one voxel's every parameter by name, fitted and fixed, ties evaluated (what
+     `resolve` gives). The rules are `signal!`'s: no allocation (it runs once per voxel, and
+     inside crlb's kernel), generic in the number type (crlb and the fit's standard errors
+     differentiate it with dual numbers, the delta method), the same names in every voxel, NaN
+     where a quantity is undefined (FA of a zero tensor). The default, `nothing`, means none.
+     Written for DTI (`src/models/diffusion/dti.jl`, after its `signal!`):
+
+     ```julia
+     function derived(m::DTI, p)
+         D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+         λ = eigvals(Symmetric(D))                     # ascending; StaticArrays' closed form
+         MD = tr(D) / 3
+         FA = sqrt(3 / 2) * norm(D - MD * I) / norm(D) # Basser & Pierpaoli 1996, no eigenvalues
+         return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+     end
+     ```
+
+     and for DKI in V (with D, λ and the eigenvectors e₁, e₂, e₃ as above; K(n) = V(n)/(nᵀDn)²,
+     the apparent kurtosis along n, V(n) = Σ nᵢnⱼnₖnₗVᵢⱼₖₗ): MKT = (V1111 + V2222 + V3333 +
+     2(V1122 + V1133 + V2233))/(5·MD²) (Hansen et al., MRM 2013); AK = K(e₁); RK = the mean of
+     K over the circle ⊥ e₁; MK = the mean of K over the sphere.
+   - **Where it shows** (each a consequence of the hook, nothing per model):
+     - `derived(res)`: the maps of a dataset fit (numbers for one voxel), computed per voxel
+       from `resolve(res, i)` on threads, NaN where the voxel was not fitted, in the fit's
+       precision. Computed when asked, like `stderror(res)`, not stored in `FitResult`: the fit
+       pays nothing, and the result's type does not change.
+     - `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...), and with
+       `stderror = true` their standard errors (`FA_SE`), by the delta method from the fit's
+       own covariance: √(∇g Σ ∇gᵀ), ∇g from dual numbers through `derived`.
+     - `crlb` and `montecarlo`: the derived quantities in the same `bias`, `sd` and `rmse` named
+       tuples as the parameters (`c.sd.FA`, `mc.bias.MK`), and in the displayed table below
+       them. crlb's: the SD by the delta method; the bias, ∇g·(the parameters' bias) plus the
+       noise's own second-order term ½ tr(H Σ), H by nested duals (item 16: FA's noise bias,
+       +1.16e-3 predicted against +1.37e-3 measured at SNR 20). montecarlo's: measured from
+       each fit's derived values, so the two can be compared, as for the parameters.
+     - `ProtocolDesign` and `optimize_protocol`: an objective on a derived quantity, e.g. the
+       SD of MK, since they read crlb's named tuples (a DKI protocol designed for MK, not for
+       W1111).
+   - **Measured before (item 16)**: FA and MD's SDs by the delta method within 1% of 20 000
+     Monte Carlo fits (DTI, 6 + 30 images, SNR 50 and 20), the FA–MD correlation (−0.12) too;
+     eigenvalues differentiate through StaticArrays' 3×3 symmetric solver (gradients exact,
+     Hessians finite unless the eigenvalue is repeated); FA from the six elements checked
+     equal to the eigenvalue form to 7e-16.
+   - **Open questions, for the owner:**
+     - Names: MD, FA, AD, RD (DIPY's and most papers'), or FSL's L1, L2, L3 beside them; the
+       principal direction as three maps (V1x, V1y, V1z, FSL's V1) or not derived at all (its
+       sign is arbitrary, and at λ1 = λ2 it is undefined: no derivative for crlb).
+     - MK and RK: averages over a fixed direction set (simple, smooth for the delta method,
+       accurate to about 1e-3 with a few hundred directions: to measure against DIPY's analytic
+       values) or Tabesh et al.'s closed forms (MRM 2011, Carlson's elliptic integrals; DIPY's
+       default; special cases where eigenvalues are equal). Numerical first, I would suggest.
+     - DIPY clips K to [−3/7, 10] in MK, AK and RK by default; EQUIP would report the values
+       as computed and leave the K ≥ 0 check to the user (examples/dki.jl), unless the owner
+       prefers DIPY's convention.
+     - Also derived from a fit's parameters elsewhere: SMT's extra-axonal D⊥ (tortuosity),
+       qMT's exchange rate kfm = kmf·PSR, T1 from R1; a model can expose any of them.
+   - **Order:** the hook, `derived(res)` and `savemaps` with DTI's four; then crlb and
+     montecarlo (the delta method and the second-order bias, tested against Monte Carlo as in
+     item 16); then DKI built in (V form) with MK, AK, RK and MKT, checked against DIPY on the
+     comparison's data; then the standard-error maps and the protocol objective.
