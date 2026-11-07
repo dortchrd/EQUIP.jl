@@ -3907,9 +3907,67 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
       start holds (an upper bound below the truth: the start and the fit stop there, converged;
       a signal rising with b: ADC starts at its lower bound 0).
     - Full runs: EQUIP 2147 (19 new), CLI 124.
-    - Still to do, from the review: 3, the low-SNR noise model (Rician against Gaussian fits at
-      SNR 10–30, `RicianMean`), and 4, the start at the noise floor (CSF, very low SNR: the OLS
-      pass weights every image alike).
+    - **Issues 3 and 4, measured** (2026-11-07, the owner: "look at both"; scratch
+      lowsnr/lowsnr.jl, A.txt and B.txt): DTI (4 b = 0, 64 directions at 1000 and at 2500) and
+      DKI in V (6 b = 0, 30 at 1000 and 2000), Rician noise, SNR (at b = 0) 10–50 for DTI and
+      20–100 for DKI, 2000 voxels a case, random orientations; WM (1.7, 0.4, 0.3e-3, DKI K = 1),
+      GM (0.8e-3 isotropic), CSF (3.0e-3 isotropic, K = 0). Three estimators: the two-pass WLS
+      (the start, DIPY's default), the Gaussian NLLS from it (EQUIP's fit), and least squares on
+      the Rician mean, `RicianMean(m; σ)` with the true σ, started from the Gaussian fit (free,
+      and with D's diagonal bounded to [0, 4e-3] mm²/s). Bias and SD in % of the truth (FA
+      and MKT of isotropic tissue: their mean):
+
+      | | SNR | WLS: MD bias | Gaussian NLLS: MD bias, SD | Rician: MD bias, SD | the other index: WLS, Gaussian, Rician |
+      |---|---|---|---|---|---|
+      | DTI WM | 10 | −10.6 | −11.4, 4.7 | +0.4, 5.3 | FA −3.3, −3.3, +0.1 |
+      | DTI WM | 20 | −2.0 | −3.0, 2.4 | +0.2, 2.5 | FA −0.8, −0.9, 0.0 |
+      | DTI WM | 30 | −0.8 | −1.4, 1.6 | 0.0, 1.7 | FA −0.3, −0.5, 0.0 |
+      | DTI WM | 50 | −0.2 | −0.6, 1.0 | 0.0, 1.0 | FA −0.1, −0.2, 0.0 |
+      | DTI GM | 10 | −6.8 | −11.7, 4.6 | +0.6, 5.6 | FA 0.114, 0.110, 0.123 |
+      | DTI GM | 20 | −0.6 | −2.7, 2.4 | +0.1, 2.5 | FA 0.058, 0.057, 0.058 |
+      | DTI CSF | 10 | −88.8 | −37.3, 3.4 | bounded: +14.0, 12.1 | FA 0.42, 0.15, bounded 0.49 |
+      | DTI CSF | 20 | −78.1 | −15.9, 2.4 | bounded: +9.1, 9.9 | FA 0.26, 0.11, bounded 0.31 |
+      | DTI CSF | 30 | −65.0 | −8.1, 2.1 | bounded: +2.4, 5.1 | FA 0.19, 0.09, bounded 0.16 |
+      | DTI CSF | 50 | −39.3 | −3.0, 1.5 | +0.4, 1.8 | FA 0.11, 0.06, 0.07 |
+      | DKI WM | 20 | +2.1 | +0.9, 7.2 | −0.4, 7.6 | MKT +10.3, +6.6 (SD 18.8), −8.2 (SD 26.7) |
+      | DKI WM | 30 | +1.0 | +0.4, 4.7 | −0.1, 4.9 | MKT +4.7, +2.7 (13.1), −3.1 (15.1) |
+      | DKI WM | 50 | +0.4 | +0.1, 2.9 | 0.0, 2.9 | MKT +1.9, +1.1 (7.8), −0.8 (8.1) |
+      | DKI WM | 100 | +0.1 | 0.0, 1.4 | 0.0, 1.4 | MKT +0.5, +0.3 (3.9), −0.2 (4.0) |
+      | DKI CSF | 20–100 | +27 to +38 | +24 to +32, 3–7 | fails (below) | MKT 0.33–0.48, 0.32–0.49 (truth 0) |
+
+      - **The noise model (3).** In tissue the Gaussian fits are biased low in MD by the floor
+        (−11% at SNR 10, −3% at 20, −1.4% at 30, −0.5% at 50, WM), and least squares on the
+        Rician mean removes it (≤ 0.6% at every SNR) at the cost of a slightly larger SD at SNR
+        10 (5.3% against 4.7%) and none from 20 up. The two-pass WLS is a little less biased
+        than the Gaussian NLLS in tissue (its weights, from a prediction that sits below the
+        floor-raised data, give the high-b images less say). The Rician fit is not a cure-all:
+        (a) where the high-b images are all floor (CSF at b = 2500 is 0.05% of S0), any large D
+        fits them, so unbounded it runs away (MD +10 000%, 20% of voxels not converged at SNR
+        10); with D's diagonal bounded to [0, 4e-3] it converges (98–100%) but stays biased and
+        noisy at low SNR (+14%, SD 12% at SNR 10; spurious FA 0.49); (b) for DKI's MKT it
+        overcorrects at low SNR (−8.2% at SNR 20) with a larger SD, so its RMSE is worse than
+        the Gaussian fit's (27.9% against 19.9% at SNR 20; 15.4 against 13.4 at 30); (c) DKI in
+        CSF fails with or without bounds (6–92% converged): at b = 2000 CSF is 0.25% of S0,
+        below the floor, and kurtosis and diffusivity trade off freely. The Gaussian DKI fit in
+        CSF invents kurtosis (MKT 0.32–0.49, truth 0) and overestimates MD by 24–32% at every
+        SNR up to 100: a property of the protocol and model, not the estimator (DKI in CSF is
+        usually masked out). Cost: the Rician fit is 10–40× slower (150–2000 µs per voxel on 4
+        threads against 7–120), the Bessel functions in dual numbers. σ must be known (the
+        simulation's here; in data, from the background or a noise scan; EQUIP has no estimator).
+      - **The start at the floor (4).** In WM and GM the two-pass start is within 1 SD of the fit
+        (99th percentile under 2 SD) and LM converges in 4–7 iterations everywhere. In CSF the
+        OLS pass is dragged by the floor at b = 2500: the start's MD is 39–89% low, 9–12 SD from
+        the fit, and LM needs 8–15 iterations (all 2000 converge). Weighting the first pass by
+        y² instead (variant B; the floor images then count little) brings CSF's start to 0.8–4
+        SD and saves 1–2 iterations there, but moves WM and GM's starts slightly further (GM at
+        SNR 20: 0.85 against 0.67 SD) and adds 0.1–0.3 iterations: no failures either way, so
+        no change. In DKI CSF 3–12 voxels in 2000 reach the 100-iteration limit in both variants:
+        the fit's ill-posedness, not the start's.
+      - Options, for the owner: the Rician fit as a documented choice for DTI in tissue at
+        SNR ≤ 30 (with D bounded, and `:loglinear` through `RicianMean` delegated to the wrapped
+        model, which is not yet so: here it was started from the Gaussian fit); a faster
+        `ricianmean` if it is used routinely; for DKI, the constraints (K ≥ 0, the signal not
+        rising with b; DIPY's CWLS) and masking CSF matter more than the noise model.
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
