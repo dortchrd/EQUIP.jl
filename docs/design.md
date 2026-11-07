@@ -5462,6 +5462,8 @@ numbers are not an order.
        limit forms in G use b, not (b + c)/2: silently wrong rather than NaN. Documented
        instead: a truth with eigenvalues at least 0.01% apart, or montecarlo. To decide later:
        G's threshold (relative, wider) at the price of DIPY parity in RK's last digits.
+       (Both fixed in the next step, "Truths from derived quantities": the eigenvector rule with
+       a guard that keeps NaN where it would be wrong, and G1, G2 without their cancellation.)
      - V1 in montecarlo: each fit's is folded into the upper hemisphere, so for fibers near z = 0
        (here along x) its components' statistics are the folded vectors' (V1x's mean 0, SD 1),
        not crlb's (the unfolded vector's derivative). An angular error (the cone of
@@ -5471,6 +5473,68 @@ numbers are not an order.
        statistics of 1/T2; a clashing name refused); DTI's seven against the delta method
        written out (1e-10) and MD, FA, AD, RD against 3000 fits (4 standard errors); DKI's MD,
        FA, MK, AK, RK, MKT at P = 10 against 400 fits (15%). Full runs: EQUIP 2239, CLI 124.
+   - **Truths from derived quantities, and derivatives where eigenvalues are equal** (2026-11-07,
+     the owner asked how to simulate with derived quantities prescribed instead of Dxx and the
+     rest, and said yes to this; branch `derived-truths`).
+     - **The hook, `fromderived(M, q)`**, optional, exported, the reverse of `derived`: the
+       parameters that give the derived quantities `q`. `nominal` hands it the call's keywords
+       that are not parameters (src/sim/tissues.jl, `_fromderived`), merges what it makes with
+       the keywords that are (one given and made: refused), and checks the rest as before; a
+       model without it: the names are unknown parameters, as before. Derived quantities seldom
+       fix the parameters (MD and FA are two numbers, a tensor six), so the model says which sets
+       it takes and what it assumes, and refuses the rest naming what it takes.
+     - **DTI's**: an axially symmetric tensor about `direction` (three numbers, any length),
+       D = RD·I + (AD − RD)·nnᵀ, from (AD, RD) or (MD, FA) with δ = MD·FA/√(3 − 2FA²), λ1 = MD +
+       2δ, λ2 = λ3 = MD − δ (from FA² = 3δ²/(MD² + 2δ²); RD > 0 for FA < 1). Refused: one of a
+       pair, both pairs, no direction, FA ≥ 1, RD > AD (oblate: the six elements). A general
+       tensor: its elements.
+     - **DKI's**: D as DTI's; W from MKT alone (isotropic, W4 = MKT·|g|⁴) or (MK, AK, RK) (W
+       axially symmetric about the same axis: W∥ξ⁴ + 6W∥⊥ξ²ρ² + W⊥ρ⁴, three numbers; MK, AK and
+       RK are linear in W for a fixed D, so a 3×3 solve on `_kurtosisindices`, the unclipped
+       indices, now split from `derived`); V = MD²·W, its fifteen elements by least squares from
+       30 directions (exact to rounding). Or neither, and V's elements from the call. Values
+       outside DIPY's [−3/7, 10] refused. `derived` gives back MK, AK, RK to 1e-10, MD, FA, AD,
+       RD to 1e-12.
+     - **The eigensolver's derivatives** (`_symeigen`, dti.jl): for dual numbers, the values'
+       decomposition (StaticArrays' closed form) and each partial by first-order perturbation
+       theory, dλᵢ = uᵢᵀdDuᵢ, duᵢ = Σⱼ uⱼ(uⱼᵀdDuᵢ)/(λᵢ − λⱼ), the term of an equal pair dropped
+       (equal to 1e-6 relative; the closed form splits an exact pair by up to 1.5e-8, measured
+       over 10 000 rotations). Differentiating the closed form instead gave NaN for every
+       quantity of a prolate tensor. Checked against central differences: DTI's seven for a
+       rotated tensor with distinct eigenvalues (2e-9) and an exactly prolate one (3e-10); AD's
+       Hessian through nested duals (3e-9). Values unchanged (numbers take the closed form).
+     - **The guard** (`_nopartials`: the value kept, every derivative NaN): dropping the pair's
+       term is right for what does not depend on the basis chosen in the pair's plane. Where
+       λ1 = λ2, e1 is not defined: AD, RD, V1 (DTI), AK and RK (DKI) get NaN derivatives. Where
+       a pair is equal, MK and RK are right when W is symmetric about the third axis in that
+       plane (its quartic form constant around the plane's circle at 5 angles, W(k, k, n, n) at
+       3: `_symmetricin`, checked only where a pair is equal) and NaN otherwise. Why that is the
+       condition: near an equal pair (gap δ) the eigenvectors turn within the plane at a rate
+       1/δ, and MK changes with that turn at a rate proportional to δ times W's asymmetry in the
+       plane; the product has a finite limit, which the dropped term misses, unless W is
+       symmetric there.
+     - **G1 and G2 without their cancellation**: with s = √(c/b), G1 = (a + b + c)²(s + 2)/
+       (18b²(1 + s)²) and G2 = (a + b + c)²/(3√(bc)(√b + √c)²), exact rewritings of DIPY's (the
+       factor (b − c)² cancels), no branch, their limits at b = c. DIPY's agree to rounding
+       where accurate (1e-12; the DIPY reference tests unchanged); near b = c theirs lost digits
+       (RK 3% off at a gap of 1e-7, its derivative 12% at 1e-5). F1 and F2 keep DIPY's limits
+       (2.5% wide, means of the pair: smooth).
+     - **Measured** (scratch derr/): the gap scan again (W isotropic, and W asymmetric about the
+       axis): isotropic, RK 4.3403 ± 0.0792 and MK 1.7919 ± 0.0266 at every gap from 0 to 1e-5
+       (before: NaN at 0, RK ± 9.1 at 1e-6, ± 1.6e5 at 1e-7); asymmetric, NaN at gaps ≤ 1e-6 (the
+       guard), RK ± 0.1152 from 1e-5 (before: 0.1287 at 1e-5, wrong). At the axially symmetric
+       truth (AD 1.7e-3, RD 0.35e-3, MK 1, AK 0.8, RK 1.3, axis θ = 0.3, φ = 1.2; 6 + 30 + 30
+       images; 22 parameters): MK, AK, RK, AD, RD's gradients against central differences in
+       random directions, 3e-10; against 4000 fits, SD ratios at SNR 100 MD 0.998, FA 1.008, AD
+       1.011, RD 1.000, MK 1.030, AK 1.026, RK 1.046, MKT 1.018 (± 0.011), and at SNR 400, the
+       same noise, MK 1.008, RK 1.015, the others as at 100: RK's relative SD is 16% at SNR 100,
+       so its 4.6% there is the delta method's first order (it shrinks with the noise), while the
+       nearly linear ones keep one sample's fluctuation (common random numbers).
+     - **Speed**: unchanged. `derived` 0.79 µs (DTI), 2.53 µs (DKI), as before; DTI's `crlb!`
+       14.3 µs both; DKI's 0.166 → 0.147 ms, its first crlb 47.5 → 44.6 s.
+     - Not done: tissue presets by derived quantities (`nominal(DTI, :WM_DTI; direction)`), and a
+       sweep over a derived quantity (`vary = :FA => 0.2:0.1:0.9`), which would go through the
+       same hook.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a

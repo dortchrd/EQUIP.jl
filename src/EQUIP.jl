@@ -50,7 +50,7 @@ using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeomet
 # reachable as `EQUIP.name` (e.g. `EQUIP.setup`), just not brought into scope.
 export MRIModel, Free, Fixed, BestOf, parameters, defaults                  # model interface
 export resolve, signal!, signal, nobs                                       # values and signals
-export datastart, relabel, derived                                                   # optional hooks
+export datastart, relabel, derived, fromderived                                      # optional hooks
 export @mrimodel, newmodel                                                  # a model in one step; a file
 export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
 export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)

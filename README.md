@@ -518,6 +518,11 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
   them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
   (docs/design.md, item 19).
+- **`fromderived`** (optional): the reverse, for `nominal`: `fromderived(::Type{<:MyModel}, q)`
+  returns the parameters that give the derived quantities in `q` (the call's keywords that are
+  not parameters), so that a truth can be prescribed by them (Simulation, below). Derived
+  quantities seldom fix the parameters alone, so a model says which sets it takes and what it
+  assumes for the rest, and refuses anything else. The default, `nothing`, means none.
 
 ## Simulation
 
@@ -559,8 +564,20 @@ free parameter must come from the tissue or a keyword: `nominal(QMTSIR(...), :WM
 -0.95)` needs Sf, an inversion efficiency, not a tissue property. Without a tissue, one that
 starts from the data (`:data`, e.g. T2Decay's T2) or from `BestOf` values (the
 inversion-recovery models' T1) must be given: `nominal(T2Decay(TE = te); T2 = 0.08)`. The error
-names each and lists what `nominal` takes for every parameter. Typing a model at the REPL shows
-the same table, with its acquisition:
+names each and lists what `nominal` takes for every parameter.
+
+A model with derived quantities can take them in place of its parameters (its `fromderived`).
+DTI and DKI: an axially symmetric tensor, from MD and FA, or AD and RD, and the direction of its
+axis; DKI's kurtosis from MKT alone (W isotropic) or from MK, AK and RK (W axially symmetric
+about the same axis), or V's elements as parameters. `derived` gives them back:
+
+```julia
+θ = nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = fiberdirection(0.3, 1.2))
+θ = nominal(DKI; S0 = 1000, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MK = 1.0, AK = 0.8, RK = 1.3)
+derived(DKI(; acq...), θ)                     # (MD = 0.0008, FA = 0.762, ..., MK = 1.0, AK = 0.8, RK = 1.3, MKT = ...)
+```
+
+Typing a model at the REPL shows the same table, with its acquisition:
 
 ```
 julia> m = QMTSIR(TI = [0.01, 0.05, 0.277, 1.0], TD = 2.5)
@@ -724,8 +741,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   parameters'; montecarlo's: from each copy's fit, so it also measures the noise's own bias of a
   nonlinear quantity (FA's, MK's at low SNR). Measured: DTI (6 b = 0 and 30 directions, SNR 50)
   and DKI (22 parameters, SNR 100), every SD within 1.5% of 4000–20 000 fits'. NaN where
-  `derived` has no derivative: MK and RK where two of D's eigenvalues are equal (give the truth
-  eigenvalues at least 0.01% apart, or use montecarlo). A principal direction is folded into
+  `derived` has no derivative: AD, RD, V1, AK and RK where λ1 = λ2 (no principal direction);
+  MK and RK where two of D's eigenvalues are equal and W is not symmetric about the third axis
+  (the axially symmetric truths `nominal` makes are: finite). A principal direction is folded into
   one hemisphere in each fit, so montecarlo's V1 near the fold (fibers in the x–y plane) is the
   folded vectors'. `vcov`, `stderror`, `cor` and `cond` stay the parameters'.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),

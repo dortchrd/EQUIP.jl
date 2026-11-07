@@ -3,7 +3,7 @@
 using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
 using LinearAlgebra
-using StaticArrays: SVector
+using StaticArrays: SVector, SMatrix
 using Random
 using Statistics: mean, std, var, cov, median
 using Test
@@ -2932,6 +2932,118 @@ end
         mcd = montecarlo(md, θd; snr = 30, noise = :gaussian, n = 3000, rng = MersenneTwister(42))
         for k in (:MD, :FA, :AD, :RD)
             @test abs(mcd.sd[k] / cd.sd[k] - 1) < 4 * mcd.se_sd[k] / cd.sd[k]
+        end
+    end
+
+    @testset "Truths from derived quantities (nominal), and derivatives where eigenvalues are equal" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        FD = EQUIP.ForwardDiff
+        n = fiberdirection(0.3, 1.2)
+        # DTI: an axially symmetric tensor from (MD, FA) or (AD, RD) and its axis; `derived` gives
+        # them back, V1 the axis (in the upper hemisphere)
+        bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
+        G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(directionset(30)); collect.(directionset(30))])
+        mt = DTI(; diffusionencoding(bv[1:36], G[:, 1:36])...)
+        θ = nominal(DTI; S0 = 1000.0, MD = 0.8e-3, FA = 0.7, direction = n)
+        d = derived(mt, θ)
+        @test keys(θ) == keys(parameters(DTI)) && θ.S0 == 1000
+        @test d.MD ≈ 0.8e-3 rtol = 1e-12
+        @test d.FA ≈ 0.7 rtol = 1e-12
+        @test d.RD ≈ d.MD - (d.AD - d.MD) / 2 rtol = 1e-10
+        @test abs(dot([d.V1x, d.V1y, d.V1z], collect(n))) ≈ 1 rtol = 1e-12
+        θx = nominal(mt; AD = 1.7e-3, RD = 0.35e-3, direction = (2, 0, 0))     # any length
+        @test θx == (S0 = 1.0, Dxx = 1.7e-3, Dyy = 0.35e-3, Dzz = 0.35e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
+        # what it refuses, and what it says
+        @test occursin("give the direction", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7)))
+        @test occursin("MD and FA together", msg(() -> nominal(DTI; MD = 0.8e-3, direction = n)))
+        @test occursin("not both", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, AD = 1e-3, RD = 1e-4, direction = n)))
+        @test occursin("unknown `Fa`", msg(() -> nominal(DTI; Fa = 0.7)))
+        @test occursin("oblate", msg(() -> nominal(DTI; AD = 0.3e-3, RD = 0.5e-3, direction = n)))
+        @test occursin("0 ≤ FA < 1", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 1.0, direction = n)))
+        @test occursin("three finite numbers", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, direction = (0, 0, 0))))
+        @test occursin("give one or the other", msg(() -> nominal(DTI; MD = 0.8e-3, FA = 0.7, direction = n, Dxx = 1e-3)))
+        @test occursin("unknown parameter `FA`", msg(() -> nominal(T2Decay; T2 = 0.08, FA = 0.7)))  # no hook
+        # DKI: D as DTI's; W isotropic from MKT alone, the same whatever the axis (V1111 = MD²·MKT,
+        # V1122 = MD²·MKT/3), or axially symmetric about it from MK, AK and RK, given back
+        mk = DKI(; diffusionencoding(bv, G)...)
+        θi = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MKT = 1.0)
+        MD2 = ((1.7e-3 + 0.7e-3) / 3)^2
+        @test θi.V1111 ≈ MD2 && θi.V2222 ≈ MD2 && θi.V1122 ≈ MD2 / 3 && abs(θi.V1123) < 1e-12 * MD2
+        @test derived(mk, θi).MKT ≈ 1 rtol = 1e-12
+        θi2 = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = n, MKT = 1.0)
+        V(p) = [p[k] for k in keys(p)[8:22]]
+        @test V(θi2) ≈ V(θi) rtol = 1e-10
+        θk = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 1.0, AK = 0.8, RK = 1.3)
+        dk = derived(mk, θk)
+        @test all(k -> isapprox(dk[k], (MK = 1.0, AK = 0.8, RK = 1.3)[k]; rtol = 1e-10), (:MK, :AK, :RK))
+        @test dk.AD ≈ 1.7e-3 rtol = 1e-12
+        @test dk.RD ≈ 0.35e-3 rtol = 1e-12
+        W = V(θk) ./ dk.MD^2                     # symmetric about n: the same K at each angle to it
+        W4(x) = dot(EQUIP._kurtosisweights(x...), W)
+        u = normalize(cross(collect(n), [1.0, 0, 0])); w = cross(collect(n), u)
+        ring = [W4(cos(0.4) .* collect(n) .+ sin(0.4) .* (cos(φ) .* u .+ sin(φ) .* w)) for φ in 0:0.5:3]
+        @test maximum(ring) - minimum(ring) < 1e-10 * maximum(abs, ring)
+        @test occursin("the kurtosis: give MKT", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 1.0)))
+        @test occursin("outside [−3/7, 10]", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n, MK = 11.0, AK = 1.0, RK = 1.0)))
+        @test occursin("no value for `V1111`", msg(() -> nominal(DKI; AD = 1.7e-3, RD = 0.35e-3, direction = n)))
+        # the eigensolver's derivatives (perturbation theory, `_symeigen`): DTI's quantities against
+        # central differences for a rotated tensor with distinct eigenvalues, and for an exactly
+        # prolate one (λ2 = λ3), where differentiating the closed form gave NaN; second
+        # derivatives through nested duals; an oblate one (λ1 = λ2): AD, RD and V1 NaN (e1 is not
+        # defined), MD and FA not
+        Q = Matrix(qr(randn(MersenneTwister(8), 3, 3)).Q)
+        el(D) = [D[1, 1], D[2, 2], D[3, 3], D[1, 2], D[1, 3], D[2, 3]]
+        mat(x) = SMatrix{3,3}(x[1], x[4], x[5], x[4], x[2], x[6], x[5], x[6], x[3])
+        q(x) = collect(values(first(EQUIP._tensorindices(mat(x)))))
+        central(f, x, h) = reduce(hcat, [(f(x .+ h .* (1:6 .== k)) .- f(x .- h .* (1:6 .== k))) ./ 2h for k in 1:6])
+        for λ in ([1.7e-3, 0.4e-3, 0.3e-3], [1.7e-3, 0.4e-3, 0.4e-3])
+            x = el(Q * Diagonal(λ) * Q')
+            J = FD.jacobian(q, x)
+            @test all(isfinite, J)
+            @test J ≈ central(q, x, 1e-10) rtol = 1e-6
+        end
+        x3 = el(Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q')
+        gad(x) = FD.gradient(y -> q(y)[3], x)
+        @test FD.jacobian(gad, x3) ≈ central(gad, x3, 1e-10) rtol = 1e-6
+        Jo = FD.jacobian(q, el(Q * Diagonal([1.7e-3, 1.7e-3, 0.4e-3]) * Q'))
+        @test all(isfinite, Jo[1:2, :]) && all(isnan, Jo[3:7, :])
+        # DKI at its axially symmetric truth (D prolate, W symmetric about the axis): MK, AK and
+        # RK differentiable, against central differences in random directions; with W made
+        # asymmetric, MK's and RK's derivatives NaN (the basis in D's equal pair matters), AK's not
+        names = keys(θk)[2:22]
+        x0 = [θk[k] for k in names]
+        ind(x) = (r = derived(mk, merge(θk, NamedTuple{names}(Tuple(x)))); [r.MK, r.AK, r.RK, r.AD, r.RD])
+        J = FD.jacobian(ind, x0)
+        rng = MersenneTwister(5)
+        for _ in 1:3
+            v = randn(rng, 21) .* abs.(x0 .+ 1e-4 * maximum(abs, x0))
+            @test J * v ≈ (ind(x0 .+ 1e-6 .* v) .- ind(x0 .- 1e-6 .* v)) ./ 2e-6 rtol = 1e-7
+        end
+        θa = merge(θk, (V2223 = 0.1 * θk.V1111,))
+        Ja = FD.jacobian(ind, [θa[k] for k in names])
+        @test all(isnan, Ja[1, :]) && all(isnan, Ja[3, :]) && all(isfinite, Ja[2, :])
+        # G1 and G2 without their cancellation: DIPY's forms where those are accurate, and their
+        # limits at b = c; RK where λ2 and λ3 are 1e-7 apart, its value at equality (DIPY's form: 3% off)
+        G1d(a, b, c) = (a + b + c)^2 / (18b * (b - c)^2) * (2b + (c^2 - 3b * c) / sqrt(b * c))
+        G2d(a, b, c) = (a + b + c)^2 / (3 * (b - c)^2) * ((b + c) / sqrt(b * c) - 2)
+        @test EQUIP._G1(1.7, 0.4, 0.3) ≈ G1d(1.7, 0.4, 0.3) rtol = 1e-12
+        @test EQUIP._G2(1.7, 0.4, 0.3) ≈ G2d(1.7, 0.4, 0.3) rtol = 1e-12
+        @test EQUIP._G1(1.7, 0.4, 0.4) ≈ (1.7 + 0.8)^2 / (24 * 0.16) rtol = 1e-14
+        @test EQUIP._G2(1.7, 0.4, 0.4) ≈ (1.7 + 0.8)^2 / (12 * 0.16) rtol = 1e-14
+        θn = merge(θi, (Dzz = 0.35e-3 * (1 - 1e-7),))
+        @test derived(mk, θn).RK ≈ derived(mk, θi).RK rtol = 1e-6
+        # crlb at the axially symmetric truth, along x (V's off-diagonal elements and the pairs
+        # fixed at the truth's: P = 10, as the DKI test set's): MK, AK and RK finite (NaN before),
+        # against 400 fits
+        θxk = nominal(DKI; S0 = 1000.0, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0), MK = 1.0, AK = 0.8, RK = 1.3)
+        fixk = NamedTuple{(:V1112, :V1113, :V1222, :V2223, :V1333, :V2333, :V1123, :V1223, :V1233, :V1122, :V1133, :V2233)}(
+            map(k -> θxk[k], (:V1112, :V1113, :V1222, :V2223, :V1333, :V2333, :V1123, :V1223, :V1233, :V1122, :V1133, :V2233)))
+        ck = crlb(mk, θxk; snr = 200, fixk...)
+        @test all(k -> isfinite(ck.sd[k]) && ck.sd[k] > 0, (:MK, :AK, :RK, :AD, :RD))
+        Yk = simulate(mk, θxk; snr = 200, n = 400, noise = :gaussian, rng = MersenneTwister(33))
+        dkf = derived(fit(mk, Yk; fixk...))
+        for k in (:MK, :AK, :RK)
+            @test std(dkf[k]) ≈ ck.sd[k] rtol = 0.15
         end
     end
 

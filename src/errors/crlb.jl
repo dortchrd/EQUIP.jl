@@ -140,9 +140,10 @@ SD from the derivatives at that fit's answer, first order in the noise.
   g(θ̂) − g(truth) the bias, the SD by the delta method, √(∇g·C·∇gᵀ) with C the parameters'
   covariance and ∇g from dual numbers through `derived`. First order in the noise, as the
   parameters' (the noise's own bias of a nonlinear g, e.g. FA's at low SNR, is not in it:
-  [`montecarlo`](@ref) measures it). Where `derived` is not differentiable, NaN: DKI's MK and RK
-  where two of D's eigenvalues are equal (give the truth eigenvalues at least 0.01% apart, or
-  use montecarlo), V1 where λ1 = λ2.
+  [`montecarlo`](@ref) measures it). Where `derived` has no derivative, NaN: DTI's AD, RD and
+  V1, and DKI's AK and RK, where λ1 = λ2 (the principal direction is not defined); DKI's MK and
+  RK where two of D's eigenvalues are equal and W is not symmetric about the third axis (the
+  truths `nominal` makes from derived quantities are symmetric: finite there).
 - Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
   every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
   against the scenario's truth, your reference values for `m`'s parameters (e.g. the long T2 of

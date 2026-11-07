@@ -18,7 +18,8 @@
 # the tests, MK to DIPY's own error, below): the mean kurtosis MK, the mean of K(n) over all
 # directions, and the radial RK, its mean over the directions perpendicular to D's principal
 # one, in the closed forms of Tabesh et al. (Magn Reson Med 2011;65:823), with Carlson's
-# elliptic integrals R_F and R_D and DIPY's limits where eigenvalues are (nearly) equal; the
+# elliptic integrals R_F and R_D and DIPY's limits where eigenvalues are (nearly) equal (G1 and
+# G2 rewritten without their division, exactly: they lost digits near equal eigenvalues); the
 # axial AK, K along the principal direction; the mean kurtosis tensor MKT (Hansen et al., Magn
 # Reson Med 2013;69:1754), linear in W. Each clipped to [−3/7, 10], DIPY's defaults (its reason:
 # large negative kurtosis is not physically plausible and makes artifacts in the kurtosis
@@ -52,6 +53,12 @@ Derived ([`derived`](@ref), written by [`savemaps`](@ref)): MD, FA, AD, RD and t
 eigenvector (V1x, V1y, V1z), as DTI's; MK, AK, RK as DIPY's fit methods give them by default
 (Tabesh et al., Magn Reson Med 2011, analytic), and MKT (Hansen et al., Magn Reson Med 2013),
 each clipped to [−3/7, 10]; MK, AK and RK 0 where an eigenvalue is not positive.
+
+A truth for simulation from derived quantities ([`nominal`](@ref), [`fromderived`](@ref)): D as
+DTI's (axially symmetric, from `MD` and `FA` or `AD` and `RD`, and `direction`), and W from `MKT`
+alone (isotropic) or from `MK`, `AK` and `RK` (axially symmetric about the same axis), or V's
+elements as parameters: `nominal(DKI; S0 = 1000, AD = 1.7e-3, RD = 0.35e-3, direction = (1, 0, 0),
+MK = 1.0, AK = 0.8, RK = 1.3)`.
 
 ```julia
 acq = diffusionencoding("dwi.bval", "dwi.bvec")
@@ -116,6 +123,16 @@ function derived(::DKI, p)
     q, λa, R = _tensorindices(_tensor(p))          # D's quantities, as DTI's; eigen, ascending
     MD = q.MD
     W = _kurtosisvector(p) / MD^2                   # the kurtosis tensor's 15 elements
+    # MKT (Hansen et al. 2013): the mean of W(n) over all directions, linear in W
+    MKT = (W[1] + W[2] + W[3] + 2 * (W[10] + W[11] + W[12])) / 5
+    MK, AK, RK = _kurtosisindices(λa, R, W, MD)
+    clip(k) = clamp(k, _KMIN, _KMAX)
+    return merge(q, (MK = clip(MK), AK = clip(AK), RK = clip(RK), MKT = clip(MKT)))
+end
+
+# MK, AK and RK of D (eigenvalues λa ascending, eigenvectors the columns of R) and W, before
+# clipping: linear in W for a fixed D (which `fromderived` uses to solve for W).
+function _kurtosisindices(λa, R, W, MD)
     # D's eigenframe in DIPY's order, λ1 ≥ λ2 ≥ λ3, e1 the principal direction (an eigenvector's
     # sign does not matter here: W's elements in the frame are even in each). Where λ1 = λ2 the
     # principal direction is not defined, and AK and RK depend on which vector of the plane the
@@ -129,8 +146,6 @@ function derived(::DKI, p)
     Wuuvv(u, v) = (W4(u + v) + W4(u - v) - 2W4(u) - 2W4(v)) / 12
     W1111, W2222, W3333 = W4(e1), W4(e2), W4(e3)
     W1122, W1133, W2233 = Wuuvv(e1, e2), Wuuvv(e1, e3), Wuuvv(e2, e3)
-    # MKT (Hansen et al. 2013): the mean of W(n) over all directions, linear in W
-    MKT = (W[1] + W[2] + W[3] + 2 * (W[10] + W[11] + W[12])) / 5
     if λ1 > _EVALMIN && λ2 > _EVALMIN && λ3 > _EVALMIN
         # MK (Tabesh et al. 2011; DIPY's `mean_kurtosis`)
         MK = _F1(λ1, λ2, λ3) * W1111 + _F1(λ2, λ1, λ3) * W2222 + _F1(λ3, λ2, λ1) * W3333 +
@@ -138,18 +153,94 @@ function derived(::DKI, p)
         AK = W1111 * MD^2 / λ1^2                    # K along e1
         RK = _G1(λ1, λ2, λ3) * W2222 + _G1(λ1, λ3, λ2) * W3333 + _G2(λ1, λ2, λ3) * W2233
     else
-        MK = AK = RK = zero(MKT)                    # DIPY's, where an eigenvalue is not positive
+        MK = AK = RK = zero(W1111)                  # DIPY's, where an eigenvalue is not positive
     end
-    clip(k) = clamp(k, _KMIN, _KMAX)
-    return merge(q, (MK = clip(MK), AK = clip(AK), RK = clip(RK), MKT = clip(MKT)))
+    # Derivatives where two of D's eigenvalues are equal (`_symeigen`: the pair's eigenvectors
+    # then do not turn within their plane): right for what does not depend on the basis chosen
+    # in that plane, which MK and RK do not when W is symmetric about the third axis in it (the
+    # truths `fromderived` makes, D and W axially symmetric); otherwise NaN, as AK's and RK's
+    # where e1 is not defined (λ1 = λ2). Checked only where a pair is equal (`&&`).
+    top, bottom = _equaleigen(λa, 2, 3), _equaleigen(λa, 1, 2)    # λ1 = λ2; λ2 = λ3
+    sym23 = !bottom || _symmetricin(W4, Wuuvv, e1, e2, e3)
+    sym12 = !top || _symmetricin(W4, Wuuvv, e3, e1, e2)
+    return _nopartials(MK, !(sym23 && sym12)), _nopartials(AK, top), _nopartials(RK, top || !sym23)
+end
+
+# Is W symmetric about k in the plane of u and v (k, u, v orthonormal), as far as MK and RK see
+# it: its quartic form constant around that plane's circle, and W(k, k, n, n) too? On the circle
+# n(φ) = cos φ·u + sin φ·v a quartic form has Fourier terms 0, 2 and 4 in φ, a quadratic 0 and 2:
+# constant when equal at 5 and at 3 angles spread over half a turn. To 1e-6 of their size.
+function _symmetricin(W4, Wuuvv, k, u, v)
+    n(φ) = cos(φ) * u + sin(φ) * v
+    q = ntuple(i -> W4(n((i - 1) * π / 5)), 5)
+    m = ntuple(i -> Wuuvv(k, n((i - 1) * π / 3)), 3)
+    tol = 1e-6 * max(maximum(abs, q), maximum(abs, m))
+    return all(x -> abs(x - q[1]) <= tol, q) && all(x -> abs(x - m[1]) <= tol, m)
+end
+
+# The reverse, for `nominal` (`fromderived`): a truth from derived quantities. D as DTI's, axially
+# symmetric about `direction` (from MD and FA, or AD and RD), and W from
+#   - MKT alone: W isotropic, W = MKT·(δᵢⱼδₖₗ + δᵢₖδⱼₗ + δᵢₗδⱼₖ)/3, its quartic form MKT·|g|⁴
+#     (K(n) = MD²·MKT/D(n)², so MK ≠ MKT where D is anisotropic: examples/dki.jl);
+#   - MK, AK and RK: W axially symmetric about the same axis, three numbers in the axis' frame,
+#     W∥ = Ŵ1111, W⊥ = Ŵ2222 = Ŵ3333 = 3Ŵ2233 and W∥⊥ = Ŵ1122 = Ŵ1133, its quartic form
+#     W∥ξ⁴ + 6W∥⊥ξ²ρ² + W⊥ρ⁴ (ξ = g·n, ρ² = |g|² − ξ²). For a fixed D, MK, AK and RK are linear
+#     in W (`_kurtosisindices`), so the three come from a 3×3 solve: AK from W∥ alone, RK from
+#     W⊥ alone, MK from all three.
+#   - neither: V's fifteen elements from the call (`V1111 = ...`).
+# V = MD²·W. The values must be within DIPY's range [−3/7, 10] (`derived` clips them), and MK,
+# AK, RK need RD above `_EVALMIN` (they are 0 below it).
+function fromderived(::Type{<:DKI}, q::NamedTuple)
+    kurt = (:MK, :AK, :RK, :MKT)
+    t = _axialtensor(DKI, q, kurt)
+    given = Tuple(n for n in kurt if haskey(q, n))
+    isempty(given) && return t.elements
+    sets = "MKT (W isotropic), or MK, AK and RK (W axially symmetric about the direction)"
+    given in ((:MKT,), (:MK, :AK, :RK)) ||
+        throw(ArgumentError("nominal(DKI; ...): the kurtosis: give $sets; got $(join(given, ", "))"))
+    for k in given
+        _KMIN <= q[k] <= _KMAX || throw(ArgumentError("nominal(DKI; ...): $k = $(q[k]) is " *
+            "outside [−3/7, 10], DIPY's range, where `derived` clips it"))
+    end
+    if given == (:MKT,)
+        a = b = float(q.MKT)
+        c = a / 3
+    else
+        t.RD > _EVALMIN || throw(ArgumentError("nominal(DKI; ...): MK, AK and RK need RD above " *
+            "$(_EVALMIN) mm²/s (they are 0 where an eigenvalue is not positive)"))
+        λa, R = _symeigen(SMatrix{3,3}(t.elements.Dxx, t.elements.Dxy, t.elements.Dxz,
+                                       t.elements.Dxy, t.elements.Dyy, t.elements.Dyz,
+                                       t.elements.Dxz, t.elements.Dyz, t.elements.Dzz))
+        # MK, AK and RK (in that order) of each of the three shapes: the columns of the map
+        col(j) = SVector(_kurtosisindices(λa, R, _axialkurtosis(ntuple(i -> Float64(i == j), 3)..., t.n), t.MD)...)
+        A = hcat(col(1), col(2), col(3))
+        a, b, c = A \ SVector(float(q.MK), float(q.AK), float(q.RK))
+    end
+    V = t.MD^2 * _axialkurtosis(a, b, c, t.n)
+    return merge(t.elements, NamedTuple{keys(parameters(DKI))[8:22]}(Tuple(V)))
+end
+
+# W's fifteen elements (in `_kurtosisweights`' order) for the quartic form
+# W∥ξ⁴ + 6W∥⊥ξ²ρ² + W⊥ρ⁴, ξ = g·n, ρ² = |g|² − ξ²: from its values in 30 directions spread over
+# the sphere (Fibonacci points; any 15 independent directions fix the fifteen), by least squares,
+# exact to rounding: the form is a sum of the fifteen monomials.
+function _axialkurtosis(Wpar, Wperp, Wpp, n)
+    g = directionset(30; iterations = 0)
+    A = [_kurtosisweights(x...)[j] for x in g, j in 1:15]
+    w = map(g) do x
+        ξ = dot(SVector(x), n)
+        ρ2 = 1 - ξ^2                                  # the directions are unit vectors
+        Wpar * ξ^4 + 6Wpp * ξ^2 * ρ2 + Wperp * ρ2^2
+    end
+    return SVector{15}(A \ w)
 end
 
 # Tabesh et al.'s functions of the eigenvalues, written as DIPY writes them (`_F1m`, `_F2m`,
-# `_G1m`, `_G2m`, dipy/reconst/dki.py), each with its limits where eigenvalues are (nearly)
-# equal: their general forms divide by the differences. The thresholds are DIPY's: 2.5% of an
-# eigenvalue for F1 and F2; for G1 and G2 an absolute 1e5·eps (mm²/s), where DIPY's take the
-# limit only for eigenvalues equal to rounding. A case DIPY's conditions leave out (a difference
-# exactly at the threshold) gives 0, as there.
+# dipy/reconst/dki.py), each with its limits where eigenvalues are (nearly) equal: their general
+# forms divide by the differences. The thresholds are DIPY's, 2.5% of an eigenvalue. A case
+# DIPY's conditions leave out (a difference exactly at the threshold) gives 0, as there. The
+# limits take the mean of the two nearly equal eigenvalues, so that their derivatives are split
+# between them evenly. G1 and G2 (`_G1m`, `_G2m`), below, in a form without the division.
 function _F1(a, b, c)
     er = 2.5e-2
     if abs(a - b) >= a * er && abs(a - c) >= a * er
@@ -185,25 +276,18 @@ function _F2(a, b, c)
     return zero(a)
 end
 
-function _G1(a, b, c)
-    er = eps(Float64) * 1e5
-    if abs(b - c) > er
-        return (a + b + c)^2 / (18b * (b - c)^2) * (2b + (c^2 - 3b * c) / sqrt(b * c))
-    elseif abs(b - c) < er
-        return (a + 2b)^2 / (24b^2)
-    end
-    return zero(a)
-end
-
-function _G2(a, b, c)
-    er = eps(Float64) * 1e5
-    if abs(b - c) > er
-        return (a + b + c)^2 / (3 * (b - c)^2) * ((b + c) / sqrt(b * c) - 2)
-    elseif abs(b - c) < er
-        return (a + 2b)^2 / (12b^2)
-    end
-    return zero(a)
-end
+# G1 and G2, RK's (DIPY's `_G1m`, `_G2m`) without their cancellation. DIPY's divide by (b − c)²,
+# where their numerators also vanish as (b − c)², and take the limit only within 1e5·eps (mm²/s)
+# of b = c: before it they lose digits (RK 3% off at a relative gap of 1e-7, its derivative 12%
+# off at 1e-5; docs/design.md). The factor cancels exactly: with s = √(c/b), the numerator
+# 2b + (c² − 3bc)/√(bc) = b(s − 1)²(s + 2) and (b − c)² = b²(1 − s)²(1 + s)², so
+#   G1(a, b, c) = (a + b + c)²·(s + 2) / (18b²(1 + s)²)
+# and with (b + c)/√(bc) − 2 = (√b − √c)²/√(bc),
+#   G2(a, b, c) = (a + b + c)² / (3√(bc)·(√b + √c)²)
+# DIPY's values where theirs are accurate (to rounding), and their limits at b = c,
+# (a + 2b)²/(24b²) and (a + 2b)²/(12b²), with no branch. b, c > 0 (`_EVALMIN`).
+_G1(a, b, c) = (s = sqrt(c / b); (a + b + c)^2 * (s + 2) / (18 * b^2 * (1 + s)^2))
+_G2(a, b, c) = (a + b + c)^2 / (3 * sqrt(b * c) * (sqrt(b) + sqrt(c))^2)
 
 # Carlson's symmetric elliptic integrals, R_F(x, y, z) and R_D(x, y, z) (Carlson, Numer Algorithms
 # 1995;10:13), by the duplication theorem: each step moves the three arguments together by λ and

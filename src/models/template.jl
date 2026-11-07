@@ -9,7 +9,7 @@
 # The file is the hand-written form of "Writing a model" (README): a header block, a docstring,
 # the struct, `parameters`, the signal of one observation as a function of its own, `signal!`
 # looping over the observations, the optional hooks, and a first check, commented out. It is
-# for models that will grow: hooks (`datastart`, `relabel`, `derived`), work moved out of the
+# for models that will grow: hooks (`datastart`, `relabel`, `derived`, `fromderived`), work moved out of the
 # loop, a built-in model's conventions (src/models/). A model made with @mrimodel keeps its definition
 # (`_mrimodel_source`), so it can be written out when it outgrows the one-line form.
 # =================================================================================================
@@ -20,7 +20,7 @@
 
 Write a model's file, to edit: a header block, a docstring, the struct, [`parameters`](@ref),
 the signal of one observation as a function of its own, [`signal!`](@ref) looping over the
-observations, the optional hooks ([`datastart`](@ref), [`relabel`](@ref), [`derived`](@ref))
+observations, the optional hooks ([`datastart`](@ref), [`relabel`](@ref), [`derived`](@ref), [`fromderived`](@ref))
 and a first check, commented out. Returns the file's path; an existing file is kept unless `force = true`.
 
 - **A blank model**: its `name`, the `acquisition`'s names (`[:TE]`, `[:TI, :TD]`), the
@@ -221,6 +221,7 @@ function _writemodel(file, force, name, acq, opts, optvals, roles, body, doc, fr
     # EQUIP.datastart(m::$name, y, p) = (name = value,)    starting values from the voxel's data
     # EQUIP.relabel(m::$name, θ) = θ                       if parameters can swap labels
     # EQUIP.derived(m::$name, p) = (name = value,)       quantities computed from the parameters
+    # EQUIP.fromderived(::Type{<:$name}, q) = (...)       the parameters from them, for nominal
 
     # A first check: the signal at the model's starting and fixed values, fitted back.
     # m = $name($(join(("$a = ..." for a in acq), ", ")))

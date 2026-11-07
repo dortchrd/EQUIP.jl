@@ -92,6 +92,11 @@ each parameter, the value comes from, in order:
    e.g. QMTSIR's `kmf = 12.5`), 1 for the scale parameter (`M0`, `S0`, `M0f`), and, without a
    tissue, a free parameter's start.
 
+A model with derived quantities can take them in place of its parameters (its
+[`fromderived`](@ref)): `nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0))`
+makes the six elements of an axially symmetric tensor (DTI's and DKI's docstrings say what each
+takes).
+
 Every value is in the result, the model's included, so a script shows everything its data were
 made with. Ties are kept as written (`R1m = :R1f`), so they follow later changes;
 [`resolve`](@ref) turns them into numbers.
@@ -132,7 +137,7 @@ _call(M::Type{<:MRIModel}) = "nominal($(nameof(M))"
 
 function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; changes...)
     roles = _roles(m)                            # a model's starts computed for its acquisition
-    ch = values(changes)                         # the keywords as a named tuple
+    ch = _fromderived(m, values(changes), keys(roles))   # derived quantities → the parameters
     _check_names("nominal(m; ...)", keys(ch), keys(roles))
     _reject_roles(ch)
     function pick(n)                             # the keyword's value, the tissue's, the model's
@@ -146,6 +151,22 @@ function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; change
     isempty(missing) || _nominal_error(m, roles, q, call, starts, missing)
     _check_ties(q)                       # a tie given as a keyword must name a real parameter
     return q
+end
+
+# The keywords that are not parameters go to the model's `fromderived` (derived quantities, e.g.
+# DTI's MD and FA, and what else it takes, such as a direction); the parameters it makes join the
+# keywords that are parameters. A parameter both given and made is refused. A model without the
+# hook (`nothing`): the keywords as given, so that `_check_names` names the unknown ones.
+function _fromderived(m::_ModelOrType, ch::NamedTuple, names)
+    extra = Tuple(n for n in keys(ch) if !(n in names))
+    isempty(extra) && return ch                  # the usual case: parameters only
+    made = fromderived(m isa Type ? m : typeof(m), NamedTuple{extra}(map(n -> ch[n], extra)))
+    made === nothing && return ch
+    both = Tuple(n for n in keys(made) if haskey(ch, n))
+    isempty(both) || throw(ArgumentError("$(_modelname(m)): $(join(("`$n`" for n in both), ", ")) " *
+        "given, and also made from $(join(("`$n`" for n in extra), ", ")): give one or the other"))
+    given = Tuple(n for n in keys(ch) if n in names)
+    return merge(NamedTuple{given}(map(n -> ch[n], given)), made)
 end
 
 # A free parameter without a value: say why, how to give it, and what `nominal` takes for every
