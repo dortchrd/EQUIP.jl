@@ -5384,7 +5384,8 @@ numbers are not an order.
      - examples/dki.jl uses the built-in model (37 µs per voxel on 4 threads, 4.2 iterations,
        every voxel converged; MK 2.032 against 2.038, AK 0.219 against 0.222, RK 5.38 against
        5.39, MKT 0.997 against 1: for isotropic W and anisotropic D, MKT is K but MK is not).
-       The test model for DKI in V (test/runtests.jl) is replaced by the built-in one.
+       The test model for DKI in V (test/runtests.jl) is replaced by the built-in one. Full
+       runs: EQUIP 2199, CLI 124.
    - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
      chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
      works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'
