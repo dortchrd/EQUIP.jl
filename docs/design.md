@@ -3826,7 +3826,30 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     below the nonlinear fit's own Rician bias. `:predictedstop` is the one rule that does well
     on both: the least biased start, DKI 17% faster than now (fewer start steps and LM
     iterations), DTI 13–16% slower (it usually takes a third step). The fit's estimates are the
-    nonlinear fit's whichever start is used (all converged in every voxel). Not decided.
+    nonlinear fit's whichever start is used (all converged in every voxel).
+    - **Decided (the owner, the same day): predicted-signal weights, reweighted at every step,
+      stopping after a step that gains under a quarter of the weighted log-SSE**; the switch is
+      gone, and the y² weights with it. The cutoff, measured (scratch cutoff_equip.jl, µs per
+      voxel on 4 threads, the whole fit; every cutoff converged in every voxel):
+
+      | cutoff | DTI 36 | DTI 132 | DKI 66 | start's MD bias, DTI 132 |
+      |---|---|---|---|---|
+      | 1% | 2.79 | 8.57 | 66.0 | −0.08% |
+      | 5% | 2.44 | 8.74 | 64.9 | −0.09% |
+      | 10% | 2.34 | 8.62 | 64.6 | −0.09% |
+      | 25% | 2.26 | 7.24 | 65.7 | −0.17% |
+
+      At 25% the one-shell DTI start is DIPY's WLS exactly (the second step gains little); every
+      cutoff's start is within 0.04 SD of the start reweighted to convergence, so the loosest,
+      fastest one costs nothing that matters for a start. Final, the same data (scratch
+      equip_side.jl, accuracy.py; µs per voxel, 1 and 4 threads, the whole fit, with y²
+      weights before): DTI 36 images 8.70 and 2.39 (8.57, 2.30); 132 images 27.5 and 6.96
+      (28.3, 7.47); DKI 263 and 64.7 (320, 81.4): DKI 18–21% faster, DTI the same within noise.
+      The start's bias, now beside DIPY's WLS: DTI 132 MD −0.18% (DIPY −0.20%), FA −0.08%
+      (−0.09%); DKI MKT +0.09% (+0.58%). Against DIPY's NLS per core, DKI is now 263 against 208
+      µs (1.26× slower, from 1.5×). Tests: the start exact on noise-free data (ADCDecay,
+      ADCKurtosis, DTI) and within 0.05 SD of the fit reweighted to convergence, written out in
+      the test (measured 0.006 SD for ADCDecay, 0.001 for ADCKurtosis).
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.

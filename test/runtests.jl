@@ -2789,23 +2789,33 @@ end
     @testset "The log-linear start, :loglinear, from the model's own signal" begin
         b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
         start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
-        # ADCDecay: ln S is linear in ADC, so the start is the weighted log-linear fit itself, the
-        # same as `_loglinear_rate` (T2Decay's start); with weights all 2, the same again
+        # ADCDecay: ln S is linear in ADC. The start is the log-linear fit weighted by the
+        # predicted signal², reweighted (the first step unweighted, the second DIPY's WLS), and
+        # stopped once a step gains little: on noise-free data the truth; on noisy data within a
+        # few hundredths of an SD of the fit reweighted to convergence (written out here); the
+        # fit's own weights all 2, the same start
         m = ADCDecay(b = b)
+        ll = (ADC = Free(start = :loglinear, lower = 0),)
+        @test start(m, signal(m, (S0 = 1000.0, ADC = 0.8e-3)); ll...).ADC ≈ 0.8e-3 rtol = 1e-12
+        irls(X, y) = (u = X \ log.(y); for _ in 1:50; w = exp.(X * u); u = (w .* X) \ (w .* log.(y)); end; u)
         y = simulate(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40, n = 1, noise = :rician, rng = MersenneTwister(3))[1, :]
-        @test start(m, y; ADC = Free(start = :loglinear, lower = 0)).ADC ≈ EQUIP._loglinear_rate(b, y) rtol = 1e-10
-        @test start(m, y; weights = fill(2.0, 8), ADC = Free(start = :loglinear, lower = 0)).ADC ≈
-              EQUIP._loglinear_rate(b, y) rtol = 1e-10
+        sd = crlb(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40).sd.ADC
+        @test abs(start(m, y; ll...).ADC - irls([ones(8) -b], y)[2]) < 0.05 * sd
+        @test start(m, y; weights = fill(2.0, 8), ll...).ADC ≈ start(m, y; ll...).ADC rtol = 1e-12
         # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is linear in (ln S0, ADC, ADC²·K), not in
-        # K, and K's column is zero at ADC = 0 (K waits a step): a few steps reach the weighted fit
-        # of that polynomial
+        # K, and K's column is zero at ADC = 0 (K waits a step): a few steps reach the reweighted
+        # fit of that polynomial
         mk = ADCKurtosis(b = b)
-        yk = simulate(mk, (S0 = 1000.0, ADC = 1e-3, K = 0.9); snr = 80, n = 1, noise = :gaussian,
-                      rng = MersenneTwister(4))[1, :]
-        u = (yk .* [ones(8) -b b .^ 2 / 6]) \ (yk .* log.(yk))       # rows times √(y²)
-        sk = start(mk, yk; ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
-        @test sk.ADC ≈ u[2] rtol = 1e-6
-        @test sk.K ≈ u[3] / u[2]^2 rtol = 1e-6
+        llk = (ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
+        θk = (S0 = 1000.0, ADC = 1e-3, K = 0.9)
+        s0 = start(mk, signal(mk, θk); llk...)
+        @test s0.ADC ≈ 1e-3 rtol = 1e-10
+        @test s0.K ≈ 0.9 rtol = 1e-8
+        yk = simulate(mk, θk; snr = 80, n = 1, noise = :gaussian, rng = MersenneTwister(4))[1, :]
+        u = irls([ones(8) -b b .^ 2 / 6], yk)
+        sk, ck = start(mk, yk; llk...), crlb(mk, θk; snr = 80)
+        @test abs(sk.ADC - u[2]) < 0.05 * ck.sd.ADC
+        @test abs(sk.K - u[3] / u[2]^2) < 0.05 * ck.sd.K
         # a start Free accepts, and names among the others
         @test Free(start = :loglinear).start === :loglinear
         @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))

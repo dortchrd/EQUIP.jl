@@ -84,46 +84,55 @@ end
 #
 # Many diffusion and relaxation signals are exponentials whose logarithm is linear in the
 # parameters: ln S = ln S0 − b·gᵀDg for DTI, ln S = ln S0 − b·ADC for ADCDecay. Their standard
-# start is the linear fit of ln y, weighted by y² (the noise in ln y is about σ/y; Basser et al.,
-# J Magn Reson B 1994). Here it is computed from the model's `signal!` rather than written again
-# for each model: Gauss–Newton steps on the residuals ln S(θ) − ln y, with the Jacobian
-# ∂ln S/∂θ = (∂S/∂θ)/S from the same dual numbers the solver uses. Where ln S is linear in the
-# parameters, the first step lands on the weighted log-linear fit exactly, from any point (S0's
-# column, 1/S0, is the same for every image: it is the fit's intercept); where it is nearly linear
-# (DKI: the kurtosis term is multiplied by MD²), a few steps reach it.
+# start is the weighted linear fit of ln y. Here it is computed from the model's `signal!` rather
+# than written again for each model: Gauss–Newton steps on the residuals ln S(θ) − ln y, with the
+# Jacobian ∂ln S/∂θ = (∂S/∂θ)/S from the same dual numbers the solver uses. Where ln S is linear
+# in the parameters, a step lands on the weighted log-linear fit from any point (S0's column,
+# 1/S0, is the same for every image: it is the fit's intercept); where it is nearly linear (DKI:
+# the kurtosis term is multiplied by MD²), a few steps reach it.
+#
+# The weights: the noise in ln y is about σ/S, so each image is weighted by S², the predicted
+# signal squared, recomputed at every step (iteratively reweighted least squares). The first step,
+# from the placeholder start where the signal is flat, is therefore unweighted (OLS); the second,
+# weighted by OLS's prediction, is DIPY's WLS (Chung et al. 2006's two passes; DIPY's default);
+# later ones reweight again. Weighting by the data, y², instead (Basser et al., J Magn Reson B
+# 1994; the first version of this start, and DTI's former `datastart`) puts the noise into the
+# weights: measured, its MD came out 2.0% low at b = 2500, against 0.2% for DIPY's WLS and 0.1%
+# reweighted (docs/design.md, "Predicted-signal weights").
+#
+# It stops after a step that gains under a quarter of the weighted log-SSE (the decrease the
+# linear model predicts): the start only needs to be near the fit, and further reweighting moved
+# it by under 0.04 SD (measured). With that cutoff DTI on one shell stops after DIPY's two passes,
+# so the whole fit is as fast as with the data-weighted start, and DKI 20% faster (fewer steps in
+# the start and fewer iterations after it). A step is not halved when the log-SSE rises, as the
+# solver's would be: the weights change from step to step, so successive log-SSEs are not
+# comparable.
 #
 # What moves: the parameters starting at `:loglinear` (from 0, their placeholder), and the
 # `:scale` parameter (the intercept: without it, the other parameters would absorb the signal's
 # level). The rest stay at their starts. The scale multiplies the signal, so ln S is linear in
 # ln S0, not in S0: its step is taken on ln S0, S0·exp(ΔS0/S0) (Gauss–Newton's ΔS0/S0 is the step
-# in ln S0), which keeps the first step exact for DTI. Stepped in S0 itself, it crept from its
+# in ln S0), which keeps a step exact for DTI. Stepped in S0 itself, it crept from its
 # placeholder 1 towards 1000 over all ten steps (measured: the start took 48 µs instead of 11 for
 # 132 images). The scale is then set again by least squares on y, as for every start
 # (`_scale_start`), so the log fit's S0 is only a step on the way.
 #
 # The pieces, each as in the solver or in DTI's former `datastart` (docs/design.md, "DTI built
 # in"; scratch pivots.jl for the threshold):
-#   - weights y²·w (w the fit's own observation weights), y divided by its largest value since
-#     only the ratios matter; images with y ≤ 0 or S ≤ 0 skipped (no logarithm);
+#   - weights S²·w (w the fit's own observation weights), S divided by the data's largest value
+#     since only the ratios matter; images with y ≤ 0 or S ≤ 0 skipped (no logarithm);
 #   - sums in Float64 at least (Float32 fits too); the system scaled to a unit diagonal, then the
 #     solver's `_cholesky`, which reports failure instead of throwing;
 #   - a parameter the data do not measure at this point (a zero column: DKI's W while D = 0, a
 #     direction no image has) does not move this step; a system the data cannot determine at all
 #     (one shell and no b = 0; fewer directions than elements) shows as a pivot below eps^(1/4),
 #     and the start stays where it is;
-#   - a step that makes the weighted log-SSE larger is halved (backtracking); it stops when the
-#     predicted decrease is negligible, or after `_LOGLINEAR_STEPS` steps; each step is clamped to
-#     the bounds.
+#   - at most `_LOGLINEAR_STEPS` steps, each clamped to the bounds.
 # Allocates nothing: the buffer is the solver's, the sums static arrays.
 # -------------------------------------------------------------------------------------------------
 
 const _LOGLINEAR_STEPS = 10
-# PROTOTYPE switch (2026-11-07, measured, not decided; docs/design.md, "Predicted-signal weights"):
-# the weights of the log fit. :data, y² (the default); :twopass, an unweighted step then one
-# weighted by the predicted signal², stop (DIPY's WLS, for DTI); :predicted, the predicted signal²
-# at every step until nothing is left; :predictedstop, the same, stopping after a step that gains
-# under 1% of the weighted log-SSE.
-const _LOGLINEAR_WEIGHTS = Ref(:data)
+const _LOGLINEAR_CUTOFF = 1 / 4      # stop after a step gaining under this share of the log-SSE
 
 function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
     any(spec.fromlog) || return θ0               # no :loglinear start in this fit: no cost
@@ -131,31 +140,17 @@ function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) w
     ymax = S(maximum(prob.y))
     ymax > 0 || return θ0
     moves = ntuple(k -> spec.fromlog[k] || k == spec.scale, Val(P))   # what the log fit moves
-    θ, q = θ0, S(Inf)                            # the current point and its weighted log-SSE
-    θprev = θ0
-    mode = _LOGLINEAR_WEIGHTS[]
-    predicted = mode !== :data
-    for step in 1:_LOGLINEAR_STEPS
-        qn, A, g = _log_normal_equations(prob, θ, buf, ymax, S, predicted)
-        isfinite(qn) || return θprev
-        if !predicted && qn > q                  # worse than the last point: halve the step
-            θ = (θprev + θ) / 2
-            continue
-        end
-        θprev, q = θ, qn
+    θ = θ0
+    for _ in 1:_LOGLINEAR_STEPS
+        q, A, g = _log_normal_equations(prob, θ, buf, ymax, S)        # weighted by S(θ)²
+        isfinite(q) || return θ
         Δ, ok = _loglinear_step(A, g, moves)
         ok || return θ                           # the data cannot determine the parameters
         pred = -dot(g, Δ) / 2                    # the decrease the linear model predicts
-        if mode === :predictedstop                # take this step, and stop if it gains little
-            θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale), spec.lower, spec.upper)
-            pred <= q / 100 && return θ
-            continue
-        end
-        pred <= sqrt(eps(S)) * q + eps(S) && return θ
         θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale), spec.lower, spec.upper)
-        mode === :twopass && step == 2 && return θ
+        pred <= _LOGLINEAR_CUTOFF * q && return θ   # a step that gained little: near enough
     end
-    return θprev
+    return θ
 end
 
 # θ + Δ, with the scale parameter (number `sc`, 0 for none) stepped on its logarithm.
@@ -166,9 +161,9 @@ end
 end
 
 # The weighted normal equations of the log fit at θ: Σw·r², JᵀWJ and JᵀWr, with r = ln S − ln y,
-# J = ∂ln S/∂θ and w = (y/ymax)²·(the fit's weight), summed in precision S.
+# J = ∂ln S/∂θ and w = (S/ymax)²·(the fit's weight), S the signal at θ; summed in precision S.
 @noinline function _log_normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf, ymax,
-                                         ::Type{S}, predicted = false) where {F,P,T,S}
+                                         ::Type{S}) where {F,P,T,S}
     signal!(buf, prob.model, _params(Val(F), _seed(θ), prob.fixed))   # S and ∂S/∂θ, as the solver
     A = zero(SMatrix{P,P,S})
     g = zero(SVector{P,S})
@@ -178,7 +173,7 @@ end
         (y > 0 && f > 0) || continue
         J = SVector{P,S}(partials(buf[i]).values) * inv(f)               # ∂ln S/∂θ
         r = log(f / y)                                                   # ln S − ln y
-        w = _wt(prob.w, i, S) * ((predicted ? f : y) / ymax)^2
+        w = _wt(prob.w, i, S) * (f / ymax)^2                             # the predicted signal²
         wJ = w * J
         A += wJ * J'
         g += r * wJ

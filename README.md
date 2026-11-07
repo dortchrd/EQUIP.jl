@@ -148,7 +148,8 @@ parameters(::Type{<:QMTSIR}) = (
   - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
     log-linear fit, `T2 = Free(start = :data, lower = ...)`;
   - `:loglinear`: the weighted fit of ln y with ln S, computed by EQUIP from the model's own
-    signal (Gauss–Newton steps from 0, weights y², the `:scale` parameter as the intercept), for
+    signal (Gauss–Newton steps from 0, each image weighted by the predicted signal², reweighted
+    at every step, as DIPY's WLS and then further; the `:scale` parameter as the intercept), for
     parameters on which ln S depends linearly or nearly, and for which 0 is a valid value
     (diffusivities, rates, kurtosis; not T2): DTI's tensor, `Dxx = Free(start = :loglinear)`
     (exact in one step), DKI's (a few). No code in the model;

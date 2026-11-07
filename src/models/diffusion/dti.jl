@@ -46,7 +46,8 @@ one cone), and, for S0, images at a second b-value (b = 0, or a second shell): o
 alone, S0 and the tensor's trace give the same signal change.
 
 Each voxel starts from the log-linear fit, ln S = ln S0 − b·gᵀDg, linear in ln S0 and the six
-elements, weighted by S² (Basser et al., J Magn Reson B 1994): `Free(start = :loglinear)`, which
+elements, each image weighted by the predicted signal², reweighted at every step (the first two
+steps are DIPY's WLS; Chung et al., NeuroImage 2006): `Free(start = :loglinear)`, which
 EQUIP computes from this signal. When the data cannot give the six, they start at 0.
 
 ```julia

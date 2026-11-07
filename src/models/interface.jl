@@ -81,8 +81,9 @@ each voxel's starting value comes from:
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
   log-linear fit for T2. Only for parameters the model's `datastart` estimates;
 - `:loglinear`: the weighted fit of ln y with ln S, the model's own signal (Gauss–Newton steps
-  from 0, weights y²), with the `:scale` parameter as its intercept; the other parameters stay at
-  their starts. For parameters on which ln S depends linearly, or nearly, and for which 0 is a
+  from 0, each image weighted by the predicted signal², reweighted at every step), with the
+  `:scale` parameter as its intercept; the other parameters stay at their starts. For
+  parameters on which ln S depends linearly, or nearly, and for which 0 is a
   valid value: diffusivities, rates, kurtosis (DTI's tensor, exact in one step; DKI's, a few), not
   time constants (T2 = 0 is no signal: use the rate, or `:data`). No code in the model: the
   derivatives come from `signal!`, as the fit's own;
