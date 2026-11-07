@@ -170,6 +170,15 @@ const GL01 = gausslegendre01(120)
     A * (exp(-k1 * t) + exp(-k2 * t))
 @mrimodel NoStart(t; A = Free(start = :scale), k) = A * exp(-k * t)
 
+# Derived quantities (the `derived` hook) on a T2 decay: R2 = 1/T2, whose SD by the delta method
+# is SD(T2)/T2² exactly; and a model whose derived quantity takes a parameter's name (refused).
+@mrimodel DerivedT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
+    S0 * exp(-TE / T2)
+EQUIP.derived(::DerivedT2, p) = (R2 = 1 / p.T2,)
+@mrimodel ClashT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
+    S0 * exp(-TE / T2)
+EQUIP.derived(::ClashT2, p) = (T2 = p.T2, R2 = 1 / p.T2)
+
 # A SIR protocol used throughout (s): the optimized 5-point scheme of Dortch et al., MRM 2018
 const TI5 = [0.010, 0.050, 0.056, 0.277, 0.843]
 const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
@@ -2866,6 +2875,66 @@ end
         end
     end
 
+    @testset "Derived quantities in crlb and montecarlo: after the parameters, by the delta method" begin
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        te = collect(0.01:0.01:0.16)
+        # R2 = 1/T2 after the parameters in every named tuple: its SD SD(T2)/T2² (the delta
+        # method), its bias the change in 1/T2 when the fit assumes something wrong; the
+        # parameters' own numbers, covariance, cond and cor as without it
+        m = DerivedT2(TE = te)
+        θ = (S0 = 1000.0, T2 = 0.05)
+        c, c0 = crlb(m, θ; snr = 100), crlb(BlockT2(TE = te), θ; snr = 100)    # (BlockT2: none)
+        @test keys(c.sd) == (:S0, :T2, :R2) && keys(c0.sd) == (:S0, :T2)
+        @test c.sd.S0 == c0.sd.S0 && c.sd.T2 == c0.sd.T2 && vcov(c) == vcov(c0)
+        @test c.sd.R2 ≈ c.sd.T2 / θ.T2^2 rtol = 1e-12
+        @test c.fit.R2 ≈ 20 && c.bias.R2 == 0 && c.relsd.R2 ≈ c.sd.R2 / 20
+        @test stderror(c) == stderror(c0) && cond(c) == cond(c0) && cor(c) == cor(c0)
+        cb = crlb(m, θ; snr = 100, S0 = 950.0)          # S0 assumed 5% low: T2 biased, R2 with it
+        @test keys(cb.sd) == (:T2, :R2)
+        @test cb.fit.R2 ≈ 1 / cb.fit.T2 rtol = 1e-12
+        @test cb.bias.R2 ≈ 1 / cb.fit.T2 - 20 rtol = 1e-10
+        @test cb.rmse.R2 ≈ hypot(cb.bias.R2, cb.sd.R2)
+        @test occursin("derived from the parameters", sprint(show, MIME"text/plain"(), c))
+        @test !occursin("derived", sprint(show, MIME"text/plain"(), c0))
+        # in a sweep's table, a row per derived quantity, with its true value
+        s = crlb(m, θ; snr = [50, 100])
+        @test length(s.rows) == 6 && s.rows[3].parameter == :R2 && s.rows[3].truth ≈ 20
+        @test s.rows[6].sd ≈ c.sd.R2 rtol = 1e-12
+        # montecarlo: the same statistics of each copy's 1/T2, against crlb's
+        mc = montecarlo(m, θ; snr = 100, noise = :gaussian, n = 2000, rng = MersenneTwister(41))
+        r2 = 1 ./ mc.result.params.T2
+        @test keys(mc.sd) == keys(c.sd) && keys(mc.crlb.sd) == keys(c.sd)
+        @test mc.mean.R2 ≈ mean(r2) && mc.sd.R2 ≈ std(r2) && mc.bias.R2 ≈ mean(r2) - 20
+        @test mc.se_sd.R2 ≈ mc.sd.R2 / sqrt(2 * 1999)
+        @test abs(mc.sd.R2 / c.sd.R2 - 1) < 4 * mc.se_sd.R2 / c.sd.R2
+        @test length(stderror(mc)) == 2 && size(vcov(mc)) == (2, 2)
+        @test occursin("derived from each copy's fit", sprint(show, MIME"text/plain"(), mc))
+        sm = montecarlo(m, θ; snr = [50, 100], noise = :gaussian, n = 200, rng = MersenneTwister(43))
+        @test length(sm.rows) == 6 && sm.rows[3].parameter == :R2 && sm.rows[3].truth ≈ 20
+        # a derived quantity named as a parameter: refused
+        @test occursin("the name of a parameter", msg(() -> crlb(ClashT2(TE = te), θ; snr = 100)))
+        # DTI (a rotated tensor, eigenvalues 1.7, 0.4, 0.3e-3 mm²/s): the seven quantities by the
+        # delta method, ∇g·C·∇gᵀ with ∇g through `derived` (written out here); MD, FA, AD and RD
+        # within Monte Carlo's standard errors of the fits' SDs. (V1 is not compared: each fit's is
+        # folded into the upper hemisphere, which crlb's derivative does not see.)
+        bv = [fill(0.0, 6); fill(1000.0, 30)]
+        md = DTI(; diffusionencoding(bv, reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(directionset(30))]))...)
+        Q = Matrix(qr(randn(MersenneTwister(8), 3, 3)).Q)
+        D = Q * Diagonal([1.7e-3, 0.4e-3, 0.3e-3]) * Q'
+        θd = (S0 = 1000.0, Dxx = D[1, 1], Dyy = D[2, 2], Dzz = D[3, 3], Dxy = D[1, 2], Dxz = D[1, 3], Dyz = D[2, 3])
+        cd = crlb(md, θd; snr = 30)
+        names = (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z)
+        @test keys(cd.sd) == (keys(θd)..., names...) && length(stderror(cd)) == 7
+        ∇ = ForwardDiff.jacobian(x -> collect(values(derived(md, NamedTuple{keys(θd)}(Tuple(x))))), collect(values(θd)))
+        sdd = sqrt.(diag(∇ * vcov(cd) * ∇'))
+        @test all(j -> isapprox(cd.sd[names[j]], sdd[j]; rtol = 1e-10), 1:7)
+        @test all(k -> cd.bias[k] == 0 && cd.fit[k] ≈ derived(md, θd)[k], names)
+        mcd = montecarlo(md, θd; snr = 30, noise = :gaussian, n = 3000, rng = MersenneTwister(42))
+        for k in (:MD, :FA, :AD, :RD)
+            @test abs(mcd.sd[k] / cd.sd[k] - 1) < 4 * mcd.se_sd[k] / cd.sd[k]
+        end
+    end
+
     @testset "The log-linear start, :loglinear, from the model's own signal" begin
         b = [0.0, 250, 500, 750, 1000, 1500, 2000, 2500]
         start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
@@ -3027,6 +3096,11 @@ end
         @test count(isconverged, r10.status) == 400
         for k in (:Dxx, :Dyy, :V1111, :V3333)
             @test std(r10.params[k]) ≈ c10.sd[k] rtol = 0.15
+        end
+        # and the indices, by the delta method through the closed forms, against the fits' own
+        d10 = derived(r10)
+        for k in (:MD, :FA, :MK, :AK, :RK, :MKT)
+            @test std(d10[k]) ≈ c10.sd[k] rtol = 0.15
         end
     end
 

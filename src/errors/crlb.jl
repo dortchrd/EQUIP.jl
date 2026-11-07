@@ -43,13 +43,15 @@
     CRLBResult
 
 What [`crlb`](@ref) returns. Fields, each a named tuple over the fit's free parameters (`c.sd.PSR`,
-like `res.params.PSR` of a [`FitResult`](@ref)):
+like `res.params.PSR` of a [`FitResult`](@ref)), then the quantities the model derives from them
+([`derived`](@ref): DTI's `c.sd.FA`, DKI's `c.sd.MK`):
 
 - `fit`: the noise-free fit's values θ̂ (the "pseudo-true" values, where the noisy fits center)
 - `bias` (θ̂ − truth), `sd`, `rmse` (√(bias² + SD²)), in the parameters' units
 - `relbias`, `relsd`, `relrmse`: the same divided by |truth|
 
-and `cov` (the covariance matrix, free parameters in model order), `onbound` (free parameters
+and `cov` (the covariance matrix of the free parameters in model order, the derived quantities
+not in it), `onbound` (free parameters
 on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fit's
 [`FitStatus`](@ref)), `method` (`:sandwich` or `:biased`), `σ` (the noise SD per observation,
 σ/√NEX with averages), `truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`,
@@ -133,6 +135,14 @@ SD from the derivatives at that fit's answer, first order in the noise.
   result per scenario, the set's settings as the sweep's (`tissue`, the varied values), after
   the noise levels when `snr` is a vector: `crlb(m, scenarios(QMTSIR, tissues; kmf = 12.5);
   snr = 200)`. Its truths are the set's (`vary` and `simulate_with` are not taken).
+- The model's derived quantities ([`derived`](@ref): DTI's MD, FA, AD, RD and V1, DKI's MK,
+  AK, RK and MKT), after the parameters in each named tuple: g(θ̂) the noise-free fit's value,
+  g(θ̂) − g(truth) the bias, the SD by the delta method, √(∇g·C·∇gᵀ) with C the parameters'
+  covariance and ∇g from dual numbers through `derived`. First order in the noise, as the
+  parameters' (the noise's own bias of a nonlinear g, e.g. FA's at low SNR, is not in it:
+  [`montecarlo`](@ref) measures it). Where `derived` is not differentiable, NaN: DKI's MK and RK
+  where two of D's eigenvalues are equal (give the truth eigenvalues at least 0.01% apart, or
+  use montecarlo), V1 where λ1 = λ2.
 - Data from another model: `simulate_with = m2 => θ2` (a model with as many observations, and
   every value of its parameters). The noise-free fit of `m` to `m2`'s signal gives the bias,
   against the scenario's truth, your reference values for `m`'s parameters (e.g. the long T2 of
@@ -344,14 +354,71 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
         observed = Matrix(_sym(info + curvature(c.hbuf, w)))
     end
     onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
-    return CRLBResult(nt(k.fit), nt(k.bias), nt(sd), nt(rmse), nt(rel(k.bias)), nt(rel(sd)),
-                      nt(rel(rmse)), Matrix(k.cov), k.G, onbound, k.status,
+    # The model's derived quantities after the parameters (`_derivedcrlb`, below); the
+    # parameters alone for a model that derives none.
+    q = (fit = nt(k.fit), bias = nt(k.bias), sd = nt(sd), rmse = nt(rmse),
+         relbias = nt(rel(k.bias)), relsd = nt(rel(sd)), relrmse = nt(rel(rmse)))
+    g = _derivedcrlb(c, k, truth)
+    q = g === nothing ? q : map(merge, q, g)
+    return CRLBResult(q.fit, q.bias, q.sd, q.rmse, q.relbias, q.relsd, q.relrmse,
+                      Matrix(k.cov), k.G, onbound, k.status,
                       c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
                       averages === nothing ? nothing : _averages(averages, length(c.y)),
                       c.w === nothing ? nothing : copy(c.w))
 end
+
+# The model's derived quantities (its `derived` hook, e.g. DTI's MD and FA), each g a function
+# of the parameters, as crlb reports the parameters themselves:
+#
+#   the noise-free fit's value   g(θ̂)            (θ̂ with the fit's fixed values, ties followed)
+#   the bias                     g(θ̂) − g(θ)     (θ the truth: exact for what the fit assumes)
+#   the SD (the delta method)    √diag(∇g·C·∇gᵀ), ∇g = ∂g/∂θ at θ̂ over the free parameters
+#
+# C is the parameters' covariance (sandwich or Eq. 3), so the SD is first order in the noise, as
+# theirs. So is the bias: the noise's own second-order term, ½tr(∇²g·C) (item 16: FA's noise
+# bias at low SNR), is not in it, as the parameters' (Box's) is not in theirs. ∇g by dual
+# numbers through `derived` (no allocation: P partials, static matrices); NaN where `derived`
+# is not differentiable (a repeated eigenvalue: AD and V1 where λ1 = λ2). The parameters on a
+# bound have C's rows 0, so they add nothing; when the data cannot determine the parameters
+# (C is Inf), neither the derived quantities (SD Inf). `nothing` for a model that derives none:
+# known from the model's type, so the branch costs nothing when compiling for it.
+function _derivedcrlb(c::CRLBCache{F,P,T}, k, truth) where {F,P,T}
+    g(θ) = derived(c.mT, _params(Val(F), θ, c.fixed))
+    ĝ = g(k.fit)
+    ĝ === nothing && return nothing
+    _check_derivednames(c.model, ĝ)
+    G = keys(ĝ)
+    gt = map(Float64, derived(c.mT, map(float, resolve(c.model, truth))))   # at the truth
+    ∇g = ForwardDiff.jacobian(θ -> SVector(values(g(θ))), k.fit)          # length(G) × P
+    sd = all(isfinite, k.cov) ? sqrt.(max.(diag(∇g * k.cov * ∇g'), 0)) :
+                                fill(Inf, SVector{length(G),Float64})
+    ĝ = map(Float64, ĝ)
+    b = map(-, ĝ, gt)
+    s = NamedTuple{G}(Tuple(sd))
+    r = map((b, s) -> sqrt(b^2 + s^2), b, s)
+    rel(x) = map((x, t) -> x / abs(t), x, gt)
+    return (fit = ĝ, bias = b, sd = s, rmse = r, relbias = rel(b), relsd = rel(s),
+            relrmse = rel(r))
+end
+
+# A derived quantity named as one of the model's parameters would take its place in the
+# results' named tuples (and its map's file name): refused, naming the model and the names.
+function _check_derivednames(m::MRIModel, g::NamedTuple)
+    clash = filter(n -> haskey(parameters(m), n), keys(g))
+    isempty(clash) || throw(ArgumentError("$(nameof(typeof(m)))'s `derived` gives " *
+        "$(join(clash, ", ")), the name of a parameter: give the derived quantity another name"))
+    return nothing
+end
+
+# The fit's free parameters, in model order: the first P names of a result's named tuples (the
+# model's derived quantities come after them), and the rows of `c.cov`. Read from the result's
+# type, the names K of its named tuples and P from its static P×P `gram`, so that the compiler
+# knows them (`keys(c.fit)[1:P]` with P read at run time would not: the sweep's tables 60%
+# slower).
+_freenames(::CRLBResult{M,<:NamedTuple{K},Tr,X,D,S,<:StaticMatrix{P}}) where {M,K,Tr,X,D,S,P} =
+    ntuple(i -> K[i], Val(P))
 
 # -------------------------------------------------------------------------------------------------
 # StatsAPI's names (as for `fit` and `nobs`): the information matrix, the covariance, the SDs
@@ -360,7 +427,7 @@ end
 """
     informationmatrix(c::CRLBResult; expected = true) -> Matrix
 
-The information matrix of the fit's free parameters (in model order, `keys(c.fit)`) at the
+The information matrix of the fit's free parameters (in model order, as `vcov(c)`) at the
 noise-free fit's values θ̂ (the truth when nothing fixed is wrong), for the noise given to
 [`crlb`](@ref). `expected = true`: the Fisher information J₀ᵀΣ⁻¹J₀ (J₀ the Jacobian at θ̂, Σ
 the noise covariance; JᵀJ/σ² for one σ). `expected = false`: the observed information, the
@@ -378,10 +445,11 @@ informationmatrix(c::CRLBResult; expected::Bool = true) = expected ? c.informati
     stderror(c::CRLBResult) -> Vector
 
 The predicted covariance matrix of the fit's free parameters (`c.cov`: the sandwich, or Eq. 3
-with `cov = :biased`) and their SDs (`c.sd` as a vector), in model order. StatsAPI's functions.
+with `cov = :biased`) and their SDs (the parameters' part of `c.sd`, as a vector), in model
+order. StatsAPI's functions: the parameters only, not the model's derived quantities.
 """
 vcov(c::CRLBResult) = c.cov
-stderror(c::CRLBResult) = collect(values(c.sd))
+stderror(c::CRLBResult) = [c.sd[p] for p in _freenames(c)]
 
 # -------------------------------------------------------------------------------------------------
 # Display: at the REPL a table, one row per free parameter, in the style of `compare`
@@ -410,7 +478,9 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
              f(c.sd[n]), pct(c.relsd[n]), f(c.rmse[n]), pct(c.relrmse[n])) for n in keys(c.fit)]
     w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
     print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
-    for r in rows
+    P = length(_freenames(c))                # then the model's derived quantities, if any
+    for (i, r) in enumerate(rows)
+        i == P + 1 && print(io, "\n  derived from the parameters (SD by the delta method):")
         print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end

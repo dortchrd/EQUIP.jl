@@ -515,8 +515,9 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   allocation, generic in the number type, so their errors can come from the fit's). For a fit,
   `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
   asked; `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
-  `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. Their standard errors, and
-  crlb and montecarlo for them, are on the roadmap (docs/design.md, item 19).
+  `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
+  them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
+  (docs/design.md, item 19).
 
 ## Simulation
 
@@ -715,6 +716,18 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   montecarlo's to measure (`montecarlo(m, θ; snr, averages, noise = :rician, averaging =
   :magnitude)`). One σ, the usual case for separately acquired images with the same readout,
   costs nothing extra.
+- **Derived quantities** (a model's `derived`, above, e.g. DTI's MD, FA, AD, RD and V1,
+  DKI's MK, AK, RK, MKT) come after the parameters in every named tuple, `c.sd.FA`,
+  `mc.bias.MK`, in the tables and in a sweep's rows. crlb's: the noise-free fit's value g(θ̂),
+  the bias g(θ̂) − g(θ), and the SD by the delta method, √(∇g·C·∇gᵀ) (C the parameters'
+  covariance, ∇g by dual numbers through `derived`), first order in the noise as the
+  parameters'; montecarlo's: from each copy's fit, so it also measures the noise's own bias of a
+  nonlinear quantity (FA's, MK's at low SNR). Measured: DTI (6 b = 0 and 30 directions, SNR 50)
+  and DKI (22 parameters, SNR 100), every SD within 1.5% of 4000–20 000 fits'. NaN where
+  `derived` has no derivative: MK and RK where two of D's eigenvalues are equal (give the truth
+  eigenvalues at least 0.01% apart, or use montecarlo). A principal direction is folded into
+  one hemisphere in each fit, so montecarlo's V1 near the fold (fibers in the x–y plane) is the
+  folded vectors'. `vcov`, `stderror`, `cor` and `cond` stay the parameters'.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`

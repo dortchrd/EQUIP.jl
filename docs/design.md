@@ -5420,6 +5420,57 @@ numbers are not an order.
      the signal where the log fit starts is positive and finite in every observation and
      otherwise refuses, naming the parameters and what to use (a rate, `:data`, a number); a
      real-valued inversion recovery (a signal that changes sign) is refused the same way.
+   - **Step 2 built: crlb and montecarlo** (2026-11-07, the owner: "now add derived quantities
+     to crlb and montecarlo"; branch `derived-errors`). As planned, the derived quantities follow
+     the parameters in every named tuple of `CRLBResult` and `MonteCarloResult` (`c.sd.FA`,
+     `mc.bias.MK`), in their tables (below a line "derived from the parameters") and in a
+     sweep's rows; `cov`, `vcov`, `stderror`, `cor`, `cond` and `informationmatrix` stay the
+     parameters' (StatsAPI's coefficients; `_freenames(c)`, the first P names). crlb's, in
+     `_crlbresult` after the kernel (the kernel and the protocol optimizer unchanged): g(θ̂) at
+     the noise-free fit (θ̂ with the fit's fixed values, ties followed), the bias g(θ̂) − g(θ),
+     exact for what the fit assumes, and the SD by the delta method, √diag(∇g·C·∇gᵀ), ∇g by
+     `ForwardDiff.jacobian` through `derived` over the free parameters at θ̂ (static, P
+     partials); first order, as the parameters': the noise's own ½tr(∇²g·C) is not added, nor
+     Box's bias of the parameters (item 16; both for later, together). SD Inf when C is
+     (parameters not determined); on a bound, C's zero rows add nothing. montecarlo's: from
+     `derived(res)` of the copies' fits, against `derived(m, θ)`, every statistic as for the
+     parameters. A derived name equal to a parameter's is refused. Measured (scratch derr/):
+     - DTI, 6 b = 0 + 30 directions, eigenvalues 1.7, 0.4, 0.3e-3 along x, y, z, SNR 50, 20 000
+       fits: the SD ratios measured/predicted MD 0.995, FA 0.990, AD 0.993, RD 0.992 (± 0.005),
+       the parameters' 0.993–1.004. S0 fixed 5% low: FA biased +0.031 (+4.0%), MD −6.4%.
+     - DKI, 22 parameters, 6 + 30 + 30 images, the example's truth, SNR 100, 4000 fits: MD 0.992,
+       FA 0.987, AD 0.989, RD 0.987, MK 1.011, AK 0.986, RK 1.010, MKT 0.990 (± 0.011). MK's
+       measured bias −0.0039 ± 0.0005 (−0.19%) is the noise's own, which crlb leaves out.
+     - Speed: models with no derived quantities unchanged (QMTSIR 4-point `crlb!` 4.57 → 4.56
+       µs, a 400-setting sweep 2.06 → 2.05 ms; the branch is known when compiling). A first
+       version read the free names as `keys(c.fit)[1:P]` with P from the matrix's size, which the
+       compiler cannot type: the sweep 60% slower, until the names came from the result's type.
+       DTI's `crlb!` 6.1 → 12.2 µs (seven quantities and their 7×7 Jacobian through the
+       eigensolver); DKI's first crlb at P = 22 50 s (39 s before), 0.67 ms a call after.
+     - Eigen derivatives: dual numbers through StaticArrays' closed form are right at a diagonal
+       tensor too (∂V1y/∂Dxy = 1/(λ1 − λ2) = 769, perturbation theory's; finite differences
+       there flip the eigenvector's sign). Where two eigenvalues are equal they are not: the
+       eigenvectors of the pair have no derivative, so MK and RK come out NaN for a prolate D
+       (λ2 = λ3), V1 where λ1 = λ2; MD, FA, AD, RD, AK, MKT stay finite. Near it (relative gap r
+       between λ2 and λ3, W isotropic and anisotropic in the plane): MK's SD right down to r =
+       1e-7 (F's limits, 2.5% wide, are smooth); RK's right from r = 1e-4 (r = 1e-5: 12% off for
+       the anisotropic W; 1e-6: 100×), because G1 and G2 (DIPY's) switch to their limits only at
+       an absolute 1e5·eps, and their general forms lose digits before that; RK's value itself
+       is 3% off at r = 1e-7, as DIPY's would be. Not fixed: a dual-number rule for the
+       eigenvectors (perturbation theory, the pair's coupling dropped) would give finite
+       numbers there, but right ones only when W is symmetric in the pair's plane, and Tabesh's
+       limit forms in G use b, not (b + c)/2: silently wrong rather than NaN. Documented
+       instead: a truth with eigenvalues at least 0.01% apart, or montecarlo. To decide later:
+       G's threshold (relative, wider) at the price of DIPY parity in RK's last digits.
+     - V1 in montecarlo: each fit's is folded into the upper hemisphere, so for fibers near z = 0
+       (here along x) its components' statistics are the folded vectors' (V1x's mean 0, SD 1),
+       not crlb's (the unfolded vector's derivative). An angular error (the cone of
+       uncertainty) would be the quantity to report for directions; not built.
+     - Tests: R2 = 1/T2 on a test model (SD(T2)/T2² exactly; the bias with S0 assumed wrong;
+       the parameters' numbers, `vcov`, `cond`, `cor` as without it; a sweep's rows; montecarlo's
+       statistics of 1/T2; a clashing name refused); DTI's seven against the delta method
+       written out (1e-10) and MD, FA, AD, RD against 3000 fits (4 standard errors); DKI's MD,
+       FA, MK, AK, RK, MKT at P = 10 against 400 fits (15%).
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a

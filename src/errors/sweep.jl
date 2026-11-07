@@ -108,11 +108,12 @@ function _print_sweep_fixed(io::IO, s::Sweep)
         print(io, "\ndata from ", nameof(typeof(d.first)), " (its truth as in each setting)")
 end
 
-# The table: one row per setting and free parameter. Each setting's rows come from a function of
-# their own (`_settingrows`, a "function barrier": the setting's and the result's types are known
-# there, so each row is built directly rather than looked up name by name), with the free
-# parameters' true values found once per setting (`_freetruth`, diagnostics.jl). Before: the
-# whole truth resolved for every row, 61% of a crlb sweep's time.
+# The table: one row per setting and free parameter, then per derived quantity (`derived`).
+# Each setting's rows come from a function of their own (`_settingrows`, a "function barrier":
+# the setting's and the result's types are known there, so each row is built directly rather
+# than looked up name by name), with the free parameters' true values found once per setting
+# (`_freetruth`, diagnostics.jl). Before: the whole truth resolved for every row, 61% of a crlb
+# sweep's time.
 function _rows(settings, results)
     rows = NamedTuple[]
     sizehint!(rows, sum(r -> length(r.sd), results))     # one row per setting and parameter
@@ -123,17 +124,22 @@ function _rows(settings, results)
 end
 
 _settingrows(st::NamedTuple, c::CRLBResult, θt) =
-    map(p -> (; st..., parameter = p, truth = Float64(θt[p]), noisefree = c.fit[p],
+    map(p -> (; st..., parameter = p, truth = _truthcell(θt, p, c.fit[p] - c.bias[p]), noisefree = c.fit[p],
               bias = c.bias[p], relbias = c.relbias[p], sd = c.sd[p], relsd = c.relsd[p],
               rmse = c.rmse[p], relrmse = c.relrmse[p]), keys(c.fit))
 _settingrows(st::NamedTuple, r::MonteCarloResult, θt) =
-    map(p -> (; st..., parameter = p, truth = Float64(θt[p]), mean = r.mean[p],
+    map(p -> (; st..., parameter = p, truth = _truthcell(θt, p, r.mean[p] - r.bias[p]), mean = r.mean[p],
               bias = r.bias[p], relbias = r.relbias[p], sd = r.sd[p], relsd = r.relsd[p],
               rmse = r.rmse[p], relrmse = r.relrmse[p], se_mean = r.se_mean[p],
               se_sd = r.se_sd[p], converged = r.converged, crlb_fit = r.crlb.fit[p],
               crlb_bias = r.crlb.bias[p], crlb_relbias = r.crlb.relbias[p],
               crlb_sd = r.crlb.sd[p], crlb_relsd = r.crlb.relsd[p],
               crlb_relrmse = r.crlb.relrmse[p]), keys(r.sd))
+
+# A row's true value: a free parameter's exactly, as given (`_freetruth`); a derived quantity's
+# (after the parameters, `derived`) from the result, the noise-free fit's value (or the mean)
+# minus its bias.
+_truthcell(θt, p, fromresult) = haskey(θt, p) ? Float64(θt[p]) : fromresult
 
 # -------------------------------------------------------------------------------------------------
 # Display: the settings' columns, then the numbers; a setting's values on its first row only

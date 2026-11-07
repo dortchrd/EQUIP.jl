@@ -23,7 +23,8 @@
     MonteCarloResult
 
 What [`montecarlo`](@ref) returns. Fields, each a named tuple over the fit's free parameters
-(`mc.sd.PSR`), with the names and meanings of [`CRLBResult`](@ref)'s so the two line up:
+(`mc.sd.PSR`), then the quantities the model derives from them ([`derived`](@ref): `mc.sd.FA`),
+with the names and meanings of [`CRLBResult`](@ref)'s so the two line up:
 
 - `mean` (of the estimates), `bias` (mean − truth), `sd`, `rmse`, in the parameters' units
 - `relbias`, `relsd`, `relrmse`: the same divided by |truth|
@@ -114,7 +115,15 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
   `m2`'s scale parameter, and `vary` changes `θ2`.
 
 Statistics use every fitted copy, converged or not, as [`compare`](@ref) does; `mc.converged`
-says how many converged, and `mc.result` holds every estimate and status.
+says how many converged, and `mc.result` holds every estimate and status. The model's derived
+quantities ([`derived`](@ref), e.g. DTI's FA) are computed from each copy's fit
+(`derived(mc.result)`) and judged against their values at the truth, after the parameters, so
+that the noise's own bias of a nonlinear quantity (FA's at low SNR), which crlb's first order
+leaves out, is measured. A principal direction (DTI's V1) is folded into one hemisphere in each
+fit, so for fibers near the fold (z = 0, in the x–y plane) its components' statistics are those
+of the folded vectors, not crlb's.
+
+`vcov(mc)`, `stderror(mc)` and `cor(mc)` are the free parameters' (StatsAPI's coefficients).
 
 ```julia
 m = QMTSIR(; SIR_4POINT...)
@@ -184,17 +193,20 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
     res = fit(m, Y; options..., weights = s.weights, _roles_at(s, m, θ)...)   # the scenario's fit
 
-    # Statistics over every fitted copy (as `compare`), each against the parameter's true value.
-    F = keys(res.params)
+    # Statistics over every fitted copy (as `compare`), each against the parameter's true value;
+    # then the same for the model's derived quantities (`derived`, e.g. DTI's FA), computed from
+    # each copy's fit and judged against their values at the truth.
+    est, truths = _withderived(m, res, θ)
+    F = keys(est)
     used = (res.status .!= NotFitted) .& (res.status .!= InvalidData)
     k = count(used)
     k >= 2 || throw(ErrorException("montecarlo: fewer than 2 copies could be fitted"))
-    stat(f) = NamedTuple{F}(map(p -> f(Float64.(res.params[p][used]), Float64(θ[p])), F))
+    stat(f) = NamedTuple{F}(map(p -> f(Float64.(est[p][used]), truths[p]), F))
     meanv = stat((x, t) -> mean(x))
     bias = stat((x, t) -> mean(x) - t)
     sd = stat((x, t) -> std(x))
     rmse = stat((x, t) -> sqrt(mean(abs2, x .- t)))
-    rel(q) = NamedTuple{F}(map(p -> q[p] / abs(Float64(θ[p])), F))
+    rel(q) = NamedTuple{F}(map(p -> q[p] / abs(truths[p]), F))
     se_mean = map(s -> s / sqrt(k), sd)
     se_sd = map(s -> s / sqrt(2 * (k - 1)), sd)
     return MonteCarloResult(meanv, bias, sd, rmse, rel(bias), rel(sd), rel(rmse), se_mean, se_sd,
@@ -202,10 +214,27 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
                             truth, c.fixed, m, simulate_with, c.averages, averaging)
 end
 
+# The estimates of every copy (the free parameters' maps, here vectors) and the parameters'
+# true values, then the model's derived quantities, computed from each copy's fit
+# (`derived(res)`), and their values at the truth; the parameters alone for a model that derives
+# none.
+function _withderived(m::MRIModel, res::FitResult, θ)
+    F = keys(res.params)
+    truths = NamedTuple{F}(map(p -> Float64(θ[p]), F))
+    d = derived(res)
+    d === nothing && return res.params, truths
+    _check_derivednames(m, d)
+    return merge(res.params, d), merge(truths, map(Float64, derived(m, map(float, θ))))
+end
+
 # StatsAPI's names: the covariance matrix of the estimates (every fitted copy, as the other
-# statistics), and their SDs, the free parameters in model order.
+# statistics), and their SDs, the free parameters in model order (not the derived quantities).
 vcov(mc::MonteCarloResult) = cov(_estimates(mc))
-stderror(mc::MonteCarloResult) = collect(values(mc.sd))
+stderror(mc::MonteCarloResult) = [mc.sd[p] for p in _freenames(mc)]
+
+# The fit's free parameters, in model order: the first names of the result's named tuples, before
+# the model's derived quantities.
+_freenames(mc::MonteCarloResult) = keys(mc.result.params)
 
 # The estimates as a matrix, one row per fitted copy (as the statistics: every copy that could
 # be fitted, converged or not) and one column per free parameter, in model order.
@@ -244,7 +273,9 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
     end
     w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
     print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
-    for r in rows
+    P = length(_freenames(mc))               # then the model's derived quantities, if any
+    for (i, r) in enumerate(rows)
+        i == P + 1 && print(io, "\n  derived from each copy's fit (crlb's by the delta method):")
         print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end
