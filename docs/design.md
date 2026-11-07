@@ -3800,6 +3800,33 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     another reason for predicted-signal weights in `:loglinear`. Time, µs per voxel, EQUIP's
     nonlinear fit against DIPY's WLS: DTI 36 images 8.6 (1 thread) and 2.3 (4) against 17.1; 132
     images 28.3 and 7.5 against 33.2; DKI 320 and 81 against 312–338.
+  - **Predicted-signal weights in `:loglinear`** (2026-11-07, the owner: "test predicted-signal
+    weights"; a prototype switch, `EQUIP._LOGLINEAR_WEIGHTS[]`, default `:data`; scratch
+    dipycmp/weights_equip.jl and accuracy_weights.py, the DIPY comparison's data). The weights
+    of the log fit, four ways: `:data`, y² (as built); `:twopass`, one unweighted step, then one
+    weighted by the predicted signal² and stop (DIPY's WLS; DTI only, since DKI's W waits a
+    step); `:predicted`, the predicted signal² at every step until the predicted decrease is
+    below √eps (iteratively reweighted; the first step is unweighted by itself, the signal being
+    flat at the placeholder start); `:predictedstop`, the same, taking a step and stopping when
+    it gains under 1% of the weighted log-SSE. Bias in % of the truth (SD the same for all
+    within 0.02%), and µs per voxel on 4 threads (the start; the whole fit, its LM iterations):
+
+    | | `:data` | `:twopass` | `:predicted` | `:predictedstop` | DIPY's WLS | EQUIP's fit |
+    |---|---|---|---|---|---|---|
+    | DTI 36: MD bias | −0.48 | −0.04 | −0.01 | −0.01 | −0.04 | −0.13 |
+    | DTI 36: time (fit, iterations) | 1.27 (2.31, 4.04) | 1.18 (2.29, 3.81) | 2.29 (3.38, 3.91) | 1.56 (2.61, 3.91) | | |
+    | DTI 132: MD bias | −1.97 | −0.20 | −0.08 | −0.08 | −0.20 | −0.53 |
+    | DTI 132: time (fit, iterations) | 3.85 (7.32, 4.48) | 3.91 (6.89, 4.00) | 7.98 (10.9, 4.04) | 5.27 (8.52, 4.04) | | |
+    | DKI 66: MKT bias | +1.08 | | −0.25 | −0.21 | +0.29 | +0.10 |
+    | DKI 66: time (fit, iterations) | 41.8 (81.5, 4.69) | | 42.7 (80.0, 4.35) | 31.9 (67.7, 4.32) | | |
+
+    `:twopass` is DIPY's WLS exactly (within 1e-13 of λ1), which checks the implementation, and
+    costs nothing: the same two evaluations. Weighting by the prediction removes the start's
+    bias (y²'s noisy weights caused it); iterating the weights removes a little more, even
+    below the nonlinear fit's own Rician bias. `:predictedstop` is the one rule that does well
+    on both: the least biased start, DKI 17% faster than now (fewer start steps and LM
+    iterations), DTI 13–16% slower (it usually takes a third step). The fit's estimates are the
+    nonlinear fit's whichever start is used (all converged in every voxel). Not decided.
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.

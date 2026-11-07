@@ -118,6 +118,12 @@ end
 # -------------------------------------------------------------------------------------------------
 
 const _LOGLINEAR_STEPS = 10
+# PROTOTYPE switch (2026-11-07, measured, not decided; docs/design.md, "Predicted-signal weights"):
+# the weights of the log fit. :data, y² (the default); :twopass, an unweighted step then one
+# weighted by the predicted signal², stop (DIPY's WLS, for DTI); :predicted, the predicted signal²
+# at every step until nothing is left; :predictedstop, the same, stopping after a step that gains
+# under 1% of the weighted log-SSE.
+const _LOGLINEAR_WEIGHTS = Ref(:data)
 
 function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
     any(spec.fromlog) || return θ0               # no :loglinear start in this fit: no cost
@@ -127,10 +133,12 @@ function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) w
     moves = ntuple(k -> spec.fromlog[k] || k == spec.scale, Val(P))   # what the log fit moves
     θ, q = θ0, S(Inf)                            # the current point and its weighted log-SSE
     θprev = θ0
-    for _ in 1:_LOGLINEAR_STEPS
-        qn, A, g = _log_normal_equations(prob, θ, buf, ymax, S)
+    mode = _LOGLINEAR_WEIGHTS[]
+    predicted = mode !== :data
+    for step in 1:_LOGLINEAR_STEPS
+        qn, A, g = _log_normal_equations(prob, θ, buf, ymax, S, predicted)
         isfinite(qn) || return θprev
-        if qn > q                                # worse than the last point: halve the step
+        if !predicted && qn > q                  # worse than the last point: halve the step
             θ = (θprev + θ) / 2
             continue
         end
@@ -138,8 +146,14 @@ function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) w
         Δ, ok = _loglinear_step(A, g, moves)
         ok || return θ                           # the data cannot determine the parameters
         pred = -dot(g, Δ) / 2                    # the decrease the linear model predicts
+        if mode === :predictedstop                # take this step, and stop if it gains little
+            θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale), spec.lower, spec.upper)
+            pred <= q / 100 && return θ
+            continue
+        end
         pred <= sqrt(eps(S)) * q + eps(S) && return θ
         θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale), spec.lower, spec.upper)
+        mode === :twopass && step == 2 && return θ
     end
     return θprev
 end
@@ -154,7 +168,7 @@ end
 # The weighted normal equations of the log fit at θ: Σw·r², JᵀWJ and JᵀWr, with r = ln S − ln y,
 # J = ∂ln S/∂θ and w = (y/ymax)²·(the fit's weight), summed in precision S.
 @noinline function _log_normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf, ymax,
-                                         ::Type{S}) where {F,P,T,S}
+                                         ::Type{S}, predicted = false) where {F,P,T,S}
     signal!(buf, prob.model, _params(Val(F), _seed(θ), prob.fixed))   # S and ∂S/∂θ, as the solver
     A = zero(SMatrix{P,P,S})
     g = zero(SVector{P,S})
@@ -164,7 +178,7 @@ end
         (y > 0 && f > 0) || continue
         J = SVector{P,S}(partials(buf[i]).values) * inv(f)               # ∂ln S/∂θ
         r = log(f / y)                                                   # ln S − ln y
-        w = _wt(prob.w, i, S) * (y / ymax)^2
+        w = _wt(prob.w, i, S) * ((predicted ? f : y) / ymax)^2
         wJ = w * J
         A += wJ * J'
         g += r * wJ
