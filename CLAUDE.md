@@ -15,7 +15,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
   `examples/compartments.jl` (six models written with `@mrimodel` and the compartments, fitted; about 30 s);
   `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
-  `examples/dki.jl` (DKI written out by hand, 22 parameters; about 15 s)
+  `examples/dki.jl` (the built-in DKI, its indices and the K ≥ 0 check; about 15 s)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
@@ -37,7 +37,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
-  start; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
   evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)

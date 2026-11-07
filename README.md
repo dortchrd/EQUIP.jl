@@ -311,6 +311,7 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
 | | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted (no bounds); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
+| | `DKI(b = ..., gx = ..., gy = ..., gz = ...)` | diffusion kurtosis (Jensen et al., MRM 2005) in DIPY's parameterization, V = MD²·W: S0·exp(−b·gᵀDg + b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6), every element from the two-pass WLS (`:loglinear`); derived: DTI's quantities and MK, AK, RK as DIPY's fit methods give them by default (Tabesh et al., MRM 2011, analytic), MKT (Hansen et al., MRM 2013), clipped to [−3/7, 10] | S0, D's six, V's fifteen | |
 | | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
 | | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
 | | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
@@ -514,8 +515,8 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   allocation, generic in the number type, so their errors can come from the fit's). For a fit,
   `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
   asked; `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
-  `nothing`, means none. Their standard errors, crlb and montecarlo for them, and DKI's MK, AK
-  and RK are on the roadmap (docs/design.md, item 19).
+  `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. Their standard errors, and
+  crlb and montecarlo for them, are on the roadmap (docs/design.md, item 19).
 
 ## Simulation
 

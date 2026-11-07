@@ -5352,6 +5352,39 @@ numbers are not an order.
      errors crlb would give them. Tested: D·e1 = λ1·e1, unit length, the hemisphere rule, and the
      three maps written by `savemaps`. Full run: EQUIP 2168 (the CLI suite not rerun: the
      command line has no DTI; 124 at the previous change).
+   - **Step 3 built: DKI, with MK, AK, RK and MKT as DIPY's** (2026-11-07, the owner: "build dki
+     with mk, ak, rk ... I would mirror dipy defaults"). src/models/diffusion/dki.jl, exported:
+     the model in V = MD²·W (examples/dki.jl's, now built in), every element at `:loglinear`;
+     `derived` gives DTI's quantities (MD, FA, AD, RD, V1) and the indices as DIPY 1.12's fit
+     methods compute them by default (`fit.mk()`, `ak()`, `rk()`, `mkt()`): MK and RK in Tabesh
+     et al.'s closed forms (Magn Reson Med 2011) with DIPY's functions `_F1m`, `_F2m`, `_G1m`,
+     `_G2m` and their limits where eigenvalues are nearly equal (2.5% for F; 1e5·eps absolute for
+     G), AK = Ŵ₁₁₁₁·MD²/λ1², MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 + W2233))/5 (Hansen
+     et al. 2013); each clipped to [−3/7, 10] (DIPY's fit methods' default; its fast path clips
+     MK, its slow Python path does not); MK, AK and RK 0 where an eigenvalue is below 2e-7 mm²/s.
+     W in D's eigenframe by polarization of the quartic form, W(u,u,v,v) = [W₄(u+v) + W₄(u−v) −
+     2W₄(u) − 2W₄(v)]/12, so no 81-element tensor is built. No allocation (2.9 µs per voxel for
+     all eleven quantities), differentiable (MK's gradient through dual numbers against finite
+     differences, 1e-5).
+     - **Against DIPY** (its own values, scratch dkiref/dipy_reference.py, for tensors reaching
+       every branch: a general tensor, a prolate one, an oblate one, isotropic D, clipped above
+       and below, a negative eigenvalue): AK, RK and MKT to 1e-14 where the principal direction
+       is defined; MK to DIPY's own error. Where λ1 = λ2 (oblate, isotropic D) e1 is undefined,
+       and AK and RK depend on which vector of the plane each eigensolver returns: they differ
+       from DIPY's (AK 0.4527 against 0.4536, oblate), as they would between any two programs;
+       MK and MKT agree.
+     - **DIPY's MK is 4e-5 off, from its Carlson tolerances**: R_F at errtol 3e-4 is about 1e-6
+       off, and MK's formula amplifies it. For the general tensor DIPY gives 1.985127; the sphere
+       average of K(n) by quadrature (64 Gauss–Legendre nodes in z × 256 in φ, converged to 12
+       digits) is 1.985204, and EQUIP's closed form with errtol 1e-12 gives it to 12 digits (at
+       1e-8, R_F was still 3e-10 off and MK 9e-9). So EQUIP keeps DIPY's definitions and clipping
+       but not its tolerances; its MK differs from DIPY's by at most a few 1e-5, far below any
+       noise. Also checked independently of DIPY: RK the circle average ⊥ e1 (1e-9), AK = K(e1)
+       (1e-12), and isotropic D and W giving K in all four.
+     - examples/dki.jl uses the built-in model (37 µs per voxel on 4 threads, 4.2 iterations,
+       every voxel converged; MK 2.032 against 2.038, AK 0.219 against 0.222, RK 5.38 against
+       5.39, MKT 0.997 against 1: for isotropic W and anisotropic D, MKT is K but MK is not).
+       The test model for DKI in V (test/runtests.jl) is replaced by the built-in one.
    - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
      chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
      works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'

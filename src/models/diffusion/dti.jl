@@ -92,13 +92,20 @@ end
 # defined: any vector of the plane is one, and the values there are arbitrary. A tensor that
 # noise made not positive definite gives the values as computed (an eigenvalue can be
 # negative); a zero tensor, FA = NaN.
-function derived(::DTI, p)
-    D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+derived(::DTI, p) = first(_tensorindices(_tensor(p)))
+
+# The tensor as a symmetric 3×3 static matrix, from the six elements of `p` (DTI's, DKI's).
+@inline _tensor(p) = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+
+# The tensor's quantities (above), and its eigenvalues (ascending) and eigenvectors (columns, in
+# the same order), which DKI's kurtosis indices need too.
+@inline function _tensorindices(D)
     E = eigen(Symmetric(D))                                      # values ascending
     λ, e1 = E.values, _upperhemisphere(E.vectors[:, 3])
     MD = tr(D) / 3
     FA = sqrt(oftype(MD, 3) / 2) * norm(D - MD * I) / norm(D)
-    return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2, V1x = e1[1], V1y = e1[2], V1z = e1[3])
+    q = (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2, V1x = e1[1], V1y = e1[2], V1z = e1[3])
+    return q, λ, E.vectors
 end
 
 # v or −v, whichever has z > 0 (on the equator y > 0, then x > 0): one sign for one direction.

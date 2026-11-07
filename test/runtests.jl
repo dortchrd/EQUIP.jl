@@ -129,31 +129,6 @@ function EQUIP.signal!(out, m::DirStickZeppelin, p)
     end
     return out
 end
-# DKI in V = MD²·W (examples/dki.jl's model): ln S linear in all 22 parameters, every element
-# starting from :loglinear; for the start's two passes and for Float32 at 22 parameters
-const TDKI_V = (:V1111, :V2222, :V3333, :V1112, :V1113, :V1222, :V2223, :V1333, :V2333,
-                :V1122, :V1133, :V2233, :V1123, :V1223, :V1233)
-Base.@kwdef struct TestDKIV{A,X,Y,Z} <: MRIModel
-    b::A
-    gx::X
-    gy::Y
-    gz::Z
-end
-EQUIP.parameters(::Type{<:TestDKIV}) = merge((S0 = Free(start = :scale, lower = 0),),
-    NamedTuple{(:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz, TDKI_V...)}(ntuple(_ -> Free(start = :loglinear), 21)))
-@inline tdkiweights(x, y, z) = SVector(x^4, y^4, z^4, 4x^3 * y, 4x^3 * z, 4x * y^3, 4y^3 * z,
-    4x * z^3, 4y * z^3, 6x^2 * y^2, 6x^2 * z^2, 6y^2 * z^2, 12x^2 * y * z, 12x * y^2 * z, 12x * y * z^2)
-function EQUIP.signal!(out, m::TestDKIV, p)
-    (; b, gx, gy, gz) = m
-    V = SVector(p.V1111, p.V2222, p.V3333, p.V1112, p.V1113, p.V1222, p.V2223, p.V1333, p.V2333,
-                p.V1122, p.V1133, p.V2233, p.V1123, p.V1223, p.V1233)
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        gDg = gx[j]^2 * p.Dxx + gy[j]^2 * p.Dyy + gz[j]^2 * p.Dzz +
-              2gx[j] * gy[j] * p.Dxy + 2gx[j] * gz[j] * p.Dxz + 2gy[j] * gz[j] * p.Dyz
-        out[j] = p.S0 * exp(-b[j] * gDg + b[j]^2 * dot(tdkiweights(gx[j], gy[j], gz[j]), V) / 6)
-    end
-    return out
-end
 # The same acquisition given as one 3-vector per image: refused, with what to write instead
 Base.@kwdef struct DirVectors{A,G} <: MRIModel
     b::A
@@ -2942,14 +2917,16 @@ end
         @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))
     end
 
-    @testset "DKI in V = MD²·W: the start's two passes, and Float32 at 22 parameters" begin
+    @testset "DKI: the start's two passes, Float32 at 22 parameters, and MK, AK, RK as DIPY's" begin
         dirs = directionset(30)
         bv = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
         G = reduce(hcat, [fill([0.0, 0.0, 0.0], 6); collect.(dirs); collect.(dirs)])
-        m = TestDKIV(; diffusionencoding(bv, G)...)
+        m = DKI(; diffusionencoding(bv, G)...)
+        VN = (:V1111, :V2222, :V3333, :V1112, :V1113, :V1222, :V2223, :V1333, :V2333,
+              :V1122, :V1133, :V2233, :V1123, :V1223, :V1233)
         MD2 = (0.8e-3)^2                     # D's eigenvalues 1.7, 0.4, 0.3e-3; isotropic K = 1
         θ = merge((S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0),
-                  NamedTuple{TDKI_V}((MD2, MD2, MD2, 0, 0, 0, 0, 0, 0, MD2 / 3, MD2 / 3, MD2 / 3, 0, 0, 0)))
+                  NamedTuple{VN}((MD2, MD2, MD2, 0, 0, 0, 0, 0, 0, MD2 / 3, MD2 / 3, MD2 / 3, 0, 0, 0)))
         Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng = MersenneTwister(31))
         # the start: OLS then WLS on the design matrix of DIPY's dki_design_matrix, ln S0 first
         X = zeros(66, 22)
@@ -2957,7 +2934,7 @@ end
             g1, g2, g3 = G[:, j]
             X[j, 1] = 1
             X[j, 2:7] = -bv[j] .* [g1^2, g2^2, g3^2, 2g1 * g2, 2g1 * g3, 2g2 * g3]
-            X[j, 8:22] = bv[j]^2 .* tdkiweights(g1, g2, g3) ./ 6
+            X[j, 8:22] = bv[j]^2 .* EQUIP._kurtosisweights(g1, g2, g3) ./ 6
         end
         y = Y[1, :]
         u = (X \ log.(y)); w = exp.(X * u); u = (w .* X) \ (w .* log.(y))
@@ -2971,6 +2948,73 @@ end
         for k in (:Dxx, :Dxy, :V1111, :V1122, :V1123)
             @test maximum(abs.(r32.params[k] .- r64.params[k])) < 0.01 * std(r64.params[k])
         end
+        # The indices. DIPY 1.12.1's own values, from its fit methods' defaults (analytic; K
+        # clipped to [−3/7, 10]; 0 where an eigenvalue is not positive), for tensors reaching each
+        # branch: D's six elements in EQUIP's order, W's fifteen in DIPY's (= V's / MD²). MK to
+        # 1e-4 (DIPY's Carlson tolerances leave it up to 4e-5 off; EQUIP's are tighter), the
+        # others to 1e-10; for an oblate tensor (λ1 = λ2) the principal direction is undefined,
+        # so only MK and MKT are compared.
+        ref = [
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (1.3, 0.8, 1.1, 0.05, -0.04, 0.03, 0.02, -0.06, 0.04, 0.3833333333333333, 0.30333333333333334, 0.35333333333333333, 0.01, -0.02, 0.03),
+             (MK = 1.985126560318915, AK = 0.25190150071599327, RK = 4.928360541116469, MKT = 1.056), true),
+            ((1.00630090511318e-3, 4.0079204446461897e-4, 9.929070504222013e-4, -1.8257837975696443e-4, -6.495694567140111e-4, 1.807057372959184e-4),
+             (1.05, 0.8, 0.95, 0.025, -0.02, 0.015, 0.01, -0.03, 0.02, 0.325, 0.285, 0.31, 0.005, -0.01, 0.015),
+             (MK = 1.7884832070798407, AK = 0.21453206523688922, RK = 4.527171910218768, MKT = 0.928), true),
+            ((9.887202716779727e-4, 4.1513374418994744e-4, 8.961459841320801e-4, 8.122273370343272e-5, -3.422637994503159e-5, 2.4645630324970035e-4),
+             (0.85, 0.6, 0.75, 0.025, -0.02, 0.015, 0.01, -0.03, 0.02, 0.2583333333333333, 0.21833333333333332, 0.24333333333333332, 0.005, -0.01, 0.015),
+             (MK = 0.96582247883616, AK = NaN, RK = NaN, MKT = 0.728), false),
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (40.0, 40.0, 40.0, 0, 0, 0, 0, 0, 0, 40 / 3, 40 / 3, 40 / 3, 0, 0, 0),
+             (MK = 10.0, AK = 8.858131487889272, RK = 10.0, MKT = 10.0), true),
+            ((1.030382074422773e-3, 3.6535853537401707e-4, 1.0042593902032104e-3, -1.6421296987182451e-4, -6.304008115368565e-4, 2.0922097553227018e-4),
+             (-2.0, -2.0, -2.0, 0, 0, 0, 0, 0, 0, -2 / 3, -2 / 3, -2 / 3, 0, 0, 0),
+             (MK = -3 / 7, AK = -3 / 7, RK = -3 / 7, MKT = -3 / 7), true),
+            ((1.0239365153816144e-3, 3.114924633970135e-5, 9.449142382786847e-4, -1.1779997918414874e-4, -6.499587429340172e-4, 3.500531488178132e-4),
+             (1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1 / 3, 1 / 3, 1 / 3, 0, 0, 0),
+             (MK = 0.0, AK = 0.0, RK = 0.0, MKT = 1.0), true)]   # a negative eigenvalue
+        withW(Dl, kt) = (md = (Dl[1] + Dl[2] + Dl[3]) / 3;
+            merge((S0 = 1.0,), NamedTuple{(:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)}(Dl), NamedTuple{VN}(Tuple(md^2 .* kt))))
+        for (Dl, kt, r, frame) in ref
+            d = derived(m, withW(Dl, kt))
+            @test d.MK ≈ r.MK rtol = 1e-4
+            @test d.MKT ≈ r.MKT rtol = 1e-10
+            frame && @test d.AK ≈ r.AK rtol = 1e-10
+            frame && @test d.RK ≈ r.RK rtol = 1e-10
+        end
+        # independent of DIPY, for the first tensor: MK is the mean of K(n) = MD²·W(n)/D(n)² over
+        # the sphere (Gauss–Legendre in z, uniform in φ), RK its mean over the circle ⊥ e1, AK
+        # K(e1); and isotropic D and W give K in all four
+        Dl, kt = ref[1][1], ref[1][2]
+        pg = withW(Dl, kt)
+        D = Symmetric([Dl[1] Dl[4] Dl[5]; Dl[4] Dl[2] Dl[6]; Dl[5] Dl[6] Dl[3]])
+        mdg = tr(D) / 3
+        Kn(n) = mdg^2 * dot(EQUIP._kurtosisweights(n...), collect(kt)) / dot(n, D * n)^2
+        Jg = SymTridiagonal(zeros(64), [k / sqrt(4k^2 - 1) for k in 1:63])
+        zg = eigen(Jg); zs, wz = zg.values, 2 .* zg.vectors[1, :] .^ 2
+        MKavg = sum(wz[i] * sum(Kn([sqrt(1 - zs[i]^2) * cos(φ), sqrt(1 - zs[i]^2) * sin(φ), zs[i]]) for φ in (0:255) .* (π / 128)) / 256 for i in 1:64) / 2
+        Eg = eigen(D)
+        e1, e2, e3 = Eg.vectors[:, 3], Eg.vectors[:, 2], Eg.vectors[:, 1]
+        dg = derived(m, pg)
+        @test dg.MK ≈ MKavg rtol = 1e-9
+        @test dg.RK ≈ mean(Kn(cos(t) .* e2 .+ sin(t) .* e3) for t in (0:719) .* (π / 360)) rtol = 1e-9
+        @test dg.AK ≈ Kn(e1) rtol = 1e-12
+        di = derived(m, withW((0.8e-3, 0.8e-3, 0.8e-3, 0.0, 0.0, 0.0), (1.2, 1.2, 1.2, 0, 0, 0, 0, 0, 0, 0.4, 0.4, 0.4, 0, 0, 0)))
+        @test all(k -> di[k] ≈ 1.2, (:MK, :AK, :RK, :MKT))
+        # D's own, as DTI's; no allocation; differentiable (MK's gradient against finite differences)
+        @test keys(dg) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z, :MK, :AK, :RK, :MKT)
+        @test all(k -> dg[k] == derived(DTI(b = [0.0], gx = [0.0], gy = [0.0], gz = [0.0]), pg)[k], (:MD, :FA, :AD, :RD, :V1x))
+        allocdk(m, p) = @allocated derived(m, p)
+        @test (allocdk(m, pg); allocdk(m, pg) == 0)
+        fmk(x) = derived(m, merge(pg, (Dxx = x[1], V1111 = x[2]))).MK
+        gmk = ForwardDiff.gradient(fmk, [pg.Dxx, pg.V1111])
+        hs = (1e-10, 1e-12)
+        gfd = [(fmk([pg.Dxx + hs[1], pg.V1111]) - fmk([pg.Dxx - hs[1], pg.V1111])) / 2hs[1],
+               (fmk([pg.Dxx, pg.V1111 + hs[2]]) - fmk([pg.Dxx, pg.V1111 - hs[2]])) / 2hs[2]]
+        @test gmk ≈ gfd rtol = 1e-5
+        # and a fit's: the maps, with the truth's on average
+        dr = derived(r64)
+        @test keys(dr) == keys(dg) && abs(mean(dr.MKT) - 1) < 0.02
     end
 
     @testset "@mrimodel: a model from a function of one observation" begin
