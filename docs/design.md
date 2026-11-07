@@ -5258,7 +5258,10 @@ numbers are not an order.
 18. **The spherical mean's pipeline errors, back with the nerve protocol work** (taken out of
    `directions-proto` on 2026-11-06, the owner: "remove this section ... for now, I don't fully
    understand it ... leave it on the roadmap while we add other models"). Built on `nerve-smt`
-   (2026-11-03; "Peripheral nerve SMT" above), where the code, its tests and the studies remain:
+   (2026-11-03; "Peripheral nerve SMT" above). The code, its tests and the studies are in
+   `lean`'s history at commit a9c7be4 (`nerve-smt`'s last commit; it survives deleting the
+   branch): e.g. `git show a9c7be4:src/models/diffusion/orientation.jl`, or `git checkout a9c7be4
+   -- src/models/diffusion/orientation.jl bench/floor_sh.jl` to bring files back. What it holds:
    - `orientationcovariance(m, θ, sets)`: the covariance across shells of the error a finite
      direction set makes in a spherical mean, for fibers in a random orientation, exact from the
      Legendre coefficients of the model's directional signal (the addition theorem); added to
