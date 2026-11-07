@@ -3852,6 +3852,29 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
       the test (measured 0.006 SD for ADCDecay, 0.001 for ADCKurtosis).
       Full runs: EQUIP 2128, CLI 124; examples/dki.jl gives the same estimates (MKT 0.997, 4.2
       iterations).
+  - **DKI in DIPY's parameterization** (2026-11-07, the owner: "try it and time against dipy";
+    scratch dipycmp/dkiv.jl; examples/dki.jl now written this way). DIPY fits V = MD²·W in place
+    of W (`dki_design_matrix`, then `result[6:21] / MD_square`), so ln S = ln S0 − b·gᵀDg +
+    b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6 is linear in all 22 parameters; W = V/MD² after the fit. In EQUIP the
+    signal loses its MD² factor and the 15 kurtosis parameters become V (in (mm²/s)²). The
+    comparison's DKI data (20 000 voxels), µs per voxel:
+
+    | | 1 thread: start | 1 thread: fit | 4 threads: start | 4 threads: fit | iterations |
+    |---|---|---|---|---|---|
+    | W form | 119 | 249 | 31.8 | 64.0 | 4.31 |
+    | V form (DIPY's) | 60.8 | 138 | 15.5 | 34.7 | 4.35 |
+    | DIPY NLS (serial) | | 208–232 | | | |
+    | DIPY WLS, its default (serial) | | 312–348 | | | |
+
+    The same fits: W from V within 7e-7 of the W form's (median 4e-9), D within 3e-8 of λ1,
+    the same RMSE against the truth (0.0701). The start halves (ln S now linear: the
+    reweighted steps stop early) and so does each LM iteration (the kurtosis terms no longer
+    carry D's derivatives through MD²). So EQUIP's DKI is now 1.5–1.7× faster per core than
+    DIPY's NLS and 6–7× on 4 threads; 2.3–2.5× and 9–10× than DIPY's default WLS. The example
+    (2000 voxels, 4 threads): 47 µs per voxel, 4.3 iterations, the same estimates as before to
+    every printed digit (MKT 0.9972, W1111 0.9878); K ≥ 0 checked as gᵀVg/(gᵀDg)², the same
+    sign as in W. The cost: V is what the fit returns, W is computed after it (one line in the
+    example; roadmap item 16's `propagate` would give its errors).
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
