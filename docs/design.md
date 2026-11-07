@@ -3906,6 +3906,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
       prediction); DKI in V on DIPY's `dki_design_matrix`; ADCDecay. A bound reached in the
       start holds (an upper bound below the truth: the start and the fit stop there, converged;
       a signal rising with b: ADC starts at its lower bound 0).
+    - Full runs: EQUIP 2147 (19 new), CLI 124.
     - Still to do, from the review: 3, the low-SNR noise model (Rician against Gaussian fits at
       SNR 10–30, `RicianMean`), and 4, the start at the noise floor (CSF, very low SNR: the OLS
       pass weights every image alike).
