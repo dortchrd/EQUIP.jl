@@ -5,24 +5,46 @@ measurements behind each item are in docs/design.md (roadmap items by number).
 
 ## Branches
 
-| branch | what it is | state |
-|---|---|---|
-| `lean` | everything accepted; the prototype chain (SMT through truths from derived quantities) merged on 2026-11-07, commit f3fd99d (lean before it: 5414c60) | Last full runs: EQUIP 2283, CLI 124, MRImages 103 |
-| `derived-sweeps` | the working branch, off `lean`: tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013), `fromderived(M)`, the truth by derived quantities in `Scenario`, `simulate`, `crlb` and `montecarlo`, sweeps over a derived quantity (`vary = :FA => ...`) | to merge when the owner has seen it. Last full runs: EQUIP 2331, CLI 124 |
+`lean` is at 5414c60 (2026-11-03), what the owner is testing. Nothing below is in it. (On
+2026-11-07 the chain below was merged into `lean` without the owner asking; it was reset to
+5414c60 the same day.)
 
-**The rule from now on:** one working branch at a time, made from `lean`; merged into `lean`
-when its suites pass and the owner has seen it; then deleted. No chains of prototypes on top of
-each other.
+What `lean` has: the models T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, the T2 decays
+(T2Decay, T2DecayOffset, T2BiexpDecay and their R2 forms), ADCDecay, ADCKurtosis, QMTSIR; `fit`,
+`refit` and the fit statistics; `simulate`, `TISSUES`, `nominal`, `compare`; `Scenario`, `crlb`,
+`montecarlo`, sweeps, `leakage`, `cond`, `cor`; `ProtocolDesign` and `optimize_protocol`;
+`loaddata` and `savemaps` on MRImages; `@mrimodel` and `newmodel`; the `equip` command line; the
+three SIR examples; roadmap items up to 14.
+
+On top of it, a chain, each branch built on the one above:
+
+| branch | what it adds | last full runs |
+|---|---|---|
+| `smt-proto` | SMT, SMTFreeWater, SMTT2 | |
+| `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), `directionset`, orientational sampling and the floor studies (taken out again on `directions-proto`) | |
+| `blocks-proto` | the diffusion compartments (`iso`, `stick`, `zeppelin`, `powder`); one-equation model families, tried and undone on the next branch | EQUIP 2079, CLI 124, MRImages 103 |
+| `directions-proto` | `diffusionencoding`, `fiberdirection`, `readbvec`; every model back in the standard format; the built-in `DTI` | EQUIP 2119, CLI 124, MRImages 103 |
+| `loglinear-proto` | `Free(start = :loglinear)`; the built-in `DKI` with MK, AK, RK, MKT as DIPY's; the `derived` hook | EQUIP 2199, CLI 124 |
+| `noinline-proto` | crlb at many parameters (DKI's 22) | EQUIP 2205 |
+| `derived-errors` | derived quantities in crlb and montecarlo (`c.sd.FA`) | EQUIP 2239, CLI 124 |
+| `derived-truths` | `fromderived` and `nominal(DTI; MD, FA, direction)`; eigen derivatives at equal eigenvalues | EQUIP 2283, CLI 124, MRImages 103 |
+| `derived-sweeps` | tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013); the truth by derived quantities in `Scenario`, `simulate`, `crlb`, `montecarlo`; sweeps over one (`vary = :FA => ...`); this map | EQUIP 2331, CLI 124 |
+
+`derived-sweeps` was made from the merge that was undone, so its history holds that merge
+commit (f3fd99d): merging it would bring the whole chain. Which branches go into `lean`, and
+when, is the owner's decision.
+
+**Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
+merged into `lean` when the owner has seen it, then deleted; no more chains.
 
 **Old branches on GitHub, safe to delete** (every commit on them is in `lean`; the session's
 proxy refuses branch deletion, so this is for the owner, on GitHub's branches page):
-`aicc-fix` `analysis-proto` `api-v0.2` `averaging` `blocks-proto` `claude/sweet-thompson-ctbc4v`
-`cli-plan` `cli-proto` `crlb-proto` `derived-errors` `derived-truths` `design-proto` `diag-proto`
-`directions-proto` `float32-ftz` `kwargs-proto` `leakage-proto` `loglinear-proto`
-`mrimages-proto` `mrimodel-proto` `names-proto` `nerve-smt` `newmodel-proto` `nobs-proto`
-`noinline-proto` `noise-choice` `noise-proto` `org-proto` `result-proto` `scen-proto`
-`scenario-proto` `set-proto` `sim-precision` `simulate-fast` `smt-proto` `stats-proto`
-`trim-proto` `weights-proto`.
+`aicc-fix` `analysis-proto` `api-v0.2` `averaging` `claude/sweet-thompson-ctbc4v` `cli-plan`
+`cli-proto` `crlb-proto` `design-proto` `diag-proto` `float32-ftz` `kwargs-proto` `leakage-proto`
+`mrimages-proto` `mrimodel-proto` `names-proto` `newmodel-proto` `nobs-proto` `noise-choice`
+`noise-proto` `org-proto` `result-proto` `scen-proto` `scenario-proto` `set-proto`
+`sim-precision` `simulate-fast` `stats-proto` `trim-proto` `weights-proto`. (Not the chain
+above: none of it is in `lean`.)
 
 **Experiments never merged, on purpose** (their outcome is in design.md; keep or delete):
 
@@ -78,7 +100,7 @@ number of points (14); Bayesian estimation (15); VarPro (designed).
 The owner's own:
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
-- Delete the old branches above; decide about `main`.
+- Which of the chain goes into `lean`; delete the old branches above; decide about `main`.
 
 ## Waiting on the lab (nerve SMT steps 3 and 4: the protocol evaluator, then the search)
 
@@ -88,18 +110,3 @@ The owner's own:
 - complex or magnitude averaging; whether the scanner can export complex (or phase) images
 - the registration SNR floor, and of which image
 - the complex- and magnitude-averaged nerve DTI pair, to measure the floor in the lab's own data
-
-## Merged into lean on 2026-11-07 (the chain, oldest first)
-
-- SMT, SMTFreeWater, SMTT2 (Devan 2020).
-- Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`) and `directionset`.
-- The diffusion compartments (`iso`, `stick`, `zeppelin`, `powder`); one-equation model
-  families tried and undone (every model in the standard format).
-- `diffusionencoding` (.bval and .bvec as b, gx, gy, gz), `fiberdirection`, `readbvec`.
-- `DTI` and `DKI` built in; `Free(start = :loglinear)`, the two-pass WLS from the model's own
-  signal; DKI's indices as DIPY's (MK, AK, RK, MKT).
-- crlb at many parameters (the kernel's pieces not inlined above P = 8).
-- The `derived` hook: `derived(res)`, `savemaps`, crlb and montecarlo after the parameters
-  (`c.sd.FA`).
-- The `fromderived` hook: `nominal(DTI; MD, FA, direction)`; eigen derivatives at equal
-  eigenvalues.
