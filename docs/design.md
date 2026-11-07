@@ -3850,6 +3850,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
       µs (1.26× slower, from 1.5×). Tests: the start exact on noise-free data (ADCDecay,
       ADCKurtosis, DTI) and within 0.05 SD of the fit reweighted to convergence, written out in
       the test (measured 0.006 SD for ADCDecay, 0.001 for ADCKurtosis).
+      Full runs: EQUIP 2128, CLI 124; examples/dki.jl gives the same estimates (MKT 0.997, 4.2
+      iterations).
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
     linearization point other than 0, if a model needs one.
