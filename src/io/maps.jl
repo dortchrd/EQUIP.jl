@@ -18,7 +18,8 @@ _mapname(p::Symbol) = haskey(_MAPNAMES, p) ? _MAPNAMES[p] : String(p)
 
 Write a dataset fit's maps (`res` from `fit(m, data)`, `info` from [`loaddata`](@ref)): each
 free parameter (BIDS names where they exist: `T1map`, `R1map`, `T2map`, `S0map`, ...; else the
-parameter's name), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
+parameter's name), the quantities the model derives from them ([`derived`](@ref): DTI's `MD`,
+`FA`, `AD`, `RD`), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
 and its SSE, and with `stderror = true` each parameter's standard error (`T2map_SE`). Values
 are Float32, NaN outside the mask. Returns the files written.
 
@@ -52,6 +53,14 @@ function _savemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo
     maps = Pair{String,Array{Float32,3}}[]
     for (p, v) in pairs(res.params)
         push!(maps, _mapname(p) => Float32.(v))
+    end
+    d = derived(res)                                     # the model's derived quantities, if any
+    if d !== nothing
+        for (k, v) in pairs(d)
+            any(m -> first(m) == String(k), maps) && throw(ArgumentError("$(nameof(typeof(res.model))): " *
+                "the derived quantity `$k` has a parameter map's name"))
+            push!(maps, String(k) => Float32.(v))
+        end
     end
     push!(maps, "status" => Float32.(Int.(res.status)))
     push!(maps, "SSE" => Float32.(res.sse))

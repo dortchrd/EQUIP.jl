@@ -223,6 +223,23 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
                     start(n) === :loglinear ? zero(T) :
                     start(n) isa BestOf ? sort(candidates)[cld(length(candidates), 2)] : _value(start(n), T)
     starts = NamedTuple{F}(map(startvalue, F))
+    #    `:loglinear` fits ln S, so the signal where it starts (those parameters at 0, the rest at
+    #    their starts and fixed values, the first voxel's of any map) must be positive and finite
+    #    in every observation. It is not for a time constant at 0 (T2 = 0 is no signal: the start
+    #    stayed at T2's lower bound, and the fit stopped there and reported convergence, measured
+    #    2026-11-07) or for a signal that changes sign (a real-valued inversion recovery).
+    if any(fromlog)
+        s0 = zeros(T, nobs(model))
+        signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), starts), map(x -> _pick(x, 1, T), fixedvals))))
+        if !all(x -> isfinite(x) && x > 0, s0)
+            lognames = join((n for n in F if start(n) === :loglinear), "`, `")
+            throw(ArgumentError("`$lognames` start at :loglinear, but $M's signal there (each at 0, " *
+                "the other parameters at their starts) is not positive and finite in every " *
+                "observation, so its logarithm is undefined. :loglinear is for parameters for which " *
+                "0 is a valid value in a signal that stays positive: diffusivities and rates (R2, " *
+                "not T2), magnitude data. Give a number or :data instead."))
+        end
+    end
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
     return FitSpec{F,P,T,typeof(starts),typeof(fixedvals),typeof(w)}(lower, upper, starts, scale,

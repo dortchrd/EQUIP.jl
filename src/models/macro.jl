@@ -24,7 +24,7 @@
 # one observation (`_obsignal`), `signal!` calling it in a loop (the lengths checked once, then
 # `@inbounds`: as fast as a hand-written loop, no allocation), and the conversion to the fit's
 # precision; and the definition, kept for `newmodel` (template.jl), which writes it out as plain
-# code. A docstring before `@mrimodel` documents the type. Hooks (`datastart`, `relabel`)
+# code. A docstring before `@mrimodel` documents the type. Hooks (`datastart`, `relabel`, `derived`)
 # are ordinary methods added afterwards. A signal that shares work across observations (QMTSIR's
 # rates, computed once per voxel) is written by hand, as the built-in models are.
 # =================================================================================================

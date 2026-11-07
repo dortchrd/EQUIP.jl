@@ -2426,6 +2426,25 @@ end
         @test startswith(t2.meta["Software"], "EQUIP ")
         @test occursin("one voxel's", msg(() -> savemaps(path("x_"), fit(m, Y[1, 1, 1, :]), info)))
         @test occursin("the data were 6×5×2", msg(() -> savemaps(path("x_"), fit(m, Y[1:2, :, :, :]), info)))
+        # a model's derived quantities, written beside its parameters (DTI: MD, FA, AD, RD)
+        gd = directionset(12)
+        bvd = [0.0; fill(1000.0, 12)]
+        Gd = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(gd)])
+        mdt = DTI(; diffusionencoding(bvd, Gd)...)
+        Yt = simulate(mdt, (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0);
+                      snr = 50, n = 12, noise = :rician, rng = MersenneTwister(5))
+        niwrite(path("dti.nii.gz"), Float32.(reshape(Yt, 3, 2, 2, 13)))
+        write(path("dti.bval"), join(bvd, " ") * "\n")
+        write(path("dti.bvec"), join((join(Gd[k, :], " ") for k in 1:3), "\n") * "\n")
+        dtd, dti_info = loaddata(path("dti.nii.gz"))
+        rdt = fit(DTI(; (k => dti_info.found[k] for k in (:b, :gx, :gy, :gz))...), dtd)
+        wd = savemaps(path("dti/sub-01_"), rdt, dti_info)
+        @test basename.(wd) == ["sub-01_S0map.nii.gz", "sub-01_Dxx.nii.gz", "sub-01_Dyy.nii.gz",
+                                "sub-01_Dzz.nii.gz", "sub-01_Dxy.nii.gz", "sub-01_Dxz.nii.gz", "sub-01_Dyz.nii.gz",
+                                "sub-01_MD.nii.gz", "sub-01_FA.nii.gz", "sub-01_AD.nii.gz", "sub-01_RD.nii.gz",
+                                "sub-01_status.nii.gz", "sub-01_SSE.nii.gz"]
+        fa = readimage(wd[9])
+        @test isequal(fa.data, Float64.(Float32.(derived(rdt).FA))) && fa.meta["Map"] == "FA"
 
         # MATLAB files: the data as an array, observations last; maps back in its own shape
         S = reshape(Y, 60, 8)                                  # voxels already masked: nvoxels×N
@@ -2817,6 +2836,36 @@ end
         s1 = start(m1, signal(m1, θ))
         @test all(k -> s1[k] == 0, keys(θ)[2:7]) && s1.S0 > 0
         @test all(k -> start(m, -y)[k] == 0, keys(θ)[2:7])                  # no positive data
+        # what is read off the tensor (`derived`): MD, FA, AD and RD against the eigenvalues; no
+        # allocation; differentiable with dual numbers (FA's gradient against finite differences)
+        λ = eigvals(Symmetric(D))
+        dv = derived(m, θ)
+        @test keys(dv) == (:MD, :FA, :AD, :RD)
+        @test dv.MD ≈ mean(λ) rtol = 1e-12
+        @test dv.FA ≈ sqrt(1.5 * sum((λ .- mean(λ)) .^ 2) / sum(λ .^ 2)) rtol = 1e-12
+        @test dv.AD ≈ λ[3] rtol = 1e-12
+        @test dv.RD ≈ (λ[1] + λ[2]) / 2 rtol = 1e-12
+        allocd(m, θ) = @allocated derived(m, θ)
+        @test (allocd(m, θ); allocd(m, θ) == 0)
+        names6 = (:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
+        faof(x) = derived(m, merge(θ, NamedTuple{names6}(Tuple(x)))).FA
+        x0 = [θ[k] for k in names6]
+        gfa = ForwardDiff.gradient(faof, x0)
+        h = 1e-9
+        gfd = [(faof(x0 .+ h .* (1:6 .== k)) - faof(x0 .- h .* (1:6 .== k))) / 2h for k in 1:6]
+        @test gfa ≈ gfd rtol = 1e-5
+        # for a fit: numbers for one voxel; for a dataset, maps (NaN outside the mask), each voxel's
+        # its own parameters'; nothing for a model that derives nothing
+        r1 = fit(m, y)
+        @test derived(r1) == derived(m, resolve(r1))
+        Yd = simulate(m, θ; snr = 50, n = 20, noise = :rician, rng = MersenneTwister(23))
+        maskd = [isodd(i) for i in 1:20]
+        rd = fit(m, Yd; mask = maskd)
+        dd = derived(rd)
+        @test keys(dd) == (:MD, :FA, :AD, :RD) && size(dd.FA) == (20,) && eltype(dd.FA) == Float64
+        @test all(isnan, dd.FA[.!maskd]) && all(i -> dd.FA[i] == derived(m, resolve(rd, i)).FA, findall(maskd))
+        @test eltype(derived(fit(m, Yd; precision = Float32)).MD) == Float32
+        @test derived(fit(T2Decay(TE = [0.01, 0.02, 0.04]), [900.0, 800.0, 650.0])) === nothing
         # fitted in both precisions: the truth on average, the SD that crlb predicts, and the same
         # fits as from a constant start
         Y = simulate(m, θ; snr = 50, n = 300, noise = :gaussian, rng)
@@ -2870,6 +2919,17 @@ end
         @test isconverged(rk) && isconverged(rd)
         @test rk.params.ADC ≈ rd.params.ADC rtol = 1e-6
         @test rk.params.K ≈ rd.params.K rtol = 1e-5
+        # where it cannot work, an error at once rather than a fit stuck at a bound: a time
+        # constant (T2 = 0 is no signal) and a signal that changes sign (real-valued IR)
+        msg(f) = try f(); "" catch e; sprint(showerror, e) end
+        te = collect(0.01:0.01:0.32)
+        e1 = msg(() -> fit(T2Decay(TE = te), signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08)); T2 = Free(start = :loglinear)))
+        @test occursin("`T2` start at :loglinear", e1) && occursin("R2, not T2", e1)
+        mir = R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2], magnitude = false)
+        @test occursin("not positive and finite", msg(() -> fit(mir, signal(mir, (M0 = 1000.0, Sf = -0.95, R1 = 1.1)); R1 = Free(start = :loglinear))))
+        # and where it suits, a rate: R2Decay's start is the log-linear fit's
+        mr = R2Decay(TE = te)
+        @test start(mr, signal(mr, (S0 = 1000.0, R2 = 12.5)); R2 = Free(start = :loglinear, lower = 0)).R2 ≈ 12.5 rtol = 1e-12
         # a start Free accepts, and names among the others
         @test Free(start = :loglinear).start === :loglinear
         @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))

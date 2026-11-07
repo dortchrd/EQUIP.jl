@@ -508,6 +508,14 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
   change the signal. The default changes nothing.
+- **`derived`** (optional): quantities computed from one voxel's parameters, reported beside
+  them. DTI's: `derived(m::DTI, p) = (MD = ..., FA = ..., AD = ..., RD = ...)`, from the six
+  tensor elements. `p` holds every parameter, fitted and fixed; the rules are `signal!`'s (no
+  allocation, generic in the number type, so their errors can come from the fit's). For a fit,
+  `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
+  asked; `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
+  `nothing`, means none. Their standard errors, crlb and montecarlo for them, and DKI's MK, AK
+  and RK are on the roadmap (docs/design.md, item 19).
 
 ## Simulation
 

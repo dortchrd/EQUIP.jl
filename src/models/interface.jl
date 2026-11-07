@@ -84,9 +84,11 @@ each voxel's starting value comes from:
   passes from 0: OLS, then WLS weighted by OLS's predicted signal² (DIPY's WLS), with the
   `:scale` parameter as its intercept; the other parameters stay at their starts. For models
   whose ln S is linear in these parameters (DTI's tensor; DKI written in V = MD²·W; ADCDecay's
-  ADC): then exactly the two-pass WLS. Otherwise two Gauss–Newton steps, an approximate start.
-  Not for time constants (T2 = 0 is no signal: use the rate, or `:data`). No code in the model:
-  the derivatives come from `signal!`, as the fit's own;
+  ADC): then exactly the two-pass WLS. Otherwise two Gauss–Newton steps, an approximate start
+  that the fit refines. Not for time constants (T2 = 0 is no signal: use the rate, or `:data`)
+  or signals that change sign: the signal at the start must be positive and finite in every
+  observation, checked when the fit is set up. No code in the model: the derivatives come from
+  `signal!`, as the fit's own;
 - [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
 - a function of the model, `m -> ...`, for a start that depends on the acquisition: called
   once per fit with the model, it gives any of the above, e.g. ADCDecay's
@@ -358,6 +360,28 @@ so the SSE, must not change. Example: the two components of [`T2BiexpDecay`](@re
 The default returns `θ` unchanged.
 """
 relabel(::MRIModel, θ) = θ
+
+"""
+    derived(m, p) -> nothing or (name = value, ...)
+
+Optional: quantities computed from one voxel's parameters and reported beside them: DTI's MD,
+FA, AD and RD from its six tensor elements, a kurtosis model's MK from D and V. `p` holds every
+parameter by name, fitted and fixed, ties evaluated (what [`resolve`](@ref) gives). The rules
+are `signal!`'s: no allocation, generic in the number type (dual numbers, so that their errors
+can come from the fit's by the delta method), the same names in every voxel, and NaN where a
+quantity is undefined. `derived(res)` computes them for a fit (maps for a dataset) and
+[`savemaps`](@ref) writes them beside the parameters' maps. The default, `nothing`, means none.
+
+```julia
+function derived(m::DTI, p)
+    D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+    λ = eigvals(Symmetric(D))                       # ascending
+    MD = tr(D) / 3
+    return (MD = MD, FA = sqrt(3 / 2) * norm(D - MD * I) / norm(D), AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+end
+```
+"""
+derived(::MRIModel, p) = nothing
 
 # -------------------------------------------------------------------------------------------------
 # The model's acquisition: number of observations and working precision

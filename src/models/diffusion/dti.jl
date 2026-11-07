@@ -78,3 +78,19 @@ function signal!(out, m::DTI, p)
     end
     return out
 end
+
+# The quantities read off a tensor (`derived`: the maps beside the six elements): the mean
+# diffusivity MD = tr(D)/3; the fractional anisotropy FA = √(3/2)·‖D − MD·I‖/‖D‖ (Basser &
+# Pierpaoli, J Magn Reson B 1996; Frobenius norms, so no eigenvalues: equal to the eigenvalue
+# form to rounding); the axial diffusivity AD = λ1 and the radial RD = (λ2 + λ3)/2, from the
+# eigenvalues (StaticArrays' closed form for a symmetric 3×3 matrix: no allocation, and
+# differentiable with dual numbers, for their errors later). A tensor that noise made not
+# positive definite gives the values as computed (an eigenvalue can be negative); a zero tensor,
+# FA = NaN.
+function derived(::DTI, p)
+    D = SMatrix{3,3}(p.Dxx, p.Dxy, p.Dxz, p.Dxy, p.Dyy, p.Dyz, p.Dxz, p.Dyz, p.Dzz)
+    λ = eigvals(Symmetric(D))                                    # ascending
+    MD = tr(D) / 3
+    FA = sqrt(oftype(MD, 3) / 2) * norm(D - MD * I) / norm(D)
+    return (MD = MD, FA = FA, AD = λ[3], RD = (λ[1] + λ[2]) / 2)
+end

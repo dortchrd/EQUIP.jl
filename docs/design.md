@@ -5332,6 +5332,27 @@ numbers are not an order.
      montecarlo (the delta method and the second-order bias, tested against Monte Carlo as in
      item 16); then DKI built in (V form) with MK, AK, RK and MKT, checked against DIPY on the
      comparison's data; then the standard-error maps and the protocol objective.
+   - **Step 1 built (2026-11-07, branch `loglinear-proto`):** the hook (`derived(::MRIModel, p)
+     = nothing`, exported, documented with `datastart` and `relabel`, in `newmodel`'s template
+     and the README); `derived(res)` (src/fit/result.jl: numbers for one voxel; for a dataset a
+     map per quantity in the fit's precision, on threads, from each voxel's `resolve(res, i)`, NaN
+     where a voxel's parameters are not finite; the names from one fitted voxel); `savemaps`
+     writing them after the parameters' maps (an error if a derived name is a parameter map's);
+     DTI's MD, FA, AD and RD (FA from the six elements by Frobenius norms, AD and RD from
+     StaticArrays' closed-form eigenvalues). Names as proposed (MD, FA, AD, RD); the principal
+     direction not derived yet (its sign, and λ1 = λ2). Tests: the four against the eigenvalues
+     (1e-12), no allocation, FA's gradient through dual numbers against finite differences
+     (1e-5), `derived(res)` for one voxel, a masked dataset and Float32, `nothing` for T2Decay,
+     and `savemaps` on a DTI fit read back from NIfTI.
+   - **Also on the way, a guard for `:loglinear`** (the owner asked what happens when it is
+     chosen for a model it does not suit; scratch dti/ll_nonlinear.jl): R2Decay (log-linear)
+     works; R2BiexpDecay (not log-linear) gives an approximate start, here stuck at 0 (the rates'
+     columns are equal there), and the fit reaches the same answer as from its own start; but
+     T2Decay with T2 at `:loglinear` started at T2 = 0, no signal, and stayed at its lower bound,
+     where the fit stopped and reported convergence: a silent failure. Now `setup` checks that
+     the signal where the log fit starts is positive and finite in every observation and
+     otherwise refuses, naming the parameters and what to use (a rate, `:data`, a number); a
+     real-valued inversion recovery (a signal that changes sign) is refused the same way.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
