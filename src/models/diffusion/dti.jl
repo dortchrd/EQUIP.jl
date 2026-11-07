@@ -69,8 +69,8 @@ function signal!(out, m::DTI, p)
     (; b, gx, gy, gz) = m
     (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
     @inbounds for j in eachindex(out, b, gx, gy, gz)
-        x, y, z = gx[j], gy[j], gz[j]                                     # image j's direction
-        gDg = x^2 * Dxx + y^2 * Dyy + z^2 * Dzz + 2x * y * Dxy + 2x * z * Dxz + 2y * z * Dyz
+        gDg = gx[j]^2 * Dxx + gy[j]^2 * Dyy + gz[j]^2 * Dzz +
+              2gx[j] * gy[j] * Dxy + 2gx[j] * gz[j] * Dxz + 2gy[j] * gz[j] * Dyz
         out[j] = S0 * exp(-b[j] * gDg)
     end
     return out
