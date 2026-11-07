@@ -5470,7 +5470,7 @@ numbers are not an order.
        the parameters' numbers, `vcov`, `cond`, `cor` as without it; a sweep's rows; montecarlo's
        statistics of 1/T2; a clashing name refused); DTI's seven against the delta method
        written out (1e-10) and MD, FA, AD, RD against 3000 fits (4 standard errors); DKI's MD,
-       FA, MK, AK, RK, MKT at P = 10 against 400 fits (15%).
+       FA, MK, AK, RK, MKT at P = 10 against 400 fits (15%). Full runs: EQUIP 2239, CLI 124.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
