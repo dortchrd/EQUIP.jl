@@ -34,18 +34,21 @@ end
 EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(start = 1.0))
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
-# A T2 decay that records whether subnormal numbers are flushed to zero while it is evaluated.
-# Dataset fits call it from several threads at once, so the record is kept under a lock (pushing
-# to one vector from several threads is a data race: Julia 1.13 stops it with an error).
-const FLUSHED = Bool[]
-const FLUSHED_LOCK = ReentrantLock()
+# A T2 decay that counts its evaluations with subnormal numbers flushed to zero, and without.
+# Dataset fits call it from several threads at once, so the counts are atomic: not a lock, which
+# could make a task yield when contended and resume on another thread, whose mode is not the one
+# its chunk set (the mode belongs to the thread; the fit assumes a chunk never yields). With a
+# lock, CI's first run (Julia 1.13.3) failed here, and this machine in 1–2 of 50 Float32 checks
+# and 13–14 of 50 Float64 ones (4 and 16 threads); with the counts, 0 of 100 (2026-11-08).
+const NFLUSHED = Threads.Atomic{Int}(0)
+const NKEPT = Threads.Atomic{Int}(0)
+countreset!() = (NFLUSHED[] = 0; NKEPT[] = 0; nothing)
 struct FlushProbe <: MRIModel
     TE::Vector{Float64}
 end
 EQUIP.parameters(::FlushProbe) = (S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6))
 function EQUIP.signal!(out, m::FlushProbe, p)
-    flushed = get_zero_subnormals()                       # this thread's mode, read before the lock
-    lock(() -> push!(FLUSHED, flushed), FLUSHED_LOCK)
+    Threads.atomic_add!(get_zero_subnormals() ? NFLUSHED : NKEPT, 1)   # this thread's mode; never yields
     out .= p.S0 .* exp.(-m.TE ./ p.T2)
     return out
 end
@@ -260,12 +263,12 @@ end
         mp = FlushProbe(collect(0.01:0.01:0.08))
         Y = simulate(mp, (S0 = 1000.0, T2 = 0.05); σ = 5.0, noise = :gaussian, n = 40, rng = MersenneTwister(1))
         was = get_zero_subnormals()
-        empty!(FLUSHED); fit(mp, Float32.(Y); precision = Float32)
-        @test !isempty(FLUSHED) && all(FLUSHED) && get_zero_subnormals() == was
-        empty!(FLUSHED); fit(mp, Y)
-        @test !isempty(FLUSHED) && !any(FLUSHED)                 # Float64: left as it is
-        empty!(FLUSHED); fit(mp, Float32.(Y[1, :]); precision = Float32)
-        @test !any(FLUSHED)                                      # one voxel: not switched per call
+        countreset!(); fit(mp, Float32.(Y); precision = Float32)
+        @test NFLUSHED[] > 0 && NKEPT[] == 0 && get_zero_subnormals() == was
+        countreset!(); fit(mp, Y)
+        @test NKEPT[] > 0 && NFLUSHED[] == 0                     # Float64: left as it is
+        countreset!(); fit(mp, Float32.(Y[1, :]); precision = Float32)
+        @test NFLUSHED[] == 0                                    # one voxel: not switched per call
         # in the 5-point SIR's lesion the derivatives reach 4e-40, subnormal in Float32 (1.2e-38):
         # flushed, the fit agrees with Float64's to Float32's precision
         m5 = QMTSIR(; SIR_5POINT...)

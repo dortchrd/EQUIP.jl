@@ -137,6 +137,10 @@ end
 # 15 ns, but around a single `fit!` it made a Float32 loop 9% slower. Float64 fits are left as
 # they are (their smallest normal is 2.2e-308). The mode belongs to the thread running the
 # task, and a chunk never yields, so no other task runs on that thread before it is restored.
+# A model whose `signal!` yields (a contended lock, printing, logging) breaks that: the task can
+# resume on another thread, whose mode is not the one set, and restore the wrong thread's. The
+# test suite's probe did so through a lock, and failed on CI (2026-11-08); it now counts with
+# atomics, which never yield. The built-in models do not yield.
 function _fit_chunk!(params, sse, iterations, status, cache::FitCache{M,S,T}, Y,
                      voxels) where {M,S,T}
     T === Float32 || T === Float16 ||

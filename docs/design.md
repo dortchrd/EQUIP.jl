@@ -4138,7 +4138,18 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
   MRImages 0.1.0.
 - **CI**: .github/workflows/CI.yml, the three suites on Julia 1.11 (the [compat] minimum) and
   the latest release, ubuntu, on every push and pull request; Manifest.toml not committed, so
-  each job resolves first. Its first run: on the push of branch `prerelease`.
+  each job resolves first. Its first full run (2026-11-08): MRImages and the CLI passed on both
+  (Julia 1.11.9 and 1.13.3); EQUIP failed on both, for reasons older than this branch, never
+  run before on another machine:
+  - 1.13.3: the flush test's probe recorded under a lock, which can make a task yield and resume
+    on another thread (the FTZ mode is the thread's); reproduced here too (1–2 of 50 Float32
+    checks, 13–14 of 50 Float64 ones, at 4 and 16 threads). Fixed: the probe counts with
+    atomics, which never yield (0 of 100). dataset.jl's comment now says a model whose
+    `signal!` yields breaks the mode's restore; the built-in models do not.
+  - 1.11.9: every `fit!` allocates 368 bytes, all 48 cases of "fit! does not allocate" (every
+    model, both precisions); 1.13 allocates none. Not reproduced: Julia 1.11 cannot be
+    downloaded in this session (the network policy). **Open**, for the owner: find it on 1.11,
+    or require Julia 1.13 (the version tested here and on CI).
 - **An example per part**: examples/fit_maps.jl (files to maps, standard errors, `onbound`),
   crlb.jl (Dortch 2018's kmf bias over SNRs; DTI's FA and MD), montecarlo.jl (against crlb in
   standard errors; T2's Rician bias at low SNR), protocol_design.jl (Table 2: 0.243395 at the
