@@ -88,6 +88,8 @@ at, not merged (design.md, "The prerelease: what was done", has the measurements
 - An example per part (fit_maps, crlb, montecarlo, protocol_design); the README a front page,
   its full text in docs/guide.md.
 - Shipped without pulsed qMT and NODDI (the owner); `python/` was not in the repository.
+- Full runs: EQUIP 2347, CLI 139, MRImages 103. CI's first run: on GitHub's Actions tab (this
+  session cannot read it).
 
 **2. Bias from noise at low SNR** (items 13, 16, 20)
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; noise = :rician,

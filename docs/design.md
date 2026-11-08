@@ -4151,7 +4151,8 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
   T2Decay's bound added).
 - `python/` (on the list as "still named voxelfit"): not in the repository; untracked leftovers
   in one clone (the Python wrapper was removed in 9a6e173).
-- Full runs: recorded in the commit after this one (the suites were running).
+- Full runs: EQUIP 2347, CLI 139, MRImages 103 (the first EQUIP run found the one test that
+  printed T2Decay's old bound, Inf, in `nominal`'s table; fixed).
 
 ## Roadmap
 
