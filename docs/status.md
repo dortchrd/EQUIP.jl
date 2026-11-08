@@ -33,8 +33,9 @@ the older ones: `aicc-fix` `analysis-proto` `api-v0.2` `averaging`
 `float32-ftz` `kwargs-proto` `leakage-proto` `mrimages-proto` `mrimodel-proto` `names-proto`
 `newmodel-proto` `nobs-proto` `noise-choice` `noise-proto` `org-proto` `result-proto`
 `scen-proto` `scenario-proto` `set-proto` `sim-precision` `simulate-fast` `stats-proto`
-`trim-proto` `weights-proto`. A branch named in this file's history (below) or in design.md is
-in `main`'s history; any commit hash there still works (`git switch -c name <hash>`).
+`trim-proto` `weights-proto`. A branch named in this file or in design.md is in `main`'s history,
+or, for the four experiments, in `experiments`'s; any commit hash there still works (`git switch -c
+name <hash>`).
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `main`,
 merged into `main` when the owner has seen it, then deleted; no more chains.
