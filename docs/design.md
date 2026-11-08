@@ -4154,13 +4154,20 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
     checks, 13–14 of 50 Float64 ones, at 4 and 16 threads). Fixed: the probe counts with
     atomics, which never yield (0 of 100). dataset.jl's comment now says a model whose
     `signal!` yields breaks the mode's restore; the built-in models do not.
-  - 1.11.9: all 48 cases of "fit! does not allocate" (every model, both precisions) measured
-    368 bytes. Not `fit!`'s: measured inside a function it allocates 0 bytes on 1.11.9 as on
-    1.13; from top-level code (the test's own block) 1.11 counts the call's boxing too (128
-    bytes at top level, 368 in a testset), 1.13 none. The owner: "this needs to work on older
-    versions"; Julia's download host allowed in the environment (julialang-s3.julialang.org),
-    Julia 1.11.9 installed in the session. Fixed: the test measures inside a function
-    (`fitallocs`).
+  - 1.11.9: 48 zero-allocation checks failed (34 of "fit! does not allocate", every model in
+    both precisions, and 14 others: fit! weighted and from `@mrimodel`, crlb's kernel, the
+    design's d(x), leakage's kernel; 96 to 6560 bytes). The cause: `Pkg.test` on Julia 1.11
+    starts the tests with `--check-bounds=yes` (Pkg's Operations.jl; 1.13's no longer does),
+    which turns off the code's `@inbounds`, and the allocation-free paths then allocate; with
+    the flag, 1.13 allocates too (fit! for QMTSIR 576 bytes, R1IRTD in Float32 192). Not a
+    property of 1.11: run as users run it, fit! allocates nothing on 1.11.9 (every model, both
+    precisions, measured). The owner: "this needs to work on older versions"; Julia's download
+    host allowed in the environment (julialang-s3.julialang.org), Julia 1.11.9 installed in the
+    session to find it. (First taken for top-level measuring, which on 1.11 adds 128 bytes but
+    is not the cause: corrected the same day.) Fixed in the tests: every zero-allocation check
+    is `@test_noalloc`, a `@test` skipped when bounds checks are forced (`BOUNDS_FORCED`), so on
+    1.11 the suite runs with bounds checks forced and the allocations go unchecked, and on 1.13
+    the allocations are checked; `fit!` measured inside a function (`fitallocs`).
 - **An example per part**: examples/fit_maps.jl (files to maps, standard errors, `onbound`),
   crlb.jl (Dortch 2018's kmf bias over SNRs; DTI's FA and MD), montecarlo.jl (against crlb in
   standard errors; T2's Rician bias at low SNR), protocol_design.jl (Table 2: 0.243395 at the

@@ -34,11 +34,24 @@ end
 EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(start = 1.0))
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
-# The bytes one `fit!` allocates, measured inside a function. Measured from the test's own block
-# (top-level code), Julia 1.11 counts the call's boxing too: 128 bytes at top level, 368 in a
-# testset, where fit! itself allocates none (CI's first run, 2026-11-08: all 48 cases failed on
-# 1.11.9; Julia 1.13 counts 0 either way).
+# The bytes one `fit!` allocates, measured inside a function (from top-level code Julia 1.11
+# counts the call's boxing too, 128 bytes; 1.13 does not).
 fitallocs(c, y) = @allocated fit!(c, y)
+# Zero-allocation checks, `@test_noalloc expr`: a `@test` (the same expression, the same line in
+# a failure's message), skipped when bounds checks are forced on everywhere. `Pkg.test` on Julia
+# 1.11 starts the tests with --check-bounds=yes (1.13's no longer does), which turns off the
+# code's `@inbounds`, and the allocation-free paths then allocate: CI's first run on 1.11.9
+# failed 48 of these checks (fit! 96–576 bytes per fit by model, crlb's kernel, the design's
+# d(x), leakage's kernel, up to 6560 bytes), and on 1.13 with the flag fit! allocates too, for
+# QMTSIR (576) and R1IRTD in Float32 (192). Users run with the bounds checks the code sets, where
+# fit! allocates nothing on 1.11 and 1.13 alike (measured 2026-11-08), so the allocations are
+# checked only then; the rest of the suite, the bounds checks included, runs either way.
+const BOUNDS_FORCED = Base.JLOptions().check_bounds == 1
+macro test_noalloc(ex)
+    t = Expr(:macrocall, Symbol("@test"), __source__, ex)
+    s = Expr(:macrocall, Symbol("@test_skip"), __source__, ex)
+    return esc(:($BOUNDS_FORCED ? $s : $t))
+end
 
 # A T2 decay that counts its evaluations with subnormal numbers flushed to zero, and without.
 # Dataset fits call it from several threads at once, so the counts are atomic: not a lock, which
@@ -261,7 +274,7 @@ end
             c = init(m; precision = T)
             fit!(c, y)                              # first call compiles
             fitallocs(c, y)
-            @test fitallocs(c, y) == 0
+            @test_noalloc fitallocs(c, y) == 0
             @inferred fit!(c, y)                    # the result's type is known when compiling
         end
     end
@@ -298,7 +311,7 @@ end
         # nobs allocates nothing (crlb calls it for every noise level)
         mq = QMTSIR(; SIR_4POINT...)
         nobs(mq)
-        @test @allocated(nobs(mq)) == 0
+        @test_noalloc @allocated(nobs(mq)) == 0
         @test occursin("different lengths, [2, 3]", sprint(showerror, try nobs(QMTSIR(TI = [0.01, 0.1], TD = [1.0, 2.0, 3.0])) catch e; e end))
         # ... and init converts the acquisition to plain vectors of the working precision
         c = init(QMTSIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
@@ -835,7 +848,7 @@ end
         @test r.params.T2 ≈ r0.params.T2 rtol = 1e-6
         @test r.iterations < r0.iterations
         c = init(m); fit!(c, yn)
-        @test @allocated(fit!(c, yn)) == 0
+        @test_noalloc @allocated(fit!(c, yn)) == 0
         @test datastart(R2Decay(TE = te), y, (;)) === nothing     # no data start by default
         @test_throws "no data start" setup(R2Decay(TE = te); R2 = Free(start = :data))
         # datastart gets the voxel's fixed values (here c, a number or a map); a NaN fails
@@ -1298,11 +1311,11 @@ end
         @test sqrt.(diag(kb.cov)) ≈ collect(values(cb2.sd)) rtol = 1e-12
         allocs(p, mm, t, s2) = @allocated EQUIP._crlb!(p, mm, t, s2)
         allocs(plan, mb, tt, 0.005^2)
-        @test allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
+        @test_noalloc allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
         plan16 = CRLBCache(m16, θ16; cov = :biased, kmf = 12.5)
         t16 = EQUIP._crlb_truth(m16, θ16)
         allocs(plan16, m16, t16, fill(0.005^2, 16))
-        @test allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
+        @test_noalloc allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
         @test sqrt.(diag(EQUIP._crlb!(plan16, m16, t16, 0.005^2).cov)) ≈ collect(values(b3.sd)) rtol = 1e-12
         # Several tissues by broadcasting; the display
         cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, kmf = 12.5, bounds4...)
@@ -1523,7 +1536,7 @@ end
         tr, tb = EQUIP._crlb_truth(mt, ref), EQUIP._crlb_truth(mb, θb)
         allocs(p, a, b) = @allocated EQUIP._crlb!(p, mt, a, 100.0, mb, b)
         allocs(plan, tr, tb)
-        @test allocs(plan, tr, tb) == 0
+        @test_noalloc allocs(plan, tr, tb) == 0
     end
 
     @testset "noise: one σ, one per observation, a full Σ; informationmatrix, vcov, stderror" begin
@@ -1590,7 +1603,7 @@ end
         full = EQUIP._kernelnoise(noisecovariance(mt, θ; Σ), 2)
         allocs(p, t, n) = @allocated EQUIP._crlb!(p, mt, t, n)
         allocs(plan, tr, full)
-        @test allocs(plan, tr, full) == 0
+        @test_noalloc allocs(plan, tr, full) == 0
         # mistakes
         @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(mt, θ; σ = 10.0, Σ)))
         @test occursin("`Σ` is 3×3", msg(() -> crlb(mt, θ; Σ = Matrix(1.0I, 3, 3))))
@@ -1679,7 +1692,7 @@ end
         xv = [m4.TI; m4.TD]
         allocs(d, x) = @allocated d(x)
         allocs(dv, xv)
-        @test allocs(dv, xv) == 0
+        @test_noalloc allocs(dv, xv) == 0
         # Mistakes
         @test occursin("`averages` with `Σ`", msg(() -> simulate(md, θ; Σ = Matrix(0.0025I, 7, 7), averages = nex, noise = :gaussian)))
         @test occursin("`averages` with `Σ`", msg(() -> crlb(md, θ; Σ = Matrix(0.0025I, 7, 7), averages = nex)))
@@ -1750,7 +1763,7 @@ end
         @test refit(rw, y).params.T2 ≈ rw.params.T2 rtol = 1e-10
         cw = init(mt; weights = W)
         fit!(cw, y)
-        @test @allocated(fit!(cw, y)) == 0
+        @test_noalloc @allocated(fit!(cw, y)) == 0
         # crlb of the weighted fit: the sandwich H⁻¹J₀ᵀWΣWJ₀H⁻¹ against the closed form, for any W;
         # with W = Σ⁻¹ (unbiased) the bound (JᵀΣ⁻¹J)⁻¹; with a full Σ; weights all 1 unweighted
         @test vcov(crlb(mt, θ; σ = σv, weights = W)) ≈ inv(Jt' * (W .* Jt)) rtol = 1e-9
@@ -1781,7 +1794,7 @@ end
         t5 = EQUIP._crlb_truth(m5, θs)
         k(c, t) = EQUIP._crlb!(c, c.mT, t, 2.5e-5)
         k(c5, t5)
-        @test @allocated(k(c5, t5)) == 0
+        @test_noalloc @allocated(k(c5, t5)) == 0
         # montecarlo fits with the scenario's weights; its SD as crlb predicts (within 4 SE)
         mc = montecarlo(mt, θ; σ = σv, weights = W, noise = :gaussian, n = 4000, rng = MersenneTwister(3))
         @test mc.result.settings.weights == W && mc.crlb.weights == W
@@ -1804,7 +1817,7 @@ end
         @test length(ProtocolDesign(m5, mixed; snr = 200, acquisition = sp, scantime = st).groups) == 2
         x5 = [m5.TI; m5.TD]
         d(x5); d(x5)
-        @test @allocated(d(x5)) == 0
+        @test_noalloc @allocated(d(x5)) == 0
         @test copy(d)(x5) == d(x5)                 # the copy each search task gets
         # Mistakes
         @test occursin("`weights` has 3 values", msg(() -> fit(mt, y; weights = ones(3))))
@@ -2152,7 +2165,7 @@ end
             t = EQUIP._crlb_truth(m5, s.truth)
             k(lc, t) = EQUIP._leakage!(lc, lc.crlb.mT, t)
             k(lc, t)
-            @test @allocated(k(lc, t)) == 0
+            @test_noalloc @allocated(k(lc, t)) == 0
         end
         out = sprint(show, MIME"text/plain"(), lb)
         @test occursin("kmf = 12.5 (true 5.0)", out) && occursin("relative:", out) && occursin("elasticity:", out)
@@ -2270,7 +2283,7 @@ end
         @test d4(x4) == d4(m4) && length(d4.groups) == 1
         allocs(d, x) = @allocated d(x)
         allocs(d4, x4)
-        @test allocs(d4, x4) == 0
+        @test_noalloc allocs(d4, x4) == 0
         # a broken constraint: Inf; the options: weights, a budget, another aggregate, a shared TD
         @test d4([0.01, 0.01, 0.278, 0.1, 4.171, 0.684, 2.73, 0.01]) == Inf     # TI + TD < 0.5
         cs = [crlb(m4, s; snr = 200) for s in s4]
@@ -2772,7 +2785,7 @@ end
                                         0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * ξ^2))) rtol = 1e-12
         out = zeros(64); signal!(out, m, θ)
         allocs(m, out, θ) = @allocated signal!(out, m, θ)
-        @test allocs(m, out, θ) == 0
+        @test_noalloc allocs(m, out, θ) == 0
         # fitted in both precisions, from the true direction's neighborhood
         Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng)
         for T in (Float64, Float32)
@@ -2801,7 +2814,7 @@ end
         @test signal(m, θ) ≈ [1000 * exp(-bv[j] * (G[:, j]' * D * G[:, j])) for j in 1:36] rtol = 1e-12
         out = zeros(36)
         allocs(m, out, θ) = @allocated signal!(out, m, θ)
-        @test (allocs(m, out, θ); allocs(m, out, θ) == 0)
+        @test_noalloc (allocs(m, out, θ); allocs(m, out, θ) == 0)
         # the start, `:loglinear` (the weighted log-linear fit, from the signal): the tensor itself
         # from noise-free data, in both precisions; no allocation in a voxel's fit
         y = signal(m, θ)
@@ -2812,7 +2825,7 @@ end
         end
         c = init(m)
         allocfit(c, y) = @allocated fit!(c, y)
-        @test (allocfit(c, y); allocfit(c, y) == 0)
+        @test_noalloc (allocfit(c, y); allocfit(c, y) == 0)
         # on noisy data: the two passes written out, OLS then WLS weighted by OLS's predicted
         # signal (DIPY's WLS); with the off-diagonal elements fixed, the same on the diagonal's
         # columns; with a tie (Dzz = Dyy), on the two columns merged; with Dxx started from a map,
@@ -2863,7 +2876,7 @@ end
         @test dv.AD ≈ λ[3] rtol = 1e-12
         @test dv.RD ≈ (λ[1] + λ[2]) / 2 rtol = 1e-12
         allocd(m, θ) = @allocated derived(m, θ)
-        @test (allocd(m, θ); allocd(m, θ) == 0)
+        @test_noalloc (allocd(m, θ); allocd(m, θ) == 0)
         names6 = (:Dxx, :Dyy, :Dzz, :Dxy, :Dxz, :Dyz)
         faof(x) = derived(m, merge(θ, NamedTuple{names6}(Tuple(x)))).FA
         x0 = [θ[k] for k in names6]
@@ -3289,7 +3302,7 @@ end
         @test keys(dg) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z, :MK, :AK, :RK, :MKT)
         @test all(k -> dg[k] == derived(DTI(b = [0.0], gx = [0.0], gy = [0.0], gz = [0.0]), pg)[k], (:MD, :FA, :AD, :RD, :V1x))
         allocdk(m, p) = @allocated derived(m, p)
-        @test (allocdk(m, pg); allocdk(m, pg) == 0)
+        @test_noalloc (allocdk(m, pg); allocdk(m, pg) == 0)
         fmk(x) = derived(m, merge(pg, (Dxx = x[1], V1111 = x[2]))).MK
         gmk = ForwardDiff.gradient(fmk, [pg.Dxx, pg.V1111])
         hs = (1e-10, 1e-12)
@@ -3370,7 +3383,7 @@ end
         c = init(ms)
         y = Ys[1, 1, :]
         fit!(c, y)
-        @test (@allocated fit!(c, y)) == 0
+        @test_noalloc (@allocated fit!(c, y)) == 0
 
         # A tie by formula; a free parameter with no start: given in the call
         mt2 = TieFormula(t = collect(0.1:0.1:2.0))
