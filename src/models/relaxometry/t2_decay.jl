@@ -20,10 +20,19 @@
 # faster than its start, stepping to a tiny T2 where the gradient vanishes; the solver now rejects
 # such steps, see src/fit/levmar.jl.)
 #
-# Starting values: T2Decay starts each voxel from a log-linear fit to its data
-# (`T2 = Free(start = :data)`; `datastart`, after its `signal!`), which makes it much faster when T2 is far from the echo
-# times. The others start from the acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable
-# to the sampled range). S0 starts at the least-squares scale.
+# Starting values: T2Decay starts each voxel from the log-linear fit to its data, the same two
+# passes as DTI's, on 1/T2 (`T2 = Free(start = :loglinear)`; starts.jl). The others start from the
+# acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable to the sampled range). S0
+# starts at the least-squares scale.
+#
+# Why the time form needs a data start and the rate form does not: the solver's steps are
+# linearizations in the parameter it fits. ln S is a straight line in R2, so a step from any
+# constant lands near the answer (R2Decay: 4–8 iterations from 1/mean(TE)). In T2 a step goes
+# through R2 = 1/T2: ΔT2 = −T2²·ΔR2, which gives T2_new = T2·(2 − T2/T2*) for an exact rate step
+# (T2* the answer). Towards a longer T2 each step at most doubles it (from mean(TE) = 0.165 s to
+# T2 = 10 s at 32 echoes: 33 iterations, against R2Decay's 6, measured); towards a shorter one a
+# step from beyond 2·T2* overshoots below zero, into the dead zone the solver rejects. A start
+# near the answer avoids both (docs/design.md, "T2Decay on the shared log-linear start").
 #
 # The offset versions are an approximation people commonly use: a constant C for the noise
 # floor of magnitude images. The real noise floor (Rician bias) depends on the signal level, so
@@ -40,11 +49,13 @@ data (the simple mono-exponential case).
 - acquisition: `TE` (s), one per observation
 - free by default: `S0`, `T2` (s)
 
-Each voxel starts from a log-linear fit to its data (a weighted straight line through log(y)
-against TE), or from `T2 = mean(TE)` if the data do not decay; a start in the call
-(`T2 = Free(start = ...)`) overrides it. Prefer [`R2Decay`](@ref) when T2 can be much longer
-than the echo times: on nearly flat curves the T2 form runs off to huge T2 and stops at max
-iterations, while R2 settles near 0. With an offset: [`T2DecayOffset`](@ref).
+Each voxel starts from the log-linear fit to its data (`:loglinear`, run on 1/T2: OLS, then WLS
+weighted by the predicted signal); a start in the call (`T2 = Free(start = ...)`) overrides it.
+The time form needs it: its steps go through 1/T2, so from a constant start they crawl towards
+a long T2 and overshoot a short one, where R2Decay's do not. Prefer [`R2Decay`](@ref) when T2 can
+be much longer than the echo times: data that do not decay give T2 → ∞, which the time form can
+only approach (it reports a huge T2), while R2 settles at 0. With an offset:
+[`T2DecayOffset`](@ref).
 
 ```julia
 m = T2Decay(TE = 0.01:0.01:0.32)
@@ -86,7 +97,7 @@ end
 
 parameters(::Type{<:R2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = :loglinear, lower = 0),          # the log-linear fit (starts.jl)
+    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),   # from the echo times, once per fit
 )
 
 function signal!(out, m::R2Decay, p)

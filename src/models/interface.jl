@@ -79,16 +79,16 @@ each voxel's starting value comes from:
   it: the rule assumes the signal is proportional to the parameter (true for M0, not for T1).
   A fit can turn it off (`M0 = Free(start = 1000.0)`) but cannot move it to another parameter;
 - `:data`: the model's own estimate from the voxel's data (see [`datastart`](@ref)), e.g. a
-  log-linear fit for T2. Only for parameters the model's `datastart` estimates;
+  closed-form estimate. Only for parameters the model's `datastart` estimates;
 - `:loglinear`: the weighted linear fit of ln y with ln S, the model's own signal, in two
   passes from 0: OLS, then WLS weighted by OLS's predicted signal² (DIPY's WLS), with the
   `:scale` parameter as its intercept; the other parameters stay at their starts. For models
   whose ln S is linear in these parameters (DTI's tensor; DKI written in V = MD²·W; ADCDecay's
   ADC): then exactly the two-pass WLS. Otherwise two Gauss–Newton steps, an approximate start
-  that the fit refines. Not for time constants (T2 = 0 is no signal: use the rate, or `:data`)
-  or signals that change sign: the signal at the start must be positive and finite in every
-  observation, checked when the fit is set up. No code in the model: the derivatives come from
-  `signal!`, as the fit's own;
+  that the fit refines. A time constant (no signal at 0, as T2) starts very long and is fitted
+  through its reciprocal, for which ln S is linear (T2Decay's T2). Not for signals that change
+  sign: the signal at the start must be positive and finite in every observation, checked when
+  the fit is set up. No code in the model: the derivatives come from `signal!`, as the fit's own;
 - [`BestOf`](@ref)`(values)`: try each value and start from the one that fits best;
 - a function of the model, `m -> ...`, for a start that depends on the acquisition: called
   once per fit with the model, it gives any of the above, e.g. ADCDecay's
@@ -335,15 +335,16 @@ precision), e.g. a quick linearized fit, for the parameters that start at `:data
 (`T2 = Free(start = :data, ...)` in [`parameters`](@ref), or `T2 = Free(start = :data)` in a
 fit). `p` holds the voxel's fixed parameters by name (numbers, e.g. `p.B1`, which a DESPOT1 estimate
 needs; ties appear as ties). Return a finite value for each of them, with a fallback when the
-data give no estimate (T2Decay: mean(TE) if the data do not decay). Values outside the bounds
+data give no estimate (below: mean(TE) when the two echoes do not decay). Values outside the bounds
 are clamped; a NaN makes that voxel's fit fail (status `Failed`). A `:scale` parameter is then
 set by least squares, and [`BestOf`](@ref) values are scored, from these starts. Must not
 allocate: it runs once per voxel. The default, `nothing`, means no data start.
 
 ```julia
-function datastart(m::T2Decay, y, p)
-    R2 = _loglinear_rate(m.TE, y)                 # NaN if the data do not decay
-    return (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)
+# T2 from the first two echoes, S2/S1 = exp(−(TE2 − TE1)/T2), for a model of your own
+function datastart(m::MyT2Model, y, p)
+    T2 = (m.TE[2] - m.TE[1]) / log(y[1] / y[2])   # not finite or ≤ 0 if they do not decay
+    return (T2 = isfinite(T2) && T2 > 0 ? T2 : mean(m.TE),)
 end
 ```
 """

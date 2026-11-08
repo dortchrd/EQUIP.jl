@@ -381,13 +381,13 @@ end
         @test size(simulate(m, nominal(m); noise = :rician, snr = 100, n = 2)) == (2, 3)
         # no number to take: must be given, and the error says why
         te = collect(0.01:0.01:0.32)
-        @test occursin("`T2` (it starts from the data)", msg(() -> nominal(T2Decay(TE = te))))
+        @test occursin("`T2` (it starts from the log-linear fit)", msg(() -> nominal(T2Decay(TE = te))))
         @test nominal(T2Decay(TE = te); T2 = 0.08) == (S0 = 1.0, T2 = 0.08)
         @test occursin("`T1` (it starts from BestOf values)", msg(() -> nominal(T1IR(TI = [0.1, 1.0]))))
         # ... and lists what truth takes for every parameter, the keywords' values included
         e = msg(() -> nominal(T2Decay(TE = te)))
         @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
-        @test occursin(r"\n  T2 +free +:data +\[1.0e-6, Inf\] +required$", e)
+        @test occursin(r"\n  T2 +free +:loglinear +\[1.0e-6, Inf\] +required$", e)
         e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
         @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
         # mistakes
@@ -459,7 +459,7 @@ end
         @test occursin("\n  R1m      fixed  :R1f (tie)                 :R1f\n", s)
         @test endswith(s, "\n  Mzm_td0  fixed  0.0                        0.0")   # nothing to give
         s = txt(T2Decay(TE = 0.01:0.01:0.32))
-        @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:data .+ required\n", s)
+        @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:loglinear .+ required\n", s)
         @test endswith(s, "\n`nominal(m)` needs a value for T2: `nominal(m; T2 = value)`")
         @test occursin("TE = 32 values from 0.01 to 0.32", txt(T2Decay(TE = collect(0.01:0.01:0.32))))
         @test occursin(r"T1 +free +BestOf\(30 values from 0.02 to 5.0\)", txt(T1IR(TI = [0.1, 1.0])))
@@ -782,29 +782,35 @@ end
         @test fit(mk, signal(mk, (S0 = 1000.0, ADC = 2e-3, K = 0.3))).params.K ≈ 0.3 rtol = 1e-6
     end
 
-    @testset "data start: log-linear T2 for T2Decay" begin
+    @testset "T2Decay's start: the log-linear fit, on 1/T2" begin
         te = collect(0.01:0.01:0.32)
         m = T2Decay(TE = te)
         y = signal(m, (S0 = 1000.0, T2 = 0.04))
+        start(m, y; kw...) = fit(m, y; solver = LM(maxiter = 0), kw...).params
         # Noise-free data: the log-linear fit is exact, so the start is already the answer.
         # `maxiter = 0` returns the starting point; S0 comes from least squares given that T2.
-        @test datastart(m, y, (;)).T2 ≈ 0.04
-        s = fit(m, y; solver = LM(maxiter = 0)).params
-        @test s.T2 ≈ 0.04
-        @test s.S0 ≈ 1000
-        @test fit(m, Float32.(y); precision = Float32, solver = LM(maxiter = 0)).params.T2 ≈ 0.04f0
+        s = start(m, y)
+        @test s.T2 ≈ 0.04 rtol = 1e-12
+        @test s.S0 ≈ 1000 rtol = 1e-12
+        @test start(m, Float32.(y); precision = Float32).T2 ≈ 0.04f0
         # points ≤ 0 are skipped
-        @test datastart(m, [y[1:5]; zeros(27)], (;)).T2 ≈ 0.04
-        # no usable estimate (rising data): the fallback, mean(TE)
-        @test datastart(m, collect(1.0:32.0), (;)).T2 ≈ sum(te) / 32
-        @test fit(m, collect(1.0:32.0); solver = LM(maxiter = 0)).params.T2 ≈ sum(te) / 32
-        # T2 starts at :data by default; another start replaces it; a fixed T2 is left alone
-        @test setup(m).fromdata == (false, true)
-        @test fit(m, y; T2 = Free(start = 0.2), solver = LM(maxiter = 0)).params.T2 == 0.2
-        @test setup(m; T2 = Free(start = 0.2)).fromdata == (false, false)
-        @test fit(m, y; T2 = 0.04).params.S0 ≈ 1000
-        # noisy data: the same answer as from the old start, without allocating
+        @test start(m, [y[1:5]; zeros(27)]).T2 ≈ 0.04 rtol = 1e-10
+        # no decay (rising data): T2 stays where it started, very long (no decay to speak of)
+        @test start(m, collect(1.0:32.0)).T2 > 1e6
+        # T2 is a time constant (no signal at 0): its log fit runs on 1/T2, the same estimator as
+        # R2Decay's at :loglinear, in the other coordinate
+        @test setup(m).fromlog == (false, true) && setup(m).reciprocal == (false, true)
+        mr = R2Decay(TE = te)
+        @test setup(mr; R2 = Free(start = :loglinear)).reciprocal == (false, false)
         yn = y .+ 10 .* randn(MersenneTwister(3), 32)
+        @test start(m, yn).T2 ≈ 1 / start(mr, yn; R2 = Free(start = :loglinear, lower = 0)).R2 rtol = 1e-10
+        # T2 starts at :loglinear by default; another start replaces it; a fixed T2 is left alone
+        @test setup(m).fromdata == (false, false)
+        @test fit(m, y; T2 = Free(start = 0.2), solver = LM(maxiter = 0)).params.T2 == 0.2
+        @test setup(m; T2 = Free(start = 0.2)).fromlog == (false, false)
+        @test fit(m, y; T2 = 0.04).params.S0 ≈ 1000
+        # noisy data: the same answer as from a constant start, mean(TE), in fewer iterations,
+        # without allocating
         r, r0 = fit(m, yn), fit(m, yn; T2 = Free(start = sum(te) / 32))
         @test r.params.T2 ≈ r0.params.T2 rtol = 1e-6
         @test r.iterations < r0.iterations
@@ -3141,8 +3147,10 @@ end
         # constant (T2 = 0 is no signal) and a signal that changes sign (real-valued IR)
         msg(f) = try f(); "" catch e; sprint(showerror, e) end
         te = collect(0.01:0.01:0.32)
-        e1 = msg(() -> fit(T2Decay(TE = te), signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08)); T2 = Free(start = :loglinear)))
-        @test occursin("`T2` start at :loglinear", e1) && occursin("R2, not T2", e1)
+        # a time constant (T2 = 0 is no signal) starts very long and is fitted through 1/T2
+        # (T2Decay's own start; until 2026-11-08 refused here, the start then stuck at T2's
+        # lower bound); a signal that changes sign is refused
+        @test start(T2Decay(TE = te), signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08)); T2 = Free(start = :loglinear, lower = 1e-6)).T2 ≈ 0.08 rtol = 1e-12
         mir = R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2], magnitude = false)
         @test occursin("not positive and finite", msg(() -> fit(mir, signal(mir, (M0 = 1000.0, Sf = -0.95, R1 = 1.1)); R1 = Free(start = :loglinear))))
         # and where it suits, a rate: R2Decay's start is the log-linear fit's
@@ -3151,6 +3159,20 @@ end
         # a start Free accepts, and names among the others
         @test Free(start = :loglinear).start === :loglinear
         @test occursin(":loglinear", sprint(showerror, try Free(start = :other) catch e; e end))
+        # the first pass, made once per fit when the start is the same in every voxel: the same
+        # starts and fits, bit for bit, as making it in each voxel; not made when the start varies
+        # by voxel (a map, a `:data` start) or nothing starts at :loglinear
+        mt2 = T2Decay(TE = te)
+        Yt = simulate(mt2, (S0 = 1000.0, T2 = 0.06); snr = 40, n = 20, noise = :rician, rng = MersenneTwister(5))
+        for T in (Float64, Float32)
+            c = init(mt2; precision = T)
+            c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing)
+            @test c.logpass !== nothing
+            @test all(i -> EQUIP._fit_voxel(c, c.spec, Yt[i, :], i) === EQUIP._fit_voxel(c0, c0.spec, Yt[i, :], i), 1:20)
+        end
+        @test init(mt2; S0 = Free(start = fill(1000.0, 20))).logpass === nothing     # a map start
+        @test init(R2Decay(TE = te)).logpass === nothing                             # no :loglinear
+        @test init(DataStartTest([0.01, 0.02, 0.04, 0.08])).logpass === nothing        # :data
     end
 
     @testset "DKI: the start's two passes, Float32 at 22 parameters, and MK, AK, RK as DIPY's" begin
@@ -3179,6 +3201,12 @@ end
         @test all(k -> abs(s[k] - u[k]) < 1e-10 * abs(u[k]) + 1e-12 * MD2, 8:22)
         # Float32 against Float64: every voxel converged in both; within a hundredth of an SD
         r64, r32 = fit(m, Y), fit(m, Float32.(Y); precision = Float32)
+        # the dataset loop calls the voxel fit as a function above 8 free parameters (dataset.jl):
+        # the same fits, bit for bit, as `fit!` voxel by voxel
+        @test EQUIP._FIT_INLINE_MAXP < 22
+        cv = init(m)
+        @test all(i -> fit!(cv, Y[i, :]).params.V1111 === r64.params.V1111[i] &&
+                       fit!(cv, Y[i, :]).params.Dxx === r64.params.Dxx[i], 1:20)
         @test count(isconverged, r64.status) == 200 && count(isconverged, r32.status) == 200
         @test eltype(r32.params.V1111) == Float32
         for k in (:Dxx, :Dxy, :V1111, :V1122, :V1123)

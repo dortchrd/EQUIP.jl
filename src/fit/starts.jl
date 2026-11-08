@@ -111,8 +111,9 @@ end
 # for which ln S is linear: ln S = ln S0 − TE·(1/T2). The Jacobian's column for u = 1/θ is
 # ∂ln S/∂u = −θ²·∂ln S/∂θ, and the step lands at θ = 1/(1/θ + Δu); a step that would make u ≤ 0
 # (data that do not decay) leaves θ where it is. Found by `setup` (`reciprocal`). So T2Decay
-# starts from the same two passes as R2Decay, with no start of its own (it had a one-pass fit
-# weighted by the data, `_loglinear_rate`, until 2026-11-08).
+# starts from the same two passes as DTI, with no start of its own (it had a one-pass fit
+# weighted by the data, `_loglinear_rate`, until 2026-11-08; R2Decay and ADCDecay keep their
+# constant starts, from which their rate steps land in a few iterations: t2_decay.jl).
 #
 # What moves: the parameters starting at `:loglinear` (from 0, their placeholder), and the
 # `:scale` parameter (the intercept: without it, the other parameters would absorb the signal's

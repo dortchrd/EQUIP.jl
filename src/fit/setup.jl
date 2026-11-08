@@ -232,28 +232,34 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     #    but its reciprocal is the rate, for which ln S is linear: such a parameter starts very
     #    long instead (`_LONG`, no decay to speak of), and the log fit runs on 1/θ (`reciprocal`,
     #    starts.jl). Found by trying each `:loglinear` parameter long in turn, keeping the change
-    #    when it makes more observations valid (a rate made long only loses signal). Refused when
-    #    the signal is still not positive and finite: a signal that changes sign (a real-valued
-    #    inversion recovery). Before time constants were taken (2026-11-08), T2 at :loglinear was
-    #    refused here: from 0 the start stayed at T2's lower bound, and the fit stopped there and
-    #    reported convergence (measured 2026-11-07).
+    #    when it makes more observations valid (a rate made long only loses signal), and only
+    #    where the signal is missing at 0, not negative: a time constant at 0 gives no signal
+    #    (0, or 0/0 = NaN where TE = 0), while a signal that changes sign (a real-valued
+    #    inversion recovery, its rate at 0) is negative somewhere, and made long would only look
+    #    valid (fully recovered): refused, as when the signal is still not positive and finite.
+    #    Before time constants were taken (2026-11-08), T2 at :loglinear was refused here: from 0
+    #    the start stayed at T2's lower bound, and the fit stopped there and reported
+    #    convergence (measured 2026-11-07).
     reciprocal = ntuple(_ -> false, Val(P))
     if any(fromlog)
-        nvalid(st) = (s0 = zeros(T, nobs(model));
-                      signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), st),
-                                                             map(x -> _pick(x, 1, T), fixedvals))));
-                      count(x -> isfinite(x) && x > 0, s0))
+        signalat(st) = (s0 = zeros(T, nobs(model));
+                        signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), st),
+                                                               map(x -> _pick(x, 1, T), fixedvals))));
+                        s0)
+        nvalid(s) = count(x -> isfinite(x) && x > 0, s)
+        missingonly(s) = all(x -> (isfinite(x) && x > 0) || x == 0 || isnan(x), s)
         N = nobs(model)
         for j in 1:P
-            nvalid(starts) == N && break
+            s = signalat(starts)
+            (nvalid(s) == N || !missingonly(s)) && break
             fromlog[j] || continue
             long = merge(starts, NamedTuple{(F[j],)}((_LONG(T),)))
-            if nvalid(long) > nvalid(starts)
+            if nvalid(signalat(long)) > nvalid(s)
                 starts = long
                 reciprocal = Base.setindex(reciprocal, true, j)
             end
         end
-        if nvalid(starts) < N
+        if nvalid(signalat(starts)) < N
             lognames = join((n for n in F if start(n) === :loglinear), "`, `")
             throw(ArgumentError("`$lognames` start at :loglinear, but $M's signal there (each at 0, " *
                 "or very long for a time constant, the other parameters at their starts) is not " *

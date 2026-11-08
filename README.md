@@ -145,13 +145,15 @@ parameters(::Type{<:QMTSIR}) = (
     given the other starts, so raw data need no normalization. Only the model declares it (the
     rule assumes the signal is proportional to the parameter): a fit can turn it off,
     `M0 = Free(start = 1000.0)`, but not move it to another parameter;
-  - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. T2Decay's
-    log-linear fit, `T2 = Free(start = :data, lower = ...)`;
+  - `:data`: the model's own estimate from the voxel's data (`datastart`), e.g. a closed-form
+    estimate, `T2 = Free(start = :data, lower = ...)`;
   - `:loglinear`: the weighted linear fit of ln y with ln S, computed by EQUIP from the
     model's own signal in two passes, OLS then WLS weighted by OLS's predicted signal² (DIPY's
     WLS; the `:scale` parameter as the intercept), for models whose ln S is linear in the
-    parameters and for which 0 is a valid value (diffusivities, rates; not T2): DTI's tensor,
-    `Dxx = Free(start = :loglinear)`, DKI written in V = MD²·W. No code in the model;
+    parameters: diffusivities and rates, and time constants through their reciprocal (T2 = 0
+    is no signal, so T2 starts very long and the fit runs on 1/T2). DTI's tensor,
+    `Dxx = Free(start = :loglinear)`, DKI written in V = MD²·W, T2Decay's T2. No code in the
+    model; when nothing in the start varies by voxel, the first pass is made once per fit;
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
     `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.
@@ -500,11 +502,12 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN)`, 30 values log-spaced from 1/5
   of the shortest TI to 5× the longest.
 - **`datastart`** (optional): starting values computed from each voxel's data `y`, such as a
-  linearized fit, for the parameters declared `:data`. `p` holds the voxel's fixed values (e.g.
-  `p.B1`). T2Decay's is a log-linear fit, with mean(TE) as the fallback when the data do not
-  decay: `datastart(m::T2Decay, y, p) = (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)` with
-  `R2 = _loglinear_rate(m.TE, y)`. Return a finite value for each `:data` parameter: a NaN makes
-  that voxel's fit fail. Another start given in the call replaces it.
+  closed-form estimate, for the parameters declared `:data`. `p` holds the voxel's fixed values
+  (e.g. `p.B1`). For example T2 from the first two echoes, with mean(TE) as the fallback when they
+  do not decay: `datastart(m::MyT2Model, y, p) = (T2 = isfinite(t) && t > 0 ? t : mean(m.TE),)`
+  with `t = (m.TE[2] - m.TE[1]) / log(y[1] / y[2])`. (For a log-linear fit, `:loglinear` needs no
+  code.) Return a finite value for each `:data` parameter: a NaN makes that voxel's fit fail.
+  Another start given in the call replaces it.
 - **`relabel`** (optional): if the parameters can describe the same signal in more than one way
   by swapping labels, choose the one to report. `T2BiexpDecay`'s two components can swap, so
   its `relabel` puts the shorter T2 first. Called once per voxel after the fit; it must not
@@ -564,7 +567,7 @@ tissue, a free parameter's start (a guess for fitting, not a tissue value). With
 free parameter must come from the tissue or a keyword: `nominal(QMTSIR(...), :WM)` is an error
 (WM has T1 and T2, no PSR), not the model's starts in disguise, and `nominal(T1IR(...), :GM; Sf =
 -0.95)` needs Sf, an inversion efficiency, not a tissue property. Without a tissue, one that
-starts from the data (`:data`, e.g. T2Decay's T2) or from `BestOf` values (the
+starts from the data (`:data`, `:loglinear`, e.g. T2Decay's T2) or from `BestOf` values (the
 inversion-recovery models' T1) must be given: `nominal(T2Decay(TE = te); T2 = 0.08)`. The error
 names each and lists what `nominal` takes for every parameter.
 
