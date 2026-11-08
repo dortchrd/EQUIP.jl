@@ -7,7 +7,9 @@
 # workload below runs small fits of every built-in model while EQUIP precompiles, and since Julia
 # 1.9 the compiled code is saved with the package (PrecompileTools.jl), so a new session starts
 # with it. Combinations not run here (other free parameters, Float32, ...) still compile on first
-# use. Measurements: docs/design.md (Performance notes).
+# use. Since 2026-11-08 also DTI (fits and derived quantities; not DKI, see below), and crlb,
+# montecarlo and a protocol design as the README calls them (the SIR schemes, T2 decay). Measurements:
+# docs/design.md (Performance notes; "The prerelease: the precompile workload").
 # =================================================================================================
 
 using PrecompileTools: @setup_workload, @compile_workload
@@ -37,6 +39,10 @@ using PrecompileTools: @setup_workload, @compile_workload
              (ADCDecay(b = b), (S0 = 1000.0, ADC = 1e-3)),
              (ADCKurtosis(b = b), (S0 = 1000.0, ADC = 1e-3, K = 1.0)),
              (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
+    dirs = directionset(15)
+    dwib = [0.0; fill(1000.0, 15); fill(2000.0, 15)]
+    dwig = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(dirs); collect.(dirs)])   # 3 × 31, a .bvec
+    dti = (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
     @compile_workload begin
         # Code here runs during precompilation, and what it compiles is saved with the package.
         for (m, θ) in cases
@@ -56,5 +62,42 @@ using PrecompileTools: @setup_workload, @compile_workload
         m = T1MFA(FA = fa, TR = 0.015)
         y = signal(m, merge(defaults(m), (M0 = 1000.0, T1 = 1.2)))
         fit(m, permutedims(hcat(y, y)); B1 = [1.0, 0.9])
+
+        # DTI (added 2026-11-08): a voxel, a dataset, its derived quantities. The acquisition: a
+        # b = 0 image and two shells of 15 directions; D's eigenvalues 1.7, 0.4, 0.3 × 10⁻³ mm²/s.
+        # Not DKI: its fit (22 parameters) ran 20–70% slower from the package image than
+        # compiled at first use (measured 2026-11-08, cause not found; DTI, T2Decay, T1IR,
+        # QMTSIR, crlb, montecarlo and the design unchanged), so it compiles once per session
+        # (about 6 s) and runs at full speed. The command line's workload does include it: each
+        # `equip` call is a new process (docs/design.md, "The prerelease").
+        m = DTI(; diffusionencoding(dwib, dwig)...)
+        y = signal(m, dti)
+        fit(m, y)
+        res = fit(m, permutedims(hcat(y, 0.9 .* y)))
+        derived(res)
+        show(IOBuffer(), MIME"text/plain"(), res)
+
+        # crlb, montecarlo and a protocol design (added 2026-11-08), as the README calls them:
+        # the SIR schemes with the fit assuming kmf (Dortch 2018), T2 decay at an SNR. Each
+        # model's crlb compiles its own second derivatives, so other models compile at first use.
+        m4 = QMTSIR(; SIR_4POINT...)
+        θ = nominal(QMTSIR, :SIR_WM_I)
+        s = Scenario(QMTSIR, θ; kmf = 12.5)
+        c = crlb(m4, s; snr = 200)
+        show(IOBuffer(), MIME"text/plain"(), c)
+        show(IOBuffer(), MIME"text/plain"(), s)
+        crlb(m4, θ; snr = 200)
+        crlb(m4, θ; snr = [100, 200], kmf = 12.5)                       # a sweep
+        mc = montecarlo(m4, s; noise = :rician, snr = 200, n = 4)
+        show(IOBuffer(), MIME"text/plain"(), mc)
+        m2 = T2Decay(TE = te)
+        show(IOBuffer(), MIME"text/plain"(), crlb(m2, (S0 = 1000.0, T2 = 0.08); snr = 100))
+        montecarlo(m2, (S0 = 1000.0, T2 = 0.08); noise = :gaussian, snr = 100, n = 4)
+        ss = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; kmf = 12.5)
+        mr = QMTSIR(; SIR_4POINT..., magnitude = false)
+        d = ProtocolDesign(mr, ss; snr = 200, acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
+                           constraints = m -> m.TI .+ m.TD .- 0.5, scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
+        d(mr)
+        optimize_protocol(d; starts = 1, generations = 2, polish = false, rng = Xoshiro(1))
     end
 end

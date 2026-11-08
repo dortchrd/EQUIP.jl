@@ -8,8 +8,8 @@
 # Default starting values are mostly fixed numbers. The parameter that scales the whole signal
 # (S0, M0, M0f) is declared `Free(start = :scale)` and starts, voxel by voxel, at the
 # least-squares scale given the other starting values, so raw data (values in the hundreds or thousands) need no
-# normalization. A few start from the data: T2Decay's T2 (`:data`, a log-linear fit) and the
-# inversion-recovery T1 (`BestOf` 30 values). Override any start in the call, e.g.
+# normalization. A few start from the data: T2Decay's T2, DTI and DKI (`:loglinear`, a log-linear fit)
+# and the inversion-recovery T1 (`BestOf` 30 values). Override any start in the call, e.g.
 # `T1 = Free(start = 0.8)` (a number or a per-voxel map).
 #
 # Each model follows the same pattern:
@@ -28,6 +28,13 @@
 # =================================================================================================
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
+
+# Upper bound for T2 (and T2*) in T2Decay: 2.5 s, above the longest in tissue (CSF, about 2 s;
+# the owner, 2026-11-08). Data that do not decay are best fitted by T2 → ∞ (R2 = 0); without a
+# bound the time form reports convergence at an enormous T2 (about 1e10 s). With it, such voxels
+# end on the bound, where `onbound` flags them, as R2Decay's R2 = 0 is flagged. Widen it in a
+# call: `fit(m, data; T2 = Free(upper = 10))`.
+const _T2MAX = 2.5
 
 # Time-constant and rate versions (T1IR and R1IR, T2Decay and R2Decay, ...): the equation is
 # written once, in the rate version. The time version's `signal!` converts (R1 = 1/T1) and calls

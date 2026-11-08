@@ -4080,11 +4080,78 @@ scope (decided 2026-10-31):
   `sandwich`, `biasedcrlb`), asked for at the REPL; unexporting them is open.
 - **Where it stands (2026-11-08):** in, as planned: fit statistics, SMT, the command line for
   the four parts and the data reader; also DTI and DKI (item 17) and derived quantities (item
-  19). The repository is now github.com/dortchrd/EQUIP.jl. Open: the release basics above (a
-  license, CI, a version number, the precompile workload extended, now with DTI and DKI too,
-  an example script per part, a shorter README); `equip fit DTI` and `equip fit DKI`. Not
-  built: NODDI and the pulsed qMT models; the recommendation (to the owner) is to ship without
-  them and make them the first models after (the roadmap's "Priorities", tier 1).
+  19). The repository is now github.com/dortchrd/EQUIP.jl. Not built, on purpose (the owner,
+  2026-11-08: "ship without them"): NODDI and the pulsed qMT models, the first models after
+  (tier 5). The rest, done on branch `prerelease` (2026-11-08), below.
+
+### The prerelease: what was done (2026-11-08, branch `prerelease`)
+
+The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
+
+- **T2Decay's T2 bounded at 2.5 s** (the owner: "T2s max should be 2.5 sec. CSF is around
+  2s"; `_T2MAX`, src/models/builtin.jl; T2Decay only, the T2 forms with an offset or two
+  components reach the iteration limit instead, already flagged; tier 6). Data that do not
+  decay are best fitted by T2 → ∞: since the log-linear start (item 4) T2Decay reported
+  convergence there at about 1e10 s (up to 5e11 s). Now they end on the bound, where `onbound`
+  flags them, as R2Decay's R2 = 0 is. Widened in a call: `T2 = Free(upper = 10)` (the start
+  stays `:loglinear`). Measured (2000 voxels per case, Rician noise, against no bound):
+  - 32 echoes 10–320 ms: no decay, every voxel on the bound (SNR 50 and 200); CSF-like T2 = 2 s
+    unchanged in 1985 of 2000 at SNR 50 (14 on the bound), all 2000 at SNR 100 and 200; tissue
+    (40, 80 ms) and T2 = 1.5 s bit-identical, the same iterations.
+  - 8 echoes 10–80 ms, where T2 = 2 s is barely measurable: 26–36% of CSF-like voxels end on the
+    bound at SNR 50–100 (without it, the same voxels came out above 2.5 s); the median 1.98–1.99
+    s either way.
+- **`equip fit DTI` and `equip fit DKI`.** In the command line's menu (cli/src/models.jl); the
+  gradient directions from the FSL `.bval` and `.bvec` beside the data (`loaddata` already read
+  them into b, gx, gy, gz), or `--b --gx --gy --gz`; the derived maps written (MD, FA, AD, RD,
+  V1x–z; MK, AK, RK, MKT). A missing `.bvec` gets a message naming the files; `--help` says
+  where the directions come from, and describes `:loglinear` as "the log-linear fit to the
+  data". Tested against the Julia API's fit (cli/test).
+- **The precompile workload** (src/precompile.jl) extended: DTI (fits, derived quantities),
+  crlb, montecarlo and a protocol design as the README calls them (the SIR schemes with kmf
+  assumed, a sweep over SNR, T2 decay; `ProtocolDesign`, an evaluation, a two-generation
+  search). Measured (fresh processes, one thread; before = `main` at 84b6d54):
+  - first calls: DTI fit (1000 voxels) 2.0 → 0.01 s; crlb QMTSIR 3.0 → 0.02 s; crlb T2Decay
+    0.9–1.2 → 0.00 s; montecarlo QMTSIR (n = 1000) 1.7 → 0.02 s; ProtocolDesign + d(x) 1.2–1.4
+    → 0.2–0.3 s; derived(DTI fit) 0.7–0.9 → 0.01 s.
+  - the cost: precompiling 46 → 65 s (once per install or code change); `using EQUIP` 0.56 →
+    0.74 s.
+  - **DKI left out**: from the package image its fit ran 20–70% slower than compiled at first
+    use (2000 voxels, one thread, min of 5, alternated: 116–129 against 75–96 µs per voxel;
+    with DKI out, 78). Not the CPU target (`native`); DTI, T2Decay, T1IR, crlb!, the design's
+    d(x) and montecarlo unchanged within noise. A session pays DKI's compile once (about 6–7 s)
+    and fits at full speed. **Open:** QMTSIR, in the workload since before, measured 2.6–3.0
+    against 2.3 µs per voxel in three alternated pairs (+12–27%): the same effect, smaller, and
+    older than this change; the cause to find (inference or codegen of package images at large
+    static sizes?).
+  - The command line's workload (cli/src/precompile.jl) does include DTI and DKI, written as
+    files with a `.bval` and `.bvec`: each `equip` call is a new process, so without it every
+    call would compile DKI. Measured (2000 voxels, one thread, in a process that loads EQUIPCLI
+    against one that loads EQUIP only, two alternated pairs): the first call 0.41–0.43 s against
+    6.7–7.1 s, then 112–128 against 74–98 µs per voxel: the precompiled fit comes out ahead up to
+    about 160 000 voxels on one thread, more with threads. The install, precompiling all three
+    packages (`main` → `prerelease`): EQUIP 42 → 66 s, its MAT extension 9 → 8 s, EQUIPCLI 58 →
+    52 s (EQUIP's image now holds the crlb, montecarlo and design code the CLI's workload calls),
+    109 → 125 s in all.
+- **License: MIT** (the owner); LICENSE.
+- **Versions**: EQUIP 0.3.0 (the owner: continuing VoxelFit's 0.1 and 0.2), EQUIPCLI and
+  MRImages 0.1.0.
+- **CI**: .github/workflows/CI.yml, the three suites on Julia 1.11 (the [compat] minimum) and
+  the latest release, ubuntu, on every push and pull request; Manifest.toml not committed, so
+  each job resolves first. Its first run: on the push of branch `prerelease`.
+- **An example per part**: examples/fit_maps.jl (files to maps, standard errors, `onbound`),
+  crlb.jl (Dortch 2018's kmf bias over SNRs; DTI's FA and MD), montecarlo.jl (against crlb in
+  standard errors; T2's Rician bias at low SNR), protocol_design.jl (Table 2: 0.243395 at the
+  4-point scheme, the optimum 0.243255, rounded 0.243312). The montecarlo example shows tier 2's
+  point: PSR's measured bias −0.02846 against crlb's first-order −0.02818, 2.5 standard errors
+  apart.
+- **A shorter README**: the front page (152 lines: what it is, install and test, the four parts
+  in a few lines each, the models, the examples, the roadmap, the license); everything it held
+  before moved to docs/guide.md (the same text, with DTI and DKI in the command line and
+  T2Decay's bound added).
+- `python/` (on the list as "still named voxelfit"): not in the repository; untracked leftovers
+  in one clone (the Python wrapper was removed in 9a6e173).
+- Full runs: recorded in the commit after this one (the suites were running).
 
 ## Roadmap
 
@@ -4093,13 +4160,10 @@ list"; it keeps the earlier order, the prerelease, then Rician fitting, then a p
 number of points, and places everything else in it). The items keep their numbers; the numbers
 are not an order. The same list, with each tier's loose ends, is in docs/status.md.
 
-1. **Finish the prerelease** ("The prerelease", above). Open: a license; CI running the three
-   suites; a version number (Project.toml says 0.3.0-DEV); the precompile workload extended to
-   crlb, montecarlo, a design, and DTI and DKI (item 10); `equip fit DTI` and `equip fit DKI`;
-   a shorter README; an example script per part; a guard for T2Decay reporting "converged" at a
-   huge T2 in voxels with no decay (item 4); `python/` still named `voxelfit`. To decide (the
-   owner): pulsed qMT (item 6) and NODDI (item 7) were "to add before" it; the recommendation is
-   to ship without them and make them the first models after.
+1. **Finish the prerelease** ("The prerelease", above): done on branch `prerelease`
+   (2026-11-08; "The prerelease: what was done"): the T2Decay guard, `equip fit DTI` and `DKI`,
+   the precompile workload, MIT, 0.3.0, CI, an example per part, a shorter README (the full text
+   in docs/guide.md). Shipped without pulsed qMT (item 6) and NODDI (item 7) (the owner).
 2. **Bias from noise at low SNR** (the owner, 2026-11-08: "put it in tier 2"): Rician fitting
    for every model (items 13 and 20, one item now); crlb's second-order bias, Box's bias of the
    parameters and the derived quantities' ½ tr(∇²g·C), opt-in and tested against montecarlo;
@@ -4398,7 +4462,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        reaching the lowest SSE found from any start, and the time. Outside the range (no-decay
        voxels, a T2 of seconds), tested only for failing safely: flagged on a bound or not
        converged, never "converged" at nonsense. The first case: **T2Decay reports "converged"
-       at a huge T2 in voxels with no decay**; a guard is in tier 1 (the prerelease).
+       at a huge T2 in voxels with no decay**; guarded since 2026-11-08 (T2 ≤ 2.5 s, `onbound`;
+       "The prerelease: what was done").
      - **The dictionary start**: `BestOf` over several parameters, over the plausible ranges,
        with the candidate signals made once per fit ("Precomputed candidates", above). The
        owner asked (2026-11-08) for a generic design matrix from automatic differentiation and

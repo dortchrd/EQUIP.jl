@@ -16,6 +16,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `examples/compartments.jl` (six models written with `@mrimodel` and the compartments, fitted; about 30 s);
   `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
   `examples/dki.jl` (the built-in DKI, its indices and the K ≥ 0 check; about 15 s)
+- One example per part (each under a minute): `examples/fit_maps.jl` (files to maps),
+  `examples/crlb.jl`, `examples/montecarlo.jl`, `examples/protocol_design.jl` (Dortch 2018 Table 2)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
@@ -23,8 +25,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Monte Carlo against crlb (bias and SD, z in Monte Carlo standard errors; T2, Dortch 2018
   Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
-- The first `using EQUIP` after a code change takes about 40 s (precompile workload,
-  src/precompile.jl). While developing, switch it off with a `LocalPreferences.toml` (not
+- The first `using EQUIP` after a code change takes about a minute (precompile workload,
+  src/precompile.jl: every model's fit except DKI's, crlb, montecarlo, a design; 65 s measured). While developing, switch it off with a `LocalPreferences.toml` (not
   committed) containing `[EQUIP]` and `precompile_workload = false`; about 3 s per change then.
 
 ## Where things are
@@ -81,6 +83,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - cli/: the `equip` command (package EQUIPCLI, cli/bin/equip): a subcommand per part, and
   `equip info` (a file's header and sidecar); MAT loaded only when a command names a .mat file.
   DICOM is converted with dcm2niix, not read (docs/design.md)
+- README.md: the front page (short); docs/guide.md: the user's guide, every part in full (what
+  the README held until 2026-11-08). A change users see goes in the guide, and in the README
+  only if it changes the front page.
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
 - docs/status.md: where the work stands (branches, what waits on the lab, open questions): the

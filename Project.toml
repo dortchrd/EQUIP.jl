@@ -1,6 +1,6 @@
 name = "EQUIP"
 uuid = "e91a3ee4-3281-4795-ac28-6cf92b7cc177"
-version = "0.3.0-DEV"
+version = "0.3.0"
 authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
 
 [deps]

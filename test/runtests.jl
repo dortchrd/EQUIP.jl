@@ -795,8 +795,18 @@ end
         @test start(m, Float32.(y); precision = Float32).T2 ≈ 0.04f0
         # points ≤ 0 are skipped
         @test start(m, [y[1:5]; zeros(27)]).T2 ≈ 0.04 rtol = 1e-10
-        # no decay (rising data): T2 stays where it started, very long (no decay to speak of)
-        @test start(m, collect(1.0:32.0)).T2 > 1e6
+        # no decay (rising data): T2 stays where it started, very long, clamped to its upper bound
+        # (2.5 s, `_T2MAX`); the fit ends there and `onbound` flags it, in both precisions, where
+        # before the bound it reported convergence at about 1e10 s (2026-11-08)
+        @test start(m, collect(1.0:32.0)).T2 == 2.5
+        for T in (Float64, Float32)
+            rb = fit(m, T.(collect(1.0:32.0)); precision = T)
+            @test rb.params.T2 == T(2.5) && onbound(rb).T2
+        end
+        @test setup(m).upper[2] == 2.5
+        @test setup(m; T2 = Free(upper = 10)).upper[2] == 10 && setup(m; T2 = Free(upper = 10)).fromlog[2]
+        @test fit(m, collect(1.0:32.0); T2 = Free(upper = Inf)).params.T2 > 1e6   # widened: as before
+        @test !onbound(fit(m, y)).T2                                               # tissue: not on it
         # T2 is a time constant (no signal at 0): its log fit runs on 1/T2, the same estimator as
         # R2Decay's at :loglinear, in the other coordinate
         @test setup(m).fromlog == (false, true) && setup(m).reciprocal == (false, true)

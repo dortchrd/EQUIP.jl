@@ -1,0 +1,39 @@
+# The three test suites on every push and pull request: EQUIP (the package), MRImages (its image
+# files package, in MRImages/) and the command line (EQUIPCLI, in cli/). On the oldest Julia the
+# packages allow (their [compat]: 1.11) and the latest release. Manifest.toml is not committed,
+# so each job resolves the dependencies first (Pkg.instantiate). The precompile workloads run as
+# a user's install would (they are part of what is tested).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:                      # a newer push to the same branch cancels the older run
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.package }}, Julia ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.11', '1']
+        package: [EQUIP, MRImages, cli]
+    env:
+      JULIA_NUM_THREADS: auto       # as the README's test command (-t auto)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v2
+      - name: Test ${{ matrix.package }}
+        shell: bash
+        run: |
+          dir=$([ "${{ matrix.package }}" = EQUIP ] && echo . || echo "${{ matrix.package }}")
+          julia --color=yes --project="$dir" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'

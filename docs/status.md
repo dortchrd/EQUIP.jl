@@ -14,6 +14,9 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). |
 
+Open: `prerelease` (made from `main` on 2026-11-08): tier 1 below, for the owner to look at,
+not merged.
+
 The four in `experiments` (their outcomes are in design.md):
 
 | parent | was branch | outcome |
@@ -72,15 +75,19 @@ only: the priority list below). Last full runs: EQUIP 2341, CLI 124, MRImages 10
 In order. The reasons, measurements and plans are in design.md (roadmap items by number; its
 "Priorities" paragraph has the same list).
 
-**1. Finish the prerelease** (design.md, "The prerelease")
-- A license; CI running the three suites; a version number (0.3.0-DEV now).
-- The precompile workload extended to crlb, montecarlo, a design, and DTI and DKI (item 10).
-- `equip fit DTI` and `equip fit DKI` in the command line.
-- A shorter README (over 1,000 lines now); an example script per part.
-- A guard for T2Decay reporting "converged" at a huge T2 in voxels with no decay (item 4).
-- `python/` is still named `voxelfit`.
-- To decide (the owner): pulsed qMT (item 6) and NODDI (item 7) were "to add before" the
-  prerelease. Recommended: ship without them; they are the first models after.
+**1. Finish the prerelease**: done on branch `prerelease` (2026-11-08), for the owner to look
+at, not merged (design.md, "The prerelease: what was done", has the measurements)
+- T2Decay's T2 at most 2.5 s (the owner): voxels with no decay end on the bound, flagged by
+  `onbound`, instead of "converged" at about 1e10 s; tissue and CSF at 32 echoes unchanged.
+- `equip fit DTI` and `equip fit DKI`: the directions from the `.bval` and `.bvec` beside the
+  data; the derived maps written.
+- The precompile workload: DTI, crlb, montecarlo, a design (their first calls 1–3 s → under
+  0.3 s; precompiling 46 → 65 s). DKI left out: from the package image its fit ran 20–70%
+  slower. Open: QMTSIR, precompiled since before, measured 12–27% slower the same way.
+- MIT license; versions EQUIP 0.3.0, EQUIPCLI and MRImages 0.1.0; CI (.github/workflows).
+- An example per part (fit_maps, crlb, montecarlo, protocol_design); the README a front page,
+  its full text in docs/guide.md.
+- Shipped without pulsed qMT and NODDI (the owner); `python/` was not in the repository.
 
 **2. Bias from noise at low SNR** (items 13, 16, 20)
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; noise = :rician,

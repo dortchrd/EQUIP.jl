@@ -168,6 +168,52 @@ end
         @test occursin("unknown command `fitt`", bad("fitt"))
     end
 
+    @testset "equip fit DTI and DKI: the gradients from the .bval and .bvec beside the data" begin
+        readmap(f) = niread(f).raw
+        out(name) = joinpath(tmp, "dwi", name)
+        # a b = 0 image and two shells of 15 directions, written as dcm2niix would: dti.nii.gz,
+        # dti.bval (b in s/mm²), dti.bvec (three rows, the gradient directions)
+        g = directionset(15)
+        bv = [0.0; fill(1000.0, 15); fill(2000.0, 15)]
+        G = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(g); collect.(g)])
+        acq = diffusionencoding(bv, G)
+        θ = (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.1e-3, Dxz = 0.0, Dyz = 0.05e-3)
+        Yd = simulate(DTI(; acq...), map(x -> fill(x, 3, 2, 1), θ); snr = 100, noise = :gaussian,
+                      rng = MersenneTwister(9))
+        niwrite(path("dti.nii.gz"), NIVolume(Float32.(Yd); geometry...))
+        write(path("dti.bval"), join(bv, ' ') * "\n")
+        write(path("dti.bvec"), join((join(G[i, :], ' ') for i in 1:3), "\n") * "\n")
+        data, info = loaddata(path("dti.nii.gz"))
+        # DTI: the same maps as the Julia API's fit, the derived ones (MD, FA, AD, RD, V1) too
+        r = run("fit", "DTI", path("dti.nii.gz"), "--out", out("a_"))
+        @test r.code == 0 && isempty(r.err)
+        res = fit(DTI(; acq...), data)
+        @test readmap(out("a_Dxx.nii.gz")) ≈ Float32.(res.params.Dxx)
+        @test readmap(out("a_Dxy.nii.gz")) ≈ Float32.(res.params.Dxy)
+        d = derived(res)
+        for k in (:MD, :FA, :AD, :RD)
+            @test readmap(out("a_$k.nii.gz")) ≈ Float32.(d[k])
+        end
+        @test all(isfile(out("a_V1$c.nii.gz")) for c in "xyz")
+        @test JSON.parsefile(out("a_FA.json"))["Model"] == "DTI"
+        # DKI: the same, with its kurtosis indices
+        r = run("fit", "DKI", path("dti.nii.gz"), "--out", out("b_"))
+        @test r.code == 0 && isempty(r.err)
+        rk = fit(DKI(; acq...), data)
+        @test readmap(out("b_MK.nii.gz")) ≈ Float32.(derived(rk).MK)
+        @test readmap(out("b_V1111.nii.gz")) ≈ Float32.(rk.params.V1111)
+        # help: the gradients from the files; the start described
+        r = run("fit", "DTI", "--help")
+        @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&
+              occursin("the log-linear fit to the data", r.out)
+        @test occursin("DTI", run("models").out) && occursin("DKI", run("models").out)
+        # no .bvec beside the data: a message saying where the directions come from
+        cp(path("dti.nii.gz"), path("nobvec.nii.gz"); force = true)
+        cp(path("dti.bval"), path("nobvec.bval"); force = true)
+        e = bad("fit", "DTI", path("nobvec.nii.gz"))
+        @test occursin("DTI needs `gx`", e) && occursin(".bval and .bvec files beside the data", e)
+    end
+
     @testset "equip fit with MATLAB files: MAT loaded when named, maps back as .mat" begin
         out(name) = joinpath(tmp, "mat", name)
         MRI = EQUIP.MRImages

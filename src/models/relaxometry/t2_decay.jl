@@ -15,8 +15,9 @@
 # T2 versions convert and call them (see builtin.jl).
 #
 # Which is more robust: the rate form. On nearly flat curves (T2 much longer than the echo
-# times) the time form runs off to huge T2 and stops at max iterations, whatever its start, while
-# the rate form settles near R2 = 0. (The time form also used to fail when the decay was much
+# times) the time form runs off to huge T2, while the rate form settles near R2 = 0. T2Decay's T2
+# is bounded at 2.5 s (`_T2MAX`, builtin.jl), so such voxels end on the bound and `onbound` flags
+# them; before the bound (2026-11-08) they reported convergence at about 1e10 s. (The time form also used to fail when the decay was much
 # faster than its start, stepping to a tiny T2 where the gradient vanishes; the solver now rejects
 # such steps, see src/fit/levmar.jl.)
 #
@@ -52,9 +53,13 @@ data (the simple mono-exponential case).
 Each voxel starts from the log-linear fit to its data (`:loglinear`, run on 1/T2: OLS, then WLS
 weighted by the predicted signal); a start in the call (`T2 = Free(start = ...)`) overrides it.
 The time form needs it: its steps go through 1/T2, so from a constant start they crawl towards
-a long T2 and overshoot a short one, where R2Decay's do not. Prefer [`R2Decay`](@ref) when T2 can
-be much longer than the echo times: data that do not decay give T2 → ∞, which the time form can
-only approach (it reports a huge T2), while R2 settles at 0. With an offset:
+a long T2 and overshoot a short one, where R2Decay's do not.
+
+T2 is bounded above at 2.5 s, longer than any tissue's (CSF's is about 2 s). Data that do not
+decay are best fitted by T2 → ∞; they end on the bound instead, where [`onbound`](@ref) flags
+them (`onbound(res).T2`), as R2Decay's R2 = 0 is. For longer T2s (phantoms of water), widen it:
+`fit(m, data; T2 = Free(upper = 10))`. Prefer [`R2Decay`](@ref) when T2 can be much longer than
+the echo times: its rate settles at 0, with no bound to choose. With an offset:
 [`T2DecayOffset`](@ref).
 
 ```julia
@@ -67,7 +72,8 @@ end
 
 parameters(::Type{<:T2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    T2 = Free(start = :loglinear, lower = _TMIN),     # the log-linear fit, on 1/T2 (starts.jl)
+    T2 = Free(start = :loglinear, lower = _TMIN, upper = _T2MAX),  # the log-linear fit, on 1/T2 (starts.jl);
+                                                                   # at most 2.5 s (builtin.jl)
 )
 
 # The T2 form is the R2 form with R2 = 1/T2: convert, then R2Decay's signal (below; see

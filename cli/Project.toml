@@ -1,6 +1,6 @@
 name = "EQUIPCLI"
 uuid = "704150e9-3f2c-42b0-97f3-1070d4d8ebde"
-version = "0.1.0-DEV"
+version = "0.1.0"
 authors = ["Richard Dortch <richard.d.dortch@gmail.com>"]
 
 [deps]

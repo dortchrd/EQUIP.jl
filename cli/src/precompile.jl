@@ -32,11 +32,35 @@ const _TRUTHS = (
     ADCDecay = (S0 = 1.0, ADC = 8e-4), ADCKurtosis = (S0 = 1.0, ADC = 1e-3, K = 1.0),
     QMTSIR = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 
+# DTI and DKI's example: a b = 0 image and two shells of 15 directions (31 images, DKI's 22
+# parameters need two shells); white-matter-like D (eigenvalues 1.7, 0.4, 0.3 × 10⁻³ mm²/s along
+# x, y, z) and, for DKI, an isotropic kurtosis K = 1 (W in V = MD²·W form, as DKI fits it).
+const _DWI_B = [0.0; fill(1000.0, 15); fill(2000.0, 15)]
+const _DTI_TRUTH = (S0 = 1.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
+const _DKI_TRUTH = let v = (0.8e-3)^2
+    merge(_DTI_TRUTH, (V1111 = v, V2222 = v, V3333 = v, V1112 = 0.0, V1113 = 0.0, V1222 = 0.0,
+                       V2223 = 0.0, V1333 = 0.0, V2333 = 0.0, V1122 = v / 3, V1133 = v / 3,
+                       V2233 = v / 3, V1123 = 0.0, V1223 = 0.0, V1233 = 0.0))
+end
+# Write a 2×2×1 diffusion dataset for model M at `truth`, with its .bval and .bvec beside it.
+function _writedwi(f, M, truth)
+    g = directionset(15)
+    G = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(g); collect.(g)])     # 3 × 31, as a .bvec
+    m = M(; diffusionencoding(_DWI_B, G)...)
+    s = signal(m, merge(defaults(m), truth))
+    writeimage(f, Float32.(reshape(repeat(s', 4), 2, 2, 1, :) .* reshape([1.0, 0.9, 1.1, 0.95], 2, 2, 1, 1)))
+    stem = replace(f, r"\.nii(\.gz)?$" => "")
+    write(stem * ".bval", join(_DWI_B, ' ') * "\n")
+    write(stem * ".bvec", join((join(G[i, :], ' ') for i in 1:3), "\n") * "\n")
+    return f
+end
+
 @setup_workload begin
     dir = mktempdir()
     quiet = IOBuffer()
     @compile_workload begin
         for (name, M) in pairs(MODELS)
+            haskey(_EXAMPLES, name) || continue          # DTI and DKI: from files, below
             flags = _EXAMPLES[name]
             m = buildmodel(M, parseargs(flags), Dict{Symbol,Vector{Float64}}(); warn = quiet)
             s = signal(m, merge(defaults(m), _TRUTHS[name]))
@@ -45,6 +69,14 @@ const _TRUTHS = (
             writeimage(f, data)
             equip(["fit", String(name), f, flags..., "--out", joinpath(dir, "$(name)_")]; io = quiet, err = quiet)
         end
+        # DTI and DKI, the way they are called: the gradient directions from the FSL .bval and
+        # .bvec beside the data (dcm2niix's), and their derived maps (MD, FA, ..., MK, ...)
+        dwi = joinpath(dir, "dwi.nii.gz")
+        for (M, truth) in ((DTI, _DTI_TRUTH), (DKI, _DKI_TRUTH))
+            _writedwi(dwi, M, truth)
+            equip(["fit", String(nameof(M)), dwi, "--out", joinpath(dir, "$(nameof(M))_")]; io = quiet, err = quiet)
+        end
+        equip(["fit", "DTI", "--help"]; io = quiet, err = quiet)
         # A sidecar's EchoTime, a mask, the statistics' maps, --save and --config, --help, a mistake
         te = collect(0.01:0.01:0.32)
         m = T2Decay(TE = te)

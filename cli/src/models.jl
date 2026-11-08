@@ -8,7 +8,10 @@
 # The built-in models, by name (a user's own model is used from Julia).
 const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay,
                   T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay, ADCDecay, ADCKurtosis,
-                  QMTSIR)
+                  DTI, DKI, QMTSIR)
+# The directional models: their acquisition is each image's b and gradient direction, read from
+# an FSL .bval and .bvec beside the data (as dcm2niix writes them), or given as flags.
+_directional(M) = (:gx, :gy, :gz) ⊆ fieldnames(M)
 # Named protocols (acquisitions), by name, and the model each is for.
 const PROTOCOLS = (; SIR_5POINT = (QMTSIR, SIR_5POINT), SIR_4POINT = (QMTSIR, SIR_4POINT),
                      SIR_16POINT = (QMTSIR, SIR_16POINT))
@@ -56,6 +59,10 @@ function buildmodel(M, a::Args, found; warn::IO = stderr)
     catch e
         e isa UndefKeywordError || rethrow()
         k = e.var
+        _directional(M) && throw(ArgumentError("$(nameof(M)) needs `$k`: put the FSL .bval and " *
+            ".bvec files beside the data, with the data's name (dwi.nii.gz: dwi.bval, dwi.bvec; " *
+            "dcm2niix writes them), or give --b, --gx, --gy and --gz (one value per image: a " *
+            "comma list, start:step:stop, or @file); they were not found beside the data"))
         hint = M === QMTSIR ? ", or a named protocol (`--protocol SIR_5POINT`)" : ""
         throw(ArgumentError("$(nameof(M)) needs `$k`: give --$k (values in seconds: a comma " *
             "list, start:step:stop, or @file)$hint; the data's sidecar files did not have it"))
@@ -88,7 +95,10 @@ the model itself: its fields, `parameters(M)`), and how to set them.
 """
 function modelhelp(io::IO, M, cmd)
     println(io, "equip $cmd $(nameof(M)): flags named after the model's fields and parameters")
-    println(io, "\nAcquisition (times in seconds, angles in degrees; a comma list, start:step:stop, or @file):")
+    println(io, "\nAcquisition (times in seconds, angles in degrees, b in s/mm²; a comma list, " *
+                "start:step:stop, or @file):")
+    _directional(M) && println(io, "  (read from the .bval and .bvec beside the data, FSL's, " *
+                               "when they are there; the flags override them)")
     for k in fieldnames(M)
         t = fieldtype(M, k) === Bool ? "true or false" : "numbers"
         println(io, "  --", rpad(k, 12), t)
@@ -110,6 +120,7 @@ end
 function _describe(r::Free)
     start = r.start isa Function ? "from the acquisition" :
             r.start === :scale ? "scaled to the data" : r.start === :data ? "from the data" :
+            r.start === :loglinear ? "the log-linear fit to the data" :
             r.start isa BestOf ? "the best of $(length(r.start.values)) values" : string(r.start)
     return "free, start $start, bounds [$(something(r.lower, -Inf)), $(something(r.upper, Inf))]"
 end
