@@ -150,9 +150,12 @@ function _fit_chunk!(params, sse, iterations, status, cache::FitCache{M,S,T}, Y,
     end
     return nothing
 end
-function _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
+function _fit_voxels!(params, sse, iterations, status, cache::FitCache{M,S}, Y,
+                      voxels) where {M,F,P,S<:FitSpec{F,P}}
     for v in voxels
-        r = _fit_voxel(cache, cache.spec, view(Y, v, :), v)
+        # (above `_FIT_INLINE_MAXP` free parameters, called as a function: voxel.jl)
+        r = P > _FIT_INLINE_MAXP ? (@noinline _fit_voxel(cache, cache.spec, view(Y, v, :), v)) :
+                                   _fit_voxel(cache, cache.spec, view(Y, v, :), v)
         # Store each free parameter in its map: `map` walks the two named tuples (maps and
         # fitted values) together, name by name.
         map((a, x) -> (@inbounds a[v] = x), params, r.params)

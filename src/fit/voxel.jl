@@ -82,6 +82,15 @@ function _invalid(::FitSpec{F,P,T}) where {F,P,T}
     return _VoxelFit(nan, T(NaN), Int32(0), InvalidData)
 end
 
+# Above this many free parameters, the voxel fit's larger pieces are called as functions, not
+# inlined (decided when compiling: P is a type parameter): the log start here, and the voxel fit
+# itself in the dataset loop (dataset.jl). Inlined at P = 22 (DKI), the compiler made slow code of
+# the whole: a dataset fit 83% slower than a loop over `fit!` of the same voxels, its start 70%
+# slower (measured 2026-11-08); called as functions, the small models' fits are 4–23% slower, so
+# they keep them inlined. The same threshold as crlb's kernel (`_CRLB_INLINE_MAXP`), for the same
+# reason (docs/design.md, "crlb at many parameters").
+const _FIT_INLINE_MAXP = 8
+
 # Fit voxel `v`, whose data are `y`: the steps both `fit!` and the dataset loop (dataset.jl) run.
 # Returns the lean per-voxel result (`_VoxelFit`); the callers check `y`'s length first.
 # `spec` is passed separately (not read from `c` inside) so that its type parameters F, P, T
@@ -102,7 +111,8 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     #    ln S; then a `BestOf` parameter at its best value, or else the `:scale` parameter at the
     #    value that best matches the data's scale.
     θ0 = _data_start(prob, θ0, spec)
-    θ0 = _loglinear_start(prob, θ0, spec, c.buf, c.logpass)
+    θ0 = P > _FIT_INLINE_MAXP ? (@noinline _loglinear_start(prob, θ0, spec, c.buf, c.logpass)) :
+                                _loglinear_start(prob, θ0, spec, c.buf, c.logpass)
     if spec.candindex > 0
         θ0 = _best_start(prob, θ0, spec, c.buf)
     elseif spec.scale > 0
