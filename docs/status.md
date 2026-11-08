@@ -89,9 +89,9 @@ at, not merged (design.md, "The prerelease: what was done", has the measurements
   its full text in docs/guide.md.
 - Shipped without pulsed qMT and NODDI (the owner); `python/` was not in the repository.
 - Full runs: EQUIP 2347, CLI 139, MRImages 103. CI's first run: MRImages and the CLI pass on
-  Julia 1.11 and 1.13; EQUIP failed on both, from older causes: the flush test's probe (fixed),
-  and on 1.11 every `fit!` allocating 368 bytes (open: fix on 1.11, or require Julia 1.13; the
-  owner).
+  Julia 1.11 and 1.13; EQUIP failed on both, from older causes in two tests, both fixed: the
+  flush test's probe (a lock), and on 1.11 the allocation test measuring from top-level code
+  (`fit!` allocates nothing on 1.11 either).
 
 **2. Bias from noise at low SNR** (items 13, 16, 20)
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; noise = :rician,

@@ -4146,10 +4146,13 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
     checks, 13–14 of 50 Float64 ones, at 4 and 16 threads). Fixed: the probe counts with
     atomics, which never yield (0 of 100). dataset.jl's comment now says a model whose
     `signal!` yields breaks the mode's restore; the built-in models do not.
-  - 1.11.9: every `fit!` allocates 368 bytes, all 48 cases of "fit! does not allocate" (every
-    model, both precisions); 1.13 allocates none. Not reproduced: Julia 1.11 cannot be
-    downloaded in this session (the network policy). **Open**, for the owner: find it on 1.11,
-    or require Julia 1.13 (the version tested here and on CI).
+  - 1.11.9: all 48 cases of "fit! does not allocate" (every model, both precisions) measured
+    368 bytes. Not `fit!`'s: measured inside a function it allocates 0 bytes on 1.11.9 as on
+    1.13; from top-level code (the test's own block) 1.11 counts the call's boxing too (128
+    bytes at top level, 368 in a testset), 1.13 none. The owner: "this needs to work on older
+    versions"; Julia's download host allowed in the environment (julialang-s3.julialang.org),
+    Julia 1.11.9 installed in the session. Fixed: the test measures inside a function
+    (`fitallocs`).
 - **An example per part**: examples/fit_maps.jl (files to maps, standard errors, `onbound`),
   crlb.jl (Dortch 2018's kmf bias over SNRs; DTI's FA and MD), montecarlo.jl (against crlb in
   standard errors; T2's Rician bias at low SNR), protocol_design.jl (Table 2: 0.243395 at the

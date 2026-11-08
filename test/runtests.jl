@@ -34,6 +34,12 @@ end
 EQUIP.parameters(::WeightsNamed) = (S0 = Free(start = :scale), weights = Free(start = 1.0))
 EQUIP.signal!(out, m::WeightsNamed, p) = (out .= p.S0 .* exp.(-m.t .* p.weights); out)
 
+# The bytes one `fit!` allocates, measured inside a function. Measured from the test's own block
+# (top-level code), Julia 1.11 counts the call's boxing too: 128 bytes at top level, 368 in a
+# testset, where fit! itself allocates none (CI's first run, 2026-11-08: all 48 cases failed on
+# 1.11.9; Julia 1.13 counts 0 either way).
+fitallocs(c, y) = @allocated fit!(c, y)
+
 # A T2 decay that counts its evaluations with subnormal numbers flushed to zero, and without.
 # Dataset fits call it from several threads at once, so the counts are atomic: not a lock, which
 # could make a task yield when contended and resume on another thread, whose mode is not the one
@@ -254,7 +260,8 @@ end
             y = signal(m, truth) .* (1 .+ 0.01 .* randn(MersenneTwister(0), nobs(m)))
             c = init(m; precision = T)
             fit!(c, y)                              # first call compiles
-            @test (@allocated fit!(c, y)) == 0
+            fitallocs(c, y)
+            @test fitallocs(c, y) == 0
             @inferred fit!(c, y)                    # the result's type is known when compiling
         end
     end
