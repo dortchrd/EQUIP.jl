@@ -17,9 +17,9 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
 
-Open: `test-structure` (made from `main` on 2026-11-08): the tests split into groups (test/unit,
-test/integration, test/validation), CLAUDE.md's rules for tests, the audit's items on the roadmap
-(design.md item 21); for the owner to look at, not merged.
+Merged into `main` (fast-forward, 2026-11-08, at the owner's request: "looks good"): `test-structure`,
+the tests split into groups (test/unit, test/integration, test/validation), CLAUDE.md's rules for
+tests, the audit's items on the roadmap (design.md item 21); its branch is safe to delete on GitHub.
 
 The four in `experiments` (their outcomes are in design.md):
 

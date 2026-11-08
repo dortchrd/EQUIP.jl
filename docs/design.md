@@ -5988,7 +5988,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      pass's bit-identity); the zero-allocation check of fit! in five test sets (different
      configurations); statistical checks (Monte Carlo up to 4000 copies, simulations up to 40 000
      voxels) inside the main suite.
-   - **Done (branch `test-structure`, 2026-11-08):** the one file split into test/setup.jl and
+   - **Done (branch `test-structure`, 2026-11-08; merged into `main`, the owner: "looks good"):** the one file split into test/setup.jl and
      groups (unit: models, roles, starts_solver; integration: fitting, simulation, crlb,
      montecarlo_sweeps, noise_weights, scenarios_leakage, design, io, diffusion, derived, macro;
      validation, empty), every test set moved as it was (checked against the original
