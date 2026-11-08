@@ -33,6 +33,8 @@ The resolved parameter roles of one fit (made by `setup`):
   [`datastart`](@ref))
 - `fromlog`: for each free parameter, whether it starts at `:loglinear` (the weighted fit of
   ln y with ln S, starts.jl)
+- `reciprocal`: for each `:loglinear` parameter, whether it is a time constant (no signal at 0, as
+  T2), whose log fit runs on its reciprocal (1/T2)
 - `weights`: `nothing` (unweighted), or one weight per observation in precision `T`: the fit
   minimizes ½Σᵢwᵢrᵢ²
 
@@ -50,6 +52,7 @@ struct FitSpec{F,P,T,S,X,W}
     candindex::Int              # which free parameter they are for (0 = none)
     fromdata::NTuple{P,Bool}    # true for free parameters that start at :data
     fromlog::NTuple{P,Bool}     # true for free parameters that start at :loglinear
+    reciprocal::NTuple{P,Bool}  # true for :loglinear time constants: the log fit runs on 1/θ
     weights::W                  # nothing, or Vector{T}: one weight per observation
 end
 
@@ -225,26 +228,52 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     starts = NamedTuple{F}(map(startvalue, F))
     #    `:loglinear` fits ln S, so the signal where it starts (those parameters at 0, the rest at
     #    their starts and fixed values, the first voxel's of any map) must be positive and finite
-    #    in every observation. It is not for a time constant at 0 (T2 = 0 is no signal: the start
-    #    stayed at T2's lower bound, and the fit stopped there and reported convergence, measured
-    #    2026-11-07) or for a signal that changes sign (a real-valued inversion recovery).
+    #    in every observation. A time constant gives none at 0 (T2 = 0: every echo has decayed),
+    #    but its reciprocal is the rate, for which ln S is linear: such a parameter starts very
+    #    long instead (`_LONG`, no decay to speak of), and the log fit runs on 1/θ (`reciprocal`,
+    #    starts.jl). Found by trying each `:loglinear` parameter long in turn, keeping the change
+    #    when it makes more observations valid (a rate made long only loses signal). Refused when
+    #    the signal is still not positive and finite: a signal that changes sign (a real-valued
+    #    inversion recovery). Before time constants were taken (2026-11-08), T2 at :loglinear was
+    #    refused here: from 0 the start stayed at T2's lower bound, and the fit stopped there and
+    #    reported convergence (measured 2026-11-07).
+    reciprocal = ntuple(_ -> false, Val(P))
     if any(fromlog)
-        s0 = zeros(T, nobs(model))
-        signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), starts), map(x -> _pick(x, 1, T), fixedvals))))
-        if !all(x -> isfinite(x) && x > 0, s0)
+        nvalid(st) = (s0 = zeros(T, nobs(model));
+                      signal!(s0, model, _resolve_ties(merge(map(x -> _pick(x, 1, T), st),
+                                                             map(x -> _pick(x, 1, T), fixedvals))));
+                      count(x -> isfinite(x) && x > 0, s0))
+        N = nobs(model)
+        for j in 1:P
+            nvalid(starts) == N && break
+            fromlog[j] || continue
+            long = merge(starts, NamedTuple{(F[j],)}((_LONG(T),)))
+            if nvalid(long) > nvalid(starts)
+                starts = long
+                reciprocal = Base.setindex(reciprocal, true, j)
+            end
+        end
+        if nvalid(starts) < N
             lognames = join((n for n in F if start(n) === :loglinear), "`, `")
             throw(ArgumentError("`$lognames` start at :loglinear, but $M's signal there (each at 0, " *
-                "the other parameters at their starts) is not positive and finite in every " *
-                "observation, so its logarithm is undefined. :loglinear is for parameters for which " *
-                "0 is a valid value in a signal that stays positive: diffusivities and rates (R2, " *
-                "not T2), magnitude data. Give a number or :data instead."))
+                "or very long for a time constant, the other parameters at their starts) is not " *
+                "positive and finite in every observation, so its logarithm is undefined. " *
+                ":loglinear is for a signal that stays positive (magnitude data) whose logarithm is " *
+                "linear, or nearly, in those parameters: diffusivities, rates and time constants " *
+                "of decays. Give a number or :data instead."))
         end
     end
 
     # The names F and their number P go into the type: FitSpec{(:PSR, :R1f, :Sf, :M0f), 4, ...}.
     return FitSpec{F,P,T,typeof(starts),typeof(fixedvals),typeof(w)}(lower, upper, starts, scale,
-                                                    fixedvals, candidates, candindex, fromdata, fromlog, w)
+                                                    fixedvals, candidates, candindex, fromdata, fromlog,
+                                                    reciprocal, w)
 end
+
+# Where a `:loglinear` time constant starts: very long, so that the signal has hardly decayed
+# (1/√eps: 6.7e7 in Float64, 2896 in Float32, in the parameter's own unit). Not ∞, whose
+# derivative is 0·∞; a log fit linear in 1/θ lands on the same answer from any start.
+_LONG(::Type{T}) where {T} = inv(sqrt(eps(T)))
 
 # The BestOf values of parameter `name` within its bounds, in precision T; an error if none is.
 function _candidates(name, b::BestOf, lo, hi, ::Type{T}) where {T}

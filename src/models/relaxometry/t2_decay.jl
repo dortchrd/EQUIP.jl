@@ -56,20 +56,12 @@ end
 
 parameters(::Type{<:T2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    T2 = Free(start = :data, lower = _TMIN),          # a log-linear fit (datastart, below)
+    T2 = Free(start = :loglinear, lower = _TMIN),     # the log-linear fit, on 1/T2 (starts.jl)
 )
 
 # The T2 form is the R2 form with R2 = 1/T2: convert, then R2Decay's signal (below; see
 # builtin.jl for why the time form calls the rate form).
 signal!(out, m::T2Decay, p) = signal!(out, R2Decay(m.TE), (; p.S0, R2 = 1 / p.T2))
-
-# Each voxel starts from a log-linear fit (a weighted straight line through log(y) against TE; see
-# `_loglinear_rate` in builtin.jl), or from mean(TE) when the data do not decay (the rate is then
-# NaN). S0 is set afterwards by least squares, given this T2.
-function datastart(m::T2Decay, y, p)
-    R2 = _loglinear_rate(m.TE, y)
-    return (T2 = isnan(R2) ? mean(m.TE) : 1 / R2,)
-end
 
 # -------------------------------------------------------------------------------------------------
 """
@@ -94,7 +86,7 @@ end
 
 parameters(::Type{<:R2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),   # from the echo times, once per fit
+    R2 = Free(start = :loglinear, lower = 0),          # the log-linear fit (starts.jl)
 )
 
 function signal!(out, m::R2Decay, p)

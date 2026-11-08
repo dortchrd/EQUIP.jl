@@ -25,7 +25,7 @@ end
 
 parameters(::Type{<:ADCDecay}) = (
     S0 = Free(start = :scale, lower = 0),
-    ADC = Free(start = m -> 1 / mean(m.b), lower = 0),   # from the b-values, once per fit
+    ADC = Free(start = :loglinear, lower = 0),         # the log-linear fit (starts.jl)
 )
 
 function signal!(out, m::ADCDecay, p)

@@ -107,6 +107,13 @@ end
 # DTI's former `datastart`) puts the noise into the weights: its MD came out 2.0% low at
 # b = 2500, against 0.2% for the two passes (docs/design.md, "Predicted-signal weights").
 #
+# Time constants (T2: no signal at 0) start very long instead and are stepped on their reciprocal,
+# for which ln S is linear: ln S = ln S0 − TE·(1/T2). The Jacobian's column for u = 1/θ is
+# ∂ln S/∂u = −θ²·∂ln S/∂θ, and the step lands at θ = 1/(1/θ + Δu); a step that would make u ≤ 0
+# (data that do not decay) leaves θ where it is. Found by `setup` (`reciprocal`). So T2Decay
+# starts from the same two passes as R2Decay, with no start of its own (it had a one-pass fit
+# weighted by the data, `_loglinear_rate`, until 2026-11-08).
+#
 # What moves: the parameters starting at `:loglinear` (from 0, their placeholder), and the
 # `:scale` parameter (the intercept: without it, the other parameters would absorb the signal's
 # level). The rest stay where they are, fixed or at their own starts. The scale multiplies the
@@ -140,35 +147,38 @@ function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) w
     moves = ntuple(k -> spec.fromlog[k] || k == spec.scale, Val(P))   # what the log fit moves
     θ = θ0
     for pass in 1:_LOGLINEAR_PASSES
-        q, A, g = _log_normal_equations(prob, θ, buf, ymax, S, pass > 1)   # OLS, then S(θ)²
+        q, A, g = _log_normal_equations(prob, θ, buf, ymax, S, pass > 1, spec.reciprocal)   # OLS, then S(θ)²
         isfinite(q) || return θ
         Δ, ok = _loglinear_step(A, g, moves)
         ok || return θ                           # the data cannot determine the parameters
-        θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale), spec.lower, spec.upper)
+        θ = clamp.(_logstep(θ, SVector{P,T}(Δ), spec.scale, spec.reciprocal), spec.lower, spec.upper)
     end
     return θ
 end
 
-# θ + Δ, with the scale parameter (number `sc`, 0 for none) stepped on its logarithm.
-@inline function _logstep(θ::SVector{P,T}, Δ::SVector{P,T}, sc) where {P,T}
-    θn = θ + Δ
+# θ + Δ, with the scale parameter (number `sc`, 0 for none) stepped on its logarithm, and a time
+# constant (`recip`) on its reciprocal: 1/(1/θ + Δ), or unchanged where that is not positive.
+@inline function _logstep(θ::SVector{P,T}, Δ::SVector{P,T}, sc, recip) where {P,T}
+    step(k) = recip[k] ? (u = inv(θ[k]) + Δ[k]; u > 0 ? inv(u) : θ[k]) : θ[k] + Δ[k]
+    θn = SVector{P,T}(ntuple(step, Val(P)))
     (sc > 0 && θ[sc] > 0) || return θn
     return Base.setindex(θn, θ[sc] * exp(Δ[sc] / θ[sc]), sc)
 end
 
 # The weighted normal equations of the log fit at θ: Σw·r², JᵀWJ and JᵀWr, with r = ln S − ln y,
-# J = ∂ln S/∂θ and w the fit's weight, times (S/ymax)² when `predicted` (S the signal at θ);
-# summed in precision S.
+# J = ∂ln S/∂θ (∂ln S/∂(1/θ) = −θ²·∂ln S/∂θ for a time constant, `recip`) and w the fit's
+# weight, times (S/ymax)² when `predicted` (S the signal at θ); summed in precision S.
 @noinline function _log_normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf, ymax,
-                                         ::Type{S}, predicted::Bool) where {F,P,T,S}
+                                         ::Type{S}, predicted::Bool, recip) where {F,P,T,S}
     signal!(buf, prob.model, _params(Val(F), _seed(θ), prob.fixed))   # S and ∂S/∂θ, as the solver
+    d = SVector{P,S}(ntuple(k -> recip[k] ? -S(θ[k])^2 : one(S), Val(P)))   # the chain rule
     A = zero(SMatrix{P,P,S})
     g = zero(SVector{P,S})
     q = zero(S)
     @inbounds for i in eachindex(buf)
         y, f = S(prob.y[i]), S(value(buf[i]))
         (y > 0 && f > 0) || continue
-        J = SVector{P,S}(partials(buf[i]).values) * inv(f)               # ∂ln S/∂θ
+        J = SVector{P,S}(partials(buf[i]).values) .* d * inv(f)          # ∂ln S/∂θ (or ∂/∂(1/θ))
         r = log(f / y)                                                   # ln S − ln y
         w = _wt(prob.w, i, S) * (predicted ? (f / ymax)^2 : one(S))      # the predicted signal², or 1
         wJ = w * J

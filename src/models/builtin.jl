@@ -49,22 +49,6 @@ _loggrid(a, b, n) = exp.(range(log(a), log(b); length = n))
 
 # A grid of T1 values for starting values, spanning the inversion (or delay) times t: from a
 # fifth of the shortest positive time to five times the longest, 30 values.
-# The rate R of a mono-exponential decay, y = S0·exp(-R·t), from a straight-line fit to log(y)
-# against t (for starting values, see `datastart`). Weighted by y²: the noise in log(y) is about
-# σ/y, so this weights each point by its precision and keeps the noisy tail from dominating.
-# Points with y ≤ 0 are skipped. NaN when the data give no decay (flat or rising, too few points).
-function _loglinear_rate(t, y)
-    T = float(eltype(y))
-    sw = swt = swtt = swl = swtl = zero(T)                 # weighted sums: w, w·t, w·t², w·l, w·t·l
-    @inbounds for i in eachindex(t, y)
-        y[i] > 0 || continue
-        w, ti, li = T(y[i])^2, T(t[i]), log(T(y[i]))
-        sw += w; swt += w * ti; swtt += w * ti^2; swl += w * li; swtl += w * ti * li
-    end
-    R = (swt * swl - sw * swtl) / (sw * swtt - swt^2)       # minus the slope of log(y) against t
-    return isfinite(R) && R > 0 ? R : T(NaN)
-end
-
 function _t1grid(t)
     tmin = minimum(x -> x > 0 ? float(x) : Inf, t)
     tmax = float(maximum(t))
