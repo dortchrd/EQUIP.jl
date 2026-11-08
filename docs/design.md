@@ -2898,6 +2898,14 @@ offering NIfTI only. Why:
 
 - MRImages in a repository of its own, registered before EQUIP (EQUIP's registration needs
   it).
+- **Julia 1.10 (the long-term-support release), with it** (the owner, 2026-11-08: "it's fine
+  for now", on the roadmap). Today the minimum is 1.11 for one reason: the `[sources]` entries
+  (EQUIP's Project.toml finds MRImages in this repository, the command line's EQUIP and
+  MRImages), which Julia reads from 1.11 on. Once MRImages is registered, they go, and 1.10 is
+  `julia = "1.10"` in the three [compat] sections, 1.10 in CI's matrix, and whatever its run
+  finds (checked 2026-11-08: no other 1.11-only feature in the code; `logrange`, from 1.11, only
+  in `BestOf`'s docstring example). CI tests 1.11 and the latest release; on 1.11.9 its first
+  run found only the allocation test measuring from top-level code (fixed).
 - DICOM and PAR/REC through dcm2niix (above): perhaps `equip convert`, or dcm2niix as a Julia
   binary package. Other formats when asked for (MGH, NumPy); orientation handling (to a
   standard orientation and back), memory-mapped reading of large files.
@@ -4206,7 +4214,8 @@ estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12); the oth
 changes (ADCKurtosis and T2DecayOffset on `:loglinear`, the second pass from the linear
 prediction, `BestOf(fits = k)`, neighbours; item 4); the B-matrix, `rotinv` and Watson views,
 cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit bridge and a
-"coming from" page (8); formats, protocol files, MRImages in its own repository (9); `--init`,
+"coming from" page (8); formats, protocol files, MRImages in its own repository and with it
+Julia 1.10 (9); `--init`,
 a server, the Python and MATLAB front ends, an installer (10); IRWLS and sensitivity–efficiency
 plots (3); myelin water, DCE, the sinc gradient echo (12).
 

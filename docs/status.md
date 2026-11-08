@@ -149,7 +149,7 @@ first")
 - The B-matrix for b-tensor data, `rotinv` and Watson views, cylinder and sphere compartments,
   N sticks (item 17).
 - Phantoms and BrainWeb (2); the LsqFit bridge and a "coming from" page (8); formats, protocol
-  files, MRImages in its own repository (9); `--init`, a server, the Python and MATLAB front
+  files, MRImages in its own repository and with it Julia 1.10 support (9); `--init`, a server, the Python and MATLAB front
   ends, an installer (10); IRWLS and sensitivity–efficiency plots (3); myelin water, DCE, the
   sinc gradient echo (12).
 
