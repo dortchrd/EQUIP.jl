@@ -5996,6 +5996,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      chosen by name (`Pkg.test(test_args = ["unit"])`, or directly `julia -t auto --project=test
      test/runtests.jl unit`, test/Project.toml naming EQUIP from the repository). The unit group:
      1010 tests in about a minute. CLAUDE.md: the commands and a section of rules for tests.
+     Checked: Pkg.test on Julia 1.13, 2347 passed (5 m 54 s, as before the split); on 1.11.9,
+     2294 passed and 53 allocation checks skipped (forced bounds checks); each of the 14 files
+     alone, after setup.jl only, every one passing (761, 124, 125, 151, 89, 224, 120, 130, 135,
+     32, 52, 230, 120 and 54 tests: 2347, so no file depends on another; 17 s to 68 s each);
+     CI, all six jobs.
      TestItemRunner.jl not taken: each `@testitem` self-contained means rewriting the file, for
      what include files already give; reconsider with VS Code's test panel.
    - **To do, in this order:**
