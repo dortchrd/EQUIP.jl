@@ -1014,83 +1014,29 @@ src/
 
 ## Roadmap
 
-Deferred on purpose. Earlier implementations of some of these exist on the `api-v0.2` and
-`main` branches.
+In order of priority (agreed 2026-11-08). The reasons and measurements are in docs/design.md
+(its roadmap items by number); where the work stands, item by item, is in docs/status.md.
 
-- **Priority, after the prerelease: Rician-likelihood fitting.** Magnitude data at low SNR are
-  Rician, and least squares fits the noise floor as signal: at SNR 15, a true ADC of
-  1.5×10⁻³ mm²/s comes out 9% low, and a constant offset (`+ C`) overcorrects to 13% high, since
-  the floor depends on the signal. First the expected magnitude as the model (least squares on
-  E[|y|], any model, crlb and montecarlo unchanged), then maximum likelihood, with crlb from the
-  Rician Fisher information (docs/design.md, roadmap item 13).
+1. **The prerelease**: a license, CI, a version number, the precompile workload extended
+   (crlb, montecarlo, a design, DTI and DKI), `equip fit DTI` and `equip fit DKI`, a shorter
+   README and an example per part.
+2. **Bias from noise at low SNR**: Rician fitting for every model (magnitude data sit on a
+   floor of about 1.25σ where the signal approaches the noise, and least squares reads it as
+   signal: DTI's MD is 11% low at SNR 10); crlb's second-order noise bias (the fit's own, Box
+   1971, and a derived quantity's), opt-in and checked against montecarlo; error propagation
+   for any function of the parameters, and from uncertain inputs such as a measured B1 map.
+3. **Protocol design**: a protocol from a number of points; objectives on derived quantities
+   (a DKI protocol for MK); the worst case inside a box of true values.
+4. **Derived quantities, finished**: standard-error maps (`FA_SE`), `compare` for derived
+   quantities, an angular error for the principal direction, derived quantities for the
+   other models.
+5. **Models**: stick–zeppelin, ball–stick and IVIM first; then MTR, MTsat, B1 and B0 maps,
+   pulsed qMT (Yarnykh, Ramani), NODDI, free-water DTI, DKI with its constraints imposed.
+6. **Starts, tested across all models**: plausible ranges per model, every start tested over
+   them, a dictionary start (`BestOf` over several parameters, the signals made once per fit),
+   and an example `datastart`.
+7. **Peripheral nerve SMT**: a protocol evaluator and search, when the lab's values arrive.
 
-- **sim/**: digital phantoms (`phantom(labels, tissues)` and `labelshapes(dims)` were built,
-  and set aside for the prerelease: in git at d901143, src/sim/phantom.jl), with smooth
-  variation, partial volume, a B1 field and lesions;
-  brain-like phantoms from segmentations (BrainWeb, KomaMRI's); a measured CSF T2 and in vivo tissue values
-- **bench/**: BenchmarkTools speed suite (own Project.toml) and accuracy studies on phantoms
-  (starting values, bounds, accuracy vs SNR), with recorded results
-- **errors/** (started: `Scenario`, `crlb`, `montecarlo`, sweeps, scenarios side by side,
-  data from another model, `CRLBCache`, `cond`, `cor`, `leakage`): sensitivity-efficiency
-  plots (Dortch 2018, Fig. 2A: `jacobian` ./ √t over two acquisition variables, contoured, with
-  schemes overlaid) as a function through a plotting extension; leakage from ties and per-voxel fixed maps; for the protocol search, crlb and
-  leakage from one kernel (one noise-free fit, one Hessian) with half the second derivatives
-- **Weighted fits** (W = Σ⁻¹, for σ that differs between observations, or correlated noise) and
-  **iteratively reweighted least squares** (robust weights against outliers, weights from a
-  signal-dependent noise), with crlb, Eq. 3 and leakage weighted to match
-- **design/** (started: `ProtocolDesign`, Eq. 5 with its options, `optimize_protocol`): tissues
-  × uncertain conditions as scenarios (B1, B0, T2m → Sf, Sm), Li 2010's T1 targets, Eq. 6
-  efficiency, data-driven designs from `FitResult`s, other optimizers through an extension
-- `BestOf` on several parameters at once, trying every combination (with precomputed
-  candidate signals when they are the same in every voxel), and `BestOf(values; fits = k)`:
-  full fits from the k best local minima of the values, keeping the lowest SSE
-- Outlier detection after a dataset fit (status, a parameter at a bound, deviation from
-  neighbouring voxels), then a refit with the neighbours' values as a starting candidate or
-  replacement by a neighbourhood average, marked in the status map
-- MT ratio, MTsat (Helms) and B1 maps (DAM, AFI) as models whose data start is the exact
-  closed-form answer, with B1 correction through a fixed B1 map; derived outputs (e.g. MTsat's
-  empirical B1 correction, BPF from PSR); later B0 maps, with complex data and phase unwrapping
-  from an existing package
-- More qMT models, from approximate to exact: Henkelman's continuous-wave steady state, pulsed
-  MT with SPGR (Sled & Pike, Ramani, Yarnykh, single-point MPF), MAMT (pulse pieces of constant
-  amplitude, propagated), and the full two-pool equations through the sequence without
-  approximations, where speed matters most; B1, B0 and R1 maps as fixed parameters
-- Diffusion microstructure: SMT (spherical mean technique) and NODDI
-- Custom models (started: `@mrimodel` and `newmodel`, "Writing a model"): `fit(m, y, p0)` and
-  `coef` for LsqFit users, and a "Coming from LsqFit, lsqcurvefit or qMRLab" page; a
-  `SimVary`-style sensitivity sweep
-- **io/** and **MRImages** (started: NIfTI, BIDS JSON sidecars, `.bval`/`.bvec`, MATLAB):
-  DICOM and PAR/REC through dcm2niix, not read directly (perhaps an `equip convert` running it,
-  or dcm2niix installed with EQUIP as a Julia binary package); other formats when asked for
-  (.npy/.npz, MGH, ISMRMRD images); orientation handling and memory-mapped reading; MRImages in
-  a repository of its own. Acquisition values
-  missing from headers (e.g. TI/TD for SIR) come from the call or a protocol file
-  (TOML/JSON/CSV), converted to seconds/degrees. Write maps back in the input's format and
-  geometry, with BIDS-derivative names and a JSON record of the fit settings
-- Command line, Python and MATLAB front ends, built on io/, each call compiling nothing: a
-  precompile workload covering every front-end call (checked by a test), `equip --init` to
-  prepare a case outside it once (compiled code saved on disk for later calls; prototype:
-  3.2–3.8 s → 0.06 s), juliacall for Python, a Julia server for MATLAB
-- Solver backends through package extensions, e.g. `solver = LsqFitLM()` or a SciML solver:
-  for checking EQUIP against a reference, models that cannot take dual numbers (finite
-  differences and user Jacobians come with the backends), and models with many parameters;
-  EQUIP's own static-array solver stays the default. Or a `levmar` method for ordinary arrays,
-  for models with more than ~30–40 free parameters
-- GPU, observation weights, other data layouts
-- Faster start for the command line: a Julia server for many calls in a row, or a system
-  image or standalone app (PackageCompiler.jl)
-- More models: gradient-echo decay with the through-slice sinc term for macroscopic field
-  gradients (a separate model; the frequency spread from a B0 field map or fitted); diffusion
-  tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE, more qMT methods
-- More data-driven starting values (with `datastart`): DESPOT1 for T1MFA (with the voxel's B1),
-  R2Decay and ADCDecay, ADCKurtosis, saturation recovery, the offset and biexponential models
-- Variable projection: the parameters the signal is linear in (M0/S0, the biexponential
-  amplitudes, an offset) solved inside every LM step, chosen per parameter with a setting of
-  its own, `fshort = Free(lower = 0, upper = 1, varpro = true)` (design in docs/design.md).
-  Prototype measured (branch
-  `varpro-proto`): biexponential 19–26% faster with more fits reaching the minimum; 0–22%
-  faster with one linear parameter; no help with multiple minima, so `BestOf` stays
-- Positive parameters fitted in log coordinates, with a per-parameter relative stopping test
-  ("stop when every parameter changes by less than 0.01%"). Prototype measured (branch
-  `varpro-proto`): with VarPro, the biexponential 40–59% faster than today and more fits
-  reaching the minimum; no change for models whose starts already do the job
+Recorded for later: DKI's RTK, KFA and Kmax; Bayesian estimation; variable projection and log
+coordinates (prototyped on `varpro-proto`); solver backends and GPU; digital phantoms; formats
+and MRImages as a package of its own; Python and MATLAB front ends.

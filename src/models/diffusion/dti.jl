@@ -13,7 +13,8 @@
 # Written out, in the standard format (decided with the owner, docs/design.md, roadmap item 17):
 #   - the six elements are fitted, not eigenvalues and angles: the eigen form is degenerate where
 #     two eigenvalues are equal, its angles wrap, and it needs a relabel. FA, MD, AD and RD are
-#     functions of the six, computed from the fit (their errors: `propagate`, item 16).
+#     functions of the six, computed from the fit (`derived`, below; their errors in crlb and
+#     montecarlo come from the same hook, roadmap item 19).
 #   - no `tensor` compartment (2026-11-07): the compartments (iso, stick, zeppelin) are what
 #     biophysical models add together, and a sum of full tensors is hard to fit (two tensors
 #     swap, and parallel ones cannot be told apart); fibers are zeppelins with a direction.

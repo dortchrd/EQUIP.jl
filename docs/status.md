@@ -1,4 +1,4 @@
-# Where we are (2026-11-07)
+# Where we are (2026-11-08)
 
 The map to read first when coming back: what is where, and what is left. The reasons and the
 measurements behind each item are in docs/design.md (roadmap items by number).
@@ -31,7 +31,8 @@ first pass made once per fit, the voxel fit called as a function above 8 free pa
 −16%, DKI −29%; T2Decay +14–28% at typical T2, converging everywhere). Last full runs: EQUIP
 2341, CLI 124, MRImages 103.
 
-No working branch is open.
+Open: `roadmap-priorities` (docs only, made from `lean` on 2026-11-08): the priority list below,
+and the same in design.md's roadmap and the README; for the owner to look at, not merged.
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
 merged into `lean` when the owner has seen it, then deleted; no more chains.
@@ -59,50 +60,88 @@ above, `smt-proto` `nerve-smt` `blocks-proto` `directions-proto` `loglinear-prot
 the repository's front page shows it. To decide: move `main` to `lean` (a fast-forward: `main` is
 in `lean`), or make `lean` the default branch.
 
-## Loose ends, in one list
+## Priorities (agreed with the owner, 2026-11-08)
 
-Presets (item 19):
-- To choose (the owner): a source with AK, and with cortical GM and CSF, for the `DKI_` presets
-  (Lätt et al. 2013 has neither).
+In order. The reasons, measurements and plans are in design.md (roadmap items by number; its
+"Priorities" paragraph has the same list).
 
-Derived quantities (item 19; crlb, montecarlo and `nominal` done):
-- Standard-error maps for derived quantities from the fit's own covariance (`savemaps` writing
-  `FA_SE`).
-- A protocol objective on a derived quantity (`ProtocolDesign` for MK's SD, not W1111's).
-- The second-order noise bias, ½tr(∇²g·C) with Box's bias of the parameters (item 16).
+**1. Finish the prerelease** (design.md, "The prerelease")
+- A license; CI running the three suites; a version number (0.3.0-DEV now).
+- The precompile workload extended to crlb, montecarlo, a design, and DTI and DKI (item 10).
+- `equip fit DTI` and `equip fit DKI` in the command line.
+- A shorter README (over 1,000 lines now); an example script per part.
+- A guard for T2Decay reporting "converged" at a huge T2 in voxels with no decay (item 4).
+- `python/` is still named `voxelfit`.
+- To decide (the owner): pulsed qMT (item 6) and NODDI (item 7) were "to add before" the
+  prerelease. Recommended: ship without them; they are the first models after.
+
+**2. Bias from noise at low SNR** (items 13, 16, 20)
+- Rician fitting for every model (items 13 and 20, one item): `fit(m, data; noise = :rician,
+  σ)`, the Gaussian fit first, σ as a map. Measured for DTI and DKI (MD 11% low at SNR 10), not
+  built.
+- crlb's second-order noise bias, both terms, opt-in, tested against montecarlo: Box's bias of
+  the parameters, and a derived quantity's ½ tr(∇²g·C).
+- `propagate(c, g)` for any function of the parameters (the `derived` hook covers a model's
+  own).
+- Uncertain inputs: a measured B1 map's SD added to the covariance.
+
+**3. Protocol design** (items 3, 14, 19)
+- A protocol from a number of points (item 14).
+- An objective on a derived quantity (`ProtocolDesign` for MK's SD, not W1111's).
+- The search's crlb and leakage from one kernel; the worst case inside a box.
+
+**4. Finish derived quantities** (item 19)
+- Standard-error maps from the fit's own covariance (`savemaps` writing `FA_SE`).
 - `compare` (a dataset fit against truth maps) for derived quantities.
 - An angular error for the principal direction (the cone of uncertainty) in place of V1's
   components, whose statistics break near the hemisphere's fold.
-- DKI's other cheap indices as derived quantities: RTK (Hansen 2013), KFA (Glenn 2015), Kmax;
-  and DIPY's numerical MK, AK, RK (each direction's K clipped before the average) as an option,
-  the analytic forms staying the default (design.md, item 19).
+- `vary` over derived quantities in `scenarios()` (sweeps already take them).
+- Derived quantities for the other models: qMT's kfm = kmf·PSR, T1 from R1, SMT's D⊥.
 
-Diffusion models (item 17):
-- StickZeppelin built in (examples/directional_models.jl has it by hand).
-- `equip fit DTI` and `equip fit DKI` in the command line; DTI and DKI in the precompile
-  workload.
-- DKI's constraints (K ≥ 0 in every direction) are checked, not imposed.
-- Later: free-water DTI, IVIM, NODDI (item 7); `rotinv` and Watson views; cylinder and sphere
-  compartments; the B-matrix for b-tensor data.
-- Starts: R2Decay and ADCDecay keep their constant starts (measured: `:loglinear` made them slower, 2026-11-08); still open, ADCKurtosis on `:loglinear`, T2DecayOffset on `:loglinear` (the owner: not now), the second pass from the linear prediction.
+**5. Models** (items 5, 6, 7, 17)
+- First, in this order (the owner): stick–zeppelin (examples/directional_models.jl has it by
+  hand), ball–stick (one stick; N sticks later), IVIM (the segmented fit as its `datastart`).
+  The two directional ones start from DTI's principal direction.
+- Then: MTR, MTsat, B1 and B0 maps (item 5); pulsed qMT (item 6); NODDI (item 7); free-water
+  DTI; DKI's constraints (K ≥ 0 in every direction) imposed, not only checked.
 
-Noise:
-- Rician fitting for every model (item 20, with item 13): measured for DTI and DKI, not built.
+**6. Starts, across all models** (item 4; after the models, the owner: "let's build all models
+first")
+- Plausible ranges per model, from the presets and the literature.
+- Every model's start tested over its plausible range, both precisions; outside it, tested only
+  for failing safely (flagged, never "converged" at nonsense).
+- The dictionary start: `BestOf` over several parameters, the candidate signals made once per
+  fit (the shared first pass is already that for models linear in ln S).
+- An example `datastart` (DESPOT1's linearization, IVIM's segmented fit).
 
-Nerve SMT (waiting on the lab, below):
+**7. Nerve SMT, when the lab sends its values** (item 18; below)
 - The protocol evaluator and the search (steps 3 and 4).
-- The spherical mean's pipeline errors (item 18): taken out of the code on 2026-11-06; the code,
-  tests and floor studies are in `lean`'s history at commit a9c7be4 (`nerve-smt`'s last), to
-  restore when this resumes.
+- The spherical mean's pipeline errors: taken out of the code on 2026-11-06; the code, tests and
+  floor studies are in `lean`'s history at commit a9c7be4 (`nerve-smt`'s last), to restore
+  when this resumes.
 
-Later (roadmap, design.md): MTR, MTsat, B1 and B0 maps (5); more qMT models (6); solver
-backends for large or non-dual models (11); GPU and more models (12); a protocol design from a
-number of points (14); Bayesian estimation (15); VarPro (designed).
+**Recorded, not ranked** (design.md has each)
+- DKI's other cheap indices, RTK, KFA, Kmax, and DIPY's numerical MK, AK, RK as an option (item
+  19).
+- Bayesian estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12).
+- The other start changes: ADCKurtosis and T2DecayOffset on `:loglinear` (the owner: the offset
+  not now), the second pass from the linear prediction, `BestOf(fits = k)`, neighbours as a
+  second pass (item 4). R2Decay and ADCDecay keep their constant starts (measured:
+  `:loglinear` made them slower, 2026-11-08).
+- The B-matrix for b-tensor data, `rotinv` and Watson views, cylinder and sphere compartments,
+  N sticks (item 17).
+- Phantoms and BrainWeb (2); the LsqFit bridge and a "coming from" page (8); formats, protocol
+  files, MRImages in its own repository (9); `--init`, a server, the Python and MATLAB front
+  ends, an installer (10); IRWLS and sensitivity–efficiency plots (3); myelin water, DCE, the
+  sinc gradient echo (12).
 
-The owner's own:
+**The owner's own**
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
-- Delete the old branches above; decide about `main`.
+- Delete the old branches above; decide about `main`; adopt or not one working branch at a
+  time.
+- A source with AK, and with cortical GM and CSF, for the `DKI_` presets (Lätt et al. 2013 has
+  neither).
 
 ## Waiting on the lab (nerve SMT steps 3 and 4: the protocol evaluator, then the search)
 

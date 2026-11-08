@@ -4078,16 +4078,64 @@ scope (decided 2026-10-31):
   `ProtocolDesign` compiled for 8.8 s), an example script per part, a shorter README.
 - **Kept exported:** crlb's pieces (`noisefree`, `bias`, `hessian`, `biasgradient`,
   `sandwich`, `biasedcrlb`), asked for at the REPL; unexporting them is open.
+- **Where it stands (2026-11-08):** in, as planned: fit statistics, SMT, the command line for
+  the four parts and the data reader; also DTI and DKI (item 17) and derived quantities (item
+  19). The repository is now github.com/dortchrd/EQUIP.jl. Open: the release basics above (a
+  license, CI, a version number, the precompile workload extended, now with DTI and DKI too,
+  an example script per part, a shorter README); `equip fit DTI` and `equip fit DKI`. Not
+  built: NODDI and the pulsed qMT models; the recommendation (to the owner) is to ship without
+  them and make them the first models after (the roadmap's "Priorities", tier 1).
 
 ## Roadmap
 
-**Priorities** (decided with the owner): first the prerelease ("The prerelease", above); then
-**Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02), because magnitude data
-at low SNR are the common case where least squares is wrong, and every part of EQUIP (fit, the
-statistics, crlb, montecarlo, design) currently assumes Gaussian noise when it fits. After
-those, **a protocol design from a number of points** (item 14, 2026-11-03). Bayesian
-estimation (item 15) is recorded, not a priority. The other items keep their numbers; the
-numbers are not an order.
+**Priorities** (agreed with the owner, 2026-11-08: "converge and tighten this into a priority
+list"; it keeps the earlier order, the prerelease, then Rician fitting, then a protocol from a
+number of points, and places everything else in it). The items keep their numbers; the numbers
+are not an order. The same list, with each tier's loose ends, is in docs/status.md.
+
+1. **Finish the prerelease** ("The prerelease", above). Open: a license; CI running the three
+   suites; a version number (Project.toml says 0.3.0-DEV); the precompile workload extended to
+   crlb, montecarlo, a design, and DTI and DKI (item 10); `equip fit DTI` and `equip fit DKI`;
+   a shorter README; an example script per part; a guard for T2Decay reporting "converged" at a
+   huge T2 in voxels with no decay (item 4); `python/` still named `voxelfit`. To decide (the
+   owner): pulsed qMT (item 6) and NODDI (item 7) were "to add before" it; the recommendation is
+   to ship without them and make them the first models after.
+2. **Bias from noise at low SNR** (the owner, 2026-11-08: "put it in tier 2"): Rician fitting
+   for every model (items 13 and 20, one item now); crlb's second-order bias, Box's bias of the
+   parameters and the derived quantities' ½ tr(∇²g·C), opt-in and tested against montecarlo;
+   `propagate(c, g)` for any function of the parameters; uncertain inputs (a measured B1 map's
+   SD added to the covariance). Item 16.
+3. **Protocol design**: a protocol from a number of points (item 14); an objective on a derived
+   quantity (MK's SD, not W1111's; item 19); the search's crlb and leakage from one kernel, and
+   the worst case inside a box (item 3).
+4. **Finish derived quantities** (item 19): standard-error maps (`FA_SE`); `compare` for
+   derived quantities; an angular error for V1; `vary` over derived quantities in `scenarios()`;
+   derived quantities for the other models (qMT's kfm = kmf·PSR, T1 from R1, SMT's D⊥).
+5. **Models**: stick–zeppelin, ball–stick and IVIM first (the owner, 2026-11-08; item 17), then
+   MTR, MTsat, B1 and B0 maps (item 5), pulsed qMT (item 6), NODDI (item 7), free-water DTI,
+   DKI's constraints imposed (item 17).
+6. **Starts, across all models** (the owner, 2026-11-08: "I want them to be tested and smart
+   across all models, but let's build all models first"): plausible ranges per model; every
+   model's start tested over them, both precisions, and safe failure outside them; the
+   dictionary start (`BestOf` over several parameters, the signals made once per fit); an
+   example `datastart`. Item 4.
+7. **Nerve SMT, when the lab sends its values**: the protocol evaluator and the search (steps 3
+   and 4), with the spherical mean's pipeline errors restored (item 18).
+
+Recorded, not ranked: DKI's RTK, KFA, Kmax and DIPY's numerical MK, AK, RK (item 19); Bayesian
+estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12); the other start
+changes (ADCKurtosis and T2DecayOffset on `:loglinear`, the second pass from the linear
+prediction, `BestOf(fits = k)`, neighbours; item 4); the B-matrix, `rotinv` and Watson views,
+cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit bridge and a
+"coming from" page (8); formats, protocol files, MRImages in its own repository (9); `--init`,
+a server, the Python and MATLAB front ends, an installer (10); IRWLS and sensitivity–efficiency
+plots (3); myelin water, DCE, the sinc gradient echo (12).
+
+History: the first order, decided with the owner before 2026-11-03, was the prerelease, then
+**Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02, because magnitude data
+at low SNR are the common case where least squares is wrong, and every part of EQUIP assumed
+Gaussian noise when it fitted), then **a protocol design from a number of points** (item 14,
+2026-11-03); Bayesian estimation (item 15) recorded, not a priority.
 
 1. **One result type for `fit`**: done (`FitResult`, see the section above): `params`, `sse`,
    `iterations`, `status` as `FitStatus`, `model`, `settings`, `fitted` / `residuals`, and a
@@ -4337,6 +4385,40 @@ numbers are not an order.
      faster and contained (noise-only voxels: 1 vs 154 hitting `maxiter`; 0 vs 874/1000 PSR
      values outside [0, 1]). Unbounded fits remain possible per fit:
      `PSR = Free(lower = -Inf, upper = Inf)`.
+   - **Starts across all models, after the models are built** (the owner, 2026-11-08: "I want
+     them to be tested and smart across all models, but let's build all models first"; tier 6
+     of the priorities). Where the starts stand: the IR family uses `BestOf` over 30 T1 values
+     spread over the TIs (`_t1grid`); T1SR, T1MFA, the SMT models, QMTSIR, the biexponentials
+     and ADCKurtosis start from constants; DTI, DKI and T2Decay from `:loglinear`; R2Decay and
+     ADCDecay from 1/mean(acquisition). The owner's concern: "we are testing unreasonable values
+     at times". The plan:
+     - **Plausible ranges per model**, from the tissue presets and the literature, one source
+       for the start tests, the dictionary's grid and sweeps.
+     - **Every model's start tested over its plausible range**, both precisions: the fraction
+       reaching the lowest SSE found from any start, and the time. Outside the range (no-decay
+       voxels, a T2 of seconds), tested only for failing safely: flagged on a bound or not
+       converged, never "converged" at nonsense. The first case: **T2Decay reports "converged"
+       at a huge T2 in voxels with no decay**; a guard is in tier 1 (the prerelease).
+     - **The dictionary start**: `BestOf` over several parameters, over the plausible ranges,
+       with the candidate signals made once per fit ("Precomputed candidates", above). The
+       owner asked (2026-11-08) for a generic design matrix from automatic differentiation and
+       the noise-free signal, made once: the shared first pass is that (`_LogPass`,
+       src/fit/starts.jl: ∂ln S/∂θ by dual numbers at the start values, once per fit; each voxel
+       solves P×P normal equations), exact for models linear in ln S (DTI, DKI, ADC, T2 on 1/T2:
+       DIPY's design matrix, derived instead of written). For the others (IR, MFA, qMT, the
+       biexponentials, SMT, IVIM) one matrix is a linearization about the nominal point, one
+       Gauss–Newton step, poor far from it; the dictionary is the generic object made once for
+       them. Estimated (not measured): 300–1000 entries × 30 observations, 2–10 µs per voxel.
+       Directional models: the direction from DTI's, the rest from the dictionary.
+     - **An example `datastart`** (examples/datastart.jl): DESPOT1's linearization for a
+       variable-flip-angle T1 model (S/sin α against S/tan α, slope E1 = exp(−TR/T1)) and IVIM's
+       segmented fit, with when to write a `datastart` and when `:loglinear` or `BestOf` is
+       enough.
+     - Also open, not ranked: ADCKurtosis on `:loglinear` (ln S = ln S0 − b·ADC +
+       b²·ADC²·K/6 is linear in ln S0, ADC and ADC²·K, not in K itself, so the first pass is a
+       linearization in K; to measure);
+       T2DecayOffset on `:loglinear` (the owner: not now); the second pass from the linear
+       prediction.
 5. **MT ratio, MTsat, B1 and B0 maps**: mostly closed-form estimators (a formula on as many
    images as unknowns), brought in as ordinary models.
    - **Approach: models whose data start is the exact answer.** Each method is a normal model
@@ -4578,7 +4660,8 @@ numbers are not an order.
        decision on units (EQUIP: b in s/mm², D in mm²/s; radii and the gyromagnetic ratio favour
        SI inside). Peripheral nerve axons are larger than the brain's, so axon diameter is a
        candidate for crlb (their sensitivity criterion, z_α/(SNR·√n), is a rough version of it).
-   - DTI, DKI with directions and IVIM stay under item 12.
+   - DTI and DKI are built (item 17); IVIM moved to item 17 (2026-11-08), with ball–stick and
+     stick–zeppelin; free-water DTI is on item 17 too.
 8. **Custom models, and coming from other fitters.** EQUIP's model interface (a struct,
    `parameters`, `signal!`) is short, but heavier than LsqFit's `model(x, p)` or MATLAB's
    `lsqcurvefit`, and it makes side-by-side comparisons awkward.
@@ -5041,7 +5124,8 @@ numbers are not an order.
        the default tolerances alone: (1e-6, 1e-8) is the safe step (11–19% faster on the simple
        models, 1 of 2000 biexponential voxels affected); check the hard models before changing.
      - Limits: one seed, two biexponential truths, one SNR, solver time only.
-   - Diffusion tensor and kurtosis, IVIM, multi-exponential T2 (myelin water), DCE.
+   - Multi-exponential T2 (myelin water), DCE. (Diffusion tensor and kurtosis: built, item 17;
+     IVIM: moved to item 17, 2026-11-08.)
 
 13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02). Started
    on branch `nerve-smt` (2026-11-03): step 1 below, the expected magnitude as the model
@@ -5180,6 +5264,30 @@ numbers are not an order.
      first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
      crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
      measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).
+   - **Where it stands (2026-11-08; tier 2 of the priorities, beside Rician fitting, the owner:
+     "put it in tier 2").** `propagate`'s first-order half is built, as the `derived` hook in
+     crlb and montecarlo (item 19: the delta method's SD, the bias g(θ̂) − g(θ) of what the fit
+     assumes). Still to build, together:
+     - **`propagate(c, g)` for any function** of the parameters, not only a model's `derived`:
+       the same code with g in place of `derived`.
+     - **The second-order noise bias, both terms**: Box's bias of the parameters, −½
+       (JᵀWJ)⁻¹JᵀW·d, and the derived quantity's own ½ tr(∇²g·C); for a derived quantity, ∇g·b
+       + ½ tr(∇²g·C). Cheap where crlb already is: its misspecified Hessian evaluates the model
+       with nested duals (`hbuf`, src/errors/derivatives.jl), which gives every ∇²gᵢ; Box's
+       bias is then one more sum over observations and one solve; ∇²g is nested duals through
+       `derived`. Opt-in (e.g. `crlb(m, θ; snr, secondorder = true)`), so the protocol search
+       keeps its first-order kernel unless it asks. Tested against montecarlo, as
+       bench/agreement.jl does for the first order. To check: whether Box's bias of DTI's six
+       elements closes FA's gap (+1.16e-3 predicted from ½ tr(∇²g·C) alone, +1.37e-3 measured,
+       SNR 20).
+     - **Where the expansion fails**, montecarlo the reference: near equal eigenvalues (FA at
+       low anisotropy, GM and CSF: FA behaves like a norm near isotropy, not smooth), near a
+       bound, and at low SNR generally.
+     - **Uncertain inputs**: L·Σ_c·Lᵀ added to the covariance (e.g. `uncertain = (B1 =
+       0.03,)`), measured above.
+     - Not the same as the Rician floor, which shifts the data's mean and which crlb already
+       includes under Rician noise (`riciannoise`, `ricianbound`; item 20). At low SNR both
+       matter, and they add.
 17. **Directional diffusion: DTI, stick–zeppelin, DKI, and the acquisition they share**
    (discussed 2026-11-04 and 05; examples/directional_models.jl, examples/dki.jl and scratch
    scripts; not built).
@@ -5212,6 +5320,31 @@ numbers are not an order.
      example, SNR 100, 132 images): v_ax 0.600 ± 0.004, the direction to 0.14°, Float64 and
      Float32. Written by hand with `fiberdirection` once per voxel and `ξ = g ⋅ n` per image
      (12.8 µs per voxel; with `@mrimodel` 23.1: "Directions per image", built 2026-11-06).
+   - **Stick–zeppelin, ball–stick and IVIM, first among the models** (the owner, 2026-11-08:
+     "want IVIM, ball stick, and stick zeppelin as well"; tier 5 of the priorities, in this
+     order). Not built.
+     - **Stick–zeppelin**: the example's code moved into src/, with the relabel and a start for
+       the direction (below), tests and a derived D⊥.
+     - **Ball–stick** (Behrens et al., Magn Reson Med 2003): S0·[(1 − f)·iso(b, d) + f·stick(b,
+       d, ξ)], one diffusivity d for both; the stick–zeppelin with the zeppelin isotropic, so the
+       same direction code with one parameter fewer. One stick now; N sticks later (FSL's
+       bedpostx, for crossings), which brings sticks that swap (a relabel ordered by f), a
+       fraction that should go to zero where there is no second fiber (bedpostx's automatic
+       relevance determination), and a flatter likelihood.
+     - **IVIM** (Le Bihan et al., Radiology 1988): S0·[f·exp(−b·D*) + (1 − f)·exp(−b·D)], D*
+       about 10× D. Poorly conditioned (D* very uncertain and correlated with f at typical SNR),
+       which crlb and montecarlo show directly; b-value design for it is published (Lemke et
+       al., Magn Reson Imaging 2011), so it also shows EQUIP's design part. A relabel reports
+       the faster component as D*, as T2BiexpDecay orders T2short and T2long. Its start, the
+       segmented fit (D from b ≥ 200 s/mm², log-linear; f from the intercept; then D*), as its
+       `datastart`: the published method, not a fix for a poor start (the reason T2Decay's was
+       removed), to measure against constant starts and `BestOf`. The simplified IVIM (D*
+       fixed) already works with `Fixed`.
+     - **The direction's start, for both directional models**: DTI's principal direction,
+       computed in the voxel by DTI's log-linear tensor fit (a few µs against a 12.8 µs fit),
+       one helper for both; θ and φ as start maps from a DTI fit remain possible, as today.
+     - **Free-water DTI** (Pasternak et al., Magn Reson Med 2009): DTI plus an isotropic
+       compartment at the free-water diffusivity; after these three.
    - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
      them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
      ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),
@@ -5302,8 +5435,9 @@ numbers are not an order.
      - the indices: the mean kurtosis tensor, MKT = (W1111 + W2222 + W3333 + 2(W1122 + W1133 +
        W2233))/5 (Hansen et al., MRM 2013), is linear in W and simple (in the example); MK, AK
        and RK need W rotated into D's eigenframe and, in Tabesh's closed forms (MRM 2011),
-       Carlson's elliptic integrals. All of them are functions of the fit, so `propagate` (item 16) gives their
-       errors; AK and RK inherit the eigenvectors' degeneracy where λ2 = λ3.
+       Carlson's elliptic integrals. All of them are functions of the fit, so the `derived`
+       hook in crlb and montecarlo gives their errors (item 19; `propagate`, item 16, was the
+       plan); AK and RK inherit the eigenvectors' degeneracy where λ2 = λ3.
      - the constraints: K(g) ≥ 0 in every direction, and the signal must not rise with b (b·D(g)·
        K(g) < 3 at b_max), are conditions on many parameters at once, which box bounds cannot
        state (ADCKurtosis notes the same for one direction). DIPY's constrained DKI solves a
@@ -5668,6 +5802,18 @@ numbers are not an order.
      - Also noted: DIPY's standalone `mean_kurtosis()` clips at 3 by default, its fit method
        `mk()` at 10; EQUIP follows the fit methods. Its other DKI fits: OLS and WLS (the
        default), CLS and CWLS (K ≥ 0 imposed), NLS.
+   - **Still open (2026-11-08; tier 4 of the priorities, except the protocol objective, tier
+     3):**
+     - Standard-error maps from the fit's own covariance (`savemaps` writing `FA_SE`).
+     - `compare` (a dataset fit against truth maps) for derived quantities.
+     - An angular error for the principal direction (the cone of uncertainty) in place of V1's
+       components, whose statistics break near the hemisphere's fold.
+     - `vary` over derived quantities in `scenarios()` (sweeps take them since 2026-11-07;
+       `scenarios()` refuses them).
+     - Derived quantities for the other models: qMT's kfm = kmf·PSR, T1 from R1 (the rate
+       forms), SMT's D⊥.
+     - A protocol objective on a derived quantity (`ProtocolDesign` for MK's SD).
+     - The second-order terms: item 16, tier 2.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
