@@ -29,8 +29,7 @@ Working branch: `loglinear-time` (off `lean`): T2Decay on the shared log-linear 
 `datastart` of its own), `:loglinear` for time constants, the start's first pass made once per
 fit, the voxel fit called as a function above 8 free parameters (DTI −16%, DKI −29%; T2Decay
 +14–28% at typical T2, converging everywhere). To merge when the owner has seen it. Last full
-runs: EQUIP (running when committed), CLI (running when committed), MRImages (running when
-committed).
+runs: EQUIP 2341, CLI 124, MRImages 103.
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
 merged into `lean` when the owner has seen it, then deleted; no more chains.

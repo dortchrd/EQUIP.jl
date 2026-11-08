@@ -4029,6 +4029,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     ms: 5 iterations instead of 10–14; the owner: not now); the offset models' long-T2 limit (S0,
     C and T2 not separable on a nearly straight decay, every form 40–50% unconverged at 2–10 s:
     the acquisition's or the model's to fix, not a start's).
+  - Full runs: EQUIP 2341, CLI 124, MRImages 103.
 
 ### Not done yet
 
