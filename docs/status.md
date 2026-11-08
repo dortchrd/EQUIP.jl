@@ -14,8 +14,8 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). |
 
-Open: `prerelease` (made from `main` on 2026-11-08): tier 1 below, for the owner to look at,
-not merged.
+Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
+its branch is safe to delete on GitHub.
 
 The four in `experiments` (their outcomes are in design.md):
 
@@ -75,8 +75,8 @@ only: the priority list below). Last full runs: EQUIP 2341, CLI 124, MRImages 10
 In order. The reasons, measurements and plans are in design.md (roadmap items by number; its
 "Priorities" paragraph has the same list).
 
-**1. Finish the prerelease**: done on branch `prerelease` (2026-11-08), for the owner to look
-at, not merged (design.md, "The prerelease: what was done", has the measurements)
+**1. Finish the prerelease**: done (2026-11-08, branch `prerelease`, merged into `main`;
+design.md, "The prerelease: what was done", has the measurements)
 - T2Decay's T2 at most 2.5 s (the owner): voxels with no decay end on the bound, flagged by
   `onbound`, instead of "converged" at about 1e10 s; tissue and CSF at 32 echoes unchanged.
 - `equip fit DTI` and `equip fit DKI`: the directions from the `.bval` and `.bvec` beside the
