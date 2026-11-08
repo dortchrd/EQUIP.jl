@@ -17,6 +17,10 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
 
+Open: `test-structure` (made from `main` on 2026-11-08): the tests split into groups (test/unit,
+test/integration, test/validation), CLAUDE.md's rules for tests, the audit's items on the roadmap
+(design.md item 21); for the owner to look at, not merged.
+
 The four in `experiments` (their outcomes are in design.md):
 
 | parent | was branch | outcome |
@@ -103,6 +107,10 @@ design.md, "The prerelease: what was done", has the measurements)
 - `propagate(c, g)` for any function of the parameters (the `derived` hook covers a model's
   own).
 - Uncertain inputs: a measured B1 map's SD added to the covariance.
+- With it, from the test audit (design.md item 21): the missing independent checks (the T1
+  signals' analytic values, invariances, every model's Jacobian and DKI's index gradients against
+  central differences, edge cases), and test/validation/ filled with the statistical checks
+  (bench/agreement.jl, the Rician fits'), run nightly in CI.
 
 **3. Protocol design** (items 3, 14, 19)
 - A protocol from a number of points (item 14).
@@ -140,6 +148,11 @@ first")
   when this resumes.
 
 **Recorded, not ranked** (design.md has each)
+- From the test audit (design.md item 21): the tests consolidated area by area, when work
+  touches an area (per-voxel loops into dataset fits, one error check per error path,
+  regression values traced, one configuration per behavior); the benchmark framework
+  (benchmark/, a BenchmarkTools suite with a baseline and first-call times) before performance
+  work.
 - DKI's other cheap indices, RTK, KFA, Kmax, and DIPY's numerical MK, AK, RK as an option (item
   19).
 - Bayesian estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12).

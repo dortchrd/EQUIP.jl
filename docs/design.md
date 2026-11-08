@@ -4198,7 +4198,8 @@ are not an order. The same list, with each tier's loose ends, is in docs/status.
    for every model (items 13 and 20, one item now); crlb's second-order bias, Box's bias of the
    parameters and the derived quantities' ½ tr(∇²g·C), opt-in and tested against montecarlo;
    `propagate(c, g)` for any function of the parameters; uncertain inputs (a measured B1 map's
-   SD added to the covariance). Item 16.
+   SD added to the covariance). Item 16. With it, from the test audit (item 21): the missing
+   independent checks, and the validation group filled with its statistical checks, run nightly.
 3. **Protocol design**: a protocol from a number of points (item 14); an objective on a derived
    quantity (MK's SD, not W1111's; item 19); the search's crlb and leakage from one kernel, and
    the worst case inside a box (item 3).
@@ -4224,7 +4225,9 @@ cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit b
 "coming from" page (8); formats, protocol files, MRImages in its own repository and with it
 Julia 1.10 (9); `--init`,
 a server, the Python and MATLAB front ends, an installer (10); IRWLS and sensitivity–efficiency
-plots (3); myelin water, DCE, the sinc gradient echo (12).
+plots (3); myelin water, DCE, the sinc gradient echo (12); from the test audit (21): the tests
+consolidated area by area (when work touches an area), and the benchmark framework (before
+performance work, e.g. VarPro).
 
 History: the first order, decided with the owner before 2026-11-03, was the prerelease, then
 **Rician-likelihood fitting** (item 13; raised from "later", 2026-11-02, because magnitude data
@@ -5957,3 +5960,70 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      bias recovered against simulations for each, the no-information cases with bounds, σ maps.
    - **Not the remedy for everything:** where the data have no information (CSF at b = 2000 in
      DKI: 0.25% of S0, below the floor) no noise model recovers it; mask, or constrain.
+21. **Tests and benchmarks** (the owner, 2026-11-08: "a systematic look at our testing and
+   benchmarking infrastructure"; an audit first, then "do 1 and 6 and add other items to
+   roadmap").
+   - **The audit (2026-11-08, Julia 1.13, 4 threads).** test/runtests.jl, one file of 3480 lines:
+     56 top-level test sets, 1263 assertions written, 2347 run (loops); the command line 139,
+     MRImages 103. About 225 assertions check errors (178 messages, 45 `@test_throws`), 22 what
+     is printed, 20 allocations, about 67 internals. Timed per test set (each run cold, then warm,
+     in one session; compile time from `Base.cumulative_compile_time_ns`): 307 s cold in all, of
+     which nearly all is compiling; the numerical work itself is about 6 s. The costliest: truths
+     from derived quantities 25 s, weighted fits 19, leakage 18, DKI 16 (22 parameters), crlb
+     against the textbook formulas 14, DTI 14, @mrimodel 14, noise-free recovery 13 (its fits
+     0.09 s). The compiling is the configurations outside the precompile workload (Float32, about
+     1.8 s a model; roles, weights, each model's crlb with its second derivatives, DKI); loading the
+     test packages does not invalidate EQUIP's precompiled code (checked). Pkg.test's own setup
+     adds 0.5 to 8 minutes after a change. So: fewer tests or moving the Monte Carlo runs would
+     save little; running only the group being changed, and one configuration per behavior, save
+     most.
+   - Found: few expected values produced by EQUIP itself (SMT's v_ax 0.6642, untraced, where a
+     simple estimate of the T2-weighted fraction gives 0.625; PSR's relative bias −0.1409 and
+     −0.02818, EQUIP's own crlb, which montecarlo agrees with elsewhere); many independent
+     references (SIR's matrix form, Table 2, the textbook crlb formulas, Gauss–Legendre spherical
+     means, DIPY's design matrix, central differences for the bias gradient, leakage and the eigen
+     derivatives). Assertions multiplied by loops over random voxels (the time and rate forms:
+     180 run for two properties); error messages matched as prose, spread over 30 test sets;
+     implementation choices tested as such (`setup`'s fields, `_FIT_INLINE_MAXP`, the shared first
+     pass's bit-identity); the zero-allocation check of fit! in five test sets (different
+     configurations); statistical checks (Monte Carlo up to 4000 copies, simulations up to 40 000
+     voxels) inside the main suite.
+   - **Done (branch `test-structure`, 2026-11-08):** the one file split into test/setup.jl and
+     groups (unit: models, roles, starts_solver; integration: fitting, simulation, crlb,
+     montecarlo_sweeps, noise_weights, scenarios_leakage, design, io, diffusion, derived, macro;
+     validation, empty), every test set moved as it was (checked against the original
+     mechanically: each found once, verbatim; setup.jl the original preamble); groups and files
+     chosen by name (`Pkg.test(test_args = ["unit"])`, or directly `julia -t auto --project=test
+     test/runtests.jl unit`, test/Project.toml naming EQUIP from the repository). The unit group:
+     1010 tests in about a minute. CLAUDE.md: the commands and a section of rules for tests.
+     TestItemRunner.jl not taken: each `@testitem` self-contained means rewriting the file, for
+     what include files already give; reconsider with VS Code's test panel.
+   - **To do, in this order:**
+     - **With tier 2: the missing independent checks.** Analytic values of the T1 signals
+       (inversion recovery's null at TI = T1·ln 2 with full inversion, the Ernst angle for
+       T1MFA, saturation recovery at TD = T1); invariances (data scaled: S0 or M0 scaled, the
+       rest unchanged; observations reordered: the same fit; crlb's SD ∝ σ and ∝ 1/√NEX; the
+       relative errors independent of M0); every built-in model's Jacobian against central
+       differences (today only against ForwardDiff, EQUIP's own engine); DKI's MK, AK and RK
+       gradients against central differences (FA, AD, RD and V1's are checked); edge cases (an
+       all-false mask, empty data, Inf, as many observations as parameters).
+     - **With tier 2: the validation group** (test/validation/): crlb against Monte Carlo at
+       n = 10 000 (bench/agreement.jl moved), the search to Table 2's optima, convergence with
+       SNR, the Rician fits' statistical checks; and the large Monte Carlo checks of the main
+       suite moved there if they grow; CI runs it nightly, on demand, and before merging into
+       `main`.
+     - **When work touches an area: consolidation**, area by area, keeping a list of the
+       behaviors each test covers: loops of per-voxel assertions into dataset fits; one error
+       check per error path, matching the name the message is about; regression values traced
+       or replaced by the property (SMT's v_ax); implementation-detail checks into behavior; one
+       configuration per behavior. The compile time saved: to measure (a guess, 20–40% of the
+       full suite).
+     - **Before performance work: the benchmark framework.** bench/ renamed benchmark/, its
+       own environment: `benchmarks.jl` (a BenchmarkTools `SUITE` by area, tagged quick or not:
+       models' signals and Jacobians, fit! per model in both precisions, a dataset on threads,
+       crlb! and a sweep, leakage, the design's d(x) and a short search), `run.jl` (quick or
+       full; JSON with the commit and the machine; compared with a baseline by `judge`, the
+       minimum, tolerances for this VM's ±20–50%; an older commit through a git worktree),
+       `firstcall.jl` (fresh sessions: load, first calls, the precompile), `baselines/`, and
+       `comparison/` (solvers.jl and cases.jl as they are); speed.jl folded into the suite;
+       agreement.jl to the validation group. No timing assertions in tests.

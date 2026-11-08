@@ -35,7 +35,8 @@ Requires Julia 1.11 or later.
 ```
 
 ```sh
-julia -t auto --project=. -e 'using Pkg; Pkg.test()'                # EQUIP
+julia -t auto --project=. -e 'using Pkg; Pkg.test()'                # EQUIP (unit + integration)
+julia -t auto --project=test test/runtests.jl unit                  # one group or file, directly
 julia --project=MRImages -e 'using Pkg; Pkg.test()'                 # MRImages (image files)
 julia --project=cli -e 'using Pkg; Pkg.instantiate(); Pkg.test()'   # the command line
 ```

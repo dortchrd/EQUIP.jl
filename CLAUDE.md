@@ -7,9 +7,16 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 
 ## Commands
 
-- Tests: `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (test/runtests.jl, about 1800 tests);
-  the command line's: `julia --project=cli -e 'using Pkg; Pkg.test()'`; MRImages':
-  `julia --project=MRImages -e 'using Pkg; Pkg.test()'`
+- Tests, in groups (test/runtests.jl; 2347 tests in unit + integration):
+  - while developing, directly, without Pkg.test's setup: `julia -t auto --project=test
+    test/runtests.jl unit` (about a minute), or a file by name (`... runtests.jl crlb`), or
+    `integration`, `validation`, `all`; with a `test/LocalPreferences.toml` (not committed)
+    holding `[EQUIP]` and `precompile_workload = false`, a code change costs seconds, not a minute
+  - the full check (unit + integration, as CI runs on every push):
+    `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (about 6 minutes of tests, plus up to
+    8 of setup after a change); a group: `Pkg.test(test_args = ["unit"])`
+  - the command line's: `julia --project=cli -e 'using Pkg; Pkg.test()'`; MRImages':
+    `julia --project=MRImages -e 'using Pkg; Pkg.test()'`
 - Examples (4-point SIR, SNR 200, CSV output): `julia -t auto --project=. examples/sir_4point_range.jl`
   (tissue values over the paper's range) or `examples/sir_wm_4point.jl` (white matter only);
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
@@ -24,7 +31,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   in the package's own environment: `julia -t auto --project=. bench/speed.jl` (about 1 minute)
 - Monte Carlo against crlb (bias and SD, z in Monte Carlo standard errors; T2, Dortch 2018
   Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
-- First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed)
+- First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed),
+  and for the direct test command `julia --project=test -e 'using Pkg; Pkg.instantiate()'`
 - The first `using EQUIP` after a code change takes about a minute (precompile workload,
   src/precompile.jl: every model's fit except DKI's, crlb, montecarlo, a design; 65 s measured). While developing, switch it off with a `LocalPreferences.toml` (not
   committed) containing `[EQUIP]` and `precompile_workload = false`; about 3 s per change then.
@@ -88,6 +96,12 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   only if it changes the front page.
 - docs/design.md: the decision log and the roadmap. Record design decisions, measurements and
   roadmap items there, with the reasons.
+- test/: setup.jl (packages, test models, CASES, `@test_noalloc`, the independent references) and
+  the groups: unit/ (models.jl: signals against their equations; roles.jl; starts_solver.jl),
+  integration/ (fitting, simulation, crlb, montecarlo_sweeps, noise_weights, scenarios_leakage,
+  design, io, diffusion, derived, macro), validation/ (expensive statistical checks, run apart).
+  bench/: speed (bench/speed.jl), crlb against Monte Carlo (agreement.jl), other packages
+  (solvers.jl); their framework is on the roadmap (docs/design.md, "Tests and benchmarks").
 - docs/status.md: where the work stands (branches, what waits on the lab, open questions): the
   map to read first when coming back; design.md has the reasons.
 
@@ -110,3 +124,27 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - When refactoring, check that results are unchanged (starts and fits of every model, both
   precisions) and measure speed before and after.
 - No pull requests unless asked.
+
+## Tests
+
+- Read the tests of the area (the file in test/unit or test/integration) before adding one; extend
+  a test set rather than start a parallel one, and do not repeat what another already covers.
+- A real bug fixed gets a regression test that fails without the fix, saying what it guards.
+- Check against something independent of the code: an analytic form or a limit, a published value
+  (paper, table), central differences, an invariance (scaling, reordering, σ), another package's
+  result. A number the implementation produced is a regression value, not a check: say so in a
+  comment and where it was checked, or test the property instead.
+- One configuration per behavior: test a feature on one representative model and precision unless
+  others take a different code path. Loops over many random voxels: one dataset fit and a few
+  assertions on it, not an assertion per voxel.
+- Error messages: one check per error path, matching the name or value the message is about, not
+  its prose.
+- Run the file or group being changed while developing (`julia -t auto --project=test
+  test/runtests.jl <file or group>`); the full suite (Pkg.test) before committing to a branch to
+  be merged; the validation group before merging into `main` when the change touches what it
+  checks.
+- No timing assertions in tests: speed goes in bench/, compared against a baseline. Allocation
+  checks are fine (deterministic): `@test_noalloc`, which skips them when bounds checks are forced
+  (Julia 1.11's Pkg.test).
+- New expensive statistical checks (Monte Carlo at large n, convergence studies) go in
+  test/validation/, listed in runtests.jl's `GROUPS.validation`.
