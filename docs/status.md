@@ -25,7 +25,12 @@ What came in, oldest first (each branch built on the one before; all now in `lea
 | `derived-truths` | `fromderived` and `nominal(DTI; MD, FA, direction)`; eigen derivatives at equal eigenvalues |
 | `derived-sweeps` | tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013); the truth by derived quantities in `Scenario`, `simulate`, `crlb`, `montecarlo`; sweeps over one (`vary = :FA => ...`) |
 
-No working branch is open.
+Working branch: `loglinear-time` (off `lean`): T2Decay on the shared log-linear start (no
+`datastart` of its own), `:loglinear` for time constants, the start's first pass made once per
+fit, the voxel fit called as a function above 8 free parameters (DTI −16%, DKI −29%; T2Decay
++14–28% at typical T2, converging everywhere). To merge when the owner has seen it. Last full
+runs: EQUIP (running when committed), CLI (running when committed), MRImages (running when
+committed).
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
 merged into `lean` when the owner has seen it, then deleted; no more chains.
@@ -75,7 +80,7 @@ Diffusion models (item 17):
 - DKI's constraints (K ≥ 0 in every direction) are checked, not imposed.
 - Later: free-water DTI, IVIM, NODDI (item 7); `rotinv` and Watson views; cylinder and sphere
   compartments; the B-matrix for b-tensor data.
-- `:loglinear` as the start for ADCDecay, ADCKurtosis and R2Decay (DTI and DKI use it).
+- Starts: R2Decay and ADCDecay keep their constant starts (measured: `:loglinear` made them slower, 2026-11-08); still open, ADCKurtosis on `:loglinear`, T2DecayOffset on `:loglinear` (the owner: not now), the second pass from the linear prediction.
 
 Noise:
 - Rician fitting for every model (item 20, with item 13): measured for DTI and DKI, not built.

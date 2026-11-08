@@ -818,7 +818,9 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     - Barral's method also searches over T1 (as we recall the paper and qMRLab's code; not
       checked here), and that search is what fixes the far-start failures. The grid start does
       that search without the sign choice, and works for any parameter declared `BestOf`.
-- **Log-linear start for T2Decay** (`datastart`; `_loglinear_rate` in `src/models/builtin.jl`,
+- **Log-linear start for T2Decay** (superseded 2026-11-08: T2Decay now starts from the shared
+  `:loglinear` start on 1/T2, and this `datastart` is gone; "T2Decay on the shared log-linear
+  start", below) (`datastart`; `_loglinear_rate` in `src/models/builtin.jl`,
   `_data_start` in `src/fit/starts.jl`). Each voxel's T2 starts from a straight-line fit to
   log(y) against TE, weighted by y² (the noise in log y is about σ/y), skipping points with
   y ≤ 0; mean(TE) when the data do not decay. Exact on noise-free data.
@@ -3970,7 +3972,63 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
         rising with b; DIPY's CWLS) and masking CSF matter more than the noise model.
   - Not yet: ADCDecay and ADCKurtosis (their starts are numbers
     from the acquisition) and T2Decay's rate model R2Decay, each with the refactoring check; a
-    linearization point other than 0, if a model needs one.
+    linearization point other than 0, if a model needs one. (Measured 2026-11-08, next entry:
+    R2Decay and ADCDecay keep their constant starts.)
+- **T2Decay on the shared log-linear start; time constants at `:loglinear`; the first pass made
+  once per fit; the voxel fit called as a function above 8 parameters** (2026-11-08, branch
+  `loglinear-time`; the owner: "I don't like having a one-off datastart just for that"; scratch
+  llt/).
+  - **Why T2Decay needs a data start and the rate forms do not** (the owner asked: "it makes zero
+    sense"). The solver steps in the parameter it fits. ln S is linear in R2, so a step from any
+    constant lands near the answer; in T2 a step goes through R2 = 1/T2, ΔT2 = −T2²·ΔR2, which for
+    an exact rate step gives T2_new = T2·(2 − T2/T2*): at most a doubling towards a long T2, an
+    overshoot below zero from beyond 2·T2*. Traced on a noise-free curve (32 echoes, T2 = 10 s,
+    from mean(TE) = 0.165 s): 0.165, 0.165, 0.165, 0.33, 0.46, 0.62, 0.72, 0.87 s, …, 33
+    iterations; R2Decay from 1/mean(TE): R2 = 0, then 0.1/s at the third, 6 iterations.
+  - **Time constants at `:loglinear`.** `setup` finds a `:loglinear` parameter whose 0 gives no
+    signal (0, or NaN where TE = 0), and whose large value (`_LONG`, 1/√eps: 6.7e7 in Float64,
+    2896 in Float32) gives a valid one, and marks it `reciprocal`: it starts there, and the two
+    passes run on u = 1/θ (column −θ²·∂ln S/∂θ, step θ = 1/(1/θ + Δu), no step where u would be
+    ≤ 0). Only where the signal is missing at 0, not negative: a real-valued inversion recovery's
+    rate made large looks valid (fully recovered) and was at first mistaken for a time constant,
+    caught by its test. T2Decay's T2 starts at `:loglinear`; its `datastart` and
+    `_loglinear_rate` (one pass weighted by the data's y²) are gone, and `datastart`'s
+    documented example is now a model of one's own (T2 from two echoes). The hook stays (custom
+    models; item 5's closed forms).
+  - **R2Decay and ADCDecay keep their constant starts.** On `:loglinear` they were 28–68% and
+    29–42% slower (alternated runs against lean, minimum of two; QMTSIR, T1IR and ADCKurtosis,
+    unchanged, within ±20%): their steps land in a few iterations from 1/mean(TE) or 1/mean(b),
+    and they converged everywhere, so the start cost more than it saved.
+  - **The first pass made once per fit** (`_LogPass`, `c.logpass`): when no start or fixed value
+    is a map and nothing starts at `:data`, every voxel's first pass starts from the same point;
+    its signal and ∂ln S/∂θ are made when the cache is, and each voxel only sums its data against
+    them. The same arithmetic, so bit-identical starts (T2Decay, R2Decay at :loglinear, ADCDecay
+    at :loglinear, DTI, DKI, both precisions). One session: the start 20–32% faster (T2Decay at
+    32 echoes 2.92 → 2.35 µs, DTI 4.38 → 3.70, DKI 56.6 → 38.4), the whole fit 5–8%. The rest
+    cannot be shared: each voxel's logarithms, in both passes, and the second pass at its own
+    point.
+  - **The voxel fit called as a function above 8 free parameters** (`_FIT_INLINE_MAXP`, voxel.jl;
+    the dataset loop and the log start). Found on the way: with the start's code grown, DKI's
+    dataset fit was 41–83% slower than lean's, while a loop of `fit!` over the same voxels and
+    `levmar` alone were not: compiled into the dataset loop at P = 22, the voxel fit made slow
+    code, as crlb's kernel did ("crlb at many parameters"). Called as a function for every
+    model, the small models were 4–23% slower, so the rule is crlb's: above 8.
+  - **Measured** (alternated against lean, Float64, one thread): T2Decay +14–28% at typical T2
+    (32 echoes 40 ms 2.19 → 2.49 µs), −47% where the data barely decay (8 echoes, T2 = 2 s: 1.40
+    → 0.74 µs), and every voxel converged where lean's start left 7 of 2000 (32 echoes, 10 s) and
+    114 of 2000 (8 echoes, 2 s) at the iteration limit; DTI −16%, DKI −29% (141 → 100 µs).
+    Snapshot (scratch llt/snapshot.jl, every built-in model, 300 voxels, both precisions): every
+    model's starts and fits bit-identical to lean's except T2Decay's, which agree to 2e-8
+    (Float64) and 6.5e-5 (Float32), in fewer iterations (1159 → 1058, 694 → 603).
+  - **A consequence to know**: in voxels that do not decay (R2Decay fits R2 = 0), T2Decay now
+    reports convergence at an enormous T2 (about 6e10 s; its sum of squares equal to R2Decay's at
+    R2 = 0, the least-squares answer), where lean's start ran to the iteration limit at about
+    5000 s. Both mean "no measurable decay"; the docstring says to prefer R2Decay for such data.
+  - Not done: the second pass from the linear prediction (no model evaluation) for models whose
+    ln S is exactly linear (a once-per-fit check needed); T2DecayOffset on `:loglinear` (40–80
+    ms: 5 iterations instead of 10–14; the owner: not now); the offset models' long-T2 limit (S0,
+    C and T2 not separable on a nearly straight decay, every form 40–50% unconverged at 2–10 s:
+    the acquisition's or the model's to fix, not a start's).
 
 ### Not done yet
 
