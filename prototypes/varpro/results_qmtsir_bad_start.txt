@@ -1,6 +1,0 @@
-# Output of qmtsir_bad_start.jl from the session's first run (scratchpad copy of the same script,
-# same seed); the rerun on this branch was stopped before it finished.
-from defaults:       PSR [0.0824, 0.119, 0.16]  R1f [0.879, 0.999, 1.14]  Sf [-1.03, -0.952, -0.873]  SSE [5.68, 177.0, 1090.0]
-from PSR 0.4, R1f 3: PSR [0.0, 0.0, 0.0]  R1f [3.87, 4.01, 4.15]  Sf [-1.2, -1.2, -1.2]  SSE [48400.0, 59900.0, 73200.0]
-SSE ratio bad/good: [54.8, 342.0, 10800.0]
-at a bound (bad): R1f = 10: 0  PSR = 1: 0  PSR = 0: 2000  Sf = 0: 0  Sf = -1.2: 2000
