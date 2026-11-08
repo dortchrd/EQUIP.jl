@@ -31,8 +31,10 @@ first pass made once per fit, the voxel fit called as a function above 8 free pa
 −16%, DKI −29%; T2Decay +14–28% at typical T2, converging everywhere). Last full runs: EQUIP
 2341, CLI 124, MRImages 103.
 
-Open: `roadmap-priorities` (docs only, made from `lean` on 2026-11-08): the priority list below,
-and the same in design.md's roadmap and the README; for the owner to look at, not merged.
+Merged since (fast-forward, 2026-11-08, at the owner's request): `roadmap-priorities`, docs only:
+the priority list below, and the same in design.md's roadmap and the README.
+
+No working branch is open.
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
 merged into `lean` when the owner has seen it, then deleted; no more chains.
@@ -40,7 +42,8 @@ merged into `lean` when the owner has seen it, then deleted; no more chains.
 **Old branches on GitHub, safe to delete** (every commit on them is in `lean`; the session's
 proxy refuses branch deletion, so this is for the owner, on GitHub's branches page): the chain
 above, `smt-proto` `nerve-smt` `blocks-proto` `directions-proto` `loglinear-proto`
-`noinline-proto` `derived-errors` `derived-truths` `derived-sweeps` `loglinear-time`; and the older ones,
+`noinline-proto` `derived-errors` `derived-truths` `derived-sweeps` `loglinear-time`
+`roadmap-priorities`; and the older ones,
 `aicc-fix` `analysis-proto` `api-v0.2` `averaging` `claude/sweet-thompson-ctbc4v` `cli-plan`
 `cli-proto` `crlb-proto` `design-proto` `diag-proto` `float32-ftz` `kwargs-proto` `leakage-proto`
 `mrimages-proto` `mrimodel-proto` `names-proto` `newmodel-proto` `nobs-proto` `noise-choice`
