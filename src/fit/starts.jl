@@ -135,11 +135,22 @@ end
 #     the start stays where it is;
 #   - each pass clamped to the bounds.
 # Allocates nothing: the buffer is the solver's, the sums static arrays.
+#
+# The first pass, made once per fit (`_logpass`): it starts every voxel from the same point (the
+# placeholders, and every other parameter's number) when nothing in the start varies by voxel,
+# no map among the starts or the fixed values and no `:data` start. The signal there and ∂ln S/∂θ
+# are then the same for every voxel, so they are computed when the cache is made, and a voxel's
+# first pass sums its own data against them; the second pass, at the voxel's own point, still
+# evaluates the model. The same arithmetic, row by row, so the same starts bit for bit (checked:
+# T2Decay, R2Decay, ADCDecay, DTI, DKI, both precisions). Measured (2026-11-08, scratch llt/
+# share.jl, one session): the start 20–32% faster (T2Decay at 32 echoes 2.92 → 2.35 µs, DTI
+# 4.38 → 3.70, DKI 56.6 → 38.4), the whole fit 5–8%. What it cannot share is most of the rest:
+# each voxel's logarithms, in both passes, and the second pass at the voxel's own point.
 # -------------------------------------------------------------------------------------------------
 
 const _LOGLINEAR_PASSES = 2          # OLS, then WLS weighted by OLS's predicted signal
 
-function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
+function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf, logpass = nothing) where {F,P,T}
     any(spec.fromlog) || return θ0               # no :loglinear start in this fit: no cost
     S = promote_type(Float64, T)                 # the precision of the sums and the solve
     ymax = S(maximum(prob.y))
@@ -147,7 +158,9 @@ function _loglinear_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) w
     moves = ntuple(k -> spec.fromlog[k] || k == spec.scale, Val(P))   # what the log fit moves
     θ = θ0
     for pass in 1:_LOGLINEAR_PASSES
-        q, A, g = _log_normal_equations(prob, θ, buf, ymax, S, pass > 1, spec.reciprocal)   # OLS, then S(θ)²
+        q, A, g = pass == 1 && logpass !== nothing ?
+            _log_normal_equations(prob, logpass) :                       # the first pass, made once
+            _log_normal_equations(prob, θ, buf, ymax, S, pass > 1, spec.reciprocal)   # OLS, then S(θ)²
         isfinite(q) || return θ
         Δ, ok = _loglinear_step(A, g, moves)
         ok || return θ                           # the data cannot determine the parameters
@@ -181,6 +194,48 @@ end
         J = SVector{P,S}(partials(buf[i]).values) .* d * inv(f)          # ∂ln S/∂θ (or ∂/∂(1/θ))
         r = log(f / y)                                                   # ln S − ln y
         w = _wt(prob.w, i, S) * (predicted ? (f / ymax)^2 : one(S))      # the predicted signal², or 1
+        wJ = w * J
+        A += wJ * J'
+        g += r * wJ
+        q += w * r^2
+    end
+    return q, A, g
+end
+
+# The first pass at the placeholder start, the same in every voxel: the signal f and ∂ln S/∂θ
+# there (∂ln S/∂(1/θ) for a time constant), made when the cache is made; `nothing` when the start
+# varies by voxel (a map among the starts or the fixed values, a `:data` start) or there is no
+# `:loglinear` start. Computed exactly as `_log_normal_equations` computes them.
+struct _LogPass{S,P}
+    f::Vector{S}
+    J::Vector{SVector{P,S}}
+end
+function _logpass(model, spec::FitSpec{F,P,T}, n) where {F,P,T}
+    any(spec.fromlog) || return nothing
+    (any(spec.fromdata) || any(x -> x isa AbstractArray, values(spec.start)) ||
+     any(x -> x isa AbstractArray, values(spec.fixed))) && return nothing
+    S = promote_type(Float64, T)
+    θ = SVector{P,T}(Tuple(spec.start))
+    buf = Vector{Dual{FitTag,T,P}}(undef, n)
+    signal!(buf, model, _params(Val(F), _seed(θ), map(x -> _pick(x, 1, T), spec.fixed)))
+    d = SVector{P,S}(ntuple(k -> spec.reciprocal[k] ? -S(θ[k])^2 : one(S), Val(P)))
+    f = [S(value(b)) for b in buf]
+    J = [SVector{P,S}(partials(b).values) .* d * inv(S(value(b))) for b in buf]
+    return _LogPass{S,P}(f, J)
+end
+
+# A voxel's first pass from the made one: the OLS normal equations of its data (the fit's own
+# observation weights only), as `_log_normal_equations` sums them.
+@noinline function _log_normal_equations(prob::VoxelProblem, lp::_LogPass{S,P}) where {S,P}
+    A = zero(SMatrix{P,P,S})
+    g = zero(SVector{P,S})
+    q = zero(S)
+    @inbounds for i in eachindex(lp.f)
+        y, f = S(prob.y[i]), lp.f[i]
+        (y > 0 && f > 0) || continue
+        J = lp.J[i]
+        r = log(f / y)
+        w = _wt(prob.w, i, S) * one(S)
         wJ = w * J
         A += wJ * J'
         g += r * wJ

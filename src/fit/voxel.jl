@@ -102,7 +102,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     #    ln S; then a `BestOf` parameter at its best value, or else the `:scale` parameter at the
     #    value that best matches the data's scale.
     θ0 = _data_start(prob, θ0, spec)
-    θ0 = _loglinear_start(prob, θ0, spec, c.buf)
+    θ0 = _loglinear_start(prob, θ0, spec, c.buf, c.logpass)
     if spec.candindex > 0
         θ0 = _best_start(prob, θ0, spec, c.buf)
     elseif spec.scale > 0
