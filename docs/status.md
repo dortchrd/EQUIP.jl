@@ -23,20 +23,18 @@ The four in `experiments` (their outcomes are in design.md):
 | 3 | `sens-proto` | `sensitivity` maps: built, then removed (Eq. 6 is `jacobian ./ √t`; its plot on the roadmap) |
 | 4 | `prototype/solver-deadzone` | steps toward bounds: superseded by the solver's dead-zone rule (`_lost_influence`) |
 
-**To delete on GitHub, by the owner** (github.com/dortchrd/EQUIP.jl/branches, the trash icon on
-each row; this session cannot delete branches: its safety check refused it, and its GitHub
-connection refuses tags). Every commit on these is in `main` or in `experiments`:
-- the four experiments, now in `experiments`: `varpro-proto` `step-proto` `sens-proto`
-  `prototype/solver-deadzone`;
-- the chain merged into `lean` (below): `smt-proto` `nerve-smt` `blocks-proto`
-  `directions-proto` `loglinear-proto` `noinline-proto` `derived-errors` `derived-truths`
-  `derived-sweeps` `loglinear-time` `roadmap-priorities`;
-- the older ones: `aicc-fix` `analysis-proto` `api-v0.2` `averaging`
-  `claude/sweet-thompson-ctbc4v` `cli-plan` `cli-proto` `crlb-proto` `design-proto` `diag-proto`
-  `float32-ftz` `kwargs-proto` `leakage-proto` `mrimages-proto` `mrimodel-proto` `names-proto`
-  `newmodel-proto` `nobs-proto` `noise-choice` `noise-proto` `org-proto` `result-proto`
-  `scen-proto` `scenario-proto` `set-proto` `sim-precision` `simulate-fast` `stats-proto`
-  `trim-proto` `weights-proto`.
+**Deleted on GitHub by the owner, 2026-11-08** (every commit on them is in `main` or in
+`experiments`): 45 branches. The four experiments, now in `experiments`: `varpro-proto`
+`step-proto` `sens-proto` `prototype/solver-deadzone`. The chain merged into `lean` (below):
+`smt-proto` `nerve-smt` `blocks-proto` `directions-proto` `loglinear-proto` `noinline-proto`
+`derived-errors` `derived-truths` `derived-sweeps` `loglinear-time` `roadmap-priorities`. And
+the older ones: `aicc-fix` `analysis-proto` `api-v0.2` `averaging`
+`claude/sweet-thompson-ctbc4v` `cli-plan` `cli-proto` `crlb-proto` `design-proto` `diag-proto`
+`float32-ftz` `kwargs-proto` `leakage-proto` `mrimages-proto` `mrimodel-proto` `names-proto`
+`newmodel-proto` `nobs-proto` `noise-choice` `noise-proto` `org-proto` `result-proto`
+`scen-proto` `scenario-proto` `set-proto` `sim-precision` `simulate-fast` `stats-proto`
+`trim-proto` `weights-proto`. A branch named in this file's history (below) or in design.md is
+in `main`'s history; any commit hash there still works (`git switch -c name <hash>`).
 
 **Proposed, for the owner (not adopted):** one working branch at a time, made from `main`,
 merged into `main` when the owner has seen it, then deleted; no more chains.
@@ -146,8 +144,7 @@ first")
 **The owner's own**
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
-- Delete the 45 branches listed under "Branches" on GitHub; later, whether to delete `lean`;
-  adopt or not one working branch at a time.
+- Later: whether to delete `lean`; adopt or not one working branch at a time.
 - A source with AK, and with cortical GM and CSF, for the `DKI_` presets (Lätt et al. 2013 has
   neither).
 
