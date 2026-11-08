@@ -73,6 +73,9 @@ Derived quantities (item 19; crlb, montecarlo and `nominal` done):
 - `compare` (a dataset fit against truth maps) for derived quantities.
 - An angular error for the principal direction (the cone of uncertainty) in place of V1's
   components, whose statistics break near the hemisphere's fold.
+- DKI's other cheap indices as derived quantities: RTK (Hansen 2013), KFA (Glenn 2015), Kmax;
+  and DIPY's numerical MK, AK, RK (each direction's K clipped before the average) as an option,
+  the analytic forms staying the default (design.md, item 19).
 
 Diffusion models (item 17):
 - StickZeppelin built in (examples/directional_models.jl has it by hand).

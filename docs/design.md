@@ -5641,6 +5641,33 @@ numbers are not an order.
        `scenarios(QMTSIR, ...; vary = :T1 => ...)` said "takes parameters" about derived
        quantities QMTSIR does not have; now only a name the model's hook takes is refused that
        way, the rest as before, "not a parameter".)
+   - **On the roadmap: DKI's other indices, and DIPY's numerical variants** (the owner,
+     2026-11-08: "analytic is enough for now, put on roadmap, along with the other cheap
+     indices"). From DIPY 1.12's source (dipy/reconst/dki.py), what it has beyond EQUIP's MK, AK,
+     RK and MKT:
+     - **More derived quantities, cheap** (functions of the 21 elements, no fit): RTK, the
+       rescaled radial tensor kurtosis (Hansen et al., Magn Reson Med 2013, with MKT;
+       `radial_tensor_kurtosis`); KFA, the kurtosis fractional anisotropy (Glenn et al., NMR
+       Biomed 2015; `kurtosis_fractional_anisotropy`); Kmax, the largest K(n) over a sphere
+       (`kurtosis_maximum`, a search from a 100-direction sphere, refined). Each would be another
+       name in DKI's `derived`, so it comes into maps, `savemaps`, crlb and montecarlo with no
+       other code; to check against DIPY's values as MK, AK and RK were.
+     - **The numerical variants** (`analytical=False`): MK as the mean of K(n) over a
+       45-direction spherical t-design, RK over 10 directions perpendicular to e1, AK the
+       apparent kurtosis along e1. Not more accurate: K(n) is a ratio of polynomials, so 45
+       directions do not average it exactly (MK 0.4% low for D = 1.7, 0.4, 0.3e-3 and K = 1:
+       2.030 against 2.038; RK and AK the same either way). What differs is the clipping: each
+       direction's K is clipped to [−3/7, 10] before the average, the analytic forms clip only the
+       result, so a few implausible directions cannot dominate (a nearly zero diffusivity, 1.7,
+       0.4, 0.05e-3: MK 5.52 against 7.19), robust maps in CSF, partial volume and noisy voxels,
+       but a different definition of MK. Also smooth (no eigenvectors for MK, no special cases),
+       so differentiable everywhere for crlb. In DIPY 340× slower (Python loops: 581 against 1.7
+       µs per voxel for MK and RK); in EQUIP 45 directions a voxel would cost well under a µs.
+       As an option of the model, the analytic forms staying the default (DIPY's, and what papers
+       report).
+     - Also noted: DIPY's standalone `mean_kurtosis()` clips at 3 by default, its fit method
+       `mk()` at 10; EQUIP follows the fit methods. Its other DKI fits: OLS and WLS (the
+       default), CLS and CWLS (K ≥ 0 imposed), NLS.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
