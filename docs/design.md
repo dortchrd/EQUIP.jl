@@ -6001,6 +6001,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      alone, after setup.jl only, every one passing (761, 124, 125, 151, 89, 224, 120, 130, 135,
      32, 52, 230, 120 and 54 tests: 2347, so no file depends on another; 17 s to 68 s each);
      CI, all six jobs.
+   - **The workload off while testing, without a file to remember** (the owner, 2026-11-08: "I'm
+     going to forget that"): `[preferences.EQUIP] precompile_workload = false` in
+     test/Project.toml, committed; a code change rebuilds in seconds. Pkg.test copies the test
+     environment's preferences into its sandbox (Pkg's Operations.jl), so CI's EQUIP job writes a
+     test/LocalPreferences.toml turning the workload back on (it takes precedence over the
+     Project.toml's; both checked), and tests EQUIP as users install it.
      TestItemRunner.jl not taken: each `@testitem` self-contained means rewriting the file, for
      what include files already give; reconsider with VS Code's test panel.
    - **To do, in this order:**

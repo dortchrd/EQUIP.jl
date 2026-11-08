@@ -13,6 +13,9 @@
 #   Pkg.test(test_args = ["crlb", "io"])         files by name, from any group
 #   julia -t auto --project=test test/runtests.jl unit       the same, without Pkg.test's setup
 #
+# The test environment builds EQUIP without its precompile workload (test/Project.toml's
+# [preferences.EQUIP]), so a code change rebuilds in seconds; CI turns it back on.
+#
 # Run with threads so the parallel path is exercised. Each file needs only test/setup.jl before
 # it. Split from one file on 2026-11-08, every test set moved as it was (docs/design.md).
 # =================================================================================================

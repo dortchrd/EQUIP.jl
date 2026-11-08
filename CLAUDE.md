@@ -10,8 +10,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Tests, in groups (test/runtests.jl; 2347 tests in unit + integration):
   - while developing, directly, without Pkg.test's setup: `julia -t auto --project=test
     test/runtests.jl unit` (about a minute), or a file by name (`... runtests.jl crlb`), or
-    `integration`, `validation`, `all`; with a `test/LocalPreferences.toml` (not committed)
-    holding `[EQUIP]` and `precompile_workload = false`, a code change costs seconds, not a minute
+    `integration`, `validation`, `all`. The test environment builds EQUIP without its precompile
+    workload (`[preferences.EQUIP]` in test/Project.toml), so a code change costs seconds, not a
+    minute; nothing to set up. CI turns the workload back on (CI.yml writes a
+    test/LocalPreferences.toml, which takes precedence), to test EQUIP as users install it
   - the full check (unit + integration, as CI runs on every push):
     `julia -t auto --project=. -e 'using Pkg; Pkg.test()'` (about 6 minutes of tests, plus up to
     8 of setup after a change); a group: `Pkg.test(test_args = ["unit"])`

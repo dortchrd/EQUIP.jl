@@ -36,4 +36,10 @@ jobs:
         shell: bash
         run: |
           dir=$([ "${{ matrix.package }}" = EQUIP ] && echo . || echo "${{ matrix.package }}")
+          # test/Project.toml builds EQUIP without its precompile workload, for quick rebuilds
+          # while developing; CI tests it as users install it, with the workload (this file
+          # takes precedence over test/Project.toml's preference).
+          if [ "${{ matrix.package }}" = EQUIP ]; then
+            printf '[EQUIP]\nprecompile_workload = true\n' > test/LocalPreferences.toml
+          fi
           julia --color=yes --project="$dir" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
