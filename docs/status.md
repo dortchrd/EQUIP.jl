@@ -5,13 +5,50 @@ measurements behind each item are in docs/design.md (roadmap items by number).
 
 ## Branches
 
-`lean` holds everything: fast-forwarded on 2026-11-07, at the owner's request, from 5414c60
-(2026-11-03) to the tip of the chain below, `derived-sweeps`. (Earlier the same day the chain
-had been merged into `lean` without the owner asking, and `lean` was reset to 5414c60; that
-merge commit, f3fd99d, is in the history the fast-forward brought.) Last full runs: EQUIP 2331,
-CLI 124, MRImages 103.
+Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageable branches"):
 
-What came in, oldest first (each branch built on the one before; all now in `lean`):
+| branch | what it is |
+|---|---|
+| `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
+| `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
+| `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
+| `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). |
+
+The four in `experiments` (their outcomes are in design.md):
+
+| parent | was branch | outcome |
+|---|---|---|
+| 1 | `varpro-proto` | VarPro on the biexponential cases: not faster as prototyped; a design for later ("Variable projection (VarPro): proposed design") |
+| 2 | `step-proto` | step-control variants for the solver: today's step control kept |
+| 3 | `sens-proto` | `sensitivity` maps: built, then removed (Eq. 6 is `jacobian ./ √t`; its plot on the roadmap) |
+| 4 | `prototype/solver-deadzone` | steps toward bounds: superseded by the solver's dead-zone rule (`_lost_influence`) |
+
+**To delete on GitHub, by the owner** (github.com/dortchrd/EQUIP.jl/branches, the trash icon on
+each row; this session cannot delete branches: its safety check refused it, and its GitHub
+connection refuses tags). Every commit on these is in `main` or in `experiments`:
+- the four experiments, now in `experiments`: `varpro-proto` `step-proto` `sens-proto`
+  `prototype/solver-deadzone`;
+- the chain merged into `lean` (below): `smt-proto` `nerve-smt` `blocks-proto`
+  `directions-proto` `loglinear-proto` `noinline-proto` `derived-errors` `derived-truths`
+  `derived-sweeps` `loglinear-time` `roadmap-priorities`;
+- the older ones: `aicc-fix` `analysis-proto` `api-v0.2` `averaging`
+  `claude/sweet-thompson-ctbc4v` `cli-plan` `cli-proto` `crlb-proto` `design-proto` `diag-proto`
+  `float32-ftz` `kwargs-proto` `leakage-proto` `mrimages-proto` `mrimodel-proto` `names-proto`
+  `newmodel-proto` `nobs-proto` `noise-choice` `noise-proto` `org-proto` `result-proto`
+  `scen-proto` `scenario-proto` `set-proto` `sim-precision` `simulate-fast` `stats-proto`
+  `trim-proto` `weights-proto`.
+
+**Proposed, for the owner (not adopted):** one working branch at a time, made from `main`,
+merged into `main` when the owner has seen it, then deleted; no more chains.
+
+### How `lean` (now `main`) got here
+
+`lean` was fast-forwarded on 2026-11-07, at the owner's request, from 5414c60 (2026-11-03) to the
+tip of the chain below, `derived-sweeps`. (Earlier the same day the chain had been merged into
+`lean` without the owner asking, and `lean` was reset to 5414c60; that merge commit, f3fd99d, is
+in the history the fast-forward brought.)
+
+What came in, oldest first (each branch built on the one before):
 
 | branch | what it added |
 |---|---|
@@ -25,43 +62,11 @@ What came in, oldest first (each branch built on the one before; all now in `lea
 | `derived-truths` | `fromderived` and `nominal(DTI; MD, FA, direction)`; eigen derivatives at equal eigenvalues |
 | `derived-sweeps` | tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013); the truth by derived quantities in `Scenario`, `simulate`, `crlb`, `montecarlo`; sweeps over one (`vary = :FA => ...`) |
 
-Merged since (fast-forward, 2026-11-08, at the owner's request): `loglinear-time`, T2Decay on the
-shared log-linear start (no `datastart` of its own), `:loglinear` for time constants, the start's
-first pass made once per fit, the voxel fit called as a function above 8 free parameters (DTI
-−16%, DKI −29%; T2Decay +14–28% at typical T2, converging everywhere). Last full runs: EQUIP
-2341, CLI 124, MRImages 103.
-
-Merged since (fast-forward, 2026-11-08, at the owner's request): `roadmap-priorities`, docs only:
-the priority list below, and the same in design.md's roadmap and the README.
-
-No working branch is open.
-
-**Proposed, for the owner (not adopted):** one working branch at a time, made from `lean`,
-merged into `lean` when the owner has seen it, then deleted; no more chains.
-
-**Old branches on GitHub, safe to delete** (every commit on them is in `lean`; the session's
-proxy refuses branch deletion, so this is for the owner, on GitHub's branches page): the chain
-above, `smt-proto` `nerve-smt` `blocks-proto` `directions-proto` `loglinear-proto`
-`noinline-proto` `derived-errors` `derived-truths` `derived-sweeps` `loglinear-time`
-`roadmap-priorities`; and the older ones,
-`aicc-fix` `analysis-proto` `api-v0.2` `averaging` `claude/sweet-thompson-ctbc4v` `cli-plan`
-`cli-proto` `crlb-proto` `design-proto` `diag-proto` `float32-ftz` `kwargs-proto` `leakage-proto`
-`mrimages-proto` `mrimodel-proto` `names-proto` `newmodel-proto` `nobs-proto` `noise-choice`
-`noise-proto` `org-proto` `result-proto` `scen-proto` `scenario-proto` `set-proto`
-`sim-precision` `simulate-fast` `stats-proto` `trim-proto` `weights-proto`.
-
-**Experiments never merged, on purpose** (their outcome is in design.md; keep or delete):
-
-| branch | outcome |
-|---|---|
-| `varpro-proto` | VarPro on the biexponential cases: not faster as prototyped; a design for later ("Variable projection (VarPro): proposed design") |
-| `step-proto` | step-control variants for the solver: today's step control kept |
-| `sens-proto` | `sensitivity` maps: built, then removed (Eq. 6 is `jacobian ./ √t`; its plot on the roadmap) |
-| `prototype/solver-deadzone` | steps toward bounds: superseded by the solver's dead-zone rule (`_lost_influence`) |
-
-**`main`** is GitHub's default branch and is still the first version (VoxelFit, 2026-10-14), so
-the repository's front page shows it. To decide: move `main` to `lean` (a fast-forward: `main` is
-in `lean`), or make `lean` the default branch.
+Then, fast-forwards on 2026-11-08 at the owner's request: `loglinear-time` (T2Decay on the shared
+log-linear start, no `datastart` of its own; `:loglinear` for time constants; the start's first
+pass made once per fit; the voxel fit called as a function above 8 free parameters: DTI −16%,
+DKI −29%, T2Decay +14–28% at typical T2, converging everywhere) and `roadmap-priorities` (docs
+only: the priority list below). Last full runs: EQUIP 2341, CLI 124, MRImages 103.
 
 ## Priorities (agreed with the owner, 2026-11-08)
 
@@ -120,7 +125,7 @@ first")
 **7. Nerve SMT, when the lab sends its values** (item 18; below)
 - The protocol evaluator and the search (steps 3 and 4).
 - The spherical mean's pipeline errors: taken out of the code on 2026-11-06; the code, tests and
-  floor studies are in `lean`'s history at commit a9c7be4 (`nerve-smt`'s last), to restore
+  floor studies are in `main`'s history at commit a9c7be4 (`nerve-smt`'s last), to restore
   when this resumes.
 
 **Recorded, not ranked** (design.md has each)
@@ -141,8 +146,8 @@ first")
 **The owner's own**
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
-- Delete the old branches above; decide about `main`; adopt or not one working branch at a
-  time.
+- Delete the 45 branches listed under "Branches" on GitHub; later, whether to delete `lean`;
+  adopt or not one working branch at a time.
 - A source with AK, and with cortical GM and CSF, for the `DKI_` presets (Lätt et al. 2013 has
   neither).
 

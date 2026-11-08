@@ -100,7 +100,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Working agreements
 
 - Ask before starting a long run (benchmarks, large simulations).
-- Prototypes go on their own branch (e.g. `varpro-proto`), not on `lean`, until they are
+- Prototypes go on their own branch (e.g. `varpro-proto`), not on `main`, until they are
   accepted.
 - When refactoring, check that results are unchanged (starts and fits of every model, both
   precisions) and measure speed before and after.
