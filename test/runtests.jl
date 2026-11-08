@@ -387,7 +387,7 @@ end
         # ... and lists what truth takes for every parameter, the keywords' values included
         e = msg(() -> nominal(T2Decay(TE = te)))
         @test occursin("\n  S0    free  :scale       [0.0, Inf]     1.0\n", e)
-        @test occursin(r"\n  T2 +free +:loglinear +\[1.0e-6, Inf\] +required$", e)
+        @test occursin(r"\n  T2 +free +:loglinear +\[1.0e-6, 2.5\] +required$", e)
         e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
         @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
         # mistakes
