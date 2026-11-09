@@ -4231,8 +4231,52 @@ accepted (CLAUDE.md); each step's measurements are reported before it is merged.
   4. **No unbounded rate survives the floor**: where the signal vanishes, any larger decay rate
      fits equally, and the fit runs away (DTI in CSF at b = 2500, SNR 10: MD +10 000%, 20% of
      voxels not converged; with D's diagonal ≤ 4e-3 mm²/s, 98–100% converged).
-- No σ estimation, and no maximum likelihood (least squares on the mean is consistent but not
-  efficient; it overcorrects DKI's MKT by −8% at SNR 20, its RMSE above the Gaussian fit's).
+- No σ estimation, and no maximum likelihood (least squares on the mean, unweighted, is
+  consistent but not efficient; weighted, it nearly is: below. It overcorrects DKI's MKT by −8%
+  at SNR 20, its RMSE above the Gaussian fit's).
+
+### The variance and the information, compared (2026-11-09)
+
+The owner asked whether `RicianMean` corrects the data and then fits a Gaussian model, and what
+`ricianvar` and `ricianinformation` are for. It corrects the model, not the data: the measured
+magnitudes are fitted as they are, floor included, by least squares to E|y| = `ricianmean(A(θ),
+σ)`. Correcting the data instead (y² − 2σ², since E[y²] = A² + 2σ² exactly) leaves each value
+noisy and negative near the floor. `ricianvar` is the spread of a magnitude around that mean
+(crlb's Σ for such a fit, `riciannoise`); `ricianinformation`, how much one magnitude says about
+A (`ricianbound`, the best SD of any unbiased fit). They differ: near the floor the variance
+shrinks to 0.43σ² while the information falls to 0, since the values bunch in the same place
+whatever A is; for Rician data the information is not 1/Var.
+
+Per observation, σ = 1 (E and Var from their closed forms; R by `_ricianR`'s quadrature; dE/dA
+from step 1's formula; q = (dE/dA)²/Var, the information a least-squares fit of the mean gets
+from one observation weighted by 1/Var):
+
+| A/σ | E\|y\| | Var | R (Rician information) | q | q/R |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 1.253 | 0.429 | 0 | 0 | 0.915 (the limit) |
+| 0.1 | 1.256 | 0.431 | 0.0099 | 0.0091 | 0.917 |
+| 0.3 | 1.281 | 0.448 | 0.0827 | 0.0771 | 0.933 |
+| 0.5 | 1.330 | 0.480 | 0.2017 | 0.1924 | 0.954 |
+| 1 | 1.549 | 0.602 | 0.5214 | 0.5158 | 0.989 |
+| 1.5 | 1.875 | 0.735 | 0.7375 | 0.7363 | 0.998 |
+| 2 | 2.272 | 0.836 | 0.8526 | 0.8524 | 1.000 |
+| 3 | 3.173 | 0.935 | 0.9402 | 0.9401 | 1.000 |
+| 5 | 5.101 | 0.979 | 0.9796 | 0.9796 | 1.000 |
+| 10 | 10.050 | 0.995 | 0.9950 | 0.9950 | 1.000 |
+
+- q ≤ R always (the Cramér–Rao inequality for y itself as an estimate of E|y|), with equality
+  only where the score is linear in y (the Gaussian limit). Its smallest ratio is at A → 0:
+  dE/dA → √(π/2)·A/2σ and Var → (2 − π/2)σ² while R → A²/σ², so q/R → π/(16 − 4π) = 0.915
+  (checked against the table's 0.917 at A/σ = 0.1).
+- So a least-squares fit of the Rician mean **weighted by 1/Var** has an information matrix at
+  least 0.915 times the Rician one, observation by observation (each term is a multiple of the
+  same JⱼJⱼᵀ): its SDs are at most 1/√0.915 = 1.045 times `ricianbound`, at any SNR and for any
+  model, asymptotically. It is the quasi-likelihood estimator (Wedderburn, Biometrika 1974;
+  61:439), fitted by iteratively reweighted least squares. Unweighted (as now) it loses more
+  where the variances differ (0.43σ² at the floor, σ² above it).
+- What this does not say: the bias at finite SNR (DKI's MKT, −8% at SNR 20, is that kind), and
+  how often each converges. Step 0 measures them. If the weighted fit's bias is no worse than
+  maximum likelihood's, step 4 may be unnecessary: decided on the measurements.
 
 ### The interface (to decide with the owner; recommended)
 
@@ -4265,8 +4309,10 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
 0. **The baseline, measured first.** A script in bench/ (a few minutes: asked before running):
    bias, SD, RMSE, % converged and µs per voxel of the Gaussian fit and of `RicianMean` by hand,
    for T2Decay (32 echoes), ADCDecay, T1IR on magnitude data (near its null), DTI and DKI, at
-   SNR 5, 10, 20 and 50, in tissue and CSF. Every later step is compared against this table,
-   recorded here.
+   SNR 5, 10, 20 and 50, in tissue and CSF; beside them, crlb's predictions of the unweighted
+   and the weighted (1/Var) fits of the mean against `ricianbound` (possible by hand today:
+   `riciannoise`'s Σ, with `weights = 1 ./ diag(Σ)` for the weighted). Every later step is
+   compared against this table, recorded here.
 1. **The fast Rician pieces**, moved to src/models/rician.jl (included before src/fit/, which
    will use them; src/sim/ keeps `riciannoise` and `ricianbound`):
    - `ricianmean` with its own derivative rule for dual numbers, from the same two Bessel
@@ -4286,9 +4332,14 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      (`:loglinear`, `datastart`, `:scale`, `BestOf`), then the Rician fit from its result. The
      cache holds both fits' caches (`init` returns one cache holding two `FitCache`s; `fit!`
      chosen by its type, dispatch), so datasets, threads, masks and `refit` work unchanged.
+   - Weighted or not: both built and measured against each other. Weighted, by 1/`ricianvar`
+     at the previous pass's estimate (the weights fixed within a pass and updated between, two
+     or three passes; quasi-likelihood, above), nearly efficient; unweighted, as `RicianMean` by
+     hand today. The weighted one the default if its convergence is as good (decided on the
+     measurements); weights the user gives multiply these.
    - Statistics: `stderror` and `vcov` from the sandwich with the Rician variance at the fit,
-     (JᵀJ)⁻¹JᵀΣJ(JᵀJ)⁻¹, σ known (no σ̂ from the residuals); AIC and BIC refused (a least-squares
-     fit of a mean is not a likelihood). `settings` and the maps' sidecars record the likelihood
+     (JᵀWJ)⁻¹JᵀWΣWJ(JᵀWJ)⁻¹, which is (JᵀΣ⁻¹J)⁻¹ when weighted by 1/Var; σ known (no σ̂ from the
+     residuals); AIC and BIC refused (a least-squares fit of a mean is not a likelihood). `settings` and the maps' sidecars record the likelihood
      and σ (provenance).
    - Bounds where the signal can vanish below the floor, per model (item 20): DTI's and DKI's
      diagonal elements ≤ 4e-3 mm²/s (free water is 3.0e-3 at 37 °C), ADC ≤ 4e-3 in ADCDecay and
@@ -4323,12 +4374,15 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
    1000 the same fit as least squares (a limit); in montecarlo at SNR ≥ 20, the SD within 10%
    of `ricianbound` and the bias below a tenth of the SD (asymptotic efficiency, Sijbers et al.
    1998); DKI's MKT at SNR 20, whether ML avoids `:ricianmean`'s −8% (recorded, not asserted).
+   Compared throughout with the weighted `:ricianmean` (its SD within 4.5% of the bound
+   asymptotically, above): ML is worth its solver change only if it is less biased or converges
+   better at low SNR; if not, this step waits.
 5. **crlb, montecarlo, sweeps and design, consistent with the fit used.** A `Scenario` carries
    `likelihood` and σ like the other fit settings, so montecarlo fits as asked, and crlb
    predicts that fit:
    - `:ricianmean`: the fitted model is the wrapper, the data's mean `RicianMean(m)` and their
-     covariance the Rician variance: what `riciannoise` writes by hand today. Exactly equal to it
-     (an identity test).
+     covariance the Rician variance: what `riciannoise` writes by hand today, with `weights = 1
+     ./ diag(Σ)` for the weighted fit. Exactly equal to it (an identity test).
    - `:rician`, model right: the bias 0 at first order and the covariance the inverse Rician
      information, `ricianbound` (an identity test). With a fixed parameter wrong, the bias is
      the likelihood's pseudo-truth (the minimizer of the expected likelihood, a quadrature per
@@ -4366,8 +4420,8 @@ against central differences, the edge cases.
 ### Not in tier 2
 
 Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same
-structure with L, after step 4. σ fitted per voxel (`σ = Free()`). Rician IRWLS (item 3), which
-step 4's Fisher scoring makes unnecessary.
+structure with L, after step 4. σ fitted per voxel (`σ = Free()`). (Rician IRWLS, item 3, is in
+step 2 now: the weighted `:ricianmean`.)
 
 ### Decisions for the owner
 
@@ -4377,6 +4431,8 @@ step 4's Fisher scoring makes unnecessary.
    fits are unchanged (recommended), or on the Rician fits only.
 3. MP-PCA in tier 2 (recommended: σ maps are the usual case in multi-coil data), or the
    background and noise-scan estimates only, MP-PCA later.
+4. Later, on step 0's and step 2's measurements, not now: whether maximum likelihood (step 4)
+   is still worth building beside the weighted `:ricianmean`.
 
 ## Roadmap
 

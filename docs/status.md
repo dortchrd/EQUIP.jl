@@ -107,7 +107,9 @@ design.md, "The prerelease: what was done", has the measurements)
 **2. Bias from noise at low SNR** (items 13, 16, 20). Planned (2026-11-09), not built: design.md,
 "Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged, and three
 decisions waiting on the owner (the keyword's name; the diffusivity bounds on Gaussian fits too;
-MP-PCA in tier 2 or later).
+MP-PCA in tier 2 or later). Found while answering the owner (2026-11-09): least squares on the
+Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
+(asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): proposed `fit(m, data; likelihood
   = :ricianmean or :rician, σ)` (least squares on E|y|, then maximum likelihood), the Gaussian
   fit first, σ a fixed parameter so a map works as B1's does. Measured for DTI and DKI (MD 11%
