@@ -126,6 +126,14 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - When refactoring, check that results are unchanged (starts and fits of every model, both
   precisions) and measure speed before and after.
 - No pull requests unless asked.
+- CI is a safety net, not a gate (the owner, 2026-11-09: "do we have to wait for ci every time").
+  Docs-only changes: commit and push; CI skips them (CI.yml's paths-ignore). Code changes: the
+  file or group being changed while working, the full local suite (Pkg.test) once before merging
+  into `main`, then merge and let CI run on `main` in the background, fixing at once if it fails.
+  Wait for CI before merging only when a change touches what only CI checks: Julia 1.11 and
+  version compatibility (Project.toml, [compat], newer language features), the precompile
+  workload, the command line or MRImages, or CI.yml itself. Long local runs go in the background
+  while the next item proceeds.
 
 ## Tests
 

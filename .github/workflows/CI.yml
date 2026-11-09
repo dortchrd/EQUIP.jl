@@ -7,8 +7,16 @@ name: CI
 
 on:
   push:
+    paths-ignore:                 # a push that changes only these runs no tests (CLAUDE.md)
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
-  workflow_dispatch:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+  workflow_dispatch:              # run by hand from GitHub's Actions tab, whatever changed
 
 concurrency:                      # a newer push to the same branch cancels the older run
   group: ${{ github.workflow }}-${{ github.ref }}
