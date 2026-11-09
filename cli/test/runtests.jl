@@ -337,7 +337,7 @@ end
         @test r.code == 0 && occursin("DesignResult for QMTSIR", r.out) && occursin("below the start's", r.out)
         d = ProtocolDesign(m4, scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; kmf = 12.5); snr = 200,
                            acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
-        dr = optimize_protocol(d; starts = 1, generations = 20, rng = Xoshiro(3))
+        dr = design(d; starts = 1, generations = 20, rng = Xoshiro(3))
         words = EQUIPCLI.configwords(cnf)
         @test words[findfirst(==("--TI"), words) + 1] == join(repr.(Float64.(dr.rounded.TI)), ',')
         @test words[findfirst(==("--TD"), words) + 1] == join(repr.(Float64.(dr.rounded.TD)), ',')

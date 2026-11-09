@@ -1,7 +1,7 @@
 # =================================================================================================
 # The protocol search: differential evolution, then Nelder–Mead, from several starts on threads
 #
-#   r = optimize_protocol(d; starts, rng)
+#   r = design(d; starts, rng)          (named `optimize_protocol` until 2026-11-09)
 #       for each start (a task, with its own copy of the design and its own random stream):
 #         1. differential evolution over the bounds (global: finds the right basin)
 #         2. Nelder–Mead from its best point (local: the last digits)
@@ -20,7 +20,7 @@
 """
     DesignResult
 
-What [`optimize_protocol`](@ref) returns:
+What [`design`](@ref) returns:
 
 - `protocol`: the best protocol found, a model (points sorted by the first varied field), and
   `value`, the objective there
@@ -44,13 +44,18 @@ struct DesignResult{M,D}
 end
 
 """
-    optimize_protocol(d::ProtocolDesign; starts = 2 * Threads.nthreads(), rng, popsize,
-                      generations = 1000, polish = true, round = 0.001) -> DesignResult
+    design(d::ProtocolDesign; starts = 2 * Threads.nthreads(), rng, popsize,
+           generations = 1000, polish = true, round = 0.001) -> DesignResult
+    design(m, scenarios; snr, acquisition, scantime, ..., starts, rng, ...) -> DesignResult
 
 Search the protocol that minimizes the objective `d` ([`ProtocolDesign`](@ref)) within its
 bounds and constraints: differential evolution, then Nelder–Mead from its best point, from
 `starts` independent starts on Julia's threads (start Julia with `-t auto`). The protocol given
-to `d` is one member of the first start's population.
+to `d` is one member of the first start's population. In one call, `design(m, scenarios;
+...)` makes the objective first: the keywords of [`ProtocolDesign`](@ref) and the search's
+together, as `fit(m, data)` is `init` then `fit!`. (Named `optimize_protocol` until
+2026-11-09: the main functions are short, `fit`, `crlb`, `montecarlo`, `design`, as the command
+line's `equip design`.)
 
 - `rng`: the random number generator; one number is drawn from it per start (that start's
   seed), so `MersenneTwister(1)` (from Random) repeats a search exactly, threads or not.
@@ -60,15 +65,15 @@ to `d` is one member of the first start's population.
 - `round`: the step the result is rounded to (s), or `nothing`.
 
 ```julia
-r = optimize_protocol(d; starts = 24, rng = MersenneTwister(1))
+r = design(d; starts = 24, rng = MersenneTwister(1))
 r.protocol, r.value            # the best protocol and its Eq. 5
 r.rounded, r.rounded_value     # rounded to the ms
 ```
 """
-function optimize_protocol(d::ProtocolDesign; starts::Integer = 2 * Threads.nthreads(),
-                           rng::AbstractRNG = Random.default_rng(),
-                           popsize::Integer = 10 * length(d.lower), generations::Integer = 1000,
-                           polish::Bool = true, round = 0.001)
+function design(d::ProtocolDesign; starts::Integer = 2 * Threads.nthreads(),
+                rng::AbstractRNG = Random.default_rng(),
+                popsize::Integer = 10 * length(d.lower), generations::Integer = 1000,
+                polish::Bool = true, round = 0.001)
     starts >= 1 || throw(ArgumentError("`starts` must be at least 1"))
     popsize >= 4 || throw(ArgumentError("`popsize` must be at least 4 (a trial uses three others)"))
     t0 = time()
@@ -85,6 +90,15 @@ function optimize_protocol(d::ProtocolDesign; starts::Integer = 2 * Threads.nthr
     return DesignResult(p, _objective(best.score), pr, _objective(sr), x,
                         [_objective(r.score) for r in results], sum(r.evaluations for r in results) + nr,
                         time() - t0, d)
+end
+
+# In one call: the objective (ProtocolDesign's keywords), then the search (its own).
+function design(m::MRIModel, scenarios; starts::Integer = 2 * Threads.nthreads(),
+                rng::AbstractRNG = Random.default_rng(), popsize = nothing,
+                generations::Integer = 1000, polish::Bool = true, round = 0.001, kwargs...)
+    d = ProtocolDesign(m, scenarios; kwargs...)
+    return design(d; starts, rng, popsize = something(popsize, 10 * length(d.lower)),
+                  generations, polish, round)
 end
 
 # One start: differential evolution, then (optionally) Nelder–Mead from its best point.

@@ -47,7 +47,7 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
     v = maxₗ Σⱼ Wⱼ (bⱼₗ² + σⱼₗ²)/θⱼₗ² · T
 
 (bias, SD and true value of free parameter j in scenario l, from [`crlb`](@ref)'s kernel).
-[`optimize_protocol`](@ref) searches it.
+[`design`](@ref) searches it.
 
 - `m`: the protocol to start from, a model with its acquisition: it sets the number of points
   and every field that is not varied (`magnitude`, ...).
@@ -78,7 +78,7 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
   `maximum` (default, minimax), `mean`, `v -> quantile(v, 0.9)`, ...
 - `cov`: `:sandwich` (default) or `:biased` (Eq. 3), as for `crlb`.
 
-Not thread-safe (the caches' buffers): [`optimize_protocol`](@ref) gives each start a copy.
+Not thread-safe (the caches' buffers): [`design`](@ref) gives each start a copy.
 
 ```julia
 tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)

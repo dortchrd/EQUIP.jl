@@ -28,7 +28,7 @@ d = ProtocolDesign(m4, ss; snr = 200,
 @printf("Eq. 5 at Table 2's 4-point scheme: %.6f (the paper: 0.2434)\n", d(m4))
 
 # --- 3. the search ------------------------------------------------------------------------------------
-r = optimize_protocol(d; starts = 8, rng = MersenneTwister(1))
+r = design(d; starts = 8, rng = MersenneTwister(1))
 @printf("optimum: %.6f (the paper's, before rounding: 0.2433); rounded to the ms: %.6f\n",
         r.value, r.rounded_value)
 println("TI (s): ", r.rounded.TI, "\nTD (s): ", r.rounded.TD)

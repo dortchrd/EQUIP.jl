@@ -80,7 +80,7 @@ function cmd_design(words; io::IO = stdout, err::IO = stderr)
     starts = round(Int, _number(value(a, "starts", string(2 * Threads.nthreads())), "starts"))
     generations = round(Int, _number(value(a, "generations", "1000"), "generations"))
     rng = has(a, "seed") ? Xoshiro(round(Int, _number(value(a, "seed"), "seed"))) : Xoshiro()
-    res = optimize_protocol(d; starts, generations, rng)
+    res = design(d; starts, generations, rng)
     show(io, MIME"text/plain"(), res)
     println(io, "\n  start:    ", join(("$k = $(getfield(m, k))" for k in keys(acquisition)), ", "),
             ": value ", round(start; sigdigits = 6))

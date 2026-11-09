@@ -98,6 +98,6 @@ using PrecompileTools: @setup_workload, @compile_workload
         d = ProtocolDesign(mr, ss; snr = 200, acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
                            constraints = m -> m.TI .+ m.TD .- 0.5, scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
         d(mr)
-        optimize_protocol(d; starts = 1, generations = 2, polish = false, rng = Xoshiro(1))
+        design(d; starts = 1, generations = 2, polish = false, rng = Xoshiro(1))
     end
 end

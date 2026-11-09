@@ -634,7 +634,7 @@ src/
   design/              (later) protocol objective (Eq. 5 and options), scan time, constraints,
                        tissue sets
   io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
-ext/                   (later) package extensions: OptimExt (optimize_protocol), and one per file
+ext/                   (later) package extensions: OptimExt (design), and one per file
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
 test/                  correctness and deterministic performance checks (no allocation, type
                        stability); no timings
@@ -1363,7 +1363,7 @@ Status: `crlb`, `montecarlo` and sweeps implemented (on `lean` since bb52890, fr
 `crlb-proto` branch); fit settings side by side, data from another model, general noise and
 the fast pieces (`CRLBCache`, derivatives.jl) on `lean` since 007e196, from `analysis-proto`;
 fit settings as keywords (`kwargs-proto`), the `Scenario` and the faster sweeps
-(`scenario-proto`) on `lean` since 6c7cc50; `ProtocolDesign` and `optimize_protocol`
+(`scenario-proto`) on `lean` since 6c7cc50; `ProtocolDesign` and `design`
 (`design-proto`) on `lean` since e269647; the rest proposed. Prototyped in scratch scripts;
 every number below was checked against the MATLAB code of Dortch et al., MRM 2018;80:1824
 (`signalSIR.m`, `CRLB_SIR.m`, `biasedCRLB_SIR_fixedkmf.m`, `calcVmax*.m`,
@@ -2154,7 +2154,7 @@ T2m/√(2π), as `calcSm_blockPulse.m`; the 1-ms block gives Sm = 0.831 at T2m =
 
 ### The plan: `ProtocolDesign`, an objective made once, and the search
 
-Status: the first version implemented (src/design/: `ProtocolDesign`, `optimize_protocol`;
+Status: the first version implemented (src/design/: `ProtocolDesign`, `design`;
 on `lean` since e269647, from `design-proto`), results at the end of this section; the
 scenario grid, conditions and Li's targets still to do. What the sections above leave open, made concrete
 with the pieces that now exist: the `Scenario` (a truth and the fit judged against it), one
@@ -2171,7 +2171,7 @@ d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3))        # Σ(TI + TD + t_FSE)
 d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 at a protocol: 0.243395
 evaluate(d, m)                    # a table: each scenario's relative bias, SD and RMSE, the time
-r = optimize_protocol(d; starts = 24, rng = MersenneTwister(1))     # search, then polish
+r = design(d; starts = 24, rng = MersenneTwister(1))     # search, then polish
 r.protocol, r.value               # the best protocol (sorted by TI) and its Eq. 5
 r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
 ```
@@ -2302,12 +2302,12 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   its value, `evaluate`'s table at it, and every start's best (value and protocol), so the
   spread across starts shows whether the search is reliable.
 - **Where**: `src/design/`: design.jl (`ProtocolDesign`, `evaluate`, the scenario grid),
-  search.jl (DE, Nelder–Mead, `optimize_protocol`, `DesignResult`). Diagnostics (sensitivity
+  search.jl (DE, Nelder–Mead, `design`, `DesignResult`). Diagnostics (sensitivity
   maps, leakage; "Diagnostics" above) are independent of this and can follow.
 - **Accepted when**:
   - `d` at the Table 2 schemes gives 0.243395 (4-point, kmf 12.5) and 1.602062 (5-point, kmf
     fitted), both covariances, as crlb; `d(x)` allocates nothing.
-  - `optimize_protocol` reaches Fopt4 ≤ 0.2433 and Fopt5 ≤ 1.6020 (the paper's GA optima
+  - `design` reaches Fopt4 ≤ 0.2433 and Fopt5 ≤ 1.6020 (the paper's GA optima
     before rounding), with most of 24 starts within 1%, and the rounded schemes near Table 2's
     (any order of the points).
   - Li 2010's T1 targets (62.4 s: 10 points, one TD of 1 s; 44.0 s: TI and TD free; 49.8 s:
@@ -2323,7 +2323,7 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
   - `scantime` as a function keyword (proposed), or a readout time in the model (QMTSIR has
     none).
   - The default time handling: × T (proposed, to reproduce the paper) or a budget.
-  - Names: `ProtocolDesign`, `evaluate`, `optimize_protocol`, `DesignResult`, the scenario
+  - Names: `ProtocolDesign`, `evaluate`, `design`, `DesignResult`, the scenario
     grid's helper; the syntax for a value shared by every point.
   - Distinct points with repeat counts (Li's optimized 35-point scheme falls into 7 groups):
     later.
@@ -2400,7 +2400,7 @@ r.rounded, r.rounded_value        # the same rounded to the ms, evaluated again
 
 `src/errors/`: `crlb`, `montecarlo`, sensitivity maps, leakage. `src/design/`: the objective,
 `scantime`, constraints, tissue sets (presets, ranges, or from `FitResult`s). `ext/`: the
-optimizer (`optimize_protocol`). Names and keywords to settle with the first implementation.
+optimizer (`design`). Names and keywords to settle with the first implementation.
 
 ### Related work
 
@@ -2448,7 +2448,7 @@ differentiation through solvers: ImplicitDifferentiation.jl.
    `jacobian` ./ √t; its plot (Fig. 2A) on the roadmap, item 3.
 4. The objective (Eq. 5 and its options; tissue sets; conditions), `scantime`, the protocol
    space: `ProtocolDesign` (done; the tissue × condition grid next).
-5. The optimizer: reproduce Fopt5 and Fopt4 (done, `optimize_protocol`), and Li's T1 targets.
+5. The optimizer: reproduce Fopt5 and Fopt4 (done, `design`), and Li's T1 targets.
 6. Data-driven: tissues and σ from `FitResult`s; adding points to a protocol.
 
 ### Open decisions
@@ -3131,7 +3131,7 @@ source of error is a perturbation of the shell means, carried to v_ax by the fit
    checked against the full Monte Carlo. For each kind of data: magnitude images (the
    scanner's averages complex or magnitude; the floor correction the pipeline uses) or
    phase-corrected real images ("Real-valued data", below).
-4. The search: N_dirs and N_avg enumerated, b and TE optimized (`optimize_protocol`), under the
+4. The search: N_dirs and N_avg enumerated, b and TE optimized (`design`), under the
    budget and the SNR floor, worst case over the nerve scenarios; one TE (SMT) against two
    (SMTT2), by the RMSE of the volume fraction.
 
@@ -4068,7 +4068,7 @@ scope (decided 2026-10-31):
 
 - **In:** fitting (the model interface, the solver, datasets on threads, `refit`); `crlb` (the
   sandwich and Eq. 3, sweeps, fits side by side, general noise); `montecarlo`, with crlb's
-  prediction alongside; protocol design (`scenarios`, `ProtocolDesign`, `optimize_protocol`);
+  prediction alongside; protocol design (`scenarios`, `ProtocolDesign`, `design`);
   the simulation they need (`simulate`, the noise model, `TISSUES` and `nominal`, `compare`); the
   diagnostics already built (`cond`, `cor`, `leakage`).
 - **Trimmed, for later:** digital phantoms (`phantom(labels, tissues)`, `labelshapes(dims)`):
@@ -4586,7 +4586,7 @@ own starts, then the Rician fit from its values, in one `fit!`, allocation-free.
   `onbound` identical, value for value. And as fast: bench/speed.jl on both commits within this
   VM's noise in every row (one-voxel fits 0.6–12 µs, ±20% either way; datasets 1.47–1.82 M
   voxels/s against 1.32–1.80; crlb, simulate, the design's d(x) the same; nothing allocates);
-  `optimize_protocol`, 2.0 against 2.9 s in one run each, is 1.34–1.46 against 1.41–1.52 s timed
+  `design`, 2.0 against 2.9 s in one run each, is 1.34–1.46 against 1.41–1.52 s timed
   three times after a first run.
 
 Measured with bench/rician_baseline.jl (2000 voxels a case, 4 threads, 220 s; the default
@@ -4792,7 +4792,8 @@ cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit b
 Julia 1.10 (9); `--init`,
 a server, the Python and MATLAB front ends, an installer (10); preprocessing, MP-PCA's denoising
 and σ maps, brain masks by median–Otsu, Gibbs-ringing removal, perhaps filtering (22); a units
-switch for what users see, e.g. ms and µm²/ms (23); IRWLS and
+switch for what users see, e.g. ms and µm²/ms (23); a review of the exported names (24:
+`optimize_protocol` already `design`); IRWLS and
 sensitivity–efficiency plots (3); myelin water, DCE, the sinc gradient echo (12); from the test audit (21): the tests
 consolidated area by area (when work touches an area), and the benchmark framework (before
 performance work, e.g. VarPro).
@@ -5865,12 +5866,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
                         others = (magnitude = false,),         # the fields not varied
                         snr = 200, scantime = m -> sum(m.TI .+ m.TD .+ 0.3),
                         constraints = m -> m.TI .+ m.TD .- 0.5)
-     optimize_protocol(d)                                       # every start random
-     optimize_protocol(d; start = QMTSIR(; SIR_4POINT..., magnitude = false))  # never worse than this
+     design(d)                                       # every start random
+     design(d; start = QMTSIR(; SIR_4POINT..., magnitude = false))  # never worse than this
      ```
      The template is built inside: the varied fields at their bounds' midpoints, the others from
      `others` or the model's defaults; a field with neither is an error that names it. The
-     starting protocol moves to `optimize_protocol`, because it belongs to the search, not to
+     starting protocol moves to `design`, because it belongs to the search, not to
      the objective. `ProtocolDesign(m, ss; ...)` stays: it is how a given protocol is scored
      (`d(m)`, e.g. a published scheme).
    - **The number of points as a question of its own**: with `points` a number, `points = 3:8`
@@ -6197,7 +6198,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        noise's own second-order term ½ tr(H Σ), H by nested duals (item 16: FA's noise bias,
        +1.16e-3 predicted against +1.37e-3 measured at SNR 20). montecarlo's: measured from
        each fit's derived values, so the two can be compared, as for the parameters.
-     - `ProtocolDesign` and `optimize_protocol`: an objective on a derived quantity, e.g. the
+     - `ProtocolDesign` and `design`: an objective on a derived quantity, e.g. the
        SD of MK, since they read crlb's named tuples (a DKI protocol designed for MK, not for
        W1111).
    - **Measured before (item 16)**: FA and MD's SDs by the delta method within 1% of 20 000
@@ -6687,3 +6688,30 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      the boundary later (Unitful quantities given are converted), as an extension.
    - **Tests**: the same fit, crlb and files in both systems give the same results converted (an
      invariance), for every model; a file's declared units win over the session's.
+24. **Names: a review of the exported names** (the owner, 2026-11-09: "add to roadmap some name
+   changes. or maybe we can do now. the main functions are terse...fit, crlb, montecarlo....but
+   optimize_protocol kind of stands out").
+   - **Done, 2026-11-09: `optimize_protocol` → `design`**, the owner's choice of three (`design`,
+     `optimize`, `optimalprotocol`): short like `fit`, `crlb` and `montecarlo`, the command line's
+     word already (`equip design`), and the only exported name with an underscore gone.
+     `optimize` was not taken because Optim.jl exports it (`using EQUIP, Optim` would make one
+     of them qualified). `ProtocolDesign` stays, as the objective made once (as `FitCache` and
+     `CRLBCache` beside `fit` and `crlb`), and `design(m, scenarios; ...)` makes it in the same
+     call, ProtocolDesign's keywords and the search's together, as `fit(m, data)` is `init` then
+     `fit!`. No alias for the old name (the owner: "not necessary ... there are no users at this
+     point"); bench/speed.jl falls back to it on older commits.
+   - **To review, the owner to decide** (each with why):
+     - crlb's pieces (`noisefree`, `bias`, `jacobian`, `hessian`, `biasgradient`, `sandwich`,
+       `biasedcrlb`, `noisecovariance`), exported for use at the REPL ("unexporting them is
+       open", the prerelease): `bias`, `jacobian` and `hessian` are common names elsewhere
+       (Symbolics exports `jacobian`), so `using` both would need one qualified. Unexported,
+       they stay `EQUIP.jacobian` etc.
+     - The Rician noise in crlb, now that the fit has `likelihood`: least squares on magnitude
+       data is `crlb(m, θ; riciannoise(m, θ; snr)...)`, a splat of keywords, where montecarlo
+       says `noise = :rician`; `crlb(m, θ; snr, noise = :rician)` would read the same in both.
+       And `ricianbound(m, θ; snr)` is now `crlb(m, θ; snr, likelihood = :rician)` (the same
+       numbers when nothing fixed is wrong): kept as a name for the bound, or dropped.
+     - File verbs: EQUIP's are load/save (`loaddata`, `loadmap`, `savemaps`) and write
+       (`writetable`), MRImages' read/write (`readimage`, `writeimage`, `readvalues`,
+       `readbvec`): one convention for both (Julia's FileIO uses load/save, Base read/write).
+     - `compare` and `Comparison`: a generic name for "a dataset fit against the truth's maps".

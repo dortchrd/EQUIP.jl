@@ -1,12 +1,12 @@
 # =================================================================================================
 # test/integration/design.jl: Protocol design: ProtocolDesign's objective (Eq. 5) at Dortch et al., MRM 2018, Table 2,
-# and optimize_protocol's search.
+# and design's search (named optimize_protocol until 2026-11-09).
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl design
 # =================================================================================================
 
-@testset "ProtocolDesign and optimize_protocol: Dortch 2018 Table 2 by search" begin
+@testset "ProtocolDesign and design: Dortch 2018 Table 2 by search" begin
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     tissues = (:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion)
     # Eq. 5 with the MATLAB code's settings, as in the crlb tests: signed signal, t_FSE 0.3 s,
@@ -51,15 +51,19 @@
     @test dsh(m4s) ≈ eq5(m4s, s4) rtol = 1e-12
     # the search reaches the paper's optima (Fopt4 0.2433, Fopt5 1.6020, the GA's before
     # rounding), and the rounded protocols are no worse than Table 2's own
-    r4 = optimize_protocol(d4; starts = 2, generations = 400, rng = MersenneTwister(1))
+    r4 = design(d4; starts = 2, generations = 400, rng = MersenneTwister(1))
     @test r4.value <= 0.2433 && r4.rounded_value <= d4(m4)
     @test all(g(r4.rounded) .>= 0) && issorted(r4.protocol.TI)
     @test r4.rounded_value ≈ d4(r4.rounded) rtol = 1e-12   # the order of the points aside
     @test all(x -> isinteger(round(1000x; digits = 9)), [r4.rounded.TI; r4.rounded.TD])  # the ms
-    r5 = optimize_protocol(d5; starts = 4, generations = 400, rng = MersenneTwister(2))
+    r5 = design(d5; starts = 4, generations = 400, rng = MersenneTwister(2))
     @test r5.value <= 1.6021 && r5.rounded_value <= 1.6021
-    @test optimize_protocol(d4; starts = 2, generations = 50, rng = MersenneTwister(3)).x ==
-          optimize_protocol(d4; starts = 2, generations = 50, rng = MersenneTwister(3)).x   # repeatable
+    @test design(d4; starts = 2, generations = 50, rng = MersenneTwister(3)).x ==
+          design(d4; starts = 2, generations = 50, rng = MersenneTwister(3)).x   # repeatable
+    # in one call, ProtocolDesign's keywords and the search's together: the same search
+    x3 = design(d4; starts = 2, generations = 50, rng = MersenneTwister(3)).x
+    @test design(m4, s4; snr = 200, acquisition = space, scantime = st, constraints = g,
+                 starts = 2, generations = 50, rng = MersenneTwister(3)).x == x3
     s = sprint(show, MIME"text/plain"(), r4)
     @test startswith(s, "DesignResult for QMTSIR, 4 points: value 0.2432") && occursin("\n  rounded:  TI = [0.01, 0.01,", s)
     @test sprint(show, d4) == "ProtocolDesign(QMTSIR, 4 points: TI ∈ [0.01, 10.0], TD ∈ [0.01, 10.0]; 4 scenarios)"

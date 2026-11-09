@@ -851,13 +851,16 @@ d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
                    constraints = m -> m.TI .+ m.TD .- 0.5,            # TR ≥ 0.8 s
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3))          # Σ(TI + TD + t_FSE)
 d(QMTSIR(; SIR_4POINT..., magnitude = false))   # Eq. 5 of a protocol: 0.243395 (Table 2)
-r = optimize_protocol(d; starts = 8, rng = MersenneTwister(1))
+r = design(d; starts = 8, rng = MersenneTwister(1))
 r.protocol, r.value             # 0.243255 (the paper's optimum before rounding: 0.2433)
 r.rounded, r.rounded_value      # to the ms: 0.243312
 ```
 
 - `d(x)`, x the varied values (the TIs, then the TDs), takes 11 µs here and allocates nothing:
   one cache per fit (the four tissues share one), the kernel once per scenario.
+- In one call, `design(m, ss; snr = 200, acquisition, constraints, scantime, starts = 8, rng)`:
+  `ProtocolDesign`'s keywords and the search's together, the objective made inside (as
+  `fit(m, data)` is `init` then `fit!`). (`design` was `optimize_protocol` until 2026-11-09.)
 - Options: `weights` per parameter, `budget` (a fixed scan time instead of × T),
   `aggregate` (`maximum` by default, Vmax; `mean`, a quantile, `v -> sum(w .* v)` with tissue
   weights), `shared = (:TD,)` (one TD for every point), `cov`.
@@ -1016,7 +1019,7 @@ src/
                           (crlb's pieces: CRLBCache, the sums, the formulas), crlb.jl (the
                           kernel, crlb, crlb!), montecarlo.jl, compare.jl (a dataset fit, e.g.
                           simulated maps), diagnostics.jl (cond, cor, leakage), sweep.jl
-  design/                 design.jl (ProtocolDesign: the objective), search.jl (optimize_protocol)
+  design/                 design.jl (ProtocolDesign: the objective), search.jl (design)
 ```
 
 `docs/design.md` records the design decisions.

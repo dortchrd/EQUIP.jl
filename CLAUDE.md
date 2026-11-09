@@ -78,7 +78,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `montecarlo` also take
 - src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
-  search.jl, `optimize_protocol` (differential evolution, then Nelder–Mead, starts on threads;
+  search.jl, `design` (differential evolution, then Nelder–Mead, starts on threads;
   the result rounded to the ms by a search of its own)
 - src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
   and a .bvec as a directional model's b, gx, gy, gz, checked), data.jl (`loaddata`,

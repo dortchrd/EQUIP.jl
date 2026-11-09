@@ -134,8 +134,9 @@ end
 evaluate(d, x, 1)
 t = minimum(@elapsed(evaluate(d, x, 1000)) for _ in 1:5) / 1000
 row("one evaluation d(x), 4-point", @sprintf("%6.2f µs, %d bytes", 1e6t, @allocated(d(x))))
-t = @elapsed optimize_protocol(d; starts = Threads.nthreads(), rng = MersenneTwister(1))
-row("optimize_protocol, $(Threads.nthreads()) starts on threads", @sprintf("%6.1f s", t))
+search = isdefined(EQUIP, :design) ? design : optimize_protocol   # (its name until 2026-11-09)
+t = @elapsed search(d; starts = Threads.nthreads(), rng = MersenneTwister(1))
+row("design (the search), $(Threads.nthreads()) starts on threads", @sprintf("%6.1f s", t))
 
 # -------------------------------------------------------------------------------------------------
 println("\n6. newer functions (skipped where this commit does not have them)")

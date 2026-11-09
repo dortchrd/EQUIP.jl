@@ -15,8 +15,9 @@ The signal model is the center of the package, and four parts build on it:
   scanning: the Cramér–Rao bound, biased when the fit assumes a wrong value.
 - **Measure**: `montecarlo`, the same measured by simulating and fitting noisy copies, with
   crlb's prediction alongside.
-- **Design**: `ProtocolDesign` and `optimize_protocol`, the protocol that minimizes the
-  predicted error over a set of `scenarios` (tissues, ranges of true values, conditions).
+- **Design**: `design`, the protocol that minimizes the predicted error over a set of
+  `scenarios` (tissues, ranges of true values, conditions); its objective, `ProtocolDesign`, can
+  be made once and reused.
 
 The same four as a command, `equip`, for NIfTI (or MATLAB) data without writing Julia.
 
@@ -75,7 +76,7 @@ ss = scenarios(QMTSIR, [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]; kmf = 12.5
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), ss; snr = 200,
                    acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
                    constraints = m -> m.TI .+ m.TD .- 0.5, scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
-r = optimize_protocol(d)                                 # Eq. 5: 0.2433, the paper's optimum
+r = design(d)                                 # Eq. 5: 0.2433, the paper's optimum
 ```
 
 ```bash

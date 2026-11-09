@@ -203,7 +203,8 @@ first")
   ends, an installer (10); preprocessing: MP-PCA's denoising and σ maps, median–Otsu masks,
   Gibbs-ringing removal, perhaps filtering (22); a units switch for what users see (ms, 1/s,
   µm²/ms: the owner's preference; inside, the units stay s, 1/s, s/mm², mm²/s) (23); IRWLS and
-  sensitivity–efficiency plots (3); myelin water, DCE, the
+  sensitivity–efficiency plots (3); a review of the exported names (24): `optimize_protocol`
+  renamed `design` (2026-11-09, the owner's choice; no alias), the rest listed for the owner; myelin water, DCE, the
   sinc gradient echo (12).
 
 **The owner's own**
