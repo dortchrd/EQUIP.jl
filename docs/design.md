@@ -5894,6 +5894,22 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `scenarios(QMTSIR, ...; vary = :T1 => ...)` said "takes parameters" about derived
        quantities QMTSIR does not have; now only a name the model's hook takes is refused that
        way, the rest as before, "not a parameter".)
+   - **Presets with AK, and gray matter and free water** (2026-11-09; the owner gave AK ranges
+     without a source, GM 0.40–0.70, CSF about 0, WM 0.80–1.20, then "search for reference").
+     Found: Maiter et al., Sci Rep 2021;11:8857 (open access; read through PubMed Central's BioC
+     text, the article pages being blocked or behind a CAPTCHA here): 9 healthy adults, 23 ± 5
+     years, 3 T, 30 directions, b = 0, 100, 1000, 2000 s/mm², DKE; whole GM and WM by
+     segmentation, every index from one analysis. `DKI_GM` (MD 0.81e-3, FA 0.21, MK 0.84, AK
+     0.98, RK 0.74) and `DKI_WM` (0.66e-3, 0.51, 1.27, 1.22, 1.40): each makes a tensor that gives
+     its five values back, with K(n) positive everywhere (lowest 0.74 and 1.20). The paper's GM AK
+     is above its RK and above the owner's range: AK depends on the protocol and the fit (a 2015
+     study, Clin Neuroradiol, reported 0.41–0.78 across 21 regions), so a preset takes its
+     indices from one study, and Lätt's ten regions keep AK in the call. Its cortical lobar GM
+     (MD 0.80e-3, FA 0.17, MK 0.82) has AK and RK only in a figure. `DKI_CSF`: free water as a
+     truth (MD 3.0e-3 mm²/s at body temperature, the free-water value of Pasternak et al., Magn
+     Reson Med 2009; FA and every kurtosis 0), not the paper's measured CSF (MK 0.74–0.86, MD
+     1.42–2.07e-3: partial volume, noise floor, flow). Tests: each round trip, free water
+     isotropic with no kurtosis.
    - **On the roadmap: DKI's other indices, and DIPY's numerical variants** (the owner,
      2026-11-08: "analytic is enough for now, put on roadmap, along with the other cheap
      indices"). From DIPY 1.12's source (dipy/reconst/dki.py), what it has beyond EQUIP's MK, AK,

@@ -198,6 +198,16 @@ end
     dk = derived(mk, nominal(DKI, :DKI_CC_splenium; S0 = 1000.0, direction = (1, 0, 0), AK = 0.8))
     @test all(k -> isapprox(dk[k], (MK = 1.32, AK = 0.8, RK = 2.72)[k]; rtol = 1e-10), (:MK, :AK, :RK))
     @test occursin("give AK too", msg(() -> nominal(DKI, :DKI_CC_splenium; direction = (1, 0, 0))))
+    # whole GM and WM with every index (Maiter et al., Sci Rep 2021;11:8857), no AK in the call:
+    # the tensors made from them give the published values back; free water (DKI_CSF): isotropic,
+    # MD 3.0e-3 mm²/s, no kurtosis
+    for name in (:DKI_GM, :DKI_WM)
+        d = derived(mk, nominal(DKI, name; S0 = 1000.0, direction = (1, 0, 0)))
+        @test all(k -> isapprox(d[k], tissue(name)[k]; rtol = 1e-10), (:MD, :FA, :MK, :AK, :RK))
+    end
+    dc = derived(mk, nominal(DKI, :DKI_CSF; S0 = 1000.0, direction = (1, 0, 0)))
+    @test dc.MD ≈ 3.0e-3 && dc.AD ≈ dc.RD && abs(dc.FA) < 1e-12
+    @test all(k -> abs(dc[k]) < 1e-12, (:MK, :AK, :RK, :MKT))
     @test derived(mt, nominal(DTI, :DKI_CC_splenium; FA = 0.5, direction = (1, 0, 0))).FA ≈ 0.5   # the keyword wins
     @test occursin("no value for `T2`", msg(() -> nominal(T2Decay(TE = [0.01, 0.02]), :DKI_thalamus)))
     # a truth by derived quantities: a Scenario keeps it as given (`given`), with its

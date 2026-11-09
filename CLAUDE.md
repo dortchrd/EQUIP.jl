@@ -7,7 +7,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 
 ## Commands
 
-- Tests, in groups (test/runtests.jl; 2347 tests in unit + integration):
+- Tests, in groups (test/runtests.jl; about 2360 tests in unit + integration):
   - while developing, directly, without Pkg.test's setup: `julia -t auto --project=test
     test/runtests.jl unit` (about a minute), or a file by name (`... runtests.jl crlb`), or
     `integration`, `validation`, `all`. The test environment builds EQUIP without its precompile

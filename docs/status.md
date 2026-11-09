@@ -173,8 +173,9 @@ first")
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
 - Later: whether to delete `lean`; adopt or not one working branch at a time.
-- A source with AK, and with cortical GM and CSF, for the `DKI_` presets (Lätt et al. 2013 has
-  neither).
+- Done (2026-11-09): `DKI_GM` and `DKI_WM` with AK (Maiter et al., Sci Rep 2021;11:8857, found
+  at the owner's request) and `DKI_CSF` as free water; Lätt's regional presets still take AK in
+  the call.
 
 ## Waiting on the lab (nerve SMT steps 3 and 4: the protocol evaluator, then the search)
 

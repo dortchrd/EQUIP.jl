@@ -44,6 +44,17 @@ through its [`fromderived`](@ref), with the direction of the fibers given in the
 axially symmetric tensor from MD and FA (its RD within 4% of the table's), DKI also W from MK and
 RK, and AK, which the paper did not report (biased by the noise floor, its authors said):
 `nominal(DKI, :DKI_CC_splenium; S0 = 1000.0, direction = (1, 0, 0), AK = 0.8)`.
+
+Whole gray and white matter with every DKI index, AK included (Maiter et al., Sci Rep
+2021;11:8857: 9 healthy adults, 23 ± 5 years, 3 T; 30 directions, b = 0, 100, 1000 and 2000
+s/mm², fitted with DKE; tissue by segmentation, all five values from the same analysis): `DKI_GM`
+(MD 0.81e-3, FA 0.21, MK 0.84, AK 0.98, RK 0.74: kurtosis more axial than radial, as the paper
+found in gray matter) and `DKI_WM` (MD 0.66e-3, FA 0.51, MK 1.27, AK 1.22, RK 1.40). AK depends on
+the protocol and the fit (another 3 T study reported 0.41–0.78 across 21 regions), so a preset's
+indices come from one study. `DKI_CSF` is free water as a truth: isotropic and Gaussian, MD 3.0e-3
+mm²/s at body temperature (the free-water diffusivity of free-water DTI, Pasternak et al., Magn
+Reson Med 2009), FA and every kurtosis 0. Measured CSF is not this (Maiter et al.: MK 0.74–0.86,
+MD 1.42–2.07e-3, from partial volume, the noise floor and flow).
 """
 const TISSUES = (
     # Stanisz et al. 2005, Table 1, 3 T: T1 and T2 (s)
@@ -84,6 +95,13 @@ const TISSUES = (
     DKI_thalamus = (MD = 0.87e-3, FA = 0.32, MK = 0.86, RK = 0.92),
     DKI_putamen = (MD = 0.79e-3, FA = 0.15, MK = 0.67, RK = 0.61),
     DKI_caudate = (MD = 0.87e-3, FA = 0.14, MK = 0.61, RK = 0.59),    # caudate head
+    # Maiter et al. 2021, Sci Rep 11:8857, Results (9 healthy adults, 3 T, DKE): whole gray and
+    # white matter by segmentation, MD (×10⁻³ mm²/s → mm²/s), FA, MK, AK and RK from one analysis.
+    DKI_GM = (MD = 0.81e-3, FA = 0.21, MK = 0.84, AK = 0.98, RK = 0.74),
+    DKI_WM = (MD = 0.66e-3, FA = 0.51, MK = 1.27, AK = 1.22, RK = 1.40),
+    # Free water as a truth (not a measurement): isotropic, Gaussian, MD 3.0e-3 mm²/s at body
+    # temperature (Pasternak et al., Magn Reson Med 2009); a direction is still given in the call.
+    DKI_CSF = (MD = 3.0e-3, FA = 0.0, MK = 0.0, AK = 0.0, RK = 0.0),
 )
 
 """

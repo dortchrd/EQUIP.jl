@@ -539,7 +539,10 @@ The `DKI_` presets in `TISSUES` are regional values in healthy adults at 3 T (LÃ
 Reson Imaging 2013;37:610, Table 1: corpus callosum splenium, genu and body, internal capsule,
 centrum semiovale, corona radiata, frontal white matter, thalamus, putamen, caudate): MD, FA,
 MK and RK. DTI takes their MD and FA; DKI their MK and RK too, with AK given in the call (the
-paper did not report it). The direction is always yours. Wherever a truth goes, `simulate`,
+paper did not report it). With every index, AK included: `DKI_GM` and `DKI_WM`, whole gray and
+white matter (Maiter et al., Sci Rep 2021;11:8857: MD, FA, MK, AK, RK from one analysis), and
+`DKI_CSF`, free water as a truth (MD 3.0e-3 mmÂ²/s, FA and every kurtosis 0; measured CSF differs,
+through partial volume, the noise floor and flow). The direction is always yours. Wherever a truth goes, `simulate`,
 `Scenario`, `crlb` and `montecarlo` (and `simulate_with`'s), it can be given by derived
 quantities in the same way, and a sweep can then vary one (below).
 
