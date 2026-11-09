@@ -11,7 +11,9 @@ diffusion's names and units.
 
 - acquisition: `b` (s/mm²), one per observation; include b = 0 or not
 - free by default: `S0` (the signal at b = 0), `ADC` (mm²/s; about 0.7e-3 in brain tissue,
-  3e-3 in free water at body temperature)
+  3e-3 in free water at body temperature), from 0 to 4e-3 mm²/s: above free water, so data
+  whose decay is lost in the noise end on the bound (`onbound`) instead of running away. For
+  b in s/mm²; with other units, or to remove it, `ADC = Free(upper = Inf)`.
 
 Starts at `ADC = 1/mean(b)`, which does not depend on the units of `b`.
 
@@ -25,7 +27,7 @@ end
 
 parameters(::Type{<:ADCDecay}) = (
     S0 = Free(start = :scale, lower = 0),
-    ADC = Free(start = m -> 1 / mean(m.b), lower = 0),   # from the b-values, once per fit
+    ADC = Free(start = m -> 1 / mean(m.b), lower = 0, upper = _DMAX),   # start from the b-values
 )
 
 function signal!(out, m::ADCDecay, p)

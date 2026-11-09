@@ -18,8 +18,11 @@
 #   - no `tensor` compartment (2026-11-07): the compartments (iso, stick, zeppelin) are what
 #     biophysical models add together, and a sum of full tensors is hard to fit (two tensors
 #     swap, and parallel ones cannot be told apart); fibers are zeppelins with a direction.
-#   - no bounds on the elements: a tensor's eigenvalues being positive is a condition on all six
-#     at once, which box bounds cannot state.
+#   - no lower bounds on the elements: a tensor's eigenvalues being positive is a condition on
+#     all six at once, which box bounds cannot state. The diagonal elements, each the diffusivity
+#     along an axis, are at most 4e-3 mm²/s (`_DMAX`, src/models/builtin.jl: above free water,
+#     the owner, 2026-11-09), so a voxel whose high-b signal is lost in the noise (CSF) ends on
+#     the bound instead of running away.
 #
 # Each voxel starts from the weighted log-linear fit, `:loglinear` (src/fit/starts.jl): ln S is
 # linear in ln S0 and the six elements, so EQUIP's Gauss–Newton step on ln y, with the derivatives
@@ -39,8 +42,10 @@ gradient direction, the signal decaying with the diffusivity along that directio
 - acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` (a unit vector) of every
   image, from a .bval and a .bvec by [`diffusionencoding`](@ref)
 - free by default: `S0` (the signal at b = 0) and the tensor's six elements `Dxx`, `Dyy`, `Dzz`,
-  `Dxy`, `Dxz`, `Dyz` (mm²/s). No bounds: a tensor's eigenvalues being positive is a condition
-  on all six at once, so check it on the results.
+  `Dxy`, `Dxz`, `Dyz` (mm²/s). The diagonal elements at most 4e-3 mm²/s, above free water's
+  3.0e-3, so data whose decay is lost in the noise end on the bound (`onbound`); for b in
+  s/mm², `Dxx = Free(upper = Inf)` (and Dyy, Dzz) removes it. No other bounds: a tensor's
+  eigenvalues being positive is a condition on all six at once, so check it on the results.
 
 The data must determine the six: at least six gradient directions, not all in one plane (or on
 one cone), and, for S0, images at a second b-value (b = 0, or a second shell): on one shell
@@ -69,7 +74,8 @@ end
 
 parameters(::Type{<:DTI}) = (
     S0 = Free(start = :scale, lower = 0),
-    Dxx = Free(start = :loglinear), Dyy = Free(start = :loglinear), Dzz = Free(start = :loglinear),
+    Dxx = Free(start = :loglinear, upper = _DMAX), Dyy = Free(start = :loglinear, upper = _DMAX),
+    Dzz = Free(start = :loglinear, upper = _DMAX),
     Dxy = Free(start = :loglinear), Dxz = Free(start = :loglinear), Dyz = Free(start = :loglinear),
 )
 

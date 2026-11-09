@@ -39,6 +39,18 @@ const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 const _T2MAX = 2.5
 const _R2MIN = 1 / _T2MAX
 
+# The upper bound for a diffusivity in the diffusion models (ADCDecay's and ADCKurtosis's ADC,
+# DTI's and DKI's diagonal elements Dxx, Dyy, Dzz): 4e-3 mm²/s, above free water's 3.0e-3 at
+# 37 °C (Pasternak et al., Magn Reson Med 2009), so no tissue or CSF reaches it (the owner,
+# 2026-11-09: "cap everywhere"). Where the signal falls to the noise (CSF at high b), any larger
+# diffusivity fits the data equally well, and a fit to the Rician mean ran away without it (DTI
+# in CSF at b = 2500, SNR 10: MD +18 000% on average, 21% of voxels not converged; with the
+# bound +14% and 98% converged), while least-squares fits in tissue are unchanged by it (measured:
+# docs/design.md, the tier 2 plan, step 0). Such voxels end on the bound, where `onbound` flags
+# them. In mm²/s, for b in s/mm² (a .bval file's unit); with b in other units, or to
+# remove it: `fit(m, data; ADC = Free(upper = Inf))`, `Dxx = Free(upper = Inf)`, ....
+const _DMAX = 4e-3
+
 # Time-constant and rate versions (T1IR and R1IR, T2Decay and R2Decay, ...): the equation is
 # written once, in the rate version. The time version's `signal!` converts (R1 = 1/T1) and calls
 # the rate version's:

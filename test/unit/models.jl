@@ -151,11 +151,24 @@ end
     m = ADCDecay(b = b)
     @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ exp.(-b .* 1e-3)
     @test signal(m, (S0 = 1.0, ADC = 1e-3)) ≈ signal(R2Decay(TE = b), (S0 = 1.0, R2 = 1e-3))
-    for adc in (0.1e-3, 0.7e-3, 3e-3, 5e-3)
+    for adc in (0.1e-3, 0.7e-3, 3e-3)
         r = fit(m, 800 .* exp.(-b .* adc))
         @test r.params.ADC ≈ adc rtol = 1e-6
         @test r.params.S0 ≈ 800 rtol = 1e-6
     end
+    # The diffusivity cap, 4e-3 mm²/s, above free water (builtin.jl's _DMAX; the owner,
+    # 2026-11-09: "cap everywhere"): a faster decay ends on it, flagged; widened, the fit recovers
+    # it from the default start (5e-3, as this test did before the cap). DTI's and DKI's diagonal
+    # elements have it, their off-diagonal elements no bound.
+    y5 = 800 .* exp.(-b .* 5e-3)
+    r = fit(m, y5)
+    @test r.params.ADC == 4e-3 && onbound(r).ADC
+    r = fit(m, y5; ADC = Free(upper = Inf))
+    @test r.params.ADC ≈ 5e-3 rtol = 1e-6
+    @test r.params.S0 ≈ 800 rtol = 1e-6
+    @test parameters(ADCKurtosis).ADC.upper == 4e-3
+    @test all(parameters(M)[k].upper == 4e-3 for M in (DTI, DKI), k in (:Dxx, :Dyy, :Dzz))
+    @test all(parameters(M)[k].upper === nothing for M in (DTI, DKI), k in (:Dxy, :Dxz, :Dyz))
 end
 
 @testset "T1IRTD / R1IRTD: Li 2010 Eq. 1 and its limits" begin

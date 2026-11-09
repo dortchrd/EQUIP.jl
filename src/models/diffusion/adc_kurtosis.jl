@@ -18,7 +18,8 @@ K measures how far diffusion departs from a Gaussian; with K = 0 this is [`ADCDe
   tissue)
 
 Bounds: `K` from 0 (any mix of Gaussian compartments gives K ≥ 0) to 3, a plausibility limit;
-widen it with `fit(m, data; K = Free(upper = 10))`. The modelled signal rises again
+widen it with `fit(m, data; K = Free(upper = 10))`. `ADC` from 0 to 4e-3 mm²/s (above free
+water, as in [`ADCDecay`](@ref); for b in s/mm², `ADC = Free(upper = Inf)` removes it). The modelled signal rises again
 at high b once b·ADC·K > 3. That limit is not enforced (it involves two parameters, so it is not
 a bound), so check `b_max·ADC·K < 3` on the results.
 
@@ -34,7 +35,7 @@ end
 
 parameters(::Type{<:ADCKurtosis}) = (
     S0 = Free(start = :scale, lower = 0),
-    ADC = Free(start = m -> 1 / mean(m.b), lower = 0),   # from the b-values, once per fit
+    ADC = Free(start = m -> 1 / mean(m.b), lower = 0, upper = _DMAX),   # start from the b-values
     K = Free(start = 1.0, lower = 0, upper = 3),
 )
 
