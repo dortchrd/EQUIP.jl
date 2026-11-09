@@ -29,7 +29,7 @@ extracellular water (long T2):
 
 - acquisition: `TE` (s), one per observation
 - free by default: `S0`, `fshort` (fraction of S0 in the short-T2 component, 0 to 1),
-  `T2short`, `T2long` (s)
+  `T2short`, `T2long` (s, each at most 2.5 s as [`T2Decay`](@ref)'s)
 
 Starts at `T2short = mean(TE)/4`, `T2long = 2·mean(TE)`, `fshort = 0.2`. The two components
 can swap (the same signal with `1 - fshort`), so after the fit the shorter T2 is reported as
@@ -47,8 +47,8 @@ end
 parameters(::Type{<:T2BiexpDecay}) = (
     S0 = Free(start = :scale, lower = 0),
     fshort = Free(start = 0.2, lower = 0, upper = 1),  # fraction of S0 in the short-T2 component
-    T2short = Free(start = m -> mean(m.TE) / 4, lower = _TMIN),    # from the echo times
-    T2long = Free(start = m -> 2 * mean(m.TE), lower = _TMIN),
+    T2short = Free(start = m -> mean(m.TE) / 4, lower = _TMIN, upper = _T2MAX),   # from the echo times;
+    T2long = Free(start = m -> 2 * mean(m.TE), lower = _TMIN, upper = _T2MAX),    # at most 2.5 s (builtin.jl)
 )
 
 # The T2 form: R2 = 1/T2 for each component, then R2BiexpDecay's signal (below).
@@ -74,7 +74,8 @@ end
 rate is reported as `R2short`, as for the T2 version.
 
 - acquisition: `TE` (s), one per observation
-- free by default: `S0`, `fshort` (0 to 1), `R2short`, `R2long` (1/s)
+- free by default: `S0`, `fshort` (0 to 1), `R2short`, `R2long` (1/s, each at least 0.4 s⁻¹ as
+  [`R2Decay`](@ref)'s)
 
 Starts at `R2short = 4/mean(TE)`, `R2long = 1/(2·mean(TE))`, `fshort = 0.2`.
 
@@ -89,8 +90,8 @@ end
 parameters(::Type{<:R2BiexpDecay}) = (
     S0 = Free(start = :scale, lower = 0),
     fshort = Free(start = 0.2, lower = 0, upper = 1),
-    R2short = Free(start = m -> 4 / mean(m.TE), lower = 0),  # rate of the short-T2 component
-    R2long = Free(start = m -> 1 / (2 * mean(m.TE)), lower = 0),
+    R2short = Free(start = m -> 4 / mean(m.TE), lower = _R2MIN),  # rate of the short-T2 component;
+    R2long = Free(start = m -> 1 / (2 * mean(m.TE)), lower = _R2MIN),   # at least 0.4/s (builtin.jl)
 )
 
 function signal!(out, m::R2BiexpDecay, p)

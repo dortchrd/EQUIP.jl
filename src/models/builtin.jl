@@ -29,12 +29,15 @@
 
 const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 
-# Upper bound for T2 (and T2*) in T2Decay: 2.5 s, above the longest in tissue (CSF, about 2 s;
-# the owner, 2026-11-08). Data that do not decay are best fitted by T2 → ∞ (R2 = 0); without a
-# bound the time form reports convergence at an enormous T2 (about 1e10 s). With it, such voxels
-# end on the bound, where `onbound` flags them, as R2Decay's R2 = 0 is flagged. Widen it in a
-# call: `fit(m, data; T2 = Free(upper = 10))`.
+# Bounds for T2 (and T2*) and R2 in the T2 models (T2Decay, T2DecayOffset, T2BiexpDecay, and
+# their R2 forms): T2 ≤ 2.5 s, above the longest in tissue (CSF, about 2 s; the owner,
+# 2026-11-08), and R2 ≥ 1/2.5 s = 0.4 s⁻¹ (the owner, 2026-11-09: "1/cap for R2 models"), so the
+# two forms of a model give the same answer on the same data. Data that do not decay are best
+# fitted by T2 → ∞ (R2 = 0); without the bound the time form reported convergence at an enormous
+# T2 (about 1e10 s). With it, such voxels end on the bound, where `onbound` flags them. Widen it
+# in a call: `fit(m, data; T2 = Free(upper = 10))`, `fit(m, data; R2 = Free(lower = 0))`.
 const _T2MAX = 2.5
+const _R2MIN = 1 / _T2MAX
 
 # Time-constant and rate versions (T1IR and R1IR, T2Decay and R2Decay, ...): the equation is
 # written once, in the rate version. The time version's `signal!` converts (R1 = 1/T1) and calls

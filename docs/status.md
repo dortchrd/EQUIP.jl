@@ -83,6 +83,8 @@ In order. The reasons, measurements and plans are in design.md (roadmap items by
 design.md, "The prerelease: what was done", has the measurements)
 - T2Decay's T2 at most 2.5 s (the owner): voxels with no decay end on the bound, flagged by
   `onbound`, instead of "converged" at about 1e10 s; tissue and CSF at 32 echoes unchanged.
+  Extended (2026-11-09, branch `t2-bounds`): T2 ≤ 2.5 s in every T2 model and R2 ≥ 0.4 s⁻¹ in
+  every R2 model, both forms alike; and `onbound` fixed for Float32 fits.
 - `equip fit DTI` and `equip fit DKI`: the directions from the `.bval` and `.bvec` beside the
   data; the derived maps written.
 - The precompile workload: DTI, crlb, montecarlo, a design (their first calls 1–3 s → under

@@ -33,8 +33,9 @@ end
     # affects the signal, so the guard does not apply)
     y = 1000 .+ 0.05 .* (1:32) .+ [isodd(j) ? 1.0 : -1.0 for j in 1:32]     # slightly rising
     r = fit(R2Decay(TE = collect(0.01:0.01:0.32)), y)
-    @test r.params.R2 == 0
+    @test r.params.R2 == 0.4                         # R2's bound, 1/2.5 s (builtin.jl, 2026-11-09)
     @test isconverged(r)
+    @test fit(R2Decay(TE = collect(0.01:0.01:0.32)), y; R2 = Free(lower = 0)).params.R2 == 0   # widened
     m = QMTSIR(TI = TI5, TD = TD5)
     r = fit(m, signal(m, merge(defaults(m), (PSR = 0.0, R1f = 1.0, Sf = -0.95, M0f = 1000.0))))   # no MT
     @test r.params.PSR == 0

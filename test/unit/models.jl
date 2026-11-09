@@ -122,6 +122,20 @@ end
         @test rR.params.R2 ≈ 1 / rT.params.T2 rtol = 1e-5
         @test rR.params.S0 ≈ rT.params.S0 rtol = 1e-5
     end
+    # T2 ≤ 2.5 s and R2 ≥ 1/2.5 s in every T2 model, both forms (builtin.jl; the owner, 2026-11-08
+    # and 09), so the two forms agree where the data do not decay: both end on the bound, flagged
+    # in both precisions. Float32's bound 0.4f0 is 6e-9 from 0.4: `onbound` missed it until its
+    # tolerance followed the fit's precision (2026-11-09), the regression the Float32 case guards.
+    @test parameters(T2DecayOffset).T2.upper == 2.5 && parameters(R2DecayOffset).R2.lower == 0.4
+    @test parameters(T2BiexpDecay).T2short.upper == parameters(T2BiexpDecay).T2long.upper == 2.5
+    @test parameters(R2BiexpDecay).R2short.lower == parameters(R2BiexpDecay).R2long.lower == 0.4
+    rising = collect(range(1000.0, 1010.0; length = length(te)))
+    for T in (Float64, Float32)
+        rT, rR = fit(mT, T.(rising); precision = T), fit(mR, T.(rising); precision = T)
+        @test rT.params.T2 == T(2.5) && onbound(rT).T2
+        @test rR.params.R2 ≈ T(0.4) && onbound(rR).R2
+        @test rR.params.R2 ≈ 1 / rT.params.T2
+    end
     # an offset: recovered by the offset versions, biases the plain one, or can be fixed
     θ = (S0 = 1000.0, T2 = 0.08, C = 50.0)
     y = signal(T2DecayOffset(TE = te), θ)

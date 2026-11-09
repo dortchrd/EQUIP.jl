@@ -44,8 +44,12 @@
 end
 const _PIVOT_MIN = 1e-12
 
-# A parameter on a bound (within 1e-9, relative for large bounds).
-@inline _near(x, bound) = isfinite(bound) && abs(x - bound) <= 1e-9 * max(1, abs(bound))
+# Whether x is at a (finite) bound: within 1e-9 of it, relative, or within a few units in the last
+# place of x's own precision, whichever is looser. A Float32 fit's bound 0.4 is 0.4f0, which is
+# 6e-9 from 0.4: before the second term (2026-11-09), a Float32 fit was never reported on such a
+# bound (0.4, QMTSIR's R1f ≥ 0.05, Sf ≥ -1.2, ...), only on exactly representable ones (0, 1, 2.5).
+@inline _near(x, bound) = isfinite(bound) &&
+    abs(x - bound) <= max(1e-9, 4 * eps(float(typeof(x)))) * max(1, abs(bound))
 
 """
     nobs(r::FitResult) -> Int

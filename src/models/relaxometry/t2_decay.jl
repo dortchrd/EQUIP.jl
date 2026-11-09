@@ -15,9 +15,10 @@
 # T2 versions convert and call them (see builtin.jl).
 #
 # Which is more robust: the rate form. On nearly flat curves (T2 much longer than the echo
-# times) the time form runs off to huge T2, while the rate form settles near R2 = 0. T2Decay's T2
-# is bounded at 2.5 s (`_T2MAX`, builtin.jl), so such voxels end on the bound and `onbound` flags
-# them; before the bound (2026-11-08) they reported convergence at about 1e10 s. (The time form also used to fail when the decay was much
+# times) the time form runs off to huge T2, while the rate form heads for R2 = 0. Every model here
+# bounds T2 at 2.5 s and R2 at 0.4 s⁻¹ (`_T2MAX`, `_R2MIN`, builtin.jl), so such voxels end on the
+# bound and `onbound` flags them, the same in both forms; before the bound (2026-11-08) T2Decay
+# reported convergence at about 1e10 s. (The time form also used to fail when the decay was much
 # faster than its start, stepping to a tiny T2 where the gradient vanishes; the solver now rejects
 # such steps, see src/fit/levmar.jl.)
 #
@@ -57,9 +58,9 @@ a long T2 and overshoot a short one, where R2Decay's do not.
 
 T2 is bounded above at 2.5 s, longer than any tissue's (CSF's is about 2 s). Data that do not
 decay are best fitted by T2 → ∞; they end on the bound instead, where [`onbound`](@ref) flags
-them (`onbound(res).T2`), as R2Decay's R2 = 0 is. For longer T2s (phantoms of water), widen it:
-`fit(m, data; T2 = Free(upper = 10))`. Prefer [`R2Decay`](@ref) when T2 can be much longer than
-the echo times: its rate settles at 0, with no bound to choose. With an offset:
+them (`onbound(res).T2`), as R2Decay's R2 at its bound 0.4 s⁻¹ is. For longer T2s (phantoms of
+water), widen it: `fit(m, data; T2 = Free(upper = 10))`. Prefer [`R2Decay`](@ref) when T2 can be
+much longer than the echo times: its steps are straight lines in ln S. With an offset:
 [`T2DecayOffset`](@ref).
 
 ```julia
@@ -90,7 +91,9 @@ simple mono-exponential case).
 - acquisition: `TE` (s), one per observation
 - free by default: `S0`, `R2` (1/s)
 
-Starts at `R2 = 1/mean(TE)`. The more robust of the two forms. With an offset:
+Starts at `R2 = 1/mean(TE)`. The more robust of the two forms. R2 is bounded below at 0.4 s⁻¹
+(T2 at most 2.5 s, as [`T2Decay`](@ref)): data that do not decay end there, flagged by
+[`onbound`](@ref); widen it with `fit(m, data; R2 = Free(lower = 0))`. With an offset:
 [`R2DecayOffset`](@ref).
 
 ```julia
@@ -103,7 +106,8 @@ end
 
 parameters(::Type{<:R2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),   # from the echo times, once per fit
+    R2 = Free(start = m -> 1 / mean(m.TE), lower = _R2MIN),   # from the echo times, once per fit;
+                                                               # at least 0.4/s (builtin.jl)
 )
 
 function signal!(out, m::R2Decay, p)
@@ -130,7 +134,8 @@ decaying to zero. It is not the correct model: the noise floor (Rician bias) dep
 signal level, not a constant.
 
 - acquisition: `TE` (s), one per observation
-- free by default: `S0`, `T2` (s), `C` (fix a known offset with `C = value`)
+- free by default: `S0`, `T2` (s, at most 2.5 s as [`T2Decay`](@ref)'s), `C` (fix a known
+  offset with `C = value`)
 
 ```julia
 m = T2DecayOffset(TE = 0.01:0.01:0.32)
@@ -142,7 +147,7 @@ end
 
 parameters(::Type{<:T2DecayOffset}) = (
     S0 = Free(start = :scale, lower = 0),
-    T2 = Free(start = m -> mean(m.TE), lower = _TMIN),
+    T2 = Free(start = m -> mean(m.TE), lower = _TMIN, upper = _T2MAX),
     C = Free(start = 0.0),              # offset, in signal units
 )
 
@@ -160,7 +165,8 @@ decaying to zero. It is not the correct model: the noise floor (Rician bias) dep
 signal level, not a constant.
 
 - acquisition: `TE` (s), one per observation
-- free by default: `S0`, `R2` (1/s), `C` (fix a known offset with `C = value`)
+- free by default: `S0`, `R2` (1/s, at least 0.4 s⁻¹ as [`R2Decay`](@ref)'s), `C` (fix a known
+  offset with `C = value`)
 
 ```julia
 m = R2DecayOffset(TE = 0.01:0.01:0.32)
@@ -172,7 +178,7 @@ end
 
 parameters(::Type{<:R2DecayOffset}) = (
     S0 = Free(start = :scale, lower = 0),
-    R2 = Free(start = m -> 1 / mean(m.TE), lower = 0),
+    R2 = Free(start = m -> 1 / mean(m.TE), lower = _R2MIN),
     C = Free(start = 0.0),              # offset, in signal units
 )
 

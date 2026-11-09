@@ -257,11 +257,11 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
 | | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 |
 | | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case); T2 at most 2.5 s (CSF's is about 2 s), so data that do not decay end on the bound, flagged by `onbound` | S0, T2 | |
-| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form | S0, R2 | |
-| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor) | S0, T2, C | |
-| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C | S0, R2, C | |
-| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)]; the shorter T2 reported as T2short | S0, fshort, T2short, T2long | |
-| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long | S0, fshort, R2short, R2long | |
+| | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form; R2 at least 0.4 s⁻¹ (T2 at most 2.5 s, as T2Decay) | S0, R2 | |
+| | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor); T2 at most 2.5 s | S0, T2, C | |
+| | `R2DecayOffset(TE = ...)` | S0·exp(−R2·TE) + C; R2 at least 0.4 s⁻¹ | S0, R2, C | |
+| | `T2BiexpDecay(TE = ...)` | two T2 components (e.g. myelin water): S0·[fshort·exp(−TE/T2short) + (1 − fshort)·exp(−TE/T2long)]; the shorter T2 reported as T2short ; each T2 at most 2.5 s | S0, fshort, T2short, T2long | |
+| | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long; each at least 0.4 s⁻¹ | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; check b_max·ADC·K < 3 | S0, ADC, K | |
 | | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted (no bounds); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |

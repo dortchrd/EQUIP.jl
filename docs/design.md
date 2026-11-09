@@ -4109,6 +4109,26 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
   - 8 echoes 10–80 ms, where T2 = 2 s is barely measurable: 26–36% of CSF-like voxels end on the
     bound at SNR 50–100 (without it, the same voxels came out above 2.5 s); the median 1.98–1.99
     s either way.
+  - **Extended to every T2 model, both forms** (the owner, 2026-11-09: "apply cap to biexp and
+    1/cap for R2 models"; branch `t2-bounds`): T2 ≤ 2.5 s in T2DecayOffset and T2BiexpDecay
+    (both components), R2 ≥ 0.4 s⁻¹ (`_R2MIN = 1/_T2MAX`) in R2Decay, R2DecayOffset and
+    R2BiexpDecay (both). T2DecayOffset was not named; it is R2DecayOffset in its other form, and
+    the two forms must agree on the same data (a test checks it). Measured (32 echoes to 320 ms,
+    SNR 100, Rician, 2000 voxels, the new bounds given in the call against today's, both
+    precisions): tissue values (T2 80 ms; biexponential 20 and 80 ms) bit-identical where no
+    voxel nears the bound (the biexponentials: 30 voxels whose long T2 ran off now end on it);
+    R2 = 0.5 s⁻¹, no voxel on the bound, differences at most 7e-8 relative (the solver's path near
+    a bound, within its tolerance). Long T2 (2 s): every fit converged, against 1397, 1301 and
+    1652 of 2000 for T2DecayOffset, R2DecayOffset and T2BiexpDecay (603 at the iteration limit
+    for T2DecayOffset before, none after). Data with no decay: every voxel on the bound and
+    flagged; R2BiexpDecay's other parameters then wander in 256 of 2000 (the iteration limit,
+    also a flag; before, R2long = 0 "converged"); T2BiexpDecay at the limit in 64% in Float64
+    (55% before) and 49% in Float32 (86% before).
+  - **Found on the way, `onbound` in Float32**: its test was "within 1e-9 of the bound", whatever
+    the fit's precision, and a Float32 fit's bound 0.4 is 0.4f0, 6e-9 from 0.4: a Float32 fit was
+    never reported on a bound that Float32 cannot hold exactly (0.4; QMTSIR's R1f ≥ 0.05 and
+    Sf ≥ −1.2), only on 0, 1, 2.5. Now within a few units in the last place of the fit's own
+    precision too (src/fit/statistics.jl, `_near`); a test guards it.
 - **`equip fit DTI` and `equip fit DKI`.** In the command line's menu (cli/src/models.jl); the
   gradient directions from the FSL `.bval` and `.bvec` beside the data (`loaddata` already read
   them into b, gx, gy, gz), or `--b --gx --gy --gz`; the derived maps written (MD, FA, AD, RD,
