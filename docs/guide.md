@@ -169,8 +169,16 @@ names:
   T2 is 1.5 times smaller than the unweighted fit's, at the bound (JᵀΣ⁻¹J)⁻¹.
 - `likelihood`: the noise model the fit assumes. `:gaussian` (the default) is least squares, as
   everything above. `:rician` is for magnitude images at low SNR, where the noise floor (about
-  1.25σ where the signal has decayed away) biases least squares: a T2 in white matter +41% at
-  SNR 10, DTI's MD −9% (measured: docs/design.md, the tier 2 plan, step 0). It needs `σ`, the
+  1.25σ where the signal has decayed away) biases least squares. What decides it is each image's
+  own SNR, A/σ (its signal over the noise SD), not the unweighted SNR S0/σ: the floor raises one
+  image's mean by +1% at A/σ = 7, +2% at 5, +6% at 3, +14% at 2 and +55% at 1. So the Rician fit
+  matters when the images that carry a parameter (the late echoes for T2, the high b-values for
+  MD, the TIs near the inversion's null for T1) fall below A/σ of about 3; where they stay above
+  5–7, least squares does as well. Measured (docs/design.md, the tier 2 plan, steps 0, 2 and 4),
+  at S0/σ = 10: a T2 in white matter +41% by least squares (32 echoes to 320 ms, 4.6 T2s: the
+  median echo's A/σ 0.9, three quarters below 3) and +0.8% fitted as Rician; DTI's MD −9% and
+  +0.4% (b 1000 and 2500: median A/σ 3.6); DKI's MD in white matter hardly biased by the floor
+  either way (b ≤ 2000: 2% of images below 3). It needs `σ`, the
   noise SD of each channel (as `simulate`'s): a number, or a map with one value per voxel (a σ map
   from another tool, MRtrix's `dwidenoise -noise`, read with `loadmap`). `method` chooses how the
   noise model is used:
@@ -604,7 +612,8 @@ Parameters:
   ties into numbers (for calling `signal!` yourself). `snr` is
   relative to the model's scale parameter (M0, S0, M0f: σ = scale/snr, "SNR at thermal
   equilibrium"), so it does not depend on the protocol; `σ` sets the noise directly, in signal
-  units. `noise` is always given, as it follows from how the images were made, which the model
+  units. Each image's own SNR is then its signal over σ, lower where the signal has decayed
+  (the noise floor's bias depends on that one: `likelihood`, under "Free and fixed parameters"). `noise` is always given, as it follows from how the images were made, which the model
   does not know: `:rician` for magnitude images, `:gaussian` for real-valued data
   (phase-corrected, a real channel; the noise crlb assumes). A model's `magnitude` option says how
   the signal is computed, not how the data were reconstructed, so it does not choose the noise.

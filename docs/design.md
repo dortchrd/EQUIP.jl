@@ -4643,6 +4643,37 @@ on 4 threads, the Rician fits including their first fit:
   small models (T2Decay with `:ml` 4.8–15 µs per voxel against 1.2–3.5) and 2–7× for DTI and
   DKI.
 
+### SNR: S0/σ, and each image's own (2026-11-09)
+
+The owner: "when you say snr do you mean relative to s0 / m0 or the individual measures, bc bias
+not really an issue until signal snr drops below ~7-ish". Every SNR in steps 0–4 is S0/σ (M0/σ
+for T1IR), the unweighted signal over σ, as `simulate`'s `snr` and Dortch et al. 2018 define it.
+What the floor's bias depends on is each image's own, A/σ, and the owner's rule fits it: one
+image's mean, E|y|/A − 1, is
+
+| A/σ | 1 | 2 | 3 | 5 | 7 | 10 | 20 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| floor bias of one image's mean | +55% | +14% | +5.8% | +2.0% | +1.0% | +0.5% | +0.1% |
+
+and "SNR 10" means very different images in step 0's protocols:
+
+| protocol, S0/σ = 10 | median A/σ | range | images below 7 | below 3 |
+|---|---:|---:|---:|---:|
+| T2Decay WM (T2 69 ms, TE 10–320 ms) | 0.9 | 0.1–8.7 | 94% | 75% |
+| ADCDecay tissue (b 0–3000) | 3.0 | 0.9–10 | 86% | 43% |
+| T1IR WM (9 TIs to 5 s) | 6.8 | 0.4–9.8 | 56% | 11% |
+| DTI WM (b 1000 and 2500) | 3.6 | 0.7–10 | 97% | 39% |
+| DTI CSF | 0.5 | 0.01–10 | 97% | 97% |
+| DKI WM (b 1000 and 2000) | 4.9 | 3.0–10 | 91% | 2% |
+
+So the step 0 to 4 tables compare protocols at one S0/σ, not at one image SNR: T2Decay's +41%
+at "SNR 10" is a protocol running to 4.6 T2s, three quarters of its echoes below A/σ = 3; DKI in
+white matter at b ≤ 2000 barely reaches the floor (2% of images below 3), which is why the noise
+model leaves MKT's error as it is. What sets a parameter's floor bias is the share of the images
+that carry it below about 3, and how much they weigh in it. Since this, bench/rician_baseline.jl
+prints each case's median A/σ and its share below 3, and the guide puts the advice (when to fit
+with `likelihood = :rician`) in A/σ.
+
 ### Not in tier 2
 
 Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same

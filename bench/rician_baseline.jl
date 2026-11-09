@@ -8,7 +8,10 @@
 #
 # Step 0 of docs/design.md's "Tier 2, bias from noise at low SNR: the plan": every later step
 # (the `likelihood` switch, maximum likelihood) is judged against this table. Magnitude data with
-# Rician noise, N voxels a case, SNR = S0/σ (or M0/σ) of one image; per model, a tissue and CSF:
+# Rician noise, N voxels a case, SNR = S0/σ (or M0/σ), the unweighted signal over the noise SD, as
+# `simulate`'s `snr`; per model, a tissue and CSF. Each image's own SNR, A/σ, is lower where the
+# signal has decayed, and it is what the floor's bias depends on (one image's mean +1% at A/σ = 7,
+# +6% at 3, +55% at 1): each case's header prints its median and the share of images below 3.
 #
 #   T2Decay   32 echoes, TE 10–320 ms; WM (T2 69 ms) and CSF (T2 1.75 s; Stanisz et al. 2005)
 #   ADCDecay  b 0–3000 s/mm² in steps of 500; tissue (ADC 0.8e-3 mm²/s) and CSF (3.0e-3)
@@ -170,7 +173,9 @@ function runcase(io, label, m, truth, qs, snr)
         append!(rows, measure(String(method), r, tq, qs, tr))
     end
 
-    @printf(io, "\n%s, SNR %d   (truth: %s)\n", label, snr,
+    a = abs.(signal(m, θ1)) ./ σ                        # each image's own SNR, A/σ
+    @printf(io, "\n%s, SNR %d = S0/σ; per image A/σ median %.2f (%.2f–%.2f), %.0f%% below 3   (truth: %s)\n",
+            label, snr, median(a), minimum(a), maximum(a), 100mean(a .< 3),
             join(("$q = $(round(tq[q], sigdigits = 4))" for q in qs), ", "))
     println(io, "  fit            quantity     bias %     SD %   RMSE %   converged   µs/voxel")
     for row in rows
