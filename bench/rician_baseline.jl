@@ -43,9 +43,9 @@ const SNRS = parse.(Int, split(get(ENV, "SNRS", "5,10,20,50"), ","))
 const ONLY = split(get(ENV, "ONLY", ""), ","; keepempty = false)   # label prefixes; none: all
 const CAP = 4e-3                                  # mm²/s: above free water's 3.0e-3 at 37 °C
 
-# RicianMean does not pass the `derived` hook through yet (step 2 adds it to src/); here, so the
-# Rician fits' MD, FA and MKT can be read like the Gaussian fits'.
-EQUIP.derived(w::RicianMean, p) = derived(w.model, p)
+# RicianMean passes the `derived` hook through (since tier 2's step 1; the first run, on the
+# commit before, defined it here), so the Rician fits' MD, FA and MKT are read like the Gaussian
+# fits'.
 
 # ------------------------------------------------------------------------------------------------
 # The protocols and truths

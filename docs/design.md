@@ -4327,6 +4327,7 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      the derivative against ForwardDiff through `besselix` and against central differences;
      `RicianMean`'s fit of DTI and DKI per voxel before and after (target 3× faster or more;
      recorded either way).
+   - **Done (2026-11-09, branch `rician`)**, as below: "Step 1, measured".
 2. **The switch, `likelihood = :ricianmean`, for every model.**
    - Each voxel fitted twice in one `fit!`: the Gaussian fit from the model's own starts
      (`:loglinear`, `datastart`, `:scale`, `BestOf`), then the Rician fit from its result. The
@@ -4500,6 +4501,55 @@ truth is 0, as their mean:
 - **Speed**: the Rician mean costs 15–80× the Gaussian fit for the small models (T2, ADC, T1IR:
   0.3–4 µs against 7–110) and 4–40× for DTI and DKI (10–130 µs against 100–1400): step 1's
   derivative rule is worth most for the small models.
+
+### Step 1, measured (2026-11-09)
+
+Where the time went (one thread, Xeon 2.1 GHz): SpecialFunctions' `besselix` (the AMOS Fortran
+library) took 100–460 ns a call, `ricianmean` two of them, 190–410 ns on numbers and 450–1030 ns
+on dual numbers (differentiated through more calls). A fit of the Rician mean spent nearly all
+its time there. So (src/models/rician.jl, where the Rician mean, variance, information and
+`RicianMean` now live, included before src/fit/):
+
+- **The scaled Bessel functions** e^(−x)I₀(x) and e^(−x)I₁(x) (`_i01e`) as Chebyshev series in
+  two pieces, x ≤ 8 and x ≥ 8 (I₁/x below 8, so it is accurate relative to its size near 0),
+  their coefficients fitted to `besselix` itself while EQUIP is precompiled (26 and 24 terms;
+  more gave no better agreement), evaluated in Float64 and returned in x's precision. Within
+  3e-14 of `besselix` (relative, x from 0 to 10⁶; AMOS itself is within 2e-16 of BigFloat).
+  The Bessel ratio I₁/I₀ (step 4's score) is the quotient of one call's two values: written when
+  step 4 needs it, not before.
+- **Their exact derivatives on dual numbers**, d/dx[e^(−x)I₀] = e^(−x)(I₁ − I₀), d/dx[e^(−x)I₁] =
+  e^(−x)(I₀ − I₁ − I₁/x), from the same two values, at any nesting. A rule at the Bessel level
+  rather than on `ricianmean`: the formula is unchanged, and σ, dual or not, is differentiated
+  too. Checked against closed forms written with `besselix` (dE/dA = √(π/2)·(A/2σ)·(I₀e + I₁e),
+  d²E/dA² = √(π/2)/(2σ)·(I₀e − I₁e), at x = A²/4σ², and dE/dσ = (E − A·dE/dA)/σ by Euler's
+  theorem, E being homogeneous of degree 1 in A and σ): within 4e-15 (3e-14 for σ).
+- **R(s) tabulated** from its quadrature at s = 0, 0.01, …, 40 while EQUIP is precompiled (about
+  0.3 s), read by four-point interpolation: within 1e-8 of the quadrature (2e-9 above s = 0.5;
+  the largest errors near 0, where R < 2e-5). `ricianinformation` uses it; `_ricianR`, the
+  quadrature, stays as the reference.
+- **`RicianMean` passes `derived` through** (a fit of DTI's Rician mean gives MD and FA).
+
+| one voxel, SNR 20, from the Gaussian fit | Gaussian fit | Rician mean, before | after | |
+|---|---:|---:|---:|---:|
+| T2Decay, 32 echoes | 2.4–3.4 µs | 207 µs | 12.0 µs | 17× faster |
+| ADCDecay, 7 b-values | 0.9 | 100 | 3.5 | 28× |
+| T1IR, 9 TIs | 2.1–2.7 | 77 | 3.8 | 20× |
+| DTI, 132 images | 22–27 | 1231 | 72 | 17× |
+| DKI, 66 images | 121–164 | 841 | 129 | 6.5× |
+
+`ricianmean` itself: about 100 ns on a number and 110–130 ns on a dual number of 2–22 partials
+(in a timing loop at global scope, an upper bound), against 190–1030. A Rician fit now costs 1–4×
+the Gaussian fit, from 7–105×: the plan's target (3×) is met for every model. Allocation-free
+(bench/speed.jl's new rows, 0 bytes).
+
+Results unchanged: Float64 fits of the Rician mean against the old path (the same formula with
+`besselix`, differentiated through), five models, 500 voxels at SNR 10, the same starts: every
+status the same, parameters within 1e-13 to 1.5e-8 (relative); DTI's crlb under `riciannoise`
+within 1e-13 (SD) and 6e-10 (bias). Float32 fits: all converged in both, and differing by at
+most 0.007 of their SD, no more than Float32 fits differ from Float64 ones (0.0085); the status
+(which stopping test fired) differs in up to 36 of 500 voxels, the Float32 tolerances' own
+noise, as it does between any two Float32 paths. Gaussian fits are untouched (no code they run
+changed).
 
 ### Not in tier 2
 

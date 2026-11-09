@@ -779,8 +779,9 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   R(A/σ)/σ² per observation, as in Devan et al., Magn Reson Imaging 2020, Appendix), what no
   estimator beats. `averaging = :complex` (the scanner's averages: the floor falls) or
   `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself
-  removes the floor's bias when σ is known. `ricianmean`, `ricianvar`, `ricianinformation` for
-  one value.
+  removes the floor's bias when σ is known (start it from the Gaussian fit's values; it gives the
+  model's derived quantities too, DTI's MD and FA), at 1–4 times the Gaussian fit's cost.
+  `ricianmean`, `ricianvar`, `ricianinformation` for one value.
 - Not modelled by crlb: bounds reached by noisy fits, nonlinearity at low SNR. That is what
   montecarlo is for.
 

@@ -99,6 +99,29 @@ end
     @test ricianvar(999.0, 1.0) ≈ ricianvar(1001.0, 1.0) rtol = 1e-6          # across its switch
     @test ForwardDiff.derivative(a -> ricianmean(a, 1.0), 1.3) ≈
           (ricianmean(1.3 + 1e-6, 1.0) - ricianmean(1.3 - 1e-6, 1.0)) / 2e-6 rtol = 1e-6
+    # The fast pieces (tier 2 step 1, src/models/rician.jl) against independent references.
+    # The scaled Bessel functions (Chebyshev series fitted at precompile time) against
+    # SpecialFunctions' besselix (AMOS), x from 0 to 10⁶; the mean against its formula written
+    # with besselix; on dual numbers, the closed forms of its derivatives with besselix:
+    # dE/dA = √(π/2)·(A/2σ)·(I₀e + I₁e)(x), d²E/dA² = √(π/2)/(2σ)·(I₀e − I₁e)(x), x = A²/4σ², and
+    # dE/dσ = (E − A·dE/dA)/σ (E is homogeneous of degree 1 in A and σ: Euler's theorem).
+    bix = SpecialFunctions.besselix
+    xs = [0.0; 10 .^ range(-8, 6; length = 2001); range(0, 20; length = 2001)]
+    @test maximum(x -> abs(EQUIP._i01e(x)[1] / bix(0, x) - 1), xs) < 1e-13
+    @test maximum(x -> x == 0 ? 0.0 : abs(EQUIP._i01e(x)[2] / bix(1, x) - 1), xs) < 1e-13
+    Eref(A, σ) = (x = A^2 / (4σ^2); σ * sqrt(π / 2) * ((1 + 2x) * bix(0, x) + 2x * bix(1, x)))
+    d1(A, σ) = (x = A^2 / (4σ^2); sqrt(π / 2) * (A / (2σ)) * (bix(0, x) + bix(1, x)))
+    d2(A, σ) = (x = A^2 / (4σ^2); sqrt(π / 2) / (2σ) * (bix(0, x) - bix(1, x)))
+    for A in (0.0, 1e-3, 0.5, 2.0, 20.0, 300.0), σ in (1.0, 2.5)
+        @test ricianmean(A, σ) ≈ Eref(A, σ) rtol = 1e-13
+        @test ForwardDiff.derivative(a -> ricianmean(a, σ), A) ≈ d1(A, σ) atol = 1e-13
+        @test ForwardDiff.derivative(a -> ForwardDiff.derivative(b -> ricianmean(b, σ), a), A) ≈
+              d2(A, σ) atol = 1e-13
+        @test ForwardDiff.derivative(s -> ricianmean(A, s), σ) ≈ (Eref(A, σ) - A * d1(A, σ)) / σ atol = 1e-12
+    end
+    @test ricianmean(3.0f0, 1.0f0) isa Float32                     # a Float32 fit stays Float32
+    # R(s) from its table, against the quadrature it is made from, between the table's points
+    @test maximum(s -> abs(EQUIP._ricianRtable(s) - EQUIP._ricianR(s)), range(0, 40; length = 4999)) < 2e-8
     # The information R(s)/σ²: the variance of the score against Monte Carlo; 0 at A = 0, and
     # its quadrature and its expansion agree at the switch (s = 40)
     for a in (1.0, 3.0)
@@ -119,6 +142,11 @@ end
     @test RicianMean(m; σ, averages = 4).σ == fill(σ / 2, 3)
     @test RicianMean(m; σ, averages = 4, averaging = :magnitude).σ == fill(σ, 3)
     @test parameters(RicianMean(m; σ)) == parameters(m) && nobs(RicianMean(m; σ)) == 3
+    # ... and the model's derived quantities (DTI's MD and FA from a fit of its Rician mean)
+    mdti = DTI(; diffusionencoding([0.0; fill(1000.0, 6)],
+                                   reduce(hcat, [fill(SVector(0.0, 0.0, 0.0), 1); directionset(6)]))...)
+    θd = nominal(DTI; S0 = 1000.0, MD = 0.8e-3, FA = 0.6, direction = (1, 0, 0))
+    @test derived(RicianMean(mdti; σ = 20.0), θd) == derived(mdti, θd)
 
     # crlb of the least-squares fit of magnitude data (riciannoise) against montecarlo:
     # black holes, protocol A, SNR 20 per direction, the spherical mean a magnitude average.

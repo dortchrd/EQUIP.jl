@@ -8,7 +8,7 @@
 # a warm-up, so compilation is not counted; "bytes" is what one call allocates (0 for the paths
 # meant to allocate nothing). About 1–2 minutes with 4 threads.
 #
-#   1. fit!: one voxel, every built-in model (µs, bytes)
+#   1. fit!: one voxel, every built-in model (µs, bytes), and two fits of the Rician mean
 #   2. fit: a dataset of 100,000 voxels on threads (voxels per second)
 #   3. crlb!: one prediction (µs, bytes), and a sweep (µs a setting)
 #   4. simulate (one thread, µs a copy and bytes beyond the data) and montecarlo: 10,000 noisy
@@ -58,6 +58,17 @@ for (label, m, θ) in cases
     local t = best(() -> fit!(c, y), 2000)
     a = (fit!(c, y); @allocated fit!(c, y))
     row(label, @sprintf("%7.2f µs, %d bytes", 1e6t, a))
+end
+# Fits of the Rician mean (σ known), whose cost is in the Bessel functions (docs/design.md, the
+# tier 2 plan, step 1: 207 µs for T2Decay before, 12 after); skipped before RicianMean existed.
+if isdefined(EQUIP, :RicianMean)
+    for (label, m, θ) in (cases[5], cases[8])
+        y = simulate(m, merge(defaults(m), θ); noise = :rician, snr = 50, rng = MersenneTwister(1))
+        c = init(RicianMean(m; σ = 20.0))
+        local t = best(() -> fit!(c, y), 500)
+        a = (fit!(c, y); @allocated fit!(c, y))
+        row("RicianMean: " * label, @sprintf("%7.2f µs, %d bytes", 1e6t, a))
+    end
 end
 
 # -------------------------------------------------------------------------------------------------

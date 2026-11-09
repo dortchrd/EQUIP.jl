@@ -115,7 +115,12 @@ without). What step 0 found: the Rician mean removes the floor's bias in tissue 
 weighting it gains under 2.4% of SD, so it is not the gap; the gaps are the bias at SNR ≤ 10 and
 in DKI's MKT (overcorrected, −13% at SNR 10), convergence where there is no information, and
 speed (4–80× the Gaussian fit). Then (the owner: "make T1 cap 5 sec"): T1 ≤ 5 s and R1 ≥ 0.2
-s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10). Found while answering the owner (2026-11-09): least squares on the
+s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10). Step 1 (the owner: "do step
+1"): the Rician functions fast, in src/models/rician.jl (Chebyshev Bessel functions fitted to
+`besselix` at precompile time, their exact derivatives on dual numbers, R(s) tabulated): a fit
+of the Rician mean 6.5–28× faster, now 1–4× the Gaussian fit's cost; results unchanged (Float64
+to 1e-8, Float32 within its own tolerance); `RicianMean` gives the model's derived quantities.
+Next: step 2, the `likelihood` switch. Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood

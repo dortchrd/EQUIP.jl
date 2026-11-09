@@ -40,7 +40,8 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
-using SpecialFunctions: erf, erfi, besselix   # spherical means (erfi: D⊥ > D∥); Rician noise (loaded by ForwardDiff anyway)
+using SpecialFunctions: erf, erfi, besselix   # spherical means (erfi: D⊥ > D∥); Rician noise: the
+                                              # reference its Bessel series are fitted to (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
 using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeometry, filestem,
                 sidecarpath, writesidecar, writemat
@@ -84,6 +85,7 @@ include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, sign
 include("models/macro.jl")             # @mrimodel: a model from a function of one observation
 include("models/template.jl")          # newmodel: a model file to edit, blank or from @mrimodel
 include("models/builtin.jl")           # the built-in models, by area (relaxometry, diffusion, qmt)
+include("models/rician.jl")            # Rician noise: mean, variance, information; RicianMean
 
 # fit: from a model and data to fitted parameters
 include("fit/levmar.jl")               # the solver for one voxel
@@ -99,7 +101,7 @@ include("fit/statistics.jl")           # the fit's statistics: stderror, vcov, A
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
-include("sim/rician.jl")               # Rician noise: mean, variance, information; RicianMean
+include("sim/rician.jl")               # Rician noise in crlb: riciannoise, ricianbound
 
 # errors: a fit's errors against the truth, bias and SD, predicted from derivatives or measured
 # (uses models, fit and sim)
