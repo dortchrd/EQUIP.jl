@@ -168,6 +168,8 @@ end
     @test r.params.S0 ≈ 800 rtol = 1e-6
     @test parameters(ADCKurtosis).ADC.upper == 4e-3
     @test all(parameters(M)[k].upper == 4e-3 for M in (DTI, DKI), k in (:Dxx, :Dyy, :Dzz))
+    # ... and from 0: a diffusivity along an axis is not negative (D positive semi-definite)
+    @test all(parameters(M)[k].lower == 0 for M in (DTI, DKI), k in (:Dxx, :Dyy, :Dzz))
     @test all(parameters(M)[k].upper === nothing for M in (DTI, DKI), k in (:Dxy, :Dxz, :Dyz))
 end
 

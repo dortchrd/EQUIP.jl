@@ -115,7 +115,8 @@ without). What step 0 found: the Rician mean removes the floor's bias in tissue 
 weighting it gains under 2.4% of SD, so it is not the gap; the gaps are the bias at SNR ≤ 10 and
 in DKI's MKT (overcorrected, −13% at SNR 10), convergence where there is no information, and
 speed (4–80× the Gaussian fit). Then (the owner: "make T1 cap 5 sec"): T1 ≤ 5 s and R1 ≥ 0.2
-s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10). Step 1 (the owner: "do step
+s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10); DTI's and DKI's diagonal
+from 0 (a diffusivity is not negative: the Rician fits of DKI in CSF no longer run negative). Step 1 (the owner: "do step
 1"): the Rician functions fast, in src/models/rician.jl (Chebyshev Bessel functions fitted to
 `besselix` at precompile time, their exact derivatives on dual numbers, R(s) tabulated): a fit
 of the Rician mean 6.5–28× faster, now 1–4× the Gaussian fit's cost; results unchanged (Float64

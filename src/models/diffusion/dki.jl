@@ -27,8 +27,8 @@
 # eigenvalue of D is not positive, as DIPY's.
 # Beside them, D's own (DTI's): MD, FA, AD, RD and the principal eigenvector.
 #
-# D's diagonal elements are at most 4e-3 mm²/s, as DTI's (`_DMAX`, src/models/builtin.jl: above
-# free water; the owner, 2026-11-09). The constraints that box bounds cannot state (K ≥ 0 in
+# D's diagonal elements are from 0 to 4e-3 mm²/s, as DTI's (not negative, as a diffusivity;
+# `_DMAX`, src/models/builtin.jl: above free water; the owner, 2026-11-09). The constraints that box bounds cannot state (K ≥ 0 in
 # every direction, the signal not rising with b) are not imposed: check them on the results (examples/dki.jl), or mask; in CSF the
 # protocol has no information on kurtosis (docs/design.md, item 17's review).
 # =================================================================================================
@@ -47,8 +47,8 @@ V = MD²·W:
 - free by default: `S0`, D's six elements `Dxx`, `Dyy`, `Dzz`, `Dxy`, `Dxz`, `Dyz` (mm²/s), and
   V's fifteen, `V1111`, `V2222`, `V3333`, `V1112`, `V1113`, `V1222`, `V2223`, `V1333`, `V2333`,
   `V1122`, `V1133`, `V2233`, `V1123`, `V1223`, `V1233` ((mm²/s)²; W = V/MD²). D's diagonal
-  elements at most 4e-3 mm²/s, above free water, as [`DTI`](@ref)'s (for b in s/mm²; `Dxx =
-  Free(upper = Inf)` and the others remove it); no other bounds.
+  elements from 0 to 4e-3 mm²/s, as [`DTI`](@ref)'s (for b in s/mm²; `Dxx = Free(upper = Inf)`
+  and the others remove the cap); no other bounds.
   Every element starts from the weighted log-linear fit (`:loglinear`, the two-pass WLS: in V,
   ln S is linear in all of them)
 
@@ -79,8 +79,9 @@ end
 parameters(::Type{<:DKI}) = (
     S0 = Free(start = :scale, lower = 0),
     # D's six elements (mm²/s), then V's fifteen ((mm²/s)²), all from the two-pass WLS
-    Dxx = Free(start = :loglinear, upper = _DMAX), Dyy = Free(start = :loglinear, upper = _DMAX),
-    Dzz = Free(start = :loglinear, upper = _DMAX),
+    Dxx = Free(start = :loglinear, lower = 0, upper = _DMAX),
+    Dyy = Free(start = :loglinear, lower = 0, upper = _DMAX),
+    Dzz = Free(start = :loglinear, lower = 0, upper = _DMAX),
     Dxy = Free(start = :loglinear), Dxz = Free(start = :loglinear), Dyz = Free(start = :loglinear),
     V1111 = Free(start = :loglinear), V2222 = Free(start = :loglinear), V3333 = Free(start = :loglinear),
     V1112 = Free(start = :loglinear), V1113 = Free(start = :loglinear), V1222 = Free(start = :loglinear),

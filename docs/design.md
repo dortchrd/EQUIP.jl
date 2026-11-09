@@ -4349,8 +4349,17 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      ADCKurtosis: done (2026-11-09, branch `rician`; `_DMAX`, src/models/builtin.jl), in every
      fit, Gaussian ones too (the owner: "cap everywhere"), after step 0 measured the Gaussian
      fits in tissue unchanged by it. T1 ≤ 5 s and R1 ≥ 0.2 s⁻¹ too (the owner, 2026-11-09;
-     step 0's T1IR in CSF had run off). Open: a lower bound of 0 on the tensor's diagonal (DKI
-     in CSF went negative).
+     step 0's T1IR in CSF had run off). And a lower bound of 0 on DTI's and DKI's diagonal
+     (the owner, 2026-11-09: "if it makes sense physically and technically feasible do it"): a
+     diffusivity along an axis is not negative (D is positive semi-definite, and the diagonal
+     is gᵀDg along the axes); the off-diagonal elements stay unbounded (they may be negative,
+     and the eigenvalues' positivity is a condition on all six at once, which box bounds cannot
+     state). Measured: least-squares fits of every model unchanged, value for value (15 models
+     × 2 precisions, the snapshot before and after); DTI in CSF unchanged (its diagonal never
+     went negative); the Rician fits of DKI in CSF no longer run negative (MD at SNR 50,
+     −7300% to −24600% with 51–59% converged before, −29% to −31% with 74–82% now; at SNR 20,
+     −88% to −171% before, −12% to −16% now). DKI in CSF still has no information on kurtosis
+     at b ≤ 2000: mask it.
    - The command line: `equip fit ... --likelihood ricianmean --sigma 12` or `--sigma-map
      file.nii` (a CLI change: CI before merging).
    - Judged by: Gaussian fits bit-identical and as fast (bench/speed.jl) when `likelihood` is not
