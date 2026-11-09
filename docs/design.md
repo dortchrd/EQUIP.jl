@@ -4312,7 +4312,7 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
    SNR 5, 10, 20 and 50, in tissue and CSF; beside them, crlb's predictions of the unweighted
    and the weighted (1/Var) fits of the mean against `ricianbound` (possible by hand today:
    `riciannoise`'s Σ, with `weights = 1 ./ diag(Σ)` for the weighted). Every later step is
-   compared against this table, recorded here.
+   compared against this table. Done (2026-11-09): "Step 0, measured", below.
 1. **The fast Rician pieces**, moved to src/models/rician.jl (included before src/fit/, which
    will use them; src/sim/ keeps `riciannoise` and `ricianbound`):
    - `ricianmean` with its own derivative rule for dual numbers, from the same two Bessel
@@ -4343,8 +4343,10 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      and σ (provenance).
    - Bounds where the signal can vanish below the floor, per model (item 20): DTI's and DKI's
      diagonal elements ≤ 4e-3 mm²/s (free water is 3.0e-3 at 37 °C), ADC ≤ 4e-3 in ADCDecay and
-     ADCKurtosis. Applied to the Gaussian fits too, as T2's 2.5 s cap was, if tissue fits are
-     unchanged (measured, as for the cap; to decide with the owner).
+     ADCKurtosis: done (2026-11-09, branch `rician`; `_DMAX`, src/models/builtin.jl), in every
+     fit, Gaussian ones too (the owner: "cap everywhere"), after step 0 measured the Gaussian
+     fits in tissue unchanged by it. Open: T1 (step 0's T1IR in CSF runs off without one), and
+     a lower bound of 0 on the tensor's diagonal (DKI in CSF went negative).
    - The command line: `equip fit ... --likelihood ricianmean --sigma 12` or `--sigma-map
      file.nii` (a CLI change: CI before merging).
    - Judged by: Gaussian fits bit-identical and as fast (bench/speed.jl) when `likelihood` is not
@@ -4417,6 +4419,82 @@ Alongside, area by area as the steps touch them (item 21): the missing independe
 T1 signals' analytic values, invariances, every model's Jacobian and DKI's index gradients
 against central differences, the edge cases.
 
+### Step 0, measured (2026-11-09)
+
+bench/rician_baseline.jl (the owner: "cap everywhere and run it"): 2000 voxels a case, Rician
+noise, SNR = S0/σ of one image, 4 threads (Xeon 2.1 GHz), Julia 1.13; 232 s. The protocols and
+truths are in the script's header (T2Decay 32 echoes to 320 ms; ADCDecay b 0–3000; T1IR 9 TIs to
+5 s; DTI 4 b = 0 and 64 directions at 1000 and 2500; DKI 6 b = 0 and 30 at 1000 and 2000). "Gauss"
+is today's fit (for the diffusion models with the cap, now the default; without it the same in
+tissue, below); "Rician" least squares on the Rician mean with the true σ, started from the
+Gaussian fit, unweighted, capped where the cap applies; "crlb" its first-order prediction of the
+Gaussian fit's floor bias (`riciannoise`). Bias (SD) in % of the truth; FA and MKT in CSF, whose
+truth is 0, as their mean:
+
+| case | SNR | Gauss | crlb's floor bias | Rician | Rician converged | µs per voxel, Gauss / Rician |
+|---|---:|---|---:|---|---:|---|
+| T2Decay WM, T2 | 5 | +194 (111) | +178 | +4.1 (38.9) | 99.9% | 1.5 / 67 |
+| | 10 | +41.3 (18.5) | +40.2 | +0.7 (14.0) | 100% | 1.5 / 64 |
+| | 20 | +9.9 (6.8) | +9.8 | +0.2 (6.4) | 100% | 1.4 / 54 |
+| | 50 | +1.7 (2.4) | +1.7 | 0.0 (2.4) | 100% | 1.1 / 41 |
+| ADCDecay tissue, ADC | 5 | −27.2 (25.1) | −29.4 | +14.0 (63.9); uncapped +26.3 (219) | 99.9% | 0.5 / 49 |
+| | 10 | −8.0 (15.1) | −8.9 | +1.7 (18.9) | 100% | 0.3 / 23 |
+| | 20 | −1.7 (8.1) | −2.2 | +0.5 (8.5) | 100% | 0.3 / 19 |
+| ADCDecay CSF, ADC | 5 | −60.7 (30.3) | −71.1 | −3.2 (37.2); uncapped +270 (402) | 100% | 0.8 / 14 |
+| | 10 | −20.5 (24.5) | −24.7 | +2.1 (24.6); uncapped +79 (244) | 100% | 0.6 / 12 |
+| T1IR WM, T1 | 5 | +5.7 (107) | −15.1 | +48 (1432) | 100% | 1.7 / 40 |
+| | 10 | +2.0 (18.2) | −6.3 | +2.1 (16.2) | 100% | 1.2 / 56 |
+| | 20 | +1.8 (10.1) | −2.2 | +0.8 (8.0) | 100% | 1.2 / 30 |
+| T1IR CSF, T1 | 10 | +290 (1236), 96% converged | −2.0 | +528 (4126) | 98% | 4.0 / 76 |
+| | 20 | +14.3 (36.9) | −2.0 | +10.4 (32.2) | 100% | 1.0 / 27 |
+| DTI WM, MD | 5 | −30.4 (7.6) | −31.5 | +3.3 (12.5) | 100% | 13 / 302 |
+| | 10 | −8.6 (4.7) | −9.1 | +0.7 (5.4) | 100% | 10 / 401 |
+| | 20 | −2.2 (2.5) | −2.2 | +0.1 (2.6) | 100% | 11 / 412 |
+| DTI WM, FA | 10 | −4.9 (8.5) | −5.7 | +0.7 (8.7) | | |
+| DTI CSF, MD | 5 | −86.5 (5.5) | −88.0 | +8.4 (14.8); uncapped +20 000, 70% converged | 98.2% | 21 / 717 |
+| | 10 | −37.2 (3.3) | −37.6 | +13.9 (11.9); uncapped +18 000, 79% | 98.4% | 22 / 587 |
+| | 20 | −15.7 (2.4) | −16.2 | +9.5 (9.7); uncapped +21 000, 94% | 98.9% | 20 / 551 |
+| | 50 | −3.0 (1.5) | −3.2 | +0.4 (1.9) | 100% | 14 / 152 |
+| DTI CSF, FA (truth 0) | 10 | 0.15 | | 0.50 | | |
+| DKI WM, MKT | 10 | −5.0 (28.1), RMSE 28.6 | +6.0 | −13.3 (31.1), RMSE 33.8 | 100% | 54 / 403 |
+| | 20 | −1.3 (11.8), RMSE 11.9 | +1.5 | −2.9 (12.1), RMSE 12.4 | 100% | 45 / 267 |
+| | 50 | −0.1 (4.4) | +0.2 | −0.3 (4.4) | 100% | 30 / 105 |
+| DKI CSF, MD | 20 | +22.5 (5.9) | +24.6 | fails: −105 (366) | 6.3% | 102 / 1426 |
+| | 50 | +28.8 (5.3) | +33.2 | fails | 50% | 129 / 1255 |
+
+- **crlb predicts the floor's bias of today's fits** where the fit is close to linear: within
+  about a point at SNR ≥ 10 in tissue (T2, ADC, DTI; T2 in WM +41.3% measured, +40.2% predicted,
+  at SNR 10) and in DTI's CSF; 4 points in ADC's CSF (−20.5% against −24.7%). Not for T1IR (−6.3% predicted, +2.0% measured at SNR 10: the fit's own nonlinearity
+  outweighs the floor near the null), nor at SNR 5.
+- **The Rician mean removes the floor's bias in tissue from SNR 10** (T2 +0.7%, ADC +1.7%, DTI's
+  MD and FA +0.7%), with SDs as crlb predicts for it (T2 14.0% measured, 13.9% predicted). At
+  SNR 5 it leaves +3 to +14%, and more where the fit is nonlinear (T1 +48%).
+- **Weighting gains little here** (the plan's weighted `:ricianmean`): in tissue, crlb's SD for
+  the unweighted fit of the mean is within 2.4% of `ricianbound` (T2 in WM at SNR 5: 33.3%
+  against 32.5%) and the weighted fit's within 0.4%; in CSF, where the high-b images are floor,
+  both are up to 4.5% above it (DTI 2.4–3.8% at SNR 5–10; DKI 4.5%, the 1/√0.915 limit of the
+  table above), which weights cannot remove. So the SD is not where these fits fall short of the
+  bound; the bias at SNR ≤ 10 and convergence are, which crlb (first order) does not see. Step
+  2 still measures the weighted fit's bias; it is not to be the default on these grounds.
+- **DKI's MKT**: the Rician mean overcorrects (−13.3% at SNR 10, −2.9% at 20, its RMSE above the
+  Gaussian fit's, 33.8% against 28.6%), where the floor barely reaches white matter at b ≤ 2000
+  (the Gaussian fit's bias, −5.0%, is MKT's own nonlinearity, and crlb's first order predicts
+  +6.0%). For MKT the floor is not the main error: the second-order bias (step 8) is the tool,
+  and whether maximum likelihood (step 4) does better is the question to measure.
+- **No information: the cap.** Unbounded, the Rician fit ran away in CSF (DTI's MD +18 000% at
+  SNR 10, 79% converged; ADC +79%); capped, 98–100% converge, with ADC −3.2 to +2.3% and DTI's MD +8
+  to +14% (SNR 5–20), FA spurious (0.50 against the Gaussian fit's 0.15 at SNR 10). DKI in CSF
+  fails either way (3–50% converged; crlb's SD of MD 200–20 000%): no information on kurtosis in
+  free water at b ≤ 2000, and the tensor's diagonal went negative (no lower bound): mask it.
+- **The cap on Gaussian fits** changed no tissue case (identical to rounding) and, in CSF, only
+  the few voxels above it (ADC at SNR 10: SD 28.4 → 24.5%, bias −19.2 → −20.5%; DKI's MD at SNR
+  20, +24.7 → +22.5%); DTI's Gaussian fits never reached it. So the cap went into every fit.
+- **T1IR in CSF** (T1 4.1 s, TIs to 5 s) runs off with either fit at SNR ≤ 10 (+290% and +528%
+  at SNR 10): T1 has no upper bound, as T2 had none before its cap. A question for the owner.
+- **Speed**: the Rician mean costs 15–80× the Gaussian fit for the small models (T2, ADC, T1IR:
+  0.3–4 µs against 7–110) and 4–40× for DTI and DKI (10–130 µs against 100–1400): step 1's
+  derivative rule is worth most for the small models.
+
 ### Not in tier 2
 
 Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same
@@ -4427,9 +4505,8 @@ structure with L, after step 4. σ fitted per voxel (`σ = Free()`). MP-PCA's σ
 
 1. The keyword: `likelihood = :ricianmean | :rician` (decided 2026-11-09, the owner: "use
    likelihood"), not `noise = :rician` as item 20 first wrote it.
-2. Open: the diffusivity bounds (≤ 4e-3 mm²/s) on the Gaussian fits too, as T2's cap was, if
-   tissue fits are unchanged (recommended), or on the Rician fits only. Explained to the owner
-   2026-11-09; step 0 measures what the bound changes in Gaussian fits before it is decided.
+2. The diffusivity bounds (≤ 4e-3 mm²/s) on every fit, Gaussian ones too, as T2's cap was
+   (decided 2026-11-09, the owner: "cap everywhere"; step 0 measured tissue fits unchanged).
 3. MP-PCA: later, with the other preprocessing (decided 2026-11-09, the owner: "wait on
    mp-pca - put this into pre-processing steps"; item 22). Tier 2 estimates σ from the
    background or a noise scan, and takes σ maps from other tools.

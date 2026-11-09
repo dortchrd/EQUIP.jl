@@ -107,8 +107,15 @@ design.md, "The prerelease: what was done", has the measurements)
 **2. Bias from noise at low SNR** (items 13, 16, 20). Planned (2026-11-09), not built: design.md,
 "Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged. Decided
 (the owner, 2026-11-09): the keyword is `likelihood`; MP-PCA waits, with the other
-preprocessing (item 22). Open: the diffusivity bounds on Gaussian fits too (step 0 measures
-them first). Found while answering the owner (2026-11-09): least squares on the
+preprocessing (item 22); the diffusivity cap, 4e-3 mm²/s, in every fit ("cap everywhere").
+Done on branch `rician` (2026-11-09, not merged): step 0, the baseline (bench/rician_baseline.jl;
+design.md, "Step 0, measured"), and the cap (ADCDecay, ADCKurtosis, DTI's and DKI's diagonal;
+Gaussian fits in tissue unchanged; the Rician fit in CSF 98–100% converged with it, 70–94%
+without). What step 0 found: the Rician mean removes the floor's bias in tissue from SNR 10;
+weighting it gains under 2.4% of SD, so it is not the gap; the gaps are the bias at SNR ≤ 10 and
+in DKI's MKT (overcorrected, −13% at SNR 10), convergence where there is no information, and
+speed (4–80× the Gaussian fit). Open for the owner: an upper bound on T1 (T1IR in CSF ran off,
++290% at SNR 10). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood
