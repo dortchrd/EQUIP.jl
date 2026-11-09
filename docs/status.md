@@ -17,6 +17,10 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
 
+Merged into `main` (fast-forward, 2026-11-09, at the owner's request: "yes to both"): `t2-bounds`,
+T2 ≤ 2.5 s and R2 ≥ 0.4 s⁻¹ in every T2 model, `onbound` fixed for Float32, and the presets
+`DKI_GM`, `DKI_WM` (Maiter et al. 2021) and `DKI_CSF`; its branch is safe to delete on GitHub.
+
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request: "looks good"): `test-structure`,
 the tests split into groups (test/unit, test/integration, test/validation), CLAUDE.md's rules for
 tests, the audit's items on the roadmap (design.md item 21); its branch is safe to delete on GitHub.
