@@ -4278,7 +4278,7 @@ from one observation weighted by 1/Var):
   how often each converges. Step 0 measures them. If the weighted fit's bias is no worse than
   maximum likelihood's, step 4 may be unnecessary: decided on the measurements.
 
-### The interface (to decide with the owner; recommended)
+### The interface (decided 2026-11-09, the owner: "use likelihood")
 
 ```julia
 fit(m, data; likelihood = :ricianmean, σ = 12.0)     # least squares on E|y| (step 2)
@@ -4355,11 +4355,11 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
 3. **σ: where it comes from.** `noisesd(data, background)` from the image background, Rayleigh
    there: E[y²] = 2σ² exactly, so σ̂ = √(mean(y²)/2) (2Lσ² for L coils summed in squares,
    noncentral χ); from a noise-only scan the same way. A warning when the background looks
-   masked or zero-filled (many exact zeros, common in vendors' reconstructions). Then σ maps by
-   MP-PCA (Veraart et al., NeuroImage 2016: the noise eigenvalues of local patches follow the
-   Marchenko–Pastur law), a step of its own: larger, and itself biased by the floor at low SNR.
-   Judged by: the background estimate within 1% at 10⁴ simulated background voxels (analytic);
-   MP-PCA against a simulated dataset with a known σ map (its accuracy measured and recorded).
+   masked or zero-filled (many exact zeros, common in vendors' reconstructions). σ maps by
+   MP-PCA wait, with the other preprocessing (item 22; the owner, 2026-11-09: "wait on
+   mp-pca"); until then a σ map made by another tool is read with `loadmap` and given as `σ`
+   (MRtrix's `dwidenoise -noise`, DIPY's `mppca(..., return_sigma = True)`). Judged by: the
+   background estimate within 1% at 10⁴ simulated background voxels (analytic).
 4. **Maximum likelihood, `likelihood = :rician`.** The negative log-likelihood per voxel,
    Σⱼ [(yⱼ² + Aⱼ²)/2σⱼ² − log I₀(yⱼAⱼ/σⱼ²)], with log I₀ computed scaled (no overflow). Fisher
    scoring keeps the solver's structure: the step solves (Σⱼ Rⱼ/σⱼ²·JⱼJⱼᵀ + μD) h = −Σⱼ
@@ -4420,17 +4420,19 @@ against central differences, the edge cases.
 ### Not in tier 2
 
 Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same
-structure with L, after step 4. σ fitted per voxel (`σ = Free()`). (Rician IRWLS, item 3, is in
-step 2 now: the weighted `:ricianmean`.)
+structure with L, after step 4. σ fitted per voxel (`σ = Free()`). MP-PCA's σ maps (item 22).
+(Rician IRWLS, item 3, is in step 2 now: the weighted `:ricianmean`.)
 
-### Decisions for the owner
+### Decisions
 
-1. The keyword: `likelihood = :ricianmean | :rician` (recommended, for the reason above), or
-   `noise = :rician` in `fit` as item 20 first wrote it.
-2. The diffusivity bounds (≤ 4e-3 mm²/s) on the Gaussian fits too, as T2's cap was, if tissue
-   fits are unchanged (recommended), or on the Rician fits only.
-3. MP-PCA in tier 2 (recommended: σ maps are the usual case in multi-coil data), or the
-   background and noise-scan estimates only, MP-PCA later.
+1. The keyword: `likelihood = :ricianmean | :rician` (decided 2026-11-09, the owner: "use
+   likelihood"), not `noise = :rician` as item 20 first wrote it.
+2. Open: the diffusivity bounds (≤ 4e-3 mm²/s) on the Gaussian fits too, as T2's cap was, if
+   tissue fits are unchanged (recommended), or on the Rician fits only. Explained to the owner
+   2026-11-09; step 0 measures what the bound changes in Gaussian fits before it is decided.
+3. MP-PCA: later, with the other preprocessing (decided 2026-11-09, the owner: "wait on
+   mp-pca - put this into pre-processing steps"; item 22). Tier 2 estimates σ from the
+   background or a noise scan, and takes σ maps from other tools.
 4. Later, on step 0's and step 2's measurements, not now: whether maximum likelihood (step 4)
    is still worth building beside the weighted `:ricianmean`.
 
@@ -4477,8 +4479,9 @@ prediction, `BestOf(fits = k)`, neighbours; item 4); the B-matrix, `rotinv` and 
 cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit bridge and a
 "coming from" page (8); formats, protocol files, MRImages in its own repository and with it
 Julia 1.10 (9); `--init`,
-a server, the Python and MATLAB front ends, an installer (10); IRWLS and sensitivity–efficiency
-plots (3); myelin water, DCE, the sinc gradient echo (12); from the test audit (21): the tests
+a server, the Python and MATLAB front ends, an installer (10); preprocessing, MP-PCA's denoising
+and σ maps, brain masks by median–Otsu, Gibbs-ringing removal, perhaps filtering (22); IRWLS and
+sensitivity–efficiency plots (3); myelin water, DCE, the sinc gradient echo (12); from the test audit (21): the tests
 consolidated area by area (when work touches an area), and the benchmark framework (before
 performance work, e.g. VarPro).
 
@@ -6186,8 +6189,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - The second-order terms: item 16, tier 2.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
    roadmap for everything"; not built; planned with item 13 in "Tier 2, bias from noise at low
-   SNR: the plan", 2026-11-09, which proposes `likelihood = :ricianmean | :rician` in place of
-   the `noise = :rician` below). Magnitude data are Rician: where the true signal
+   SNR: the plan", 2026-11-09, where `likelihood = :ricianmean | :rician` replaces the `noise =
+   :rician` below: the owner, 2026-11-09, "use likelihood"; MP-PCA moved to item 22). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
    SIR's early TIs), the measured signal sits on a floor of about 1.25σ, and every fit that
    assumes Gaussian noise reads the floor as signal. Measured for DTI and DKI ("Issues 3 and 4,
@@ -6315,3 +6318,31 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `firstcall.jl` (fresh sessions: load, first calls, the precompile), `baselines/`, and
        `comparison/` (solvers.jl and cases.jl as they are); speed.jl folded into the suite;
        agreement.jl to the validation group. No timing assertions in tests.
+22. **Preprocessing: denoising and σ maps, masks, Gibbs ringing, perhaps filtering** (the owner,
+   2026-11-09: "wait on mp-pca - put this into pre-processing steps - also median otsu - gibbs,
+   maybe filtering"; not built, not ranked). The steps between the scanner's images and a fit,
+   today done with other tools (MRtrix, DIPY, FSL), so that `equip` can take a dataset from
+   files to maps alone.
+   - **MP-PCA**: denoising and a σ map at once (Veraart et al., NeuroImage 2016;142:394: in a
+     local patch the noise's eigenvalues follow the Marchenko–Pastur law, which separates them
+     from the signal's and gives σ). The σ map is what the Rician fit takes per voxel (the tier 2
+     plan, step 3). Its σ is biased by the floor at low SNR on magnitude data, and the denoised
+     data's noise is neither Rician with that σ nor independent between voxels: how to fit
+     denoised data with `likelihood = :rician` is to decide when built (fit the original data
+     with the σ map; or the denoised data with a reduced, correlated noise, as crlb's Σ allows).
+   - **Brain masks by median–Otsu**, as DIPY's `median_otsu` (a median filter, then Otsu's
+     threshold, Otsu, IEEE Trans Syst Man Cybern 1979;9:62; on the mean of the b = 0 images for
+     diffusion data; checked against DIPY's masks when built). For `fit`'s `mask` and `equip
+     fit --mask`, today made elsewhere.
+   - **Gibbs-ringing removal** by local subvoxel shifts (Kellner et al., Magn Reson Med 2016;
+     76:1574; MRtrix's `mrdegibbs`). After denoising, not before (MRtrix's advice: it
+     interpolates, which correlates the noise MP-PCA needs independent).
+   - **Perhaps filtering**: smoothing, or edge-preserving denoising (non-local means). Every
+     spatial filter correlates the noise between voxels and changes its distribution, which
+     the noise model, the Rician fit and crlb assume independent: to weigh before adding.
+   - Not here: motion, eddy-current and distortion correction, and registration (FSL's
+     `eddy`, ANTs), as DICOM conversion is dcm2niix's (item 9); the phase correction for
+     real-valued data ("Real-valued data", in the nerve SMT section).
+   - Where it would live (to decide when started): `src/preprocess/` in EQUIP with a command
+     each (`equip denoise`, `equip mask`, `equip degibbs`), or a package of its own beside
+     MRImages, as DIPY keeps them apart from its models.

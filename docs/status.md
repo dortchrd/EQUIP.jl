@@ -105,12 +105,13 @@ design.md, "The prerelease: what was done", has the measurements)
   skipped when bounds checks are forced, `@test_noalloc`).
 
 **2. Bias from noise at low SNR** (items 13, 16, 20). Planned (2026-11-09), not built: design.md,
-"Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged, and three
-decisions waiting on the owner (the keyword's name; the diffusivity bounds on Gaussian fits too;
-MP-PCA in tier 2 or later). Found while answering the owner (2026-11-09): least squares on the
+"Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged. Decided
+(the owner, 2026-11-09): the keyword is `likelihood`; MP-PCA waits, with the other
+preprocessing (item 22). Open: the diffusivity bounds on Gaussian fits too (step 0 measures
+them first). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
-- Rician fitting for every model (items 13 and 20, one item): proposed `fit(m, data; likelihood
+- Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood
   = :ricianmean or :rician, σ)` (least squares on E|y|, then maximum likelihood), the Gaussian
   fit first, σ a fixed parameter so a map works as B1's does. Measured for DTI and DKI (MD 11%
   low at SNR 10).
@@ -176,7 +177,8 @@ first")
   N sticks (item 17).
 - Phantoms and BrainWeb (2); the LsqFit bridge and a "coming from" page (8); formats, protocol
   files, MRImages in its own repository and with it Julia 1.10 support (9); `--init`, a server, the Python and MATLAB front
-  ends, an installer (10); IRWLS and sensitivity–efficiency plots (3); myelin water, DCE, the
+  ends, an installer (10); preprocessing: MP-PCA's denoising and σ maps, median–Otsu masks,
+  Gibbs-ringing removal, perhaps filtering (22); IRWLS and sensitivity–efficiency plots (3); myelin water, DCE, the
   sinc gradient echo (12).
 
 **The owner's own**
