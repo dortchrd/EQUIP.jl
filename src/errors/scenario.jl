@@ -53,13 +53,19 @@ The fit is built from the truth:
 - `weights`: the fit's weights, one per observation, as for `fit` (`weights = nex`, the numbers
   of averages): a weighted fit is judged (crlb's sandwich H⁻¹J₀ᵀWΣWJ₀H⁻¹; montecarlo fits with
   them). Checked against the protocol's number of observations where the scenario meets one.
+- `likelihood = :rician` and `method` (`:ml`, the default, `:mean` or `:wmean`): the fit with
+  the Rician noise model, as for `fit` (src/fit/rician.jl), of magnitude data; its σ is the
+  data's noise, given to crlb and montecarlo (`snr` or `σ`). crlb predicts that fit and
+  montecarlo fits with it.
 
 Fields: `model` (the type), `truth` (every parameter in model order, as given), `roles` (every
 parameter's role in the fit, [`Free`](@ref) or [`Fixed`](@ref)), `starts`, `wrong` (the fixed
 parameters whose value in the fit, a tie followed at the truth, differs from the truth's, each as
 `(fit = ..., truth = ...)`; empty when the fit is unbiased), `attruth` (the estimated
-parameters that start at their true value), `weights` (`nothing`, or a vector) and `given` (the
-truth as given: `truth`, or the derived quantities it was given by).
+parameters that start at their true value), `weights` (`nothing`, or a vector), `given` (the
+truth as given: `truth`, or the derived quantities it was given by), `likelihood` (`:gaussian`
+or `:rician`) and `method` (the Rician fit's: `:ml`, `:mean`, `:wmean`; `:none` for least
+squares).
 
 crlb's noise-free fit always starts at the truth, whatever `starts` says; montecarlo's fits
 start where the scenario says. In a sweep over true values (`vary`), the starts taken from the
@@ -82,13 +88,35 @@ struct Scenario{M,T<:NamedTuple,R<:NamedTuple,W<:NamedTuple,A<:Tuple,V,G<:NamedT
     attruth::A            # the estimated parameters that start at their true value
     weights::V            # nothing, or the fit's weights (Vector{Float64}, one per observation)
     given::G              # the truth as given: `truth`, or the derived quantities it was given by
+    likelihood::Symbol    # the noise model the fit assumes: :gaussian (least squares) or :rician
+    method::Symbol        # the Rician fit's (:ml, :mean, :wmean); :none for least squares
 end
 
 Scenario(M::Type{<:MRIModel}, θ::NamedTuple; starts::Symbol = :truth, weights = nothing,
-         changes...) =
-    _scenario(Base.typename(M).wrapper, _roles(M), θ, starts, changes, weights)
-Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, weights = nothing, changes...) =
-    _scenario(Base.typename(typeof(m)).wrapper, _ownroles(m), θ, starts, changes, weights)
+         likelihood = :gaussian, method = nothing, changes...) =
+    _scenario(Base.typename(M).wrapper, _roles(M), θ, starts, changes, weights,
+              _noisemodel(likelihood, method, weights)...)
+Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, weights = nothing,
+         likelihood = :gaussian, method = nothing, changes...) =
+    _scenario(Base.typename(typeof(m)).wrapper, _ownroles(m), θ, starts, changes, weights,
+              _noisemodel(likelihood, method, weights)...)
+
+# The fit's noise model, checked as `init` checks it (src/fit/rician.jl): (likelihood, method).
+function _noisemodel(likelihood, method, weights)
+    likelihood in _LIKELIHOODS || throw(ArgumentError("`likelihood` is the noise model the fit " *
+        "assumes: :gaussian (least squares, the default) or :rician, got $(repr(likelihood))"))
+    if likelihood === :gaussian
+        method === nothing || throw(ArgumentError("`method` is for likelihood = :rician (:ml, " *
+            ":mean or :wmean); least squares, the default, has none"))
+        return (:gaussian, :none)
+    end
+    method === nothing && (method = :ml)
+    method in _METHODS || throw(ArgumentError("`method` is one of $(join(repr.(_METHODS), ", ")) " *
+        "(:ml, the full Rician model, by default), got $(repr(method))"))
+    weights === nothing || throw(ArgumentError("`weights` with likelihood = :rician: not yet " *
+        "(method = :wmean weights by the Rician variance)"))
+    return (:rician, method)
+end
 # `Base.typename(T).wrapper` is the type without its parameters: QMTSIR for a
 # QMTSIR{Vector{Float64}}, so the scenario fits a QMTSIR with any kind of acquisition vectors.
 
@@ -97,7 +125,8 @@ Scenario(m::MRIModel, θ::NamedTuple; starts::Symbol = :truth, weights = nothing
 # otherwise the model's own method's (`parameters(m::MyModel)`).
 _ownroles(m::MRIModel) = applicable(parameters, typeof(m)) ? parameters(typeof(m)) : parameters(m)
 
-function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, weights = nothing)
+function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, weights = nothing,
+                   likelihood = :gaussian, method = :none)
     starts in (:truth, :model) || throw(ArgumentError("`starts` must be :truth (every " *
         "estimated parameter starts at its true value) or :model (the model's own starting " *
         "rules, as `fit` starts a real fit), got $(repr(starts))"))
@@ -143,14 +172,15 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, 
     # The weights, checked as `fit` checks them (finite, ≥ 0, one positive); their number is
     # checked against a protocol's observations when the scenario meets one (`_check_protocol`).
     w = weights === nothing ? nothing : _checked_weights(weights, length(weights), Float64)
-    return _checked_scenario(M, truth, θt, roles, starts, given, w, asgiven)
+    return _checked_scenario(M, truth, θt, roles, starts, given, w, asgiven, likelihood, method)
 end
 
 # The rest in a function of its own (a "function barrier"): after the changes the compiler no
 # longer knows the roles' type in the function above (a change can make any parameter Free or
 # Fixed); here it does again, so the `map`s below compile to straight-line code, not a lookup
 # per parameter (the constructor 2.5× faster; docs/design.md, "Scenario").
-function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w, asgiven) where {K}
+function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w, asgiven,
+                           likelihood = :gaussian, method = :none) where {K}
     # Checked as `setup` checks a fit's roles: something to estimate, ties that name a parameter
     # that is not a tie, bounds in order.
     isfree = map(r -> r isa Free, roles)
@@ -165,7 +195,8 @@ function _checked_scenario(M, truth, θt, roles::NamedTuple{K}, starts, given, w
     fitvalues = map((r, v) -> r isa Fixed ? r.value : v, roles, θt)   # free ones at the truth
     names = NamedTuple{K}(K)                  # each parameter's name, by name
     attruth = starts === :truth ? _names(map((f, n) -> f && !(n in given), isfree, names)) : ()
-    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth, w, asgiven)
+    return Scenario(M, truth, roles, starts, _wrong(θt, fitvalues), attruth, w, asgiven,
+                    likelihood, method)
 end
 
 # The names whose flag is true, in order; the entries of `x` with those names.
@@ -234,6 +265,8 @@ function Base.show(io::IO, ::MIME"text/plain", s::Scenario)
           "\nwrong: " * join(("$n = $(cell(w.fit)) (true $(cell(w.truth)))" for (n, w) in pairs(s.wrong)), ", ") *
           ": the fit is biased")
     s.weights === nothing || print(io, "\nweighted fit: ", _weightstext(s.weights))
+    s.likelihood === :rician && print(io, "\nthe fit: likelihood = :rician, method = :", s.method,
+                                      " (magnitude data; σ the data's noise)")
 end
 
 # The weights, in words: "weights 1 to 8 (7 observations)".
@@ -244,4 +277,5 @@ function _weightstext(w)
 end
 
 Base.show(io::IO, s::Scenario) = print(io, "Scenario(", nameof(s.model), "; ",
-    isempty(s.wrong) ? "unbiased" : "wrong: " * join(keys(s.wrong), ", "), ")")
+    isempty(s.wrong) ? "unbiased" : "wrong: " * join(keys(s.wrong), ", "),
+    s.likelihood === :rician ? "; Rician, :$(s.method)" : "", ")")

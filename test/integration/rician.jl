@@ -147,3 +147,51 @@ end
     @test mean(derived(rg).MD) / 0.66e-3 - 1 < -0.05
     @test abs(mean(derived(rml).MD) / 0.66e-3 - 1) < 0.02 && all(isconverged, rml.status)
 end
+
+@testset "likelihood = :rician in crlb, montecarlo and sweeps" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    m = T2Decay(TE = collect(0.01:0.01:0.32))
+    θ = (S0 = 1000.0, T2 = 0.069)
+    σ = 100.0                                                    # S0/σ = 10
+    # 1. crlb predicts each fit as other code computes it: :ml the Rician bound (`ricianbound`,
+    #    crlb with the information as weights); :mean crlb of RicianMean with the Rician
+    #    variance; :wmean the same weighted by 1/Var. Nothing fixed wrong: no bias.
+    v = ricianvar.(signal(m, θ), σ)
+    refs = (ml = ricianbound(m, θ; σ), mean = crlb(RicianMean(m; σ), θ; Σ = Diagonal(v)),
+            wmean = crlb(RicianMean(m; σ), θ; Σ = Diagonal(v), weights = 1 ./ v))
+    for method in (:ml, :mean, :wmean)
+        c = crlb(m, θ; σ, likelihood = :rician, method)
+        @test c.rician === method && c.bias.T2 == 0
+        @test isapprox(c.sd.T2, refs[method].sd.T2; rtol = 1e-10) &&
+              isapprox(c.sd.S0, refs[method].sd.S0; rtol = 1e-10)
+    end
+    @test crlb(m, Scenario(m, θ; likelihood = :rician); σ).sd == crlb(m, θ; σ, likelihood = :rician).sd
+    # 2. A sweep over noise levels: each setting as the single call
+    sw = crlb(m, θ; snr = [10, 20], likelihood = :rician)
+    @test sw.results[2].sd.T2 ≈ crlb(m, θ; snr = 20, likelihood = :rician).sd.T2
+    # 3. montecarlo fits with the scenario's Rician fit, and its crlb is that fit's, within 3
+    #    Monte Carlo standard errors: T2Decay at SNR 20 (least squares +10% biased there, step 0);
+    #    and QMTSIR with kmf fixed wrong (12.5 in white matter) at SNR 200, Dortch et al. 2018's
+    #    case: the wrong assumption's bias, every method
+    z(mc, p) = (abs(mc.bias[p] - mc.crlb.bias[p]) / mc.se_mean[p], abs(mc.sd[p] - mc.crlb.sd[p]) / mc.se_sd[p])
+    mc = montecarlo(m, θ; snr = 20, noise = :rician, likelihood = :rician, n = 4000, rng = MersenneTwister(6))
+    @test mc.result.settings.likelihood === :rician && mc.crlb.rician === :ml
+    @test all(<(3), z(mc, :T2))
+    mq = QMTSIR(; SIR_5POINT...)
+    θq = nominal(mq, :SIR_WM_I)
+    for method in (:ml, :mean, :wmean)
+        mcq = montecarlo(mq, θq; snr = 200, noise = :rician, likelihood = :rician, method, kmf = 12.5,
+                         n = 4000, rng = MersenneTwister(3))
+        @test mcq.crlb.bias.PSR < -0.05 && all(<(3), z(mcq, :PSR))
+    end
+    # 4. Not yet, and why
+    @test occursin("noise = :rician", msg(() -> montecarlo(m, θ; snr = 20, noise = :gaussian,
+                                                            likelihood = :rician, n = 10)))
+    @test occursin("sandwich", msg(() -> crlb(m, θ; snr = 20, likelihood = :rician, cov = :biased)))
+    @test occursin("leakage", msg(() -> leakage(mq, θq; kmf = 12.5, likelihood = :rician)))
+    md = QMTSIR(; SIR_4POINT..., magnitude = false)
+    @test occursin("protocol design", msg(() -> ProtocolDesign(md,
+        [Scenario(QMTSIR, θq; kmf = 12.5, likelihood = :rician)]; snr = 200,
+        acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = p -> sum(p.TI .+ p.TD))))
+    @test occursin("`method`", msg(() -> Scenario(m, θ; method = :mean)))
+end

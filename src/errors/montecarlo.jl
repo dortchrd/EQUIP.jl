@@ -192,7 +192,8 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     # scenario's fit (its starts taken from the truth follow this truth).
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
     Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
-    res = fit(m, Y; options..., weights = s.weights, _roles_at(s, m, θ)...)   # the scenario's fit
+    res = fit(m, Y; options..., weights = s.weights, _rician_fit(s, c, noise, averages)...,
+              _roles_at(s, m, θ)...)                         # the scenario's fit
 
     # Statistics over every fitted copy (as `compare`), each against the parameter's true value;
     # then the same for the model's derived quantities (`derived`, e.g. DTI's FA), computed from
@@ -213,6 +214,18 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     return MonteCarloResult(meanv, bias, sd, rmse, rel(bias), rel(sd), rel(rmse), se_mean, se_sd,
                             count(isconverged, res.status) / n, Int(n), noise, c.σ, c, res,
                             truth, c.fixed, m, simulate_with, c.averages, averaging)
+end
+
+# A fit with likelihood = :rician (the scenario's): its keywords, σ the data's (one for every
+# observation: the fit takes no σ per observation yet). Of magnitude data only.
+_rician_fit(s::Scenario, c, noise, averages) = s.likelihood === :rician ?
+    _rician_fitkeywords(s, c, noise, averages) : (;)
+function _rician_fitkeywords(s, c, noise, averages)
+    noise === :rician || throw(ArgumentError("a fit with likelihood = :rician fits magnitude " *
+        "data: simulate them with noise = :rician"))
+    (averages === nothing && allequal(c.σ)) || throw(ArgumentError("a fit with likelihood = " *
+        ":rician takes one σ for every observation: not yet with averages or σ per observation"))
+    return (likelihood = :rician, method = s.method, σ = c.σ[1])
 end
 
 # The estimates of every copy (the free parameters' maps, here vectors) and the parameters'
@@ -262,7 +275,9 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
     _print_data(io, mc.data)
     _print_fixed(io, mc.fixed, resolve(mc.model, mc.truth))
     c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
-    print(io, "\nmeasured (± standard error) and predicted by crlb (sandwich, Gaussian noise)")
+    print(io, "\nmeasured (± standard error) and predicted by crlb (",
+          c.rician === :none ? "sandwich, Gaussian noise" :
+          "the fit with likelihood = :rician, method = :$(c.rician), first order", ")")
     header = ("parameter", "true", "mean", "rel bias", "crlb", "SD", "crlb", "SD/crlb",
               "rel RMSE", "crlb")
     rows = map(collect(keys(mc.sd))) do p

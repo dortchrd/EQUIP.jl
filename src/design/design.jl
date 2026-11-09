@@ -197,6 +197,10 @@ _fitkey(r::Fixed) = (:fixed, r.value)
 
 # One group: the cache of the first scenario's fit, and every member's truth, noise and weights.
 function _group(m, ss, idx, snr, σ, averages, weights, cov)
+    # The Rician fits' crlb sets its noise and weights from each truth's signal, which here would
+    # change with every protocol tried: not yet in the design's allocation-free kernel.
+    any(i -> ss[i].likelihood === :rician, idx) && throw(ArgumentError("a protocol design for " *
+        "fits with likelihood = :rician: not yet (crlb and montecarlo of such fits are)"))
     return _groupof(_CRLBCache(m, ss[idx[1]], cov), m, ss, idx, snr, σ, averages, weights)
 end
 # A separate function so that F and P are known here (a function barrier).
@@ -295,7 +299,7 @@ end
 _copy(c::CRLBCache{F,P,T,M,MT,X,B1,B2,W}) where {F,P,T,M,MT,X,B1,B2,W} =
     CRLBCache{F,P,T,M,MT,X,B1,B2,W}(c.model, c.mT, c.lower, c.upper, c.fixed, c.opts, c.biased,
                                     similar(c.y), similar(c.fitbuf), similar(c.jbuf), similar(c.hbuf),
-                                    c.w)
+                                    c.w, c.rician)
 
 # The values x of a protocol (a shared field: its first value), within the bounds.
 function _x(d::ProtocolDesign{N,V}, m) where {N,V}

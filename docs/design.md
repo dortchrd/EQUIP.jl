@@ -4383,7 +4383,8 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
    Compared throughout with the weighted `:ricianmean` (its SD within 4.5% of the bound
    asymptotically, above): ML is worth its solver change only if it is less biased or converges
    better at low SNR; if not, this step waits.
-5. **crlb, montecarlo, sweeps and design, consistent with the fit used.** A `Scenario` carries
+5. **crlb, montecarlo, sweeps and design, consistent with the fit used.** (Built but the design:
+   "Step 5, built and measured", below.) A `Scenario` carries
    `likelihood` and σ like the other fit settings, so montecarlo fits as asked, and crlb
    predicts that fit:
    - `:ricianmean`: the fitted model is the wrapper, the data's mean `RicianMean(m)` and their
@@ -4642,6 +4643,52 @@ on 4 threads, the Rician fits including their first fit:
 - **Speed** (4 threads): a Rician fit, its first fit included, costs 2–6× least squares for the
   small models (T2Decay with `:ml` 4.8–15 µs per voxel against 1.2–3.5) and 2–7× for DTI and
   DKI.
+
+### Step 5, built and measured (2026-11-09)
+
+The owner: "do 5". `crlb`, `montecarlo` and their sweeps take the fit's keywords
+(`likelihood = :rician`, `method`), and a `Scenario` carries them (`s.likelihood`, `s.method`), so
+montecarlo fits each copy that way and crlb predicts that fit. No second crlb: each method is,
+to first order in the noise (crlb's regime), a least-squares fit the kernel already computes, set
+up per call from the noise given and the truth's magnitudes A* (src/errors/crlb.jl,
+`_rician_crlbcache`, `_rician!`):
+
+- `:mean`: the kernel on `RicianMean(m; σ)`, the data's mean `RicianMean(dm; σ)` (a wrong fixed
+  value's bias is the noise-free fit to it), the noise Var|y| = `ricianvar(A*, σ)`.
+- `:wmean`: the same weighted by 1/Var (at the truth's magnitudes; the fit's weights, from its
+  previous values, are those of the noise-free fit's, the same to first order).
+- `:ml`: the kernel on |S| (`_Magnitude(m)`) fitted to |S*|, weighted by the Rician information
+  R(A*/σ)/σ², the noise σ²/R. The sandwich is then (Σ R/σ²·JJᵀ)⁻¹, `ricianbound`'s, when nothing
+  is wrong; with a wrong fixed value, its noise-free fit is the likelihood's to first order: the
+  expected score Σ J·(A − E[y·I₁/I₀(yA/σ²)])/σ² is R·(A − A*)/σ² near the truth (from the Fisher
+  identity), the information-weighted least-squares gradient on the true magnitudes. So the
+  maximum-likelihood fit targets the true signal (no floor), weighted by how much each image
+  says.
+
+Tested (test/integration/rician.jl): the three predictions equal `ricianbound`, crlb of
+`RicianMean` with the Rician variance, and the same weighted, to 1e-10; a sweep over `snr`
+equals the single calls; montecarlo against crlb (4000 copies, |z| in Monte Carlo SEs):
+
+| case | method | bias: measured, crlb | z | SD: measured, crlb | z |
+|---|---|---|---:|---|---:|
+| T2Decay WM, SNR 20, nothing wrong | ml | +1.24e-4, 0 | 1.8 | 0.00431, 0.00432 | 0.2 |
+| | mean | +1.21e-4, 0 | 1.8 | 0.00435, 0.00436 | 0.1 |
+| | wmean | +1.30e-4, 0 | 1.9 | 0.00432, 0.00433 | 0.1 |
+| T2Decay WM, SNR 50 | ml | +3.1e-5, 0 | 1.2 | 0.00164, 0.00165 | 0.3 |
+| QMTSIR 5-point, kmf = 12.5 (wrong), WM, SNR 200: PSR | ml, mean, wmean alike | −0.0917, −0.0916 | 0.6 | 0.0112, 0.0111 | 0.9 |
+| the same at SNR 50 | ml | −0.0938, −0.0916 | 3.1 | 0.0440, 0.0443 | 0.8 |
+| | least squares (riciannoise's crlb) | −0.0940, −0.0916 | 3.3 | 0.0438, 0.0443 | |
+
+At SNR 50 the measured bias of the wrong kmf is 2% beyond the first-order prediction for every
+fit, least squares' too: the expansion's own limit, not the Rician model's. Where first order
+fails outright (T1MFA with B1 fixed wrong at SNR 20–50: T1's SD near 1.8 s for a T1 of 1 s, z of
+13–25), it fails for every method alike: montecarlo is the reference there, as for least
+squares.
+
+Not yet, refused with the reason: a protocol design for these fits (the noise and the weights
+depend on each truth's signal, which changes with every protocol tried: the design's
+allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =
+:biased`; montecarlo's Rician fits with averages or σ per observation (the fit takes one σ).
 
 ### SNR: S0/σ, and each image's own (2026-11-09)
 

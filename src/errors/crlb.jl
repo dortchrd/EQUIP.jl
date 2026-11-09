@@ -87,6 +87,7 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     observed::Matrix{Float64}      # observed information at θ̂: the likelihood's Hessian
     averages::Union{Nothing,Vector{Int}}   # nothing, or the averages of each observation
     weights::Union{Nothing,Vector{Float64}}   # nothing, or the fit's weights (a weighted fit)
+    rician::Symbol             # :none (least squares), or the Rician fit's method predicted
 end
 
 """
@@ -345,8 +346,18 @@ end
 # separate function (a "function barrier") so that F and P are known types here.
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with,
                      averages = nothing) where {F,P,T}
-    σ2 = _kernelnoise(Σn, P)
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
+    if c.rician !== :none                            # a fit with likelihood = :rician (below)
+        σ2r, dmr = _rician!(c, simulate_with === nothing ? c.mT.model : dmT, dtt, Σn)
+        return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with, averages)
+    end
+    return _crlbresult(c, truth, t, dmT, dtt, Σn, Σn, _kernelnoise(Σn, P), Σ, simulate_with, averages)
+end
+# The rest, given the kernel's noise σ2 (and Σk, the same as a matrix) and the data's model: a
+# function of its own, so that each branch above calls it with concrete types (a function
+# barrier: the Rician branch's σ2 is a vector, least squares' often a number).
+function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ, simulate_with,
+                     averages) where {F,P,T}
     k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
     sd = sqrt.(diag(k.cov))
     rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
@@ -361,7 +372,7 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
     if k.exact
         observed = copy(info)
     else
-        w = Σn \ ([_val(d) for d in c.hbuf] .- c.y)          # Σ⁻¹r₀
+        w = Σk \ ([_val(d) for d in c.hbuf] .- c.y)          # Σ⁻¹r₀
         observed = Matrix(_sym(info + curvature(c.hbuf, w)))
     end
     onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
@@ -377,7 +388,58 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_wi
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
                       averages === nothing ? nothing : _averages(averages, length(c.y)),
-                      c.w === nothing ? nothing : copy(c.w))
+                      c.w === nothing || c.rician !== :none ? nothing : copy(c.w), c.rician)
+end
+
+# -------------------------------------------------------------------------------------------------
+# crlb of a fit with likelihood = :rician (src/fit/rician.jl), on magnitude data with Rician
+# noise, by the same kernel. First order in the noise, as crlb is, each method is a least-squares
+# fit the kernel already knows:
+#
+#   :mean    least squares on the Rician mean: the model RicianMean(m; σ), the data's mean
+#            RicianMean(dm; σ) (with a wrong fixed value, the noise-free fit to it gives the
+#            bias), the noise Var|y| = ricianvar(A*, σ) at the true magnitudes A*: the sandwich
+#            H⁻¹J₀ᵀVJ₀H⁻¹
+#   :wmean   the same, weighted by 1/Var: H⁻¹J₀ᵀV⁻¹J₀H⁻¹, (J₀ᵀV⁻¹J₀)⁻¹ when nothing is wrong (the
+#            fit's weights, from its previous values, are 1/Var at the noise-free fit's: here
+#            at the truth's, the same to first order)
+#   :ml      maximum likelihood: the model's magnitude |S| fitted to the true |S*|, weighted by
+#            the Rician information R(A*/σ)/σ², with the noise σ²/R: the sandwich is then
+#            (Σ R/σ² JJᵀ)⁻¹, the inverse Rician information, `ricianbound`'s, when nothing is
+#            wrong; with a wrong fixed value, its noise-free fit is the likelihood's to first
+#            order (the expected score Σ J·(A − E[y·I₁/I₀(yA/σ²)])/σ² is R·(A − A*)/σ² near the
+#            truth, the information-weighted gradient), and the sandwich the misspecified one.
+#
+# The cache (`_rician_crlbcache`) holds the method's model; each call sets its σ (the data's,
+# from `snr` or `σ`) and weights from the truth's magnitudes (`_rician!`).
+function _rician_crlbcache(m, mT, roles, method, cov)
+    cov === :sandwich || throw(ArgumentError("crlb of a fit with likelihood = :rician: the " *
+        "sandwich only (`cov = :sandwich`); Eq. 3 is a bound for least-squares fits"))
+    n = nobs(mT)
+    fm = method === :ml ? _Magnitude(mT) : RicianMean(mT, ones(n))
+    spec = _spec(mT, roles, Float64, method === :mean ? nothing : ones(n))
+    return _crlbcache(m, fm, spec, false, method)
+end
+
+# One call's noise for the kernel (one variance per observation) and the data's model: σ the
+# data's (independent noise only), A* the true magnitudes of `dbase` at `dt`.
+function _rician!(c::CRLBCache, dbase, dt, Σn)
+    isdiag(Σn) || throw(ArgumentError("crlb of a fit with likelihood = :rician: independent " *
+        "noise only (`snr` or `σ`, not a full `Σ`)"))
+    σ = sqrt.(diag(Σn))
+    a = similar(σ)
+    signal!(a, dbase, _resolve_ties(dt))
+    a .= abs.(a)
+    if c.rician === :ml
+        R = _ricianRtable.(a ./ σ)
+        c.w .= R ./ σ .^ 2                           # the information; 0 where A* = 0
+        σ2 = [r > 0 ? s^2 / r : s^2 for (r, s) in zip(R, σ)]
+        return σ2, _Magnitude(dbase)
+    end
+    c.mT.σ .= σ                                      # the fitted RicianMean's σ
+    v = ricianvar.(a, σ)
+    c.rician === :wmean && (c.w .= 1 ./ v)
+    return v, dbase === c.mT.model ? c.mT : RicianMean(dbase, copy(σ))
 end
 
 # The model's derived quantities (its `derived` hook, e.g. DTI's MD and FA), each g a function
@@ -479,6 +541,9 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
     _print_fixed(io, c.fixed, resolve(c.model, c.truth))
     c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
+    c.rician === :none ||
+        print(io, "\nthe fit: likelihood = :rician, method = :", c.rician, " (magnitude data, ",
+              "Rician noise; first order in the noise)")
     isconverged(c.status) ||
         print(io, "\nthe noise-free fit did not converge ($(c.status)): the bias may be inaccurate")
     isempty(c.onbound) ||

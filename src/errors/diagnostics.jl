@@ -246,6 +246,8 @@ function leakage(m::MRIModel, θ::NamedTuple; changes...)
     return leakage(m, Scenario(m, θ; ch...))
 end
 function leakage(m::MRIModel, s::Scenario)
+    s.likelihood === :rician && throw(ArgumentError("leakage of a fit with likelihood = " *
+        ":rician: not yet (its least-squares fit's, without the keyword, is)"))
     lc = _LeakageCache(m, s)
     return _leakageresult(lc, s.truth, _crlb_truth(m, s.truth))
 end

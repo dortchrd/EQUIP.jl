@@ -21,7 +21,7 @@
 #      - `:wmean`: the same, weighted by 1/ricianvar(A, σ), the weights from the previous pass's
 #        values (iteratively reweighted least squares, quasi-likelihood: Wedderburn, Biometrika
 #        1974;61:439), `_WMEAN_PASSES` passes, the first from the Gaussian fit's values;
-#      - `:ml`: the model's magnitude (`_MagnitudeSignal`), and in place of the sum of squares the
+#      - `:ml`: the model's magnitude (`_RicianLikelihood`), and in place of the sum of squares the
 #        Rician negative log-likelihood, minimized by Fisher scoring inside the same
 #        Levenberg–Marquardt solver (its own `normal_equations`, below; Sijbers et al., IEEE Trans
 #        Med Imaging 1998;17:357; Karlsen et al., Magn Reson Med 1999;41:614).
@@ -45,10 +45,25 @@ const _WMEAN_PASSES = 2      # the weights from the Gaussian fit's values, then 
 struct _RicianMeanSignal{M<:MRIModel} <: MRIModel
     model::M
 end
-struct _MagnitudeSignal{M<:MRIModel} <: MRIModel
+struct _RicianLikelihood{M<:MRIModel} <: MRIModel
     model::M
 end
-nobs(w::Union{_RicianMeanSignal,_MagnitudeSignal}) = nobs(w.model)
+nobs(w::Union{_RicianMeanSignal,_RicianLikelihood}) = nobs(w.model)
+# The model's magnitude |S| with the ordinary least-squares sums: what crlb's prediction of the
+# :ml fit fits, weighted by the Rician information (src/errors/crlb.jl, `_rician!`).
+struct _Magnitude{M<:MRIModel} <: MRIModel
+    model::M
+end
+nobs(w::_Magnitude) = nobs(w.model)
+relabel(w::_Magnitude, θ) = relabel(w.model, θ)
+derived(w::_Magnitude, p) = derived(w.model, p)
+function signal!(out, w::_Magnitude, p)
+    signal!(out, w.model, p)
+    @inbounds for j in eachindex(out)
+        out[j] = abs(out[j])
+    end
+    return out
+end
 
 function signal!(out, w::_RicianMeanSignal, p)
     signal!(out, w.model, p)
@@ -58,7 +73,7 @@ function signal!(out, w::_RicianMeanSignal, p)
     end
     return out
 end
-function signal!(out, w::_MagnitudeSignal, p)
+function signal!(out, w::_RicianLikelihood, p)
     signal!(out, w.model, p)
     @inbounds for j in eachindex(out)
         out[j] = abs(out[j])                  # on a dual number, the derivatives' sign follows
@@ -77,7 +92,7 @@ end
 # are then: "sse" = 2 × that objective, g = the gradient, A = the information, so that its step
 # (A + μD)h = −g and its predicted decrease −(2gᵀs + sᵀAs) are Fisher scoring's, damped. At
 # high SNR (I₁/I₀ → 1, R → 1) these are least squares' sums divided by σ²: the same fit.
-@noinline function normal_equations(prob::VoxelProblem{F,<:_MagnitudeSignal}, θ::SVector{P,T},
+@noinline function normal_equations(prob::VoxelProblem{F,<:_RicianLikelihood}, θ::SVector{P,T},
                                     buf) where {F,P,T}
     p = _params(Val(F), _seed(θ), prob.fixed)
     signal!(buf, prob.model, p)                  # |signal|, with its derivatives
@@ -161,7 +176,7 @@ function _rician_init(model::MRIModel, method, precision, solver, weights, param
     nostart = ntuple(_ -> false, P)
     spec = FitSpec{freenames(gs),P,T,typeof(gs.start),typeof(fixed),Nothing}(
         gs.lower, gs.upper, gs.start, 0, fixed, T[], 0, nostart, nostart, nostart, nothing)
-    rmodel = method === :ml ? _MagnitudeSignal(gauss.model) : _RicianMeanSignal(gauss.model)
+    rmodel = method === :ml ? _RicianLikelihood(gauss.model) : _RicianMeanSignal(gauss.model)
     n = length(gauss.y)
     rician = FitCache(rmodel, spec, gauss.opts, similar(gauss.buf), Vector{T}(undef, n),
                       gauss.settings, nothing)

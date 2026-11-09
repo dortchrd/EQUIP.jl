@@ -90,6 +90,8 @@ struct CRLBCache{F,P,T,M,MT,X,B1,B2,W}
     jbuf::B1                   # J₀ at θ̂ (first-order duals), when the fit is exact
     hbuf::B2                   # Vector{Dual{CRLBTag,Dual{FitTag,T,P},P}}: J₀ and ∇²g at θ̂
     w::W                       # the fit's weights: nothing, or one per observation (Vector{T})
+    rician::Symbol             # :none (least squares), or the Rician fit's method (:ml, :mean,
+                               # :wmean): mT is then its model, w and σ set per call (`_rician!`)
 end
 
 CRLBCache(m::MRIModel, s::Scenario; cov::Symbol = :sandwich) = _CRLBCache(m, s, cov)
@@ -102,7 +104,9 @@ function _CRLBCache(m::MRIModel, s::Scenario, cov::Symbol)
     _check_protocol(m, s)
     _check_cov(cov)
     mT = _with_precision(m, Float64)           # acquisition vectors as Float64, as `fit` does
-    spec = _spec(mT, map(r -> _at_acquisition(r, mT), s.roles), Float64, s.weights)
+    roles = map(r -> _at_acquisition(r, mT), s.roles)
+    s.likelihood === :rician && return _rician_crlbcache(m, mT, roles, s.method, cov)
+    spec = _spec(mT, roles, Float64, s.weights)
     return _crlbcache(m, mT, spec, cov === :biased)
 end
 function _CRLBCache(m::MRIModel, fit::NamedTuple, cov::Symbol)
@@ -113,7 +117,7 @@ end
 _check_cov(cov) = cov in (:sandwich, :biased) ||
     throw(ArgumentError("`cov` must be :sandwich or :biased, got $(repr(cov))"))
 # A separate function so that P is a type parameter, to make the buffers' types.
-function _crlbcache(m, mT, spec::FitSpec{F,P,T}, biased::Bool) where {F,P,T}
+function _crlbcache(m, mT, spec::FitSpec{F,P,T}, biased::Bool, rician::Symbol = :none) where {F,P,T}
     n = nobs(mT)
     D1 = Dual{FitTag,T,P}
     D2 = Dual{CRLBTag,D1,P}
@@ -121,7 +125,7 @@ function _crlbcache(m, mT, spec::FitSpec{F,P,T}, biased::Bool) where {F,P,T}
                      typeof(spec.weights)}(
         m, mT, spec.lower, spec.upper, spec.fixed, SolverOptions{T}(_CRLB_SOLVER), biased,
         Vector{T}(undef, n), Vector{D1}(undef, n), Vector{D1}(undef, n), Vector{D2}(undef, n),
-        spec.weights)
+        spec.weights, rician)
 end
 
 # For a weighted fit (the cache's `w`): the observations that count (a weight 0 leaves one out),
@@ -791,6 +795,7 @@ function _fitsettings(fname, m::MRIModel, settings, own)
             "name: `$fname(m, (fixed = Scenario(m, θ), free = Scenario(m, θ; kmf = Free())); ...)`"))
         k === :starts && throw(ArgumentError("`starts`: $fname's noise-free fit starts at the " *
             "truth; `starts` is for montecarlo's fits"))
+        k in (:likelihood, :method) && continue  # the fit's noise model: part of the scenario
         k in _OPTIONS && throw(ArgumentError("`$k`: the noise-free fit sets its own options; " *
             "give only the parameters' settings"))
         k in (:noise, :averaging) && !(k in names) && throw(_noise_refused(fname, k))

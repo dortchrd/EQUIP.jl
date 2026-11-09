@@ -125,8 +125,13 @@ Then steps 2 and 4 together (the owner: "both now, ML the default"): `fit(m, dat
 unchanged value for value. Measured (design.md, "Steps 2 and 4, built and measured"): the three
 methods agree where the data hold information and remove the floor's bias from SNR 10; `:ml`
 converges best where fits are hard, at `:mean`'s cost; at SNR 5 the Rician fits trade bias for
-variance; DKI's MKT overcorrection is not the noise model's (every method alike). Not yet:
-crlb and montecarlo of these fits (step 5), the command line, `weights`, averages. Found while answering the owner (2026-11-09): least squares on the
+variance; DKI's MKT overcorrection is not the noise model's (every method alike). Step 5 (the
+owner: "do 5"): crlb, montecarlo and sweeps take `likelihood = :rician` and `method` (a
+Scenario carries them) and predict or measure that fit; each method is, to first order, a
+least-squares fit crlb's kernel already computes (`:ml` the magnitude weighted by the Rician
+information: `ricianbound` when nothing is wrong). Checked against montecarlo (T2 decay at SNR
+20; the 5-point SIR with kmf wrong at SNR 200). Not yet: a protocol design for these fits,
+`leakage`, the command line, `weights`, averages. Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood

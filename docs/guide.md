@@ -197,9 +197,10 @@ names:
   `iterations` both fits', its `sse` Σ(y − E|y|)², and `fitted(res)` the data's mean under the
   fit, E|y|. Its standard errors use the known σ (the inverse Rician information for `:ml`, the
   sandwich with the Rician variance for `:mean`). Voxels with negative data (not magnitudes) or
-  no σ (NaN or 0 in the map) are not fitted (`InvalidData`). Not yet with it: `weights`, numbers
-  of averages, the log-likelihood and information criteria of the fit, `crlb` and `montecarlo`
-  of these fits. Where the data have no information left (CSF at high b in DKI), no noise model
+  no σ (NaN or 0 in the map) are not fitted (`InvalidData`). `crlb` and `montecarlo` take the
+  same keywords and predict or measure these fits (under "Accuracy before scanning"). Not yet
+  with it: `weights`, numbers of averages, the log-likelihood and information criteria of the
+  fit, a protocol design for it. Where the data have no information left (CSF at high b in DKI), no noise model
   recovers it: mask such voxels. Phase-corrected real-valued data have Gaussian noise and no
   floor: fit them as they are.
 
@@ -810,6 +811,17 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   sandwich(hessian(r, signal(m, θ)), jacobian(r), noisecovariance(m, s; snr = 200))
   biasedcrlb(biasgradient(m, s), informationmatrix(m, s; snr = 200))   # = crlb's two covariances
   ```
+- Fits with the Rician noise model (`likelihood = :rician`, under "Free and fixed parameters"):
+  give crlb and montecarlo the same keywords as the fit. `crlb(m, θ; snr = 10, likelihood =
+  :rician)` predicts that fit (`method = :ml` by default; `:mean`, `:wmean`), its σ the noise
+  given: for `:ml` the inverse Rician information (`ricianbound`'s) when nothing fixed is wrong,
+  and with a wrong fixed value the likelihood's bias and the misspecified sandwich, to first
+  order; for `:mean` the sandwich with the Rician variance. `montecarlo(m, θ; snr, noise =
+  :rician, likelihood = :rician)` fits each copy that way, its crlb alongside the same fit's
+  (checked: within 3 Monte Carlo standard errors for T2 decay at SNR 20, and for the 5-point SIR
+  with kmf fixed at 12.5 at SNR 200). A scenario carries it too: `Scenario(m, θ; likelihood =
+  :rician, method = :mean)`; sweeps follow. Not yet: protocol design, `leakage` and
+  `cov = :biased` for these fits; montecarlo's with averages or σ per observation.
 - Rician noise, from its own functions: `crlb(m, θ; riciannoise(m, θ; snr, averages,
   averaging)...)` predicts a least-squares fit of magnitude data, its bias from the noise floor
   (exactly: the fit of the magnitudes' mean, `RicianMean`) and its SD (with the Rician variance);
@@ -818,7 +830,8 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   estimator beats. `averaging = :complex` (the scanner's averages: the floor falls) or
   `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself
   removes the floor's bias when σ is known (start it from the Gaussian fit's values; it gives the
-  model's derived quantities too, DTI's MD and FA), at 1–4 times the Gaussian fit's cost.
+  model's derived quantities too, DTI's MD and FA), at 1–4 times the Gaussian fit's cost; `fit(m,
+  data; likelihood = :rician, σ, method = :mean)` does that in one call.
   `ricianmean`, `ricianvar`, `ricianinformation` for one value.
 - Not modelled by crlb: bounds reached by noisy fits, nonlinearity at low SNR. That is what
   montecarlo is for.
