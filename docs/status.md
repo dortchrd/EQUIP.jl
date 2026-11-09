@@ -104,10 +104,14 @@ design.md, "The prerelease: what was done", has the measurements)
   1.11's `Pkg.test` forces (`fit!` allocates nothing on 1.11 as users run it; the checks are
   skipped when bounds checks are forced, `@test_noalloc`).
 
-**2. Bias from noise at low SNR** (items 13, 16, 20)
-- Rician fitting for every model (items 13 and 20, one item): `fit(m, data; noise = :rician,
-  σ)`, the Gaussian fit first, σ as a map. Measured for DTI and DKI (MD 11% low at SNR 10), not
-  built.
+**2. Bias from noise at low SNR** (items 13, 16, 20). Planned (2026-11-09), not built: design.md,
+"Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged, and three
+decisions waiting on the owner (the keyword's name; the diffusivity bounds on Gaussian fits too;
+MP-PCA in tier 2 or later).
+- Rician fitting for every model (items 13 and 20, one item): proposed `fit(m, data; likelihood
+  = :ricianmean or :rician, σ)` (least squares on E|y|, then maximum likelihood), the Gaussian
+  fit first, σ a fixed parameter so a map works as B1's does. Measured for DTI and DKI (MD 11%
+  low at SNR 10).
 - crlb's second-order noise bias, both terms, opt-in, tested against montecarlo: Box's bias of
   the parameters, and a derived quantity's ½ tr(∇²g·C).
 - `propagate(c, g)` for any function of the parameters (the `derived` hook covers a model's

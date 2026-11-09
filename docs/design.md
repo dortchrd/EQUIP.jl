@@ -4203,6 +4203,181 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
 - Full runs: EQUIP 2347, CLI 139, MRImages 103 (the first EQUIP run found the one test that
   printed T2Decay's old bound, Inf, in `nominal`'s table; fixed).
 
+## Tier 2, bias from noise at low SNR: the plan (2026-11-09; not built)
+
+The owner, 2026-11-09, asked what Rician work exists ("what rician stuff do we have now"), then
+for a plan of tier 2 before any building ("yes"), in the order: one switch for any model, σ as
+a map, maximum likelihood, crlb, montecarlo and design consistent with the fit used, then tests
+and validation. Roadmap items 13 and 20 (Rician fitting) and 16 (the second-order bias,
+`propagate`, uncertain inputs) hold the reasons and the earlier measurements; this section is
+the order of work and how each step is judged. Work goes on branch `rician`, a prototype until
+accepted (CLAUDE.md); each step's measurements are reported before it is merged.
+
+### What exists, and what is wrong with it today
+
+- `ricianmean`, `ricianvar`, `ricianinformation` (src/sim/rician.jl); `simulate` and
+  `montecarlo` with Rician noise; `riciannoise` (crlb of least squares on magnitude data: the
+  floor's bias and the Rician variance) and `ricianbound` (the bound of Rician data, Devan et al.
+  2020).
+- `RicianMean(m; σ)`: least squares on the expected magnitude, already fittable by hand. In
+  DTI's white matter it brings MD's bias from −11% at SNR 10 to ≤ 0.6% (item 17's review). Four
+  things stop it being routine:
+  1. **The starts** go through the Rician mean: `:scale` is wrong there (E|y| is not
+     proportional to S0), and `:loglinear` is poorly determined near the floor. The study above
+     started it from the Gaussian fit's maps, by hand.
+  2. **σ is one number per observation**, a field of the wrapper: no σ per voxel, so no σ map.
+  3. **Speed**: 10–40× slower than the Gaussian fit (150–2000 µs per voxel on 4 threads against
+     7–120), from the Bessel functions evaluated in dual numbers.
+  4. **No unbounded rate survives the floor**: where the signal vanishes, any larger decay rate
+     fits equally, and the fit runs away (DTI in CSF at b = 2500, SNR 10: MD +10 000%, 20% of
+     voxels not converged; with D's diagonal ≤ 4e-3 mm²/s, 98–100% converged).
+- No σ estimation, and no maximum likelihood (least squares on the mean is consistent but not
+  efficient; it overcorrects DKI's MKT by −8% at SNR 20, its RMSE above the Gaussian fit's).
+
+### The interface (to decide with the owner; recommended)
+
+```julia
+fit(m, data; likelihood = :ricianmean, σ = 12.0)     # least squares on E|y| (step 2)
+fit(m, data; likelihood = :rician, σ = σmap)         # maximum likelihood (step 4)
+montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate one way, fit another
+```
+
+- **`likelihood`, not `noise`**, in `fit`: montecarlo, crlb, sweeps and `scenarios` take
+  simulate's `noise` (what the data are) and fit's keywords (how they are fitted) in one call,
+  so one name cannot mean both; data simulated as Rician are fitted by least squares unless
+  asked (today's behaviour, and the floor-bias study). Item 13 had decided `fit` refuses `noise`
+  (the noise's distribution belongs to `simulate`); that refusal stays, its message pointing to
+  `likelihood`. Values: `:gaussian` (the default: least squares, as now), `:ricianmean`, `:rician`.
+- **σ is a fixed parameter of the wrapper**, `σ`: a number, or a map with the data's spatial
+  size (one per voxel: coil sensitivity and parallel imaging make noise vary across the image),
+  checked and read voxel by voxel as `B1 = b1map` is (`_check_maps`, the cache's per-voxel
+  values), with no new machinery. Per observation, a relative profile from `averages` (complex
+  averaging: σ/√NEX). Later, `σ = Free()` fits it, poorly determined with few observations
+  (item 13). `σ` is then reserved, as `weights` is (`_RESERVED`); `σ` without a Rician likelihood
+  is refused, pointing to `stderror(res; σ)`.
+- **Magnitude averaging** (a spherical mean) is not Rician: `:ricianmean` takes it (its mean is
+  E|y| at σ, the variance divided by NEX), `:rician` refuses it.
+- **Phase-corrected real data** have Gaussian noise and no floor ("Real-valued data", in the
+  nerve SMT section): the guide says to fit them as they are.
+
+### Order of work, with how each step is judged
+
+0. **The baseline, measured first.** A script in bench/ (a few minutes: asked before running):
+   bias, SD, RMSE, % converged and µs per voxel of the Gaussian fit and of `RicianMean` by hand,
+   for T2Decay (32 echoes), ADCDecay, T1IR on magnitude data (near its null), DTI and DKI, at
+   SNR 5, 10, 20 and 50, in tissue and CSF. Every later step is compared against this table,
+   recorded here.
+1. **The fast Rician pieces**, moved to src/models/rician.jl (included before src/fit/, which
+   will use them; src/sim/ keeps `riciannoise` and `ricianbound`):
+   - `ricianmean` with its own derivative rule for dual numbers, from the same two Bessel
+     values: dE|y|/dA = √(π/2)·(A/2σ)·e^(−ν/2)·[I₀(ν/2) + I₁(ν/2)] (checked 2026-11-09 against
+     central differences, A/σ from 0.1 to 25: within 4e-9, the differences' own error; its
+     high-SNR limit is 1 − σ²/2A²), in place of differentiating through `besselix`.
+   - R(s) (`ricianinformation`'s factor) tabulated once on s ∈ [0, 40] with cubic
+     interpolation, the expansion above; today 1201 quadrature points per call, too slow for a
+     solver or a design kernel.
+   - The Bessel ratio I₁(z)/I₀(z), the likelihood's score, on plain numbers.
+   - Judged by: values unchanged (`ricianmean` to rounding; R against the quadrature to 1e-8);
+     the derivative against ForwardDiff through `besselix` and against central differences;
+     `RicianMean`'s fit of DTI and DKI per voxel before and after (target 3× faster or more;
+     recorded either way).
+2. **The switch, `likelihood = :ricianmean`, for every model.**
+   - Each voxel fitted twice in one `fit!`: the Gaussian fit from the model's own starts
+     (`:loglinear`, `datastart`, `:scale`, `BestOf`), then the Rician fit from its result. The
+     cache holds both fits' caches (`init` returns one cache holding two `FitCache`s; `fit!`
+     chosen by its type, dispatch), so datasets, threads, masks and `refit` work unchanged.
+   - Statistics: `stderror` and `vcov` from the sandwich with the Rician variance at the fit,
+     (JᵀJ)⁻¹JᵀΣJ(JᵀJ)⁻¹, σ known (no σ̂ from the residuals); AIC and BIC refused (a least-squares
+     fit of a mean is not a likelihood). `settings` and the maps' sidecars record the likelihood
+     and σ (provenance).
+   - Bounds where the signal can vanish below the floor, per model (item 20): DTI's and DKI's
+     diagonal elements ≤ 4e-3 mm²/s (free water is 3.0e-3 at 37 °C), ADC ≤ 4e-3 in ADCDecay and
+     ADCKurtosis. Applied to the Gaussian fits too, as T2's 2.5 s cap was, if tissue fits are
+     unchanged (measured, as for the cap; to decide with the owner).
+   - The command line: `equip fit ... --likelihood ricianmean --sigma 12` or `--sigma-map
+     file.nii` (a CLI change: CI before merging).
+   - Judged by: Gaussian fits bit-identical and as fast (bench/speed.jl) when `likelihood` is not
+     given; at SNR 1000 the `:ricianmean` fit equals the Gaussian one to the floor's σ²/2A (a
+     limit); a σ map with two regions gives each region the fit it gets alone with its own σ (an
+     invariance); against step 0's table, DTI's MD bias ≤ 1% at SNR 10 in white matter with no
+     hand-made starts, ≥ 98% converged in CSF, and the same table for the other four models.
+3. **σ: where it comes from.** `noisesd(data, background)` from the image background, Rayleigh
+   there: E[y²] = 2σ² exactly, so σ̂ = √(mean(y²)/2) (2Lσ² for L coils summed in squares,
+   noncentral χ); from a noise-only scan the same way. A warning when the background looks
+   masked or zero-filled (many exact zeros, common in vendors' reconstructions). Then σ maps by
+   MP-PCA (Veraart et al., NeuroImage 2016: the noise eigenvalues of local patches follow the
+   Marchenko–Pastur law), a step of its own: larger, and itself biased by the floor at low SNR.
+   Judged by: the background estimate within 1% at 10⁴ simulated background voxels (analytic);
+   MP-PCA against a simulated dataset with a known σ map (its accuracy measured and recorded).
+4. **Maximum likelihood, `likelihood = :rician`.** The negative log-likelihood per voxel,
+   Σⱼ [(yⱼ² + Aⱼ²)/2σⱼ² − log I₀(yⱼAⱼ/σⱼ²)], with log I₀ computed scaled (no overflow). Fisher
+   scoring keeps the solver's structure: the step solves (Σⱼ Rⱼ/σⱼ²·JⱼJⱼᵀ + μD) h = −Σⱼ
+   (Aⱼ − yⱼρⱼ)/σⱼ²·Jⱼ, with Rⱼ = R(Aⱼ/σⱼ) (step 1's table) and ρⱼ = I₁/I₀(yⱼAⱼ/σⱼ²), steps kept
+   when the likelihood falls. So `levmar` takes a loss (per observation: the working residual,
+   its weight and the objective; the Gaussian one is today's rᵢ, wᵢ and ½Σwᵢrᵢ²), chosen by type,
+   the Gaussian path unchanged. The Bessel functions are evaluated on plain numbers, not dual
+   numbers (only A's derivatives come from duals), so it may cost less than step 2: to measure.
+   Same two-stage start, same σ. Statistics from the Rician information (Cov = (Σ R/σ²·JJᵀ)⁻¹),
+   `loglikelihood`, AIC and BIC from the Rician likelihood. Judged by: Gaussian fits
+   bit-identical and as fast; the score against central differences of the likelihood; at SNR
+   1000 the same fit as least squares (a limit); in montecarlo at SNR ≥ 20, the SD within 10%
+   of `ricianbound` and the bias below a tenth of the SD (asymptotic efficiency, Sijbers et al.
+   1998); DKI's MKT at SNR 20, whether ML avoids `:ricianmean`'s −8% (recorded, not asserted).
+5. **crlb, montecarlo, sweeps and design, consistent with the fit used.** A `Scenario` carries
+   `likelihood` and σ like the other fit settings, so montecarlo fits as asked, and crlb
+   predicts that fit:
+   - `:ricianmean`: the fitted model is the wrapper, the data's mean `RicianMean(m)` and their
+     covariance the Rician variance: what `riciannoise` writes by hand today. Exactly equal to it
+     (an identity test).
+   - `:rician`, model right: the bias 0 at first order and the covariance the inverse Rician
+     information, `ricianbound` (an identity test). With a fixed parameter wrong, the bias is
+     the likelihood's pseudo-truth (the minimizer of the expected likelihood, a quadrature per
+     observation): in crlb first; in the design kernel later (open).
+   - The design kernel gets the Rician information through step 1's table, allocation-free.
+     Measured: what a Rician fit changes in an optimal T2 or DTI protocol at SNR 10 (recorded).
+   - Judged by: the identities exact; montecarlo against crlb within 3 Monte Carlo standard
+     errors, as bench/agreement.jl does for the Gaussian fits.
+6. **Validation** (test/validation/, item 21): per model, the floor's bias removed against step
+   0's table, the SD against `ricianbound`, the no-information cases ending on their bounds, σ
+   maps; bench/agreement.jl moved in as the Gaussian half. A cheap version of each in
+   test/integration (one model, one SNR, a few thousand voxels). Run nightly in CI (a schedule
+   in CI.yml: CI before merging).
+
+Then item 16's three, which share crlb's derivatives:
+
+7. **`propagate(c, g)`** for any function of the parameters: the `derived` hook's code with g in
+   its place (the delta method's SD and covariance, the bias g(θ̂) − g(θ)). Judged by: equal to
+   the `derived` path for DTI's FA and MD (identity), and against montecarlo for a ratio.
+8. **The second-order noise bias, opt-in** (`crlb(m, θ; snr, secondorder = true)`): Box's bias
+   of the parameters, −½(JᵀWJ)⁻¹JᵀW·d with dᵢ = tr(C·Hᵢ), from the nested duals crlb's Hessian
+   already evaluates, and a derived quantity's ½ tr(∇²g·C). Judged by: T1MFA at SNR 100, B1
+   right (Monte Carlo bias +0.026 s, crlb's first order 0), and with the biased B1 map (−0.0686 s
+   measured, −0.069 from the two added); whether it closes DTI's FA gap at SNR 20 (+1.16e-3
+   from ½ tr(∇²g·C) alone, +1.37e-3 measured); where the expansion fails (FA near isotropy, near
+   a bound), montecarlo the reference, said in the docstring.
+9. **Uncertain inputs** (`crlb(m, θ; snr, uncertain = (B1 = 0.03,))`): L·Σc·Lᵀ added to the
+   covariance, L from leakage's dθ̂/dc at the fit's value. Judged by: T1MFA with a B1 map 5%
+   high and a 3% SD (SD 0.0572 s predicted, 0.0576 measured in the scratch study).
+
+Alongside, area by area as the steps touch them (item 21): the missing independent checks, the
+T1 signals' analytic values, invariances, every model's Jacobian and DKI's index gradients
+against central differences, the edge cases.
+
+### Not in tier 2
+
+Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same
+structure with L, after step 4. σ fitted per voxel (`σ = Free()`). Rician IRWLS (item 3), which
+step 4's Fisher scoring makes unnecessary.
+
+### Decisions for the owner
+
+1. The keyword: `likelihood = :ricianmean | :rician` (recommended, for the reason above), or
+   `noise = :rician` in `fit` as item 20 first wrote it.
+2. The diffusivity bounds (≤ 4e-3 mm²/s) on the Gaussian fits too, as T2's cap was, if tissue
+   fits are unchanged (recommended), or on the Rician fits only.
+3. MP-PCA in tier 2 (recommended: σ maps are the usual case in multi-coil data), or the
+   background and noise-scan estimates only, MP-PCA later.
+
 ## Roadmap
 
 **Priorities** (agreed with the owner, 2026-11-08: "converge and tighten this into a priority
@@ -4220,6 +4395,8 @@ are not an order. The same list, with each tier's loose ends, is in docs/status.
    `propagate(c, g)` for any function of the parameters; uncertain inputs (a measured B1 map's
    SD added to the covariance). Item 16. With it, from the test audit (item 21): the missing
    independent checks, and the validation group filled with its statistical checks, run nightly.
+   The plan, step by step with how each is judged: "Tier 2, bias from noise at low SNR: the
+   plan" (2026-11-09), above.
 3. **Protocol design**: a protocol from a number of points (item 14); an objective on a derived
    quantity (MK's SD, not W1111's; item 19); the search's crlb and leakage from one kernel, and
    the worst case inside a box (item 3).
@@ -5246,7 +5423,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - Multi-exponential T2 (myelin water), DCE. (Diffusion tensor and kurtosis: built, item 17;
      IVIM: moved to item 17, 2026-11-08.)
 
-13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02). Started
+13. **Rician-likelihood fitting** (a priority after the prerelease, decided 2026-11-02; with
+   item 20, planned in "Tier 2, bias from noise at low SNR: the plan", 2026-11-09). Started
    on branch `nerve-smt` (2026-11-03): step 1 below, the expected magnitude as the model
    (`RicianMean`), with the Rician bound (`ricianbound`) and crlb of least squares on magnitude
    data (`riciannoise`); see "Peripheral nerve SMT".
@@ -5356,7 +5534,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    Networks trained on simulations stay out of scope (`simulate` and `scenarios` make the
    training sets for anyone who wants one).
 16. **Error propagation: to derived quantities, from uncertain inputs, and the estimator's own
-   noise bias** (discussed 2026-11-05; not built). Three pieces, each the delta method with a
+   noise bias** (discussed 2026-11-05; not built; its order of work in "Tier 2, bias from noise
+   at low SNR: the plan", steps 7–9). Three pieces, each the delta method with a
    different Jacobian:
    - **Outputs: `propagate(c, g)`.** A quantity g of the fitted parameters (FA, MD, AD, RD from
      DTI's six elements; any index or ratio): SD √(J Σ Jᵀ) with Σ = `c.cov`, bias g(fit) − g(truth)
@@ -5950,7 +6129,9 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - A protocol objective on a derived quantity (`ProtocolDesign` for MK's SD).
      - The second-order terms: item 16, tier 2.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
-   roadmap for everything"; not built). Magnitude data are Rician: where the true signal
+   roadmap for everything"; not built; planned with item 13 in "Tier 2, bias from noise at low
+   SNR: the plan", 2026-11-09, which proposes `likelihood = :ricianmean | :rician` in place of
+   the `noise = :rician` below). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
    SIR's early TIs), the measured signal sits on a floor of about 1.25σ, and every fit that
    assumes Gaussian noise reads the floor as signal. Measured for DTI and DKI ("Issues 3 and 4,
