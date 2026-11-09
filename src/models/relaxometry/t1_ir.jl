@@ -28,7 +28,8 @@
 # Long T1, low SNR (T1IR, T1 = 4 s, TIs up to 3.2 s, SNR 20, 2000 voxels): the two forms agree
 # except in 15 voxels whose noisy data are best fitted with T1 running off to infinity (an almost
 # straight line); both forms stop there with status MaxIterations. Without the grid the forms
-# disagreed in 371 voxels, each stuck in a different local minimum.
+# disagreed in 371 voxels, each stuck in a different local minimum. Since 2026-11-09 T1 is at
+# most 5 s (R1 at least 0.2 s⁻¹; builtin.jl), so such voxels end on that bound instead.
 # =================================================================================================
 
 
@@ -45,7 +46,8 @@ familiar `M0·(1 - 2·exp(-TI/T1))`), as in [`T1IRTD`](@ref), which this is for 
 
 - acquisition: `TI` (s), one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- parameters: `M0`, `Sf` (from -1.2 to 0), `T1` (s)
+- parameters: `M0`, `Sf` (from -1.2 to 0), `T1` (s, at most 5: above CSF's, so a recovery too
+  slow for the TIs ends on the bound, flagged by `onbound`; `T1 = Free(upper = 10)` widens it)
 
 Rate version: [`R1IR`](@ref).
 """
@@ -57,7 +59,7 @@ end
 parameters(::Type{<:T1IR}) = (
     M0 = Free(start = :scale, lower = 0),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),  # as in T1IRTD
-    T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN),  # the best of 30 (see above)
+    T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN, upper = _T1MAX),  # best of 30
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1IR's signal (below; see builtin.jl
@@ -71,7 +73,7 @@ signal!(out, m::T1IR, p) = signal!(out, R1IR(m.TI, m.magnitude), (; p.M0, p.Sf, 
 
 - acquisition: `TI` (s), one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- parameters: `M0`, `Sf` (from -1.2 to 0), `R1` (1/s)
+- parameters: `M0`, `Sf` (from -1.2 to 0), `R1` (1/s, at least 0.2: T1 at most 5 s, as T1IR)
 """
 @kwdef struct R1IR{A<:AbstractVector} <: MRIModel
     TI::A                               # inversion times (s)
@@ -81,7 +83,7 @@ end
 parameters(::Type{<:R1IR}) = (
     M0 = Free(start = :scale, lower = 0),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
-    R1 = Free(start = m -> BestOf(1 ./ _t1grid(m.TI)), lower = 0),  # T1IR's values, as rates
+    R1 = Free(start = m -> BestOf(1 ./ _t1grid(m.TI)), lower = _R1MIN),  # T1IR's, as rates
 )
 
 function signal!(out, m::R1IR, p)
@@ -117,7 +119,8 @@ TD as a fraction of M0. Use it to test the assumption that the readout saturates
 - acquisition: `TI` (s), one per observation; `TD` (s), one number for all observations or one
   per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- free by default: `M0`, `Sf` (inversion efficiency, -1 = perfect), `T1` (s)
+- free by default: `M0`, `Sf` (inversion efficiency, -1 = perfect), `T1` (s, at most 5, as
+  T1IR)
 - fixed by default: `Mz_td0 = 0`
 
 Rate version: [`R1IRTD`](@ref).
@@ -138,7 +141,7 @@ T1IRTD(TI, TD::Real, magnitude) = T1IRTD(TI, fill(TD, length(TI)), magnitude)   
 parameters(::Type{<:T1IRTD}) = (
     M0 = Free(start = :scale, lower = 0),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
-    T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN),
+    T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN, upper = _T1MAX),
     Mz_td0 = Fixed(0.0),                # Mz at the start of TD, as a fraction of M0: 0 = saturated
 )
 
@@ -156,7 +159,7 @@ signal!(out, m::T1IRTD, p) =
 
 - acquisition: `TI` (s), one per observation; `TD` (s), one number or one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
-- free by default: `M0`, `Sf`, `R1` (1/s)
+- free by default: `M0`, `Sf`, `R1` (1/s, at least 0.2)
 - fixed by default: `Mz_td0 = 0`
 """
 @kwdef struct R1IRTD{A<:AbstractVector,B<:AbstractVector} <: MRIModel
@@ -170,7 +173,7 @@ R1IRTD(TI, TD::Real, magnitude) = R1IRTD(TI, fill(TD, length(TI)), magnitude)   
 parameters(::Type{<:R1IRTD}) = (
     M0 = Free(start = :scale, lower = 0),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
-    R1 = Free(start = m -> BestOf(1 ./ _t1grid(m.TI)), lower = 0),
+    R1 = Free(start = m -> BestOf(1 ./ _t1grid(m.TI)), lower = _R1MIN),
     Mz_td0 = Fixed(0.0),
 )
 

@@ -39,6 +39,15 @@ const _TMIN = 1e-6    # lower bound for time constants, so that t/T stays finite
 const _T2MAX = 2.5
 const _R2MIN = 1 / _T2MAX
 
+# The same for T1 and R1 in the T1 models (T1IR, T1IRTD, T1SR, T1MFA and their R1 forms): T1 ≤ 5 s,
+# above CSF's (4.1 s at 3 T, `TISSUES.CSF`), and R1 ≥ 1/5 s = 0.2 s⁻¹ (the owner, 2026-11-09:
+# "make T1 cap 5 sec"). With TIs much shorter than T1 the recovery is almost a straight line,
+# fitted equally by any longer T1, and the fit ran off without it (T1IR in CSF, TIs to 5 s, SNR
+# 10: T1 +290% on average, 4% of voxels not converged; docs/design.md, the tier 2 plan, step 0).
+# Widen it in a call: `T1 = Free(upper = 10)`, `R1 = Free(lower = 0)`.
+const _T1MAX = 5.0
+const _R1MIN = 1 / _T1MAX
+
 # The upper bound for a diffusivity in the diffusion models (ADCDecay's and ADCKurtosis's ADC,
 # DTI's and DKI's diagonal elements Dxx, Dyy, Dzz): 4e-3 mm²/s, above free water's 3.0e-3 at
 # 37 °C (Pasternak et al., Magn Reson Med 2009), so no tissue or CSF reaches it (the owner,

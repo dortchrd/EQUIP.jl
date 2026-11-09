@@ -13,7 +13,7 @@
 Saturation recovery: `S = M0·(1 - exp(-TD/T1))`.
 
 - acquisition: `TD` (s), the delay after saturation, one per observation
-- parameters: `M0`, `T1` (s)
+- parameters: `M0`, `T1` (s, at most 5, as [`T1IR`](@ref))
 
 Rate version: [`R1SR`](@ref).
 """
@@ -23,7 +23,7 @@ end
 
 parameters(::Type{<:T1SR}) = (
     M0 = Free(start = :scale, lower = 0),
-    T1 = Free(start = 1.0, lower = _TMIN),
+    T1 = Free(start = 1.0, lower = _TMIN, upper = _T1MAX),
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1SR's signal (below; see builtin.jl
@@ -36,7 +36,7 @@ signal!(out, m::T1SR, p) = signal!(out, R1SR(m.TD), (; p.M0, R1 = 1 / p.T1))
 [`T1SR`](@ref) with the rate R1 = 1/T1: `S = M0·(1 - exp(-R1·TD))`.
 
 - acquisition: `TD` (s), the delay after saturation, one per observation
-- parameters: `M0`, `R1` (1/s)
+- parameters: `M0`, `R1` (1/s, at least 0.2)
 """
 @kwdef struct R1SR{A<:AbstractVector} <: MRIModel
     TD::A                               # delays after saturation (s)
@@ -44,7 +44,7 @@ end
 
 parameters(::Type{<:R1SR}) = (
     M0 = Free(start = :scale, lower = 0),
-    R1 = Free(start = 1.0, lower = 0),
+    R1 = Free(start = 1.0, lower = _R1MIN),
 )
 
 function signal!(out, m::R1SR, p)

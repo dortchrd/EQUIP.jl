@@ -18,7 +18,7 @@ Multiple flip angle T1 mapping with a spoiled gradient echo:
 
 - acquisition: `FA` (degrees), one per observation; `TR` (s), one number for all observations
   or one per observation
-- parameters: `M0`, `T1` (s), and `B1` (relative flip angle), fixed at 1 by default. Pass a
+- parameters: `M0`, `T1` (s, at most 5, as [`T1IR`](@ref)), and `B1` (relative flip angle), fixed at 1 by default. Pass a
   B1 map with `fit(m, data; B1 = b1map)`.
 
 Rate version: [`R1MFA`](@ref).
@@ -39,7 +39,7 @@ T1MFA(FA, TR::Real) = T1MFA(FA, fill(TR, length(FA)))
 
 parameters(::Type{<:T1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
-    T1 = Free(start = 1.0, lower = _TMIN),
+    T1 = Free(start = 1.0, lower = _TMIN, upper = _T1MAX),
     B1 = Fixed(1.0),
 )
 
@@ -54,7 +54,7 @@ signal!(out, m::T1MFA, p) = signal!(out, R1MFA(m.FA, m.TR), (; p.M0, R1 = 1 / p.
 
 - acquisition: `FA` (degrees), one per observation; `TR` (s), one number for all observations
   or one per observation
-- parameters: `M0`, `R1` (1/s), and `B1` (relative flip angle), fixed at 1 by default
+- parameters: `M0`, `R1` (1/s, at least 0.2), and `B1` (relative flip angle), fixed at 1 by default
 
 ```julia
 m = R1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
@@ -69,7 +69,7 @@ R1MFA(FA, TR::Real) = R1MFA(FA, fill(TR, length(FA)))    # one TR for every flip
 
 parameters(::Type{<:R1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
-    R1 = Free(start = 1.0, lower = 0),
+    R1 = Free(start = 1.0, lower = _R1MIN),
     B1 = Fixed(1.0),
 )
 

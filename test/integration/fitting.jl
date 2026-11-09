@@ -113,11 +113,12 @@ end
     res = fit(m, Y; T1 = Free(lower = 0.05))
     start(r; kw...) = refit(r, Y; solver = LM(maxiter = 0), kw...).params.T1   # the start used
     @test start(res) == res.params.T1                          # previous values
-    @test start(res; T1 = Free(upper = 5.0)) == res.params.T1  # a bounds-only change keeps them
+    @test start(res; T1 = Free(upper = 10.0)) == res.params.T1 # a bounds-only change keeps them
     @test start(res; T1 = Free(start = 0.7)) == fill(0.7, 10)  # an explicit start wins
     @test start(res; T1 = Free(upper = 0.25)) == min.(res.params.T1, 0.25)   # moved onto a new bound
-    r2 = refit(res, Y; T1 = Free(upper = 5.0))
-    @test r2.settings.T1.lower == 0.05 && r2.settings.T1.upper == 5.0   # stored bound kept
+    # (10 s: the default upper bound is 5 s since 2026-11-09, so 5 would change nothing)
+    r2 = refit(res, Y; T1 = Free(upper = 10.0))
+    @test r2.settings.T1.lower == 0.05 && r2.settings.T1.upper == 10.0  # stored bound kept
     @test r2.params.T1 ≈ res.params.T1 rtol = 1e-6
 end
 

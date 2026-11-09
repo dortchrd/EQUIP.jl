@@ -4345,8 +4345,9 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      diagonal elements ≤ 4e-3 mm²/s (free water is 3.0e-3 at 37 °C), ADC ≤ 4e-3 in ADCDecay and
      ADCKurtosis: done (2026-11-09, branch `rician`; `_DMAX`, src/models/builtin.jl), in every
      fit, Gaussian ones too (the owner: "cap everywhere"), after step 0 measured the Gaussian
-     fits in tissue unchanged by it. Open: T1 (step 0's T1IR in CSF runs off without one), and
-     a lower bound of 0 on the tensor's diagonal (DKI in CSF went negative).
+     fits in tissue unchanged by it. T1 ≤ 5 s and R1 ≥ 0.2 s⁻¹ too (the owner, 2026-11-09;
+     step 0's T1IR in CSF had run off). Open: a lower bound of 0 on the tensor's diagonal (DKI
+     in CSF went negative).
    - The command line: `equip fit ... --likelihood ricianmean --sigma 12` or `--sigma-map
      file.nii` (a CLI change: CI before merging).
    - Judged by: Gaussian fits bit-identical and as fast (bench/speed.jl) when `likelihood` is not
@@ -4490,7 +4491,12 @@ truth is 0, as their mean:
   the few voxels above it (ADC at SNR 10: SD 28.4 → 24.5%, bias −19.2 → −20.5%; DKI's MD at SNR
   20, +24.7 → +22.5%); DTI's Gaussian fits never reached it. So the cap went into every fit.
 - **T1IR in CSF** (T1 4.1 s, TIs to 5 s) runs off with either fit at SNR ≤ 10 (+290% and +528%
-  at SNR 10): T1 has no upper bound, as T2 had none before its cap. A question for the owner.
+  at SNR 10): T1 had no upper bound, as T2 had none before its cap. Capped since (the owner,
+  2026-11-09: "make T1 cap 5 sec"; T1 ≤ 5 s, R1 ≥ 0.2 s⁻¹, every T1 model) and rerun (`ONLY=T1IR`,
+  each case now seeded on its own, so other noise draws): CSF at SNR 10, Gaussian +5.9% (SD
+  16.4), Rician +2.9% (16.2), 100% converged; at SNR 5, +6.2% (24.8) and +1.0% (24.4); in WM
+  the same within Monte Carlo error from SNR 10, and at SNR 5 the runaway voxels gone (Gaussian
+  +2.0% (41.7) from +5.7% (107); Rician +11.7% (53) from +48% (1432)).
 - **Speed**: the Rician mean costs 15–80× the Gaussian fit for the small models (T2, ADC, T1IR:
   0.3–4 µs against 7–110) and 4–40× for DTI and DKI (10–130 µs against 100–1400): step 1's
   derivative rule is worth most for the small models.
@@ -4557,7 +4563,8 @@ cylinder and sphere compartments, N sticks (item 17); phantoms (2); the LsqFit b
 "coming from" page (8); formats, protocol files, MRImages in its own repository and with it
 Julia 1.10 (9); `--init`,
 a server, the Python and MATLAB front ends, an installer (10); preprocessing, MP-PCA's denoising
-and σ maps, brain masks by median–Otsu, Gibbs-ringing removal, perhaps filtering (22); IRWLS and
+and σ maps, brain masks by median–Otsu, Gibbs-ringing removal, perhaps filtering (22); a units
+switch for what users see, e.g. ms and µm²/ms (23); IRWLS and
 sensitivity–efficiency plots (3); myelin water, DCE, the sinc gradient echo (12); from the test audit (21): the tests
 consolidated area by area (when work touches an area), and the benchmark framework (before
 performance work, e.g. VarPro).
@@ -6423,3 +6430,32 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - Where it would live (to decide when started): `src/preprocess/` in EQUIP with a command
      each (`equip denoise`, `equip mask`, `equip degibbs`), or a package of its own beside
      MRImages, as DIPY keeps them apart from its models.
+23. **Units: a switch for the units users see** (the owner, 2026-11-09: "I think we should have a
+   switch somewhere for user to make global change in units. For me personally I prefer ms for
+   time constants, 1/s for rate constants and µm²/ms but that is just personal pref"; not built,
+   not ranked). Decided the same day: inside EQUIP the units stay seconds, 1/s, s/mm² and mm²/s
+   ("assume s/mm2 and sec for T2, etc."): the models' equations, starts, bounds (T2 ≤ 2.5 s, T1 ≤
+   5 s, D ≤ 4e-3 mm²/s), the tissue presets and BIDS sidecars (whose times BIDS fixes in seconds)
+   all assume them. A switch would convert only at the boundary.
+   - **What it converts**: the acquisition (TE, TI, TR, TD in ms; b in ms/µm²); the fit's keywords
+     (fixed values, maps, starts, bounds); the results (`res.params`, `derived`, `stderror`,
+     crlb's and montecarlo's tables, `nominal`, sweeps, every display); the files `savemaps` and
+     `writetable` write, with the units in each sidecar. Files read keep their own declared units
+     (a BIDS sidecar's EchoTime is in seconds whatever the session's): never the session's.
+     µm²/ms is 1e-3 mm²/s and ms/µm² 1000 s/mm², so b·D is the same number in both.
+   - **What it needs**: each parameter, acquisition field and derived quantity to say its
+     dimension (time, rate, diffusivity, b-value, angle, none). A hook (`dimensions(M)`), by
+     default inferred from the names (T…, TE, TI, TR, TD: time; R…, k…: rate; D…, ADC, MD, AD,
+     RD: diffusivity; b: b-value), declared by the built-in models, inferred and printed by
+     `@mrimodel` and `newmodel`; DKI's V in (mm²/s)².
+   - **How it is set**, to decide when built: a preference saved per environment (as the
+     precompile workload's) is convenient but makes a script mean different things on different
+     machines (`TE = [10, 20]`: 10 ms on one, 10 s on another), so not that alone. Recommended: an
+     explicit call at the top of a script or session (e.g. `EQUIP.units!(time = :ms, diffusivity
+     = :µm²_per_ms)`, held in a scoped value), shown in every result's display and written into
+     every file; for the command line, `--units` or a file in the project directory, echoed when
+     read. Unitful.jl (units as types) would catch every mismatch but carries units through the
+     dual numbers and static arrays of the solver, with their compile time; at most accepted at
+     the boundary later (Unitful quantities given are converted), as an extension.
+   - **Tests**: the same fit, crlb and files in both systems give the same results converted (an
+     invariance), for every model; a file's declared units win over the session's.

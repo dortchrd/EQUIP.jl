@@ -248,8 +248,8 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 
 | area | model | signal | free | fixed |
 |---|---|---|---|---|
-| relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery, long TR: \|M0·[Sf·e^(−TI/T1) + 1 − e^(−TI/T1)]\|; Sf = inversion efficiency (−1 = perfect), as in T1IRTD | M0, Sf, T1 | |
-| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | |
+| relaxometry | `T1IR(TI = ..., magnitude = true)` | inversion recovery, long TR: \|M0·[Sf·e^(−TI/T1) + 1 − e^(−TI/T1)]\|; Sf = inversion efficiency (−1 = perfect), as in T1IRTD; T1 at most 5 s (above CSF's 4.1 s), as in every T1 model, so a recovery too slow for the TIs ends on the bound, flagged by `onbound` | M0, Sf, T1 | |
+| | `R1IR(TI = ..., magnitude = true)` | the same with R1 = 1/T1; R1 at least 0.2 s⁻¹, as in every R1 model (T1 at most 5 s) | M0, Sf, R1 | |
 | | `T1IRTD(TI = ..., TD = ..., magnitude = true)` | inversion recovery with the delay TD modelled (Li et al., MRM 2010, Eq. 1): M0·[Sf·Mz(TD)·e^(−TI/T1) + 1 − e^(−TI/T1)], Mz(TD) = 1 − (1 − Mz_td0)·e^(−TD/T1); TD one number or one per TI | M0, Sf, T1 | Mz_td0 = 0 |
 | | `R1IRTD(TI = ..., TD = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | Mz_td0 = 0 |
 | | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |

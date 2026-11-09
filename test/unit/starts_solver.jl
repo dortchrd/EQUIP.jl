@@ -116,17 +116,21 @@ end
         @test fit(m, signal(m, (M0 = 1000.0, Sf = -0.95, T1 = T1, Mz_td0 = 0.0))).params.T1 ≈ T1 rtol = 1e-6
         @test fit(mr, signal(mr, (M0 = 1000.0, Sf = -0.95, R1 = 1 / T1, Mz_td0 = 0.0))).params.R1 ≈ 1 / T1 rtol = 1e-6
     end
-    # 30 values spanning the TIs; replaced by any other start, absent when T1 is fixed
-    s = setup(T1IR(TI = ti))
+    # 30 values spanning the TIs (with T1's bound removed); by default those above the 5 s bound
+    # dropped (since 2026-11-09: the 5 of 30 above it here); replaced by any other start, absent
+    # when T1 is fixed
+    s = setup(T1IR(TI = ti); T1 = Free(upper = Inf))
     @test s.candindex == 3 && length(s.candidates) == 30
     @test s.candidates[1] ≈ 0.01 && s.candidates[end] ≈ 16
+    @test setup(T1IR(TI = ti)).candidates == filter(<=(5), s.candidates)
+    @test length(setup(T1IR(TI = ti)).candidates) == 25
     @test setup(T1IR(TI = ti); T1 = Free(start = 2.0)).candindex == 0
     @test setup(T1IR(TI = ti); T1 = 2.0).candindex == 0
     @test setup(T2Decay(TE = [0.01, 0.02])).candindex == 0           # none by default
     # values from the call; those outside the bounds are dropped, an error if none is left
     s = setup(T1IR(TI = ti); T1 = Free(start = BestOf([0.1, 0.5, 5.0]), upper = 3))
     @test s.candidates == [0.1, 0.5] && s.start.T1 == 0.1           # middle value: placeholder
-    @test_throws "no BestOf value within" setup(T1IR(TI = ti); T1 = Free(lower = 20))
+    @test_throws "no BestOf value within" setup(T1IR(TI = ti); T1 = Free(lower = 20, upper = Inf))
     @test_throws "only one parameter" setup(T1IR(TI = ti); Sf = Free(start = BestOf([-1, -0.9])))
     m2 = T2Decay(TE = 0.01:0.01:0.32)
     r = fit(m2, signal(m2, (S0 = 1000.0, T2 = 0.04)); T2 = Free(start = BestOf([0.01, 0.04, 1.0])),

@@ -3,6 +3,7 @@
 #
 #   julia -t auto --project=. bench/rician_baseline.jl            (about 5 minutes on 4 threads)
 #   N=200 SNRS=10,50 julia -t auto --project=. bench/rician_baseline.jl     (a quick look)
+#   ONLY="T1IR,DTI CSF" julia -t auto --project=. bench/rician_baseline.jl   (cases by label)
 #
 # Step 0 of docs/design.md's "Tier 2, bias from noise at low SNR: the plan": every later step
 # (the `likelihood` switch, maximum likelihood) is judged against this table. Magnitude data with
@@ -39,6 +40,7 @@ using EQUIP, LinearAlgebra, StaticArrays, Statistics, Random, Printf
 
 const N = parse(Int, get(ENV, "N", "2000"))
 const SNRS = parse.(Int, split(get(ENV, "SNRS", "5,10,20,50"), ","))
+const ONLY = split(get(ENV, "ONLY", ""), ","; keepempty = false)   # label prefixes; none: all
 const CAP = 4e-3                                  # mm²/s: above free water's 3.0e-3 at 37 °C
 
 # RicianMean does not pass the `derived` hook through yet (step 2 adds it to src/); here, so the
@@ -156,7 +158,11 @@ function timed(f)
     return r, 1e6 * t / N
 end
 
-function runcase(io, label, m, truth, qs, cap, snr, rng)
+function runcase(io, label, m, truth, qs, cap, snr)
+    # Each case's noise from its own seed, so a case run alone (ONLY) gets the data it gets in the
+    # full run. (Since 2026-11-09, after the first run recorded in design.md, whose noise came from
+    # one stream: a rerun differs from that table within Monte Carlo error.)
+    rng = MersenneTwister(1000snr + sum(codeunits(label)))
     θ1 = truth isa AbstractVector ? first(truth) : truth
     tq = truthof(m, θ1, qs)
     S0 = haskey(θ1, :S0) ? θ1.S0 : θ1.M0
@@ -226,7 +232,8 @@ function main(io = stdout)
     @printf(io, "Rician baseline: N = %d voxels a case, %d threads, Julia %s, %s\n", N,
             Threads.nthreads(), VERSION, Sys.cpu_info()[1].model)
     t = @elapsed for (label, m, truth, qs, cap) in cases(rng), snr in SNRS
-        runcase(io, label, m, truth, qs, cap, snr, rng)
+        isempty(ONLY) || any(o -> startswith(label, o), ONLY) || continue
+        runcase(io, label, m, truth, qs, cap, snr)
     end
     @printf(io, "\n%.0f s in all\n", t)
 end

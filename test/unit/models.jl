@@ -258,6 +258,17 @@ end
         @test isconverged(rT) && isconverged(rR)
         @test rR.params.R1 ≈ 1 / rT.params.T1 rtol = 1e-5
     end
+    # T1 ≤ 5 s and R1 ≥ 1/5 s in every T1 model, both forms (builtin.jl; the owner, 2026-11-09:
+    # "make T1 cap 5 sec"), so where the data barely recover (a T1 of 50 s) both forms end on the
+    # bound, flagged, and agree.
+    for (mT, mR, _) in pairs
+        @test parameters(mT).T1.upper == 5.0 && parameters(mR).R1.lower == 0.2
+    end
+    mT, mR = T1SR(TD = td), R1SR(TD = td)
+    slow = signal(mT, (M0 = 1000.0, T1 = 50.0))
+    rT, rR = fit(mT, slow), fit(mR, slow)
+    @test rT.params.T1 == 5.0 && onbound(rT).T1
+    @test rR.params.R1 ≈ 0.2 && onbound(rR).R1
 end
 
 @testset "Compartments: iso, stick, zeppelin and the powder view, exported by EQUIP" begin

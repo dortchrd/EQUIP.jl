@@ -114,8 +114,8 @@ Gaussian fits in tissue unchanged; the Rician fit in CSF 98–100% converged wit
 without). What step 0 found: the Rician mean removes the floor's bias in tissue from SNR 10;
 weighting it gains under 2.4% of SD, so it is not the gap; the gaps are the bias at SNR ≤ 10 and
 in DKI's MKT (overcorrected, −13% at SNR 10), convergence where there is no information, and
-speed (4–80× the Gaussian fit). Open for the owner: an upper bound on T1 (T1IR in CSF ran off,
-+290% at SNR 10). Found while answering the owner (2026-11-09): least squares on the
+speed (4–80× the Gaussian fit). Then (the owner: "make T1 cap 5 sec"): T1 ≤ 5 s and R1 ≥ 0.2
+s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood
@@ -185,7 +185,9 @@ first")
 - Phantoms and BrainWeb (2); the LsqFit bridge and a "coming from" page (8); formats, protocol
   files, MRImages in its own repository and with it Julia 1.10 support (9); `--init`, a server, the Python and MATLAB front
   ends, an installer (10); preprocessing: MP-PCA's denoising and σ maps, median–Otsu masks,
-  Gibbs-ringing removal, perhaps filtering (22); IRWLS and sensitivity–efficiency plots (3); myelin water, DCE, the
+  Gibbs-ringing removal, perhaps filtering (22); a units switch for what users see (ms, 1/s,
+  µm²/ms: the owner's preference; inside, the units stay s, 1/s, s/mm², mm²/s) (23); IRWLS and
+  sensitivity–efficiency plots (3); myelin water, DCE, the
   sinc gradient echo (12).
 
 **The owner's own**
