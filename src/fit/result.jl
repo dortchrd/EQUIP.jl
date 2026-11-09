@@ -63,8 +63,12 @@ Rebuilt from `res.model` and every parameter's value, [`resolve`](@ref)`(res)`: 
 and the fixed values used (a number, or that voxel's value of a map). `fitted` is StatsAPI's
 function name.
 """
-fitted(res::FitResult) = signal(res.model, resolve(res))
-fitted(res::FitResult, I...) = signal(res.model, resolve(res, I...))
+fitted(res::FitResult) = _expected(res, signal(res.model, resolve(res)), 1)
+fitted(res::FitResult, I...) =
+    _expected(res, signal(res.model, resolve(res, I...)), LinearIndices(res.status)[I...])
+# A fit with likelihood = :rician (rician.jl) fits the data's mean, E|y| = ricianmean(|S|, σ): its
+# fitted values are that, what the data scatter around; a least-squares fit's, the signal.
+_expected(res, s, v) = _isrician(res) ? ricianmean.(abs.(s), _resultσ(res, v, Float64)) : s
 
 """
     resolve(res)          one-voxel result: every parameter's value, fitted and fixed

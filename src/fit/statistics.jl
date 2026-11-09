@@ -78,8 +78,8 @@ when the model is right and the noise Gaussian. `NaN` when N = P (as many observ
 parameters: the fit passes through every point, the residuals say nothing about the noise;
 give the noise to `stderror` instead, `σ = ...`).
 """
-residualsd(r::FitResult) = _onevoxel(r) ? _residualsd(r.sse, dof_residual(r)) :
-                           _residualsd.(r.sse, dof_residual(r))
+residualsd(r::FitResult) = (_norician(r, "residualsd");
+    _onevoxel(r) ? _residualsd(r.sse, dof_residual(r)) : _residualsd.(r.sse, dof_residual(r)))
 _residualsd(sse, ν) = ν > 0 ? sqrt(Float64(sse) / ν) : NaN
 
 """
@@ -102,17 +102,20 @@ r2 = fit(T2BiexpDecay(TE = te), y)
 bic(r2) < bic(r1)              # the second pool is worth its two parameters
 ```
 """
-loglikelihood(r::FitResult) = _voxelwise(sse -> _loglik(r, sse, nobs(r), dof_residual(r)), r)
-aic(r::FitResult) = _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + 2 * dof(r), r)
+loglikelihood(r::FitResult) = (_norician(r, "loglikelihood");
+    _voxelwise(sse -> _loglik(r, sse, nobs(r), dof_residual(r)), r))
+aic(r::FitResult) = (_norician(r, "aic");
+    _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + 2 * dof(r), r))
 function aicc(r::FitResult)
+    _norician(r, "aicc")
     N, k = nobs(r), dof(r)
     # The correction 2k(k + 1)/(N − k − 1) is defined for N > k + 1 only: at N = k + 1 it is
     # infinite, below it negative (it would reward the parameters it is meant to penalize).
     N > k + 1 || return _voxelwise(sse -> NaN, r)
     return _voxelwise(sse -> -2 * _loglik(r, sse, N, dof_residual(r)) + 2k + 2k * (k + 1) / (N - k - 1), r)
 end
-bic(r::FitResult) =
-    _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + log(nobs(r)) * dof(r), r)
+bic(r::FitResult) = (_norician(r, "bic");
+    _voxelwise(sse -> -2 * _loglik(r, sse, nobs(r), dof_residual(r)) + log(nobs(r)) * dof(r), r))
 # ℓ needs residuals: with N ≤ P (ν = N − P ≤ 0) the fit passes through every point, the SSE is
 # rounding and its log meaningless (it made AIC and BIC huge and negative): NaN, as `residualsd`.
 _loglik(sse, N, ν) = ν > 0 ? -N / 2 * (log(2π * Float64(sse) / N) + 1) : NaN
@@ -211,10 +214,11 @@ end
 # One voxel: JᵀJ at θ (JᵀWJ when weighted: the solver's own sums, with this voxel's fixed
 # values), parameters on a bound held (masked to the identity, as crlb does), then σ²(JᵀJ)⁻¹;
 # NaN rows for the held ones.
-function _covariance(c, spec::FitSpec{F,P,T}, θ, s2, fixed, N) where {F,P,T}
+# (`w`: the weights, the fit's by default; a Rician fit's :wmean gives its own, rician.jl.)
+function _covariance(c, spec::FitSpec{F,P,T}, θ, s2, fixed, N, w = spec.weights) where {F,P,T}
     nan = fill(T(NaN), SMatrix{P,P,T})
     all(isfinite, θ) && isfinite(s2) || return nan                       # not fitted
-    _, A, _ = normal_equations(VoxelProblem{F}(c.model, c.y, fixed, spec.weights), θ, c.buf)  # JᵀWJ
+    _, A, _ = normal_equations(VoxelProblem{F}(c.model, c.y, fixed, w), θ, c.buf)  # JᵀWJ
     pinned = map(_near, θ, spec.lower) .| map(_near, θ, spec.upper)
     u = map(p -> ifelse(p, zero(T), one(T)), pinned)
     keep(C) = SMatrix{P,P,T}(ntuple(n -> (i = (n - 1) % P + 1; j = (n - 1) ÷ P + 1;

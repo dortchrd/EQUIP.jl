@@ -120,7 +120,13 @@ s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10). Step 1 (the
 `besselix` at precompile time, their exact derivatives on dual numbers, R(s) tabulated): a fit
 of the Rician mean 6.5–28× faster, now 1–4× the Gaussian fit's cost; results unchanged (Float64
 to 1e-8, Float32 within its own tolerance); `RicianMean` gives the model's derived quantities.
-Next: step 2, the `likelihood` switch. Found while answering the owner (2026-11-09): least squares on the
+Then steps 2 and 4 together (the owner: "both now, ML the default"): `fit(m, data; likelihood
+= :rician, σ, method = :ml | :mean | :wmean)`, σ a number or a map; least-squares fits
+unchanged value for value. Measured (design.md, "Steps 2 and 4, built and measured"): the three
+methods agree where the data hold information and remove the floor's bias from SNR 10; `:ml`
+converges best where fits are hard, at `:mean`'s cost; at SNR 5 the Rician fits trade bias for
+variance; DKI's MKT overcorrection is not the noise model's (every method alike). Not yet:
+crlb and montecarlo of these fits (step 5), the command line, `weights`, averages. Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood

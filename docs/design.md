@@ -4328,7 +4328,9 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      `RicianMean`'s fit of DTI and DKI per voxel before and after (target 3× faster or more;
      recorded either way).
    - **Done (2026-11-09, branch `rician`)**, as below: "Step 1, measured".
-2. **The switch, `likelihood = :ricianmean`, for every model.**
+2. **The switch, `likelihood = :ricianmean`, for every model.** (Built as `likelihood = :rician,
+   method = :mean | :wmean`, with step 4's `:ml` the default: "Steps 2 and 4, built and
+   measured", below.)
    - Each voxel fitted twice in one `fit!`: the Gaussian fit from the model's own starts
      (`:loglinear`, `datastart`, `:scale`, `BestOf`), then the Rician fit from its result. The
      cache holds both fits' caches (`init` returns one cache holding two `FitCache`s; `fit!`
@@ -4364,7 +4366,7 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
    mp-pca"); until then a σ map made by another tool is read with `loadmap` and given as `σ`
    (MRtrix's `dwidenoise -noise`, DIPY's `mppca(..., return_sigma = True)`). Judged by: the
    background estimate within 1% at 10⁴ simulated background voxels (analytic).
-4. **Maximum likelihood, `likelihood = :rician`.** The negative log-likelihood per voxel,
+4. **Maximum likelihood, `likelihood = :rician`.** (Built, with step 2: below.) The negative log-likelihood per voxel,
    Σⱼ [(yⱼ² + Aⱼ²)/2σⱼ² − log I₀(yⱼAⱼ/σⱼ²)], with log I₀ computed scaled (no overflow). Fisher
    scoring keeps the solver's structure: the step solves (Σⱼ Rⱼ/σⱼ²·JⱼJⱼᵀ + μD) h = −Σⱼ
    (Aⱼ − yⱼρⱼ)/σⱼ²·Jⱼ, with Rⱼ = R(Aⱼ/σⱼ) (step 1's table) and ρⱼ = I₁/I₀(yⱼAⱼ/σⱼ²), steps kept
@@ -4551,6 +4553,96 @@ most 0.007 of their SD, no more than Float32 fits differ from Float64 ones (0.00
 noise, as it does between any two Float32 paths. Gaussian fits are untouched (no code they run
 changed).
 
+### Steps 2 and 4, built and measured (2026-11-09)
+
+Built together (the owner: "both now, ML the default"), src/fit/rician.jl: `fit(m, data;
+likelihood = :rician, σ, method = :ml | :mean | :wmean)`, and `init` the same (a
+`RicianFitCache`, used as a `FitCache` is). Each voxel: the least-squares fit from the model's
+own starts, then the Rician fit from its values, in one `fit!`, allocation-free.
+
+- **σ** a number or a map, held as a fixed value of the second fit (`p.σ`), so a map is read
+  voxel by voxel as a B1 map is; a voxel with no σ (NaN or 0) or negative data is `InvalidData`.
+- **`:mean`** fits `_RicianMeanSignal(m)` (the Rician mean of m's signal) by least squares: the
+  same numbers as `RicianMean` fitted by hand from the same starts (tested: equal).
+- **`:wmean`**: the same with weights 1/`ricianvar` at the previous values, two passes (from the
+  least-squares fit's values, then from the first pass's).
+- **`:ml`**: `_MagnitudeSignal(m)` (|S|), and its own `normal_equations` (chosen by the model's
+  type when Julia compiles, so the least-squares code is not touched): the Rician negative
+  log-likelihood's gradient and Fisher information in place of Jᵀr and JᵀJ, so Levenberg–
+  Marquardt runs Fisher scoring, damped. Tested: its answer is the maximum of a Rician likelihood
+  written independently in the test (besselix), its gradient there 0 by central differences
+  (< 1e-3 per relative step), and no other method's values score better.
+- **Results**: the model's own `FitResult` (maps, `derived`, `refit` keeping the noise model);
+  `sse` Σ(y − E|y|)² for every method; `iterations` both fits'; `fitted(res)` E|y|. Standard
+  errors with the fit's σ: the inverse Rician information (`:ml`), the sandwich with the Rician
+  variance (`:mean`), (JᵀV⁻¹J)⁻¹ (`:wmean`); each equal to crlb's or `ricianbound`'s at the fit's
+  values (tested, within 1e-5: the R table against crlb's quadrature).
+- **Not yet**: `weights` with it, averages, σ fitted, `loglikelihood`/AIC/BIC and `residualsd` of
+  these fits (refused, with the reason), `crlb` and `montecarlo` of these fits (step 5), the
+  command line.
+- **Least-squares fits unchanged**: 15 models × 2 precisions, 300 voxels each, before and after
+  (a worktree at the commit before): parameters, sse, iterations, status, standard errors and
+  `onbound` identical, value for value. And as fast: bench/speed.jl on both commits within this
+  VM's noise in every row (one-voxel fits 0.6–12 µs, ±20% either way; datasets 1.47–1.82 M
+  voxels/s against 1.32–1.80; crlb, simulate, the design's d(x) the same; nothing allocates);
+  `optimize_protocol`, 2.0 against 2.9 s in one run each, is 1.34–1.46 against 1.41–1.52 s timed
+  three times after a first run.
+
+Measured with bench/rician_baseline.jl (2000 voxels a case, 4 threads, 220 s; the default
+bounds, the caps included). Bias (SD) in % of the truth; FA and MKT in CSF as their mean;
+"conv." the Rician fits' converged (ml's, the others' within a point unless shown); µs per voxel
+on 4 threads, the Rician fits including their first fit:
+
+| case | SNR | least squares | mean | wmean | ml | conv. | µs: LS / mean / wmean / ml |
+|---|---:|---|---|---|---|---:|---|
+| T2Decay WM, T2 | 5 | +194 (95) | +4.3 (38.2) | +5.8 (39.3) | +5.1 (38.6) | 100% | 3.5 / 8.9 / 15 / 15 |
+| | 10 | +41.3 (19.1) | +0.8 (14.3) | +0.9 (14.2) | +0.8 (14.1) | 100% | 1.5 / 6.3 / 13 / 9.1 |
+| | 20 | +9.9 (6.7) | +0.1 (6.3) | +0.1 (6.3) | +0.1 (6.3) | 100% | 1.4 / 4.8 / 9.2 / 6.6 |
+| ADCDecay tissue, ADC | 5 | −26.8 (26.3) | +17.5 (71.4) | +14.9 (68.2) | +14.8 (66.4) | 100% | 0.7 / 2.4 / 4.5 / 3.3 |
+| | 10 | −8.3 (14.7) | +1.2 (18.5) | +1.0 (18.0) | +1.1 (18.1) | 100% | 2.1 / 2.4 / 3.1 / 2.1 |
+| ADCDecay CSF, ADC | 5 | −60.0 (30.5) | −1.9 (36.4) | −2.3 (37.0) | −1.7 (37.8) | 99.9% | 0.9 / 2.3 / 4.8 / 4.9 |
+| | 10 | −20.9 (24.4) | +1.7 (24.5) | +1.5 (24.6) | +1.6 (24.5) | 100% | 0.8 / 2.0 / 3.1 / 2.4 |
+| T1IR WM, T1 | 5 | +2.0 (41.7) | +11.7 (53.1) | +10.9 (51.5) | +11.1 (51.6) | 100% | 1.9 / 5.1 / 8.9 / 5.6 |
+| | 20 | +1.5 (10.1) | +0.5 (8.0) | +0.6 (8.1) | +0.7 (8.1) | 100% | 1.0 / 3.1 / 5.7 / 3.3 |
+| T1IR CSF, T1 | 10 | +5.9 (16.4) | +2.9 (16.2) | +3.0 (16.2) | +3.1 (16.2) | 100% | 1.3 / 5.6 / 6.8 / 6.3 |
+| DTI WM, MD | 5 | −30.6 (7.7) | +2.6 (12.6) | +2.0 (12.3) | +2.2 (12.3) | 100% | 15 / 49 / 94 / 50 |
+| | 10 | −8.8 (4.6) | +0.5 (5.3) | +0.4 (5.2) | +0.4 (5.2) | 100% | 9.2 / 37 / 68 / 41 |
+| | 20 | −2.0 (2.5) | +0.2 (2.6) | +0.2 (2.6) | +0.2 (2.6) | 100% | 9.8 / 46 / 53 / 31 |
+| DTI WM, FA | 10 | −4.6 (8.4) | +1.0 (8.6) | +1.0 (8.6) | +1.0 (8.6) | | |
+| DTI CSF, MD | 10 | −37.2 (3.4) | +13.2 (11.8) | +13.2 (12.0) | +13.1 (12.1) | 98.9% (mean 98.2%) | 22 / 140 / 260 / 136 |
+| | 20 | −15.8 (2.4) | +9.3 (9.8) | +8.3 (9.9) | +8.1 (9.6) | 99.7% (mean 98.6%) | 19 / 113 / 210 / 93 |
+| DTI CSF, FA (truth 0) | 10 | 0.15 | 0.49 | 0.48 | 0.48 | | |
+| DKI WM, MD | 5 | −5.3 (26.4) | −20.9 (68.5) | −14.3 (44.0) | −11.8 (37.5) | 99.2% (mean 96.5%) | 73 / 329 / 582 / 271 |
+| DKI WM, MKT | 10 | −5.6 (29.3) | −14.1 (32.3) | −13.7 (31.9) | −13.7 (31.9) | 100% | 57 / 142 / 157 / 100 |
+| | 20 | −1.3 (12.2) | −2.9 (12.5) | −2.9 (12.5) | −2.9 (12.5) | 100% | 51 / 87 / 106 / 91 |
+| DKI CSF, MD | 20 | +22.4 (5.7) | fails | fails | fails | 4.8% (mean 5.6%) | 153 / 799 / 1289 / 850 |
+
+- **The three methods agree** wherever the data hold information: their biases within about a
+  point of each other, their SDs within a few %, as the variance–information table predicted
+  (the mean's information at least 0.915 of the likelihood's per observation). All remove the
+  floor's bias in tissue from SNR 10 (T2 +0.8%, ADC +1.1%, DTI's MD +0.4% and FA +1.0%, against
+  +41%, −8.3%, −8.8%, −4.6% for least squares).
+- **Where they differ, maximum likelihood is the most robust**: it converges more often where
+  the fit is hard (DKI at SNR 5: 99.2% against 96.5% for `:mean`; DTI in CSF at SNR 20: 99.7%
+  against 98.6%) and has fewer outliers (DKI's MD at SNR 5: SD 37.5% against 68.5%), at about
+  `:mean`'s cost (the two-pass `:wmean` costs up to twice as much). So `:ml` as the default
+  stands on measurement too, and the plan's open question 4 (is ML worth building) is answered.
+- **At SNR 5 the Rician fits trade bias for variance**: ADC in tissue +15% with an SD of 66%
+  against least squares' −27% with 26% (RMSE 68% against 38%); T1 in WM +11% (52%) against +2%
+  (42%). Removing the floor's bias costs precision there; the guide says so. From SNR 10 the
+  Rician fits win or tie on RMSE.
+- **DKI's MKT is not the noise model's**: every method overcorrects it alike (−13.7% at SNR 10,
+  −2.9% at 20, against least squares' −5.6% and −1.3%), so the likelihood does not remove it, as
+  the plan hoped it might: MKT's error at low SNR is its own nonlinearity in the parameters
+  (crlb's first order predicts +6.0% for least squares at SNR 10, measured −5.6%). The tools for
+  it are the second-order bias (step 8) and DKI's constraints (K ≥ 0 in every direction; item
+  17), not the likelihood.
+- **No information**: DTI in CSF, all methods +8 to +13% in MD at SNR 10–20 with spurious FA
+  (0.48); DKI in CSF fails with any (2–59% converged). Mask such voxels.
+- **Speed** (4 threads): a Rician fit, its first fit included, costs 2–6× least squares for the
+  small models (T2Decay with `:ml` 4.8–15 µs per voxel against 1.2–3.5) and 2–7× for DTI and
+  DKI.
+
 ### Not in tier 2
 
 Several coils in sum of squares (noncentral χ; parallel imaging's effective σ and L): the same
@@ -4559,8 +4651,16 @@ structure with L, after step 4. σ fitted per voxel (`σ = Free()`). MP-PCA's σ
 
 ### Decisions
 
-1. The keyword: `likelihood = :ricianmean | :rician` (decided 2026-11-09, the owner: "use
-   likelihood"), not `noise = :rician` as item 20 first wrote it.
+1. The keyword: `likelihood` (decided 2026-11-09, the owner: "use likelihood"), not `noise =
+   :rician` as item 20 first wrote it. Refined the same day (the owner: "but step 2 says
+   likelihood rician? that is my confusion"): `likelihood` names the noise model the fit assumes
+   (`:gaussian`, the default; `:rician`; later the noncentral χ of several coils), and `method`
+   how the fit uses it: `:ml`, the full Rician model by maximum likelihood (the default), `:mean`,
+   least squares on the Rician mean, or `:wmean`, the same weighted by 1/`ricianvar`. So
+   `likelihood = :ricianmean`, as first written above, is gone: least squares on the mean is not
+   a likelihood. And the order (the owner: "both now, ML the default"): steps 2 and 4 are built
+   together on the shared switch (the two-stage fit, σ maps, statistics, `refit`, the command
+   line), then all three methods are measured against step 0 before anything is merged.
 2. The diffusivity bounds (≤ 4e-3 mm²/s) on every fit, Gaussian ones too, as T2's cap was
    (decided 2026-11-09, the owner: "cap everywhere"; step 0 measured tissue fits unchanged).
 3. MP-PCA: later, with the other preprocessing (decided 2026-11-09, the owner: "wait on

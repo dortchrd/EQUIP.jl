@@ -4,7 +4,8 @@
 #   unit/          fast: the models' signals against their equations, roles and setup, starts and
 #                  the solver, errors and printing
 #   integration/   the parts together: datasets, statistics, crlb, montecarlo, sweeps, leakage,
-#                  design, files, the diffusion models, derived quantities, @mrimodel
+#                  design, files, the diffusion models, derived quantities, @mrimodel,
+#                  fits with the Rician noise model
 #   validation/    expensive statistical and numerical validation, run apart (none yet)
 #
 # Which ones run:
@@ -33,7 +34,7 @@ end
 const GROUPS = (
     unit = ["models", "roles", "starts_solver"],
     integration = ["fitting", "simulation", "crlb", "montecarlo_sweeps", "noise_weights",
-                   "scenarios_leakage", "design", "io", "diffusion", "derived", "macro"],
+                   "scenarios_leakage", "design", "io", "diffusion", "derived", "macro", "rician"],
     validation = String[],
 )
 

@@ -62,7 +62,7 @@ freenames(::FitSpec{F}) where {F} = F       # read the names back out of the typ
 
 # Keywords of `fit` and `init` that are options, not parameters. A model's parameter cannot have
 # one of these names: the keyword would be ambiguous.
-const _OPTIONS = (:mask, :precision, :solver)
+const _OPTIONS = (:mask, :precision, :solver, :likelihood, :method)
 # `weights` cannot be a parameter's name either, but it is part of what a fit minimizes, not an
 # option of how: a scenario holds it (errors/scenario.jl), where the options are refused.
 const _RESERVED = (_OPTIONS..., :weights)

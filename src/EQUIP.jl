@@ -96,6 +96,7 @@ include("fit/cache.jl")                # init -> FitCache: everything a voxel fi
 include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
 include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit
 include("fit/statistics.jl")           # the fit's statistics: stderror, vcov, AIC/BIC, onbound
+include("fit/rician.jl")               # likelihood = :rician: the fit with the Rician noise model
 
 # sim: from true values to data (uses models only)
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal

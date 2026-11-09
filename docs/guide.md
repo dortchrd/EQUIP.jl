@@ -167,6 +167,33 @@ names:
   `weights = nex` for different numbers of averages (σ/√NEX), `weights = 1 ./ σ.^2` for σ per
   observation. On T2 decay with σ rising from 5 to 40 over 32 echoes, the weighted fit's SD of
   T2 is 1.5 times smaller than the unweighted fit's, at the bound (JᵀΣ⁻¹J)⁻¹.
+- `likelihood`: the noise model the fit assumes. `:gaussian` (the default) is least squares, as
+  everything above. `:rician` is for magnitude images at low SNR, where the noise floor (about
+  1.25σ where the signal has decayed away) biases least squares: a T2 in white matter +41% at
+  SNR 10, DTI's MD −9% (measured: docs/design.md, the tier 2 plan, step 0). It needs `σ`, the
+  noise SD of each channel (as `simulate`'s): a number, or a map with one value per voxel (a σ map
+  from another tool, MRtrix's `dwidenoise -noise`, read with `loadmap`). `method` chooses how the
+  noise model is used:
+  - `:ml` (the default): the full Rician model, maximum likelihood (Sijbers et al. 1998);
+  - `:mean`: least squares on the Rician mean E|y| = `ricianmean(S, σ)`, the data's average at
+    signal S, a cheaper approximation;
+  - `:wmean`: the same, each observation weighted by 1/`ricianvar(S, σ)`.
+
+  ```julia
+  res = fit(T2Decay(TE = te), data; mask, likelihood = :rician, σ = 12.0)             # :ml
+  res = fit(DTI(; acq...), dwi; mask, likelihood = :rician, σ = σmap, method = :mean)
+  ```
+
+  Each voxel is first fitted by least squares, from the model's own starts, then with the Rician
+  model from that result: the result's maps, derived quantities and `refit` are as usual, its
+  `iterations` both fits', its `sse` Σ(y − E|y|)², and `fitted(res)` the data's mean under the
+  fit, E|y|. Its standard errors use the known σ (the inverse Rician information for `:ml`, the
+  sandwich with the Rician variance for `:mean`). Voxels with negative data (not magnitudes) or
+  no σ (NaN or 0 in the map) are not fitted (`InvalidData`). Not yet with it: `weights`, numbers
+  of averages, the log-likelihood and information criteria of the fit, `crlb` and `montecarlo`
+  of these fits. Where the data have no information left (CSF at high b in DKI), no noise model
+  recovers it: mask such voxels. Phase-corrected real-valued data have Gaussian noise and no
+  floor: fit them as they are.
 
 Mistakes raise an error before any fitting starts: a name that is neither a parameter nor an
 option, freeing a parameter tied by default without giving it a start, a missing acquisition
@@ -235,7 +262,9 @@ bic(fit(T2BiexpDecay(TE = te), y)) < bic(fit(T2Decay(TE = te), y))   # the secon
   are `crlb`'s at the fit's values (tested), so the two can be compared.
 - Checked on 2000 noisy copies (T2 decay): the median standard error matches the spread of
   the estimates within 1%, and σ̂ the true σ. All of it assumes Gaussian noise: for magnitude
-  data at low SNR (Rician) σ̂ and the standard errors are biased.
+  data at low SNR (Rician) σ̂ and the standard errors are biased; fit such data with
+  `likelihood = :rician`, whose standard errors use its σ (`residualsd`, `loglikelihood`, `aic`,
+  `aicc` and `bic` are not yet defined for it).
 
 ## Built-in models
 

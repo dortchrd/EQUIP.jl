@@ -64,7 +64,7 @@ function fit(model::MRIModel, data::AbstractArray; mask = nothing, kwargs...)
     Y = reshape(data, nvox, m)                       # a view: row v = voxel v's observations
     params, sse, iterations, status = _fit_maps(cache, Y, voxels, spatial)
     settings = merge(cache.settings, (; mask))       # the keywords of this call, mask included
-    fixed = map(_untie, cache.spec.fixed)            # numbers, maps (not copied) and ties
+    fixed = map(_untie, _resultspec(cache).fixed)    # numbers, maps (not copied) and ties
     return FitResult(params, fixed, sse, iterations, status, cache.model, settings)
 end
 
@@ -94,10 +94,17 @@ end
 _samesize(a::Tuple, b::Tuple) = _droptrailing1(a) == _droptrailing1(b)
 _droptrailing1(s::Tuple) = isempty(s) || last(s) != 1 ? s : _droptrailing1(Base.front(s))
 
+# The spec whose fixed values a result reports (a Rician fit's σ is in its settings), and a cache's
+# working precision: for a FitCache, and for a RicianFitCache (rician.jl), which holds two.
+_resultspec(c::FitCache) = c.spec
+_resultspec(c) = c.gauss.spec
+_precision(::FitCache{M,S,T}) where {M,S,T} = T
+
 # The work, behind a "function barrier": the cache's concrete type is known inside this
 # function, so the loops below compile to fast specialized code.
-function _fit_maps(cache::FitCache{M,S,T}, Y, voxels, spatial) where {M,S,T}
+function _fit_maps(cache, Y, voxels, spatial)
     F = freenames(cache.spec)
+    T = _precision(cache)
     # Outputs: NaN / 0 / NotFitted everywhere, overwritten for the fitted voxels. A status map
     # of FitStatus values takes 1 byte per voxel, like UInt8 codes, but prints names.
     params = NamedTuple{F}(ntuple(_ -> fill(T(NaN), spatial), length(F)))
@@ -141,25 +148,25 @@ end
 # resume on another thread, whose mode is not the one set, and restore the wrong thread's. The
 # test suite's probe did so through a lock, and failed on CI (2026-11-08); it now counts with
 # atomics, which never yield. The built-in models do not yield.
-function _fit_chunk!(params, sse, iterations, status, cache::FitCache{M,S,T}, Y,
-                     voxels) where {M,S,T}
+function _fit_chunk!(params, sse, iterations, status, cache, Y, voxels)
+    T = _precision(cache)
     T === Float32 || T === Float16 ||
-        return _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
+        return _fit_voxels!(params, sse, iterations, status, cache, cache.spec, Y, voxels)
     old = get_zero_subnormals()
     set_zero_subnormals(true)
     try
-        _fit_voxels!(params, sse, iterations, status, cache, Y, voxels)
+        _fit_voxels!(params, sse, iterations, status, cache, cache.spec, Y, voxels)
     finally
         set_zero_subnormals(old)
     end
     return nothing
 end
-function _fit_voxels!(params, sse, iterations, status, cache::FitCache{M,S}, Y,
-                      voxels) where {M,F,P,S<:FitSpec{F,P}}
+function _fit_voxels!(params, sse, iterations, status, cache, spec::FitSpec{F,P}, Y,
+                      voxels) where {F,P}
     for v in voxels
         # (above `_FIT_INLINE_MAXP` free parameters, called as a function: voxel.jl)
-        r = P > _FIT_INLINE_MAXP ? (@noinline _fit_voxel(cache, cache.spec, view(Y, v, :), v)) :
-                                   _fit_voxel(cache, cache.spec, view(Y, v, :), v)
+        r = P > _FIT_INLINE_MAXP ? (@noinline _fit_voxel(cache, spec, view(Y, v, :), v)) :
+                                   _fit_voxel(cache, spec, view(Y, v, :), v)
         # Store each free parameter in its map: `map` walks the two named tuples (maps and
         # fitted values) together, name by name.
         map((a, x) -> (@inbounds a[v] = x), params, r.params)

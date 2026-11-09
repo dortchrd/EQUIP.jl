@@ -1,5 +1,6 @@
 # =================================================================================================
-# The Rician baseline: what the noise floor does to today's fits, before tier 2 changes them
+# The Rician baseline: what the noise floor does to least-squares fits, and what the fits with the
+# Rician noise model (`likelihood = :rician`) do instead
 #
 #   julia -t auto --project=. bench/rician_baseline.jl            (about 5 minutes on 4 threads)
 #   N=200 SNRS=10,50 julia -t auto --project=. bench/rician_baseline.jl     (a quick look)
@@ -17,14 +18,15 @@
 #             al. 2021, a random fiber direction per voxel) and CSF (3.0e-3, isotropic)
 #   DKI       6 b = 0, 30 directions at 1000 and at 2000; DKI_WM (random directions) and DKI_CSF
 #
-# The fits, each from the same data:
+# The fits, each from the same data, with the models' default starts and bounds (the diffusivity
+# at most 4e-3 mm²/s and T1 at most 5 s since 2026-11-09: the first run, recorded in design.md,
+# also had them without):
 #
-#   gauss       today's fit: least squares, the model's own starts and bounds
-#   gauss+cap   the same with each diffusivity at most 4e-3 mm²/s (the tensor's diagonal; ADC):
-#               the cap the owner chose for every fit (2026-11-09, "cap everywhere")
-#   rician      least squares on the Rician mean, RicianMean(m; σ) with the true σ, started from
-#               the Gaussian fit's values (as a user would do it by hand today)
-#   rician+cap  the same, from gauss+cap, with the cap
+#   gauss       least squares (the fit without `likelihood`)
+#   mean        likelihood = :rician, method = :mean: least squares on the Rician mean, with the
+#               true σ, from the least-squares fit's values (step 0 did this by hand, RicianMean)
+#   wmean       method = :wmean: the same, weighted by 1/Var
+#   ml          method = :ml: the full Rician model, maximum likelihood
 #
 # For each, the quantity users read (T2, ADC, T1; MD and FA; MD and MKT): bias, SD and RMSE in %
 # of the truth (for a truth of 0, FA and MKT in CSF: their mean and SD), the % of voxels
@@ -33,7 +35,7 @@
 # squares on the Rician mean unweighted and weighted by 1/Var, and the Rician bound
 # (`ricianbound`): the plan's question of whether the weighted fit reaches the bound.
 #
-# Not here: maximum likelihood (not built), σ estimated (the true σ is given).
+# Not here: σ estimated (the true σ is given).
 # =================================================================================================
 
 using EQUIP, LinearAlgebra, StaticArrays, Statistics, Random, Printf
@@ -41,7 +43,6 @@ using EQUIP, LinearAlgebra, StaticArrays, Statistics, Random, Printf
 const N = parse(Int, get(ENV, "N", "2000"))
 const SNRS = parse.(Int, split(get(ENV, "SNRS", "5,10,20,50"), ","))
 const ONLY = split(get(ENV, "ONLY", ""), ","; keepempty = false)   # label prefixes; none: all
-const CAP = 4e-3                                  # mm²/s: above free water's 3.0e-3 at 37 °C
 
 # RicianMean passes the `derived` hook through (since tier 2's step 1; the first run, on the
 # commit before, defined it here), so the Rician fits' MD, FA and MKT are read like the Gaussian
@@ -70,32 +71,28 @@ end
 # Truth maps from one NamedTuple per voxel: a NamedTuple of vectors, what `simulate` takes.
 asmaps(ts) = NamedTuple{keys(first(ts))}(Tuple([t[k] for t in ts] for k in keys(first(ts))))
 
-# Each case: label, model, truth (one NamedTuple, or one per voxel), the quantities reported, and
-# the cap's keywords (none for the relaxometry models).
+# Each case: label, model, truth (one NamedTuple, or one per voxel), the quantities reported.
 function cases(rng)
     dti = DTI(; encoding(4, 64, (1000.0, 2500.0))...)
     dki = DKI(; encoding(6, 30, (1000.0, 2000.0))...)
-    dcap = (Dxx = Free(upper = CAP), Dyy = Free(upper = CAP), Dzz = Free(upper = CAP))
     wm = TISSUES.DKI_WM
     return [
-        ("T2Decay WM", T2Decay(TE = TE), (S0 = 1000.0, T2 = TISSUES.WM.T2), (:T2,), (;)),
-        ("T2Decay CSF", T2Decay(TE = TE), (S0 = 1000.0, T2 = TISSUES.CSF.T2), (:T2,), (;)),
-        ("ADCDecay tissue", ADCDecay(b = BADC), (S0 = 1000.0, ADC = 0.8e-3), (:ADC,),
-         (ADC = Free(upper = CAP),)),
-        ("ADCDecay CSF", ADCDecay(b = BADC), (S0 = 1000.0, ADC = 3.0e-3), (:ADC,),
-         (ADC = Free(upper = CAP),)),
+        ("T2Decay WM", T2Decay(TE = TE), (S0 = 1000.0, T2 = TISSUES.WM.T2), (:T2,)),
+        ("T2Decay CSF", T2Decay(TE = TE), (S0 = 1000.0, T2 = TISSUES.CSF.T2), (:T2,)),
+        ("ADCDecay tissue", ADCDecay(b = BADC), (S0 = 1000.0, ADC = 0.8e-3), (:ADC,)),
+        ("ADCDecay CSF", ADCDecay(b = BADC), (S0 = 1000.0, ADC = 3.0e-3), (:ADC,)),
         ("T1IR WM", T1IR(TI = TI), nominal(T1IR(TI = TI); M0 = 1000.0, T1 = TISSUES.WM.T1, Sf = -1.0),
-         (:T1,), (;)),
+         (:T1,)),
         ("T1IR CSF", T1IR(TI = TI), nominal(T1IR(TI = TI); M0 = 1000.0, T1 = TISSUES.CSF.T1, Sf = -1.0),
-         (:T1,), (;)),
+         (:T1,)),
         ("DTI WM", dti, [nominal(DTI; S0 = 1000.0, MD = wm.MD, FA = wm.FA,
-                                 direction = randomdirection(rng)) for _ in 1:N], (:MD, :FA), dcap),
+                                 direction = randomdirection(rng)) for _ in 1:N], (:MD, :FA)),
         ("DTI CSF", dti, nominal(DTI; S0 = 1000.0, MD = 3.0e-3, FA = 0.0,
-                                 direction = fiberdirection(0, 0)), (:MD, :FA), dcap),
+                                 direction = fiberdirection(0, 0)), (:MD, :FA)),
         ("DKI WM", dki, [nominal(DKI, :DKI_WM; S0 = 1000.0, direction = randomdirection(rng))
-                         for _ in 1:N], (:MD, :MKT), dcap),
+                         for _ in 1:N], (:MD, :MKT)),
         ("DKI CSF", dki, nominal(DKI, :DKI_CSF; S0 = 1000.0, direction = fiberdirection(0, 0)),
-         (:MD, :MKT), dcap),
+         (:MD, :MKT)),
     ]
 end
 
@@ -106,13 +103,6 @@ end
 function quantity(res, q)
     q in keys(res.params) && return vec(res.params[q])
     return vec(derived(res)[q])
-end
-
-# Starts for a second fit from a first fit's values, with extra keywords (the cap) merged in.
-function startsfrom(res, extra)
-    return NamedTuple(k => Free(; start = res.params[k],
-                                (haskey(extra, k) ? (upper = extra[k].upper,) : (;))...)
-                      for k in keys(res.params))
 end
 
 struct Row
@@ -158,7 +148,7 @@ function timed(f)
     return r, 1e6 * t / N
 end
 
-function runcase(io, label, m, truth, qs, cap, snr)
+function runcase(io, label, m, truth, qs, snr)
     # Each case's noise from its own seed, so a case run alone (ONLY) gets the data it gets in the
     # full run. (Since 2026-11-09, after the first run recorded in design.md, whose noise came from
     # one stream: a rerun differs from that table within Monte Carlo error.)
@@ -175,15 +165,9 @@ function runcase(io, label, m, truth, qs, cap, snr)
 
     g, tg = timed(v -> fit(m, Y[v, :]))
     append!(rows, measure("gauss", g, tq, qs, tg))
-    if !isempty(cap)
-        gc, tgc = timed(v -> fit(m, Y[v, :]; cap...))
-        append!(rows, measure("gauss+cap", gc, tq, qs, tgc))
-    end
-    r, tr = timed(v -> fit(rm, Y[v, :]; startsfrom(slice(g, v), (;))...))
-    append!(rows, measure("rician", r, tq, qs, tr))
-    if !isempty(cap)
-        rc, trc = timed(v -> fit(rm, Y[v, :]; startsfrom(slice(gc, v), cap)...))
-        append!(rows, measure("rician+cap", rc, tq, qs, trc))
+    for method in (:mean, :wmean, :ml)
+        r, tr = timed(v -> fit(m, Y[v, :]; likelihood = :rician, σ, method))
+        append!(rows, measure(String(method), r, tq, qs, tr))
     end
 
     @printf(io, "\n%s, SNR %d   (truth: %s)\n", label, snr,
@@ -224,16 +208,14 @@ function runcase(io, label, m, truth, qs, cap, snr)
     flush(io)
 end
 
-# A dataset fit's result restricted to some voxels (for the warm-up's starts).
-slice(res, v) = v == 1:N ? res : (params = map(x -> x[v], res.params),)
 
 function main(io = stdout)
     rng = MersenneTwister(2026_11_09)
     @printf(io, "Rician baseline: N = %d voxels a case, %d threads, Julia %s, %s\n", N,
             Threads.nthreads(), VERSION, Sys.cpu_info()[1].model)
-    t = @elapsed for (label, m, truth, qs, cap) in cases(rng), snr in SNRS
+    t = @elapsed for (label, m, truth, qs) in cases(rng), snr in SNRS
         isempty(ONLY) || any(o -> startswith(label, o), ONLY) || continue
-        runcase(io, label, m, truth, qs, cap, snr)
+        runcase(io, label, m, truth, qs, snr)
     end
     @printf(io, "\n%.0f s in all\n", t)
 end

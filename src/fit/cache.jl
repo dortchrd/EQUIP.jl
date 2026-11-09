@@ -50,11 +50,27 @@ Set up a reusable cache for fitting single voxels with [`fit!`](@ref).
 - `solver`: solver settings, [`LM`](@ref)`(maxiter = 50, ...)`.
 - `weights`: one weight per observation, the same in every voxel (`weights = nex`, the numbers
   of averages; or 1/σᵢ²): the fit minimizes ½Σwᵢrᵢ². Left out, unweighted.
+- `likelihood`: the noise model the fit assumes, `:gaussian` (least squares, the default) or
+  `:rician` (magnitude data), with `σ` (the noise SD of each channel: a number or a map) and
+  `method`: `:ml` (the full Rician model, maximum likelihood; the default), `:mean` (least
+  squares on the Rician mean) or `:wmean` (the same, weighted by 1/Var). Each voxel is then fitted
+  as without it first, then with the Rician model from that result (src/fit/rician.jl); `init`
+  returns a [`RicianFitCache`](@ref), used as this cache is.
 
 `init` is `CommonSolve.init`, the SciML convention, so it does not clash with other packages.
 """
 function CommonSolve.init(model::MRIModel; precision::Type{<:AbstractFloat} = Float64,
-                          solver::LM = LM(), weights = nothing, params...)
+                          solver::LM = LM(), weights = nothing, likelihood = :gaussian,
+                          method = nothing, params...)
+    likelihood in _LIKELIHOODS || throw(ArgumentError("`likelihood` is the noise model the fit " *
+        "assumes: :gaussian (least squares, the default) or :rician (magnitude data, with `σ`), " *
+        "got $(repr(likelihood))"))
+    likelihood === :rician && return _rician_init(model, method, precision, solver, weights, params)
+    method === nothing || throw(ArgumentError("`method` is for likelihood = :rician (:ml, " *
+        ":mean or :wmean); least squares, the default, has none"))
+    haskey(params, :σ) && !(:σ in keys(parameters(model))) && throw(ArgumentError("`σ`, the " *
+        "noise SD, is for likelihood = :rician; to give it to the standard errors of a least-" *
+        "squares fit, `stderror(res; σ)`"))
     T = precision
     n = nobs(model)                                # also checks the acquisition's lengths
     spec = setup(model, T; weights, params...)     # the parameter keywords, the weights
