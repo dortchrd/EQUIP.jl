@@ -6006,7 +6006,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      test/Project.toml, committed; a code change rebuilds in seconds. Pkg.test copies the test
      environment's preferences into its sandbox (Pkg's Operations.jl), so CI's EQUIP job writes a
      test/LocalPreferences.toml turning the workload back on (it takes precedence over the
-     Project.toml's; both checked), and tests EQUIP as users install it.
+     Project.toml's; both checked), and tests EQUIP as users install it. Which build ran is printed at
+     the start of every test run ("EQUIP's precompile workload: on, as users install it" or
+     "off, for quick rebuilds"), so a log shows it, and a CI log that says "off" means the
+     override was lost (the owner, 2026-11-09: kept the committed setting over a local file; this
+     line added).
      TestItemRunner.jl not taken: each `@testitem` self-contained means rewriting the file, for
      what include files already give; reconsider with VS Code's test panel.
    - **To do, in this order:**

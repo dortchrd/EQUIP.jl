@@ -22,6 +22,13 @@
 
 include("setup.jl")
 
+# Which build of EQUIP the tests run on, printed so a log says it: with its precompile workload
+# (as users install it; CI) or without (test/Project.toml's preference, for quick rebuilds).
+let on = get(Base.get_preferences(Base.PkgId(EQUIP).uuid), "precompile_workload", true)
+    println("EQUIP's precompile workload: ", on ? "on, as users install it" :
+            "off, for quick rebuilds (test/Project.toml's [preferences.EQUIP])")
+end
+
 # The files of each group, in the order they run (names without .jl).
 const GROUPS = (
     unit = ["models", "roles", "starts_solver"],
