@@ -822,10 +822,13 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   with kmf fixed at 12.5 at SNR 200). A scenario carries it too: `Scenario(m, θ; likelihood =
   :rician, method = :mean)`; sweeps follow. Not yet: protocol design, `leakage` and
   `cov = :biased` for these fits; montecarlo's with averages or σ per observation.
-- Rician noise, from its own functions: `crlb(m, θ; riciannoise(m, θ; snr, averages,
-  averaging)...)` predicts a least-squares fit of magnitude data, its bias from the noise floor
-  (exactly: the fit of the magnitudes' mean, `RicianMean`) and its SD (with the Rician variance);
-  `ricianbound(m, θ; snr, ...)` is the Cramér–Rao bound of Rician data (the information
+- Rician noise for a least-squares fit: `crlb(m, θ; snr, noise = :rician)` (with `averages`,
+  `averaging` too), the same keywords as `montecarlo` and `simulate`, predicts a least-squares
+  fit of magnitude data, its bias from the noise floor (exactly: the fit of the magnitudes'
+  mean, `RicianMean`) and its SD (with the Rician variance). The default is `noise = :gaussian`
+  (real-valued data), or `:rician` for a fit with `likelihood = :rician`; montecarlo's crlb
+  alongside a least-squares fit stays the Gaussian one, so that the floor shows as the
+  difference. `ricianbound(m, θ; snr, ...)` is the Cramér–Rao bound of Rician data (the information
   R(A/σ)/σ² per observation, as in Devan et al., Magn Reson Imaging 2020, Appendix), what no
   estimator beats. `averaging = :complex` (the scanner's averages: the floor falls) or
   `:magnitude` (a spherical mean over directions: it stays). Fitting `RicianMean(m; σ)` itself

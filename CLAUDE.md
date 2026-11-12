@@ -59,7 +59,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/sim/, from true values to data (uses models only): `nominal` and tissue presets
   (`TISSUES`), noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
   `simulate` and crlb; `noisecovariance`), `simulate`; rician.jl (`ricianmean`, `ricianvar`,
-  `ricianinformation`, `RicianMean`, and `riciannoise`/`ricianbound` for crlb under Rician noise)
+  `ricianinformation`, `RicianMean` (src/models/rician.jl), and `ricianbound`; crlb takes
+  `noise = :rician` for a least-squares fit of magnitude data)
 - src/errors/, a fit's errors against the truth (bias, SD, RMSE): scenario.jl, the `Scenario` (a truth and the fit judged against it, built
   from the truth with fit's keywords: what crlb and montecarlo take; `crlb(m, θ; kmf = 12.5)`
   makes one); derivatives.jl, crlb's pieces one function each (`CRLBCache`, `noisefree!`,

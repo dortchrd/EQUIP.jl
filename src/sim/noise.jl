@@ -171,18 +171,18 @@ function _noise_refused(fname, key = :noise)
         fname == "fit" ?
         "To weight the fit by them, give `weights = nex` (σ/√NEX: wᵢ = NEXᵢ is 1/σᵢ² up to a " *
         "scale); how averages were combined matters where data are made (`simulate`, `montecarlo`)." :
-        "crlb is first order in the noise, where NEX averages give σ/√NEX however they were " *
-        "combined (give `averages`); the noise floor that magnitude averaging keeps is what " *
-        "`montecarlo(m, θ; noise = :rician, averages, averaging = :magnitude, ...)` measures."))
+        "It is first order in Gaussian noise, where NEX averages give σ/√NEX however they were " *
+        "combined (give `averages`); for magnitude data, crlb takes `noise = :rician` and " *
+        "`averaging` (the floor that magnitude averaging keeps), and montecarlo measures it."))
     why = fname == "fit" ?
-        "The fit is least squares, which assumes Gaussian noise; with magnitude data at low SNR " *
-        "the Rician floor biases it, which `montecarlo(m, θ; noise = :rician, ...)` measures " *
-        "(a Rician likelihood is on the roadmap)." :
+        "The fit's noise model is `likelihood`: least squares (Gaussian, the default), or " *
+        "`likelihood = :rician` with `σ` for magnitude data at low SNR, where the floor biases " *
+        "least squares." :
         fname == "Scenario" ?
         "A scenario is the truth and the fit judged against it; the noise belongs to the data: " *
         "give it to `montecarlo(m, s; noise = :rician, ...)` or `simulate`." :
-        "crlb and what is built on it are first order in the noise, so they assume Gaussian " *
-        "noise, as the least-squares fit does; the Rician floor of magnitude images is what " *
-        "`montecarlo(m, θ; noise = :rician, ...)` measures, with crlb alongside."
+        "It is first order in the noise and assumes Gaussian noise; for magnitude images, " *
+        "`crlb(m, θ; snr, noise = :rician)` predicts the floor's effect on a least-squares fit, " *
+        "and `montecarlo(m, θ; noise = :rician, ...)` measures it."
     return ArgumentError("`noise`: $fname takes no noise distribution. " * why)
 end

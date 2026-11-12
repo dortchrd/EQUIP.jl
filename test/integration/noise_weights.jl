@@ -171,8 +171,10 @@ end
     @test occursin("`averages` has 2 values", msg(() -> crlb(md, θ; σ = σ1, averages = [1, 2])))
     @test occursin("whole numbers, at least 1", msg(() -> crlb(md, θ; σ = σ1, averages = 1.5)))
     @test occursin("whole numbers, at least 1", msg(() -> crlb(md, θ; σ = σ1, averages = [0, 1, 1, 1, 1, 1, 1])))
-    @test occursin("crlb takes no averaging", msg(() -> crlb(md, θ; σ = σ1, averages = nex, averaging = :magnitude)))
-    @test occursin("crlb takes no averaging", msg(() -> crlb(m4, set; snr = 200, averages = 4, averaging = :complex)))
+    # `averaging` is for Rician noise (crlb's `noise = :rician`), where it changes the floor: with
+    # Gaussian noise refused, as simulate refuses it; for a set of scenarios too
+    @test occursin("`averaging` is for Rician noise", msg(() -> crlb(md, θ; σ = σ1, averages = nex, averaging = :magnitude)))
+    @test occursin("`averaging` is for Rician noise", msg(() -> crlb(m4, set; snr = 200, averages = 4, averaging = :complex)))
     @test occursin("ProtocolDesign takes no averaging", msg(() -> ProtocolDesign(m4, [sU]; snr = 200, averaging = :magnitude, acquisition = space, scantime = st)))
     @test occursin("fit takes no averages", msg(() -> fit(md, signal(md, θ); averages = nex)))
     @test occursin("give `weights = nex`", msg(() -> fit(md, signal(md, θ); averages = nex)))

@@ -88,6 +88,8 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     averages::Union{Nothing,Vector{Int}}   # nothing, or the averages of each observation
     weights::Union{Nothing,Vector{Float64}}   # nothing, or the fit's weights (a weighted fit)
     rician::Symbol             # :none (least squares), or the Rician fit's method predicted
+    noise::Symbol              # the data's noise: :gaussian, or :rician (magnitude data)
+    averaging::Union{Nothing,Symbol}   # with Rician noise and averages: :complex or :magnitude
 end
 
 """
@@ -188,20 +190,19 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
 ```
 """
 function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-              averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
-              changes...)
+              averages = nothing, noise = nothing, averaging = nothing, cov::Symbol = :sandwich,
+              vary = (;), simulate_with = nothing, changes...)
     # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
     # as for `fit`.
-    ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :cov, :vary, :simulate_with))
-    return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, averages, cov, vary, simulate_with)
+    ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :noise, :averaging, :cov,
+                                           :vary, :simulate_with))
+    return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, averages, noise, averaging, cov, vary,
+                simulate_with)
 end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
               Σ = nothing, averages = nothing, cov::Symbol = :sandwich, vary = (;),
               simulate_with = nothing, noise = nothing, averaging = nothing)
-    # `noise` and `averaging` are taken only to say why they are refused: crlb assumes Gaussian
-    # noise, first order, where averages give σ/√NEX however they were combined.
-    noise === nothing || throw(_noise_refused("crlb"))
-    averaging === nothing || throw(_noise_refused("crlb", :averaging))
+    noise, averaging = _crlb_noise(_scenarios(s), noise, averaging, averages)
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     _check_simulate_with(simulate_with)
@@ -218,18 +219,39 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
                   all(k -> haskey(parameters(m), k), keys(vary))
         resultof(st) = numbers ?
             _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s), nothing);
-                          snr = _snr_of(st, snr), σ, Σ, averages) :
+                          snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging) :
             crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s), simulate_with);
-                  snr = _snr_of(st, snr), σ, Σ, averages,
+                  snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging,
                   simulate_with = _data_of(st, simulate_with))
         results = [resultof(st) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
-    return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, averages, simulate_with)
+    return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, averages, noise, averaging,
+                 simulate_with)
 end
 
+# The data's noise, `noise`: `:gaussian` (real-valued data; the default for a least-squares fit)
+# or `:rician` (magnitude images: the default, and the only choice, for a fit with likelihood =
+# :rician). Fits side by side are judged on the same data: Rician for all if one of them is a
+# Rician fit. `averaging` as `simulate` takes it: with Rician noise and `averages`, how they
+# were combined.
+function _crlb_noise(ss, noise, averaging, averages)
+    rician = any(_isricianfit, ss)
+    noise === nothing && (noise = rician ? :rician : :gaussian)
+    noise in (:gaussian, :rician) || throw(ArgumentError("`noise` is the data's: :gaussian " *
+        "(real-valued data; the default) or :rician (magnitude images), got $(repr(noise))"))
+    rician && noise === :gaussian && throw(ArgumentError("a fit with likelihood = :rician fits " *
+        "magnitude data, whose noise is :rician"))
+    averaging = _checked_averaging(averaging, noise, averages)
+    rician && averaging === :magnitude && throw(ArgumentError("a fit with likelihood = :rician " *
+        "of magnitude-averaged data (the mean of NEX Rician values is not Rician): not yet"))
+    return noise, averaging
+end
+_isricianfit(s::Scenario) = s.likelihood === :rician
+_isricianfit(c::CRLBCache) = c.rician !== :none
+
 """
-    crlb!(c::CRLBCache, truth; snr or σ or Σ, averages, simulate_with) -> CRLBResult
+    crlb!(c::CRLBCache, truth; snr or σ or Σ, averages, noise, averaging, simulate_with) -> CRLBResult
 
 [`crlb`](@ref) with the fit and the covariance already in a [`CRLBCache`](@ref): for many noise
 levels or truths with the same fit, the setup is made once. The fit stays the cache's: with a
@@ -241,11 +263,13 @@ cs = [crlb!(c, nominal(m, :SIR_WM_I); snr) for snr in (50, 100, 200)]
 ```
 """
 function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-               averages = nothing, simulate_with = nothing)
+               averages = nothing, noise = nothing, averaging = nothing, simulate_with = nothing)
     _check_simulate_with(simulate_with)
-    simulate_with === nothing || !c.biased || throw(ArgumentError("with data from " *
-        "another model (`simulate_with`), the sandwich only: Eq. 3 needs the true model's " *
-        "derivatives with respect to the fitted model's parameters"))
+    noise, averaging = _crlb_noise((c,), noise, averaging, averages)
+    (simulate_with === nothing && noise === :gaussian) || !c.biased ||
+        throw(ArgumentError("with data from another model (`simulate_with`, or the Rician " *
+        "mean of magnitude data, `noise = :rician`), the sandwich only: Eq. 3 needs the true " *
+        "model's derivatives with respect to the fitted model's parameters"))
     # The data: from the model at `truth`, or from another model (`simulate_with = m2 => θ2`),
     # with `truth` then the reference values the fit is judged against; `snr` is relative to
     # the data's scale parameter. Either may be given by derived quantities (`fromderived`).
@@ -253,7 +277,7 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
     dm, dt = _datasource(c.model, truth, simulate_with)
     t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
     Σn = noisecovariance(dm, dt; snr, σ, Σ, averages)
-    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages)
+    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging)
 end
 
 # Every parameter's name, from the cache's types (its free ones and its fixed ones): known when
@@ -265,9 +289,11 @@ _parameternames(c::CRLBCache{F}) where {F} = (F..., keys(c.fixed)...)
 # so it goes to the kernel's form without being checked again (1.1–1.4 µs a setting). The
 # sweep takes this path only when every varied value is a number and the data are the fitted
 # model's own.
-function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = nothing)
+function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = nothing,
+                       noise = :gaussian, averaging = nothing)
     Σn = noisecovariance(c.model, truth; snr, σ, Σ, averages)
-    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages)
+    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages,
+                       noise, averaging)
 end
 
 """
@@ -345,19 +371,25 @@ end
 # The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A
 # separate function (a "function barrier") so that F and P are known types here.
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with,
-                     averages = nothing) where {F,P,T}
+                     averages = nothing, noise = :gaussian, averaging = nothing) where {F,P,T}
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
     if c.rician !== :none                            # a fit with likelihood = :rician (below)
         σ2r, dmr = _rician!(c, simulate_with === nothing ? c.mT.model : dmT, dtt, Σn)
-        return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with, averages)
+        return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
+                           averages, noise, averaging)
+    elseif noise === :rician                         # least squares on magnitude data (below)
+        σ2r, dmr = _riciandata(dmT, dtt, Σn, averages, averaging)
+        return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
+                           averages, noise, averaging)
     end
-    return _crlbresult(c, truth, t, dmT, dtt, Σn, Σn, _kernelnoise(Σn, P), Σ, simulate_with, averages)
+    return _crlbresult(c, truth, t, dmT, dtt, Σn, Σn, _kernelnoise(Σn, P), Σ, simulate_with,
+                       averages, noise, averaging)
 end
 # The rest, given the kernel's noise σ2 (and Σk, the same as a matrix) and the data's model: a
 # function of its own, so that each branch above calls it with concrete types (a function
 # barrier: the Rician branch's σ2 is a vector, least squares' often a number).
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ, simulate_with,
-                     averages) where {F,P,T}
+                     averages, noise, averaging) where {F,P,T}
     k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
     sd = sqrt.(diag(k.cov))
     rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
@@ -388,7 +420,28 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ,
                       map(_untie, c.fixed), c.model, simulate_with,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
                       averages === nothing ? nothing : _averages(averages, length(c.y)),
-                      c.w === nothing || c.rician !== :none ? nothing : copy(c.w), c.rician)
+                      c.w === nothing || c.rician !== :none ? nothing : copy(c.w), c.rician,
+                      noise, averaging)
+end
+
+# A least-squares fit of magnitude data (`noise = :rician`; `riciannoise`'s keywords until
+# 2026-11-12): the data's mean is the Rician mean of the data model's signal, RicianMean(dm; σ),
+# whose noise-free fit gives the floor's bias, and their noise the Rician variance, the sandwich's
+# SD. With `averages`: averaged as complex images (the scanner's), Rician with σ/√NEX (the floor
+# falls); as magnitudes (a spherical mean over directions is one), the mean of NEX Rician values
+# with one average's σ (the floor stays), its variance Var|y|/NEX. Σn holds σ²/NEX.
+function _riciandata(dm, dt, Σn, averages, averaging)
+    isdiag(Σn) || throw(ArgumentError("`noise = :rician`: independent noise only (`snr` or " *
+        "`σ`, not a full `Σ`)"))
+    s = sqrt.(diag(Σn))
+    a = similar(s)
+    signal!(a, dm, _resolve_ties(dt))
+    a .= abs.(a)
+    if averaging === :magnitude
+        σ1 = s .* sqrt.(_averages(averages, length(s)))     # one average's σ
+        return ricianvar.(a, σ1) ./ _averages(averages, length(s)), RicianMean(dm, σ1)
+    end
+    return ricianvar.(a, s), RicianMean(dm, s)
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -536,6 +589,8 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     how = c.method === :sandwich ? "sandwich (the least-squares fit)" :
                                    "biased CRLB (Dortch 2018 Eq. 3)"
     print(io, "crlb for ", nameof(typeof(c.model)), ", ", length(σ), " observations, ", noise,
+          c.noise === :rician ? ", Rician noise (magnitude data" *
+              (c.averaging === nothing ? ")" : ", $(c.averaging) averaging)") : "",
           ", covariance: ", how)
     _print_data(io, c.data)
     # The fit's fixed values, with the truth where it differs: the source of any bias.

@@ -149,10 +149,11 @@
     @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f)"
     # Mistakes
     @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ)))
-    # `noise` is for where data are made: crlb (Gaussian, first order), its pieces, the fit
-    # (least squares) and a scenario refuse it, saying why
-    @test occursin("crlb takes no noise distribution", msg(() -> crlb(m4, θ; noise = :rician, snr = 200)))
-    @test occursin("assume Gaussian noise", msg(() -> crlb(m4, Scenario(m4, θ); noise = :gaussian, snr = 200)))
+    # `noise` is the data's: crlb takes it (:gaussian, the default; :rician, magnitude data:
+    # test/integration/rician.jl), as simulate and montecarlo; its pieces, the fit (whose noise
+    # model is `likelihood`) and a scenario refuse it, saying why
+    @test crlb(m4, Scenario(m4, θ); noise = :gaussian, snr = 200).sd == crlb(m4, θ; snr = 200).sd
+    @test occursin(":poisson", msg(() -> crlb(m4, θ; noise = :poisson, snr = 200)))
     @test occursin("jacobian takes no noise", msg(() -> jacobian(m4, θ; noise = :rician)))
     @test occursin("Scenario takes no noise", msg(() -> Scenario(m4, θ; noise = :rician)))
     @test occursin("fit takes no noise", msg(() -> fit(m4, signal(m4, θ); noise = :rician)))

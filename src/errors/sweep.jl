@@ -387,14 +387,13 @@ end
 function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
               noise = nothing, averaging = nothing)
-    noise === nothing || throw(_noise_refused("crlb"))     # crlb assumes Gaussian noise
-    averaging === nothing || throw(_noise_refused("crlb", :averaging))    # first order: σ/√NEX
+    noise, averaging = _crlb_noise(set.results, noise, averaging, averages)
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     caches = [_CRLBCache(m, sc, cov) for sc in set.results]          # one per scenario, once
     levels = snr isa AbstractVector ? collect(snr) : [snr]
     settings = _set_settings(set, snr, levels)
-    results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ, averages)
+    results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ, averages, noise, averaging)
                for x in levels for i in eachindex(caches)]
     return Sweep(settings, results, _rows(settings, results))
 end

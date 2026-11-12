@@ -67,7 +67,7 @@ export QMTSIR, SIR_5POINT, SIR_4POINT, SIR_16POINT                         # qMT
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
-export ricianmean, ricianvar, ricianinformation, RicianMean, riciannoise, ricianbound   # Rician noise
+export ricianmean, ricianvar, ricianinformation, RicianMean, ricianbound   # Rician noise
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
 export ProtocolDesign, design, DesignResult                                 # protocol design
@@ -102,7 +102,7 @@ include("fit/rician.jl")               # likelihood = :rician: the fit with the 
 include("sim/tissues.jl")              # TISSUES (published values), tissue, nominal
 include("sim/noise.jl")                # the noise model: snr, σ or Σ, checked; noisecovariance
 include("sim/simulate.jl")             # simulate: noisy data (Rician or Gaussian)
-include("sim/rician.jl")               # Rician noise in crlb: riciannoise, ricianbound
+include("sim/rician.jl")               # the Rician bound: ricianbound
 
 # errors: a fit's errors against the truth, bias and SD, predicted from derivatives or measured
 # (uses models, fit and sim)

@@ -166,6 +166,14 @@ end
               isapprox(c.sd.S0, refs[method].sd.S0; rtol = 1e-10)
     end
     @test crlb(m, Scenario(m, θ; likelihood = :rician); σ).sd == crlb(m, θ; σ, likelihood = :rician).sd
+    # The least-squares fit of the same magnitude data, `noise = :rician`: the floor's bias (the
+    # noise-free fit of the data's mean, the Rician mean) and the sandwich with the Rician
+    # variance, as given by hand; +40% for T2 at SNR 10 (step 0 measured +41%)
+    cg = crlb(m, θ; σ, noise = :rician)
+    ch = crlb(m, θ; simulate_with = RicianMean(m; σ) => θ, Σ = Diagonal(v))
+    @test isapprox(cg.bias.T2, ch.bias.T2; rtol = 1e-12) && isapprox(cg.sd.T2, ch.sd.T2; rtol = 1e-12)
+    @test 0.35 < cg.relbias.T2 < 0.45 && cg.noise === :rician
+    @test crlb(m, θ; σ).relbias.T2 == 0                          # Gaussian noise: no floor
     # 2. A sweep over noise levels: each setting as the single call
     sw = crlb(m, θ; snr = [10, 20], likelihood = :rician)
     @test sw.results[2].sd.T2 ≈ crlb(m, θ; snr = 20, likelihood = :rician).sd.T2
@@ -194,4 +202,6 @@ end
         [Scenario(QMTSIR, θq; kmf = 12.5, likelihood = :rician)]; snr = 200,
         acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)), scantime = p -> sum(p.TI .+ p.TD))))
     @test occursin("`method`", msg(() -> Scenario(m, θ; method = :mean)))
+    @test occursin(":rician", msg(() -> crlb(m, θ; σ, likelihood = :rician, noise = :gaussian)))
+    @test occursin("`averages`", msg(() -> crlb(m, θ; σ, noise = :rician, averaging = :complex)))
 end

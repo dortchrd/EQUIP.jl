@@ -185,7 +185,12 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
 
     # The prediction first: it also checks the noise level (and averages) and the data's model.
-    c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, averages, simulate_with)
+    # (A least-squares fit's prediction assumes Gaussian noise whatever the data's, so that the
+    # floor of Rician data shows as the difference; `crlb(...; noise = :rician)` predicts it. A
+    # Rician fit's assumes the Rician data it fits.)
+    rf = s.likelihood === :rician
+    c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, averages, simulate_with,
+              noise = rf ? :rician : :gaussian, averaging = rf ? averaging : nothing)
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset with the

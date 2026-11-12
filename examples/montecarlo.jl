@@ -10,7 +10,7 @@
 #      second-order bias, Box's, is not in it yet: the roadmap's tier 2, design.md item 16.)
 #   2. T2 decay at low SNR, where the Rician floor (about 1.25σ where the signal approaches the
 #      noise) biases T2 long: montecarlo with Rician noise sees it; crlb assumes Gaussian noise and
-#      does not, unless told the noise is Rician (`riciannoise`).
+#      does not, unless told the noise is Rician (`crlb(m, θ; snr, noise = :rician)`).
 #
 # Run from the repository folder (about 30 s on 4 threads, most of it compiling):
 #   julia -t auto --project=. examples/montecarlo.jl

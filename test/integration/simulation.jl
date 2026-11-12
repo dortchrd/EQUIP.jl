@@ -1,6 +1,6 @@
 # =================================================================================================
 # test/integration/simulation.jl: Simulation: simulate, tissue presets, maps, compare; Rician noise (mean, variance,
-# information, RicianMean, riciannoise, ricianbound).
+# information, RicianMean, crlb's noise = :rician, ricianbound).
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl simulation
@@ -83,7 +83,7 @@
     end
 end
 
-@testset "Rician noise: mean, variance, information; RicianMean, riciannoise, ricianbound" begin
+@testset "Rician noise: mean, variance, information; RicianMean, crlb's noise = :rician, ricianbound" begin
     rng = MersenneTwister(31)
     # The mean and variance of a magnitude against simulated ones; the limits
     for a in (0.0, 0.7, 2.0, 6.0)
@@ -148,11 +148,17 @@ end
     θd = nominal(DTI; S0 = 1000.0, MD = 0.8e-3, FA = 0.6, direction = (1, 0, 0))
     @test derived(RicianMean(mdti; σ = 20.0), θd) == derived(mdti, θd)
 
-    # crlb of the least-squares fit of magnitude data (riciannoise) against montecarlo:
+    # crlb of the least-squares fit of magnitude data (`noise = :rician`) against montecarlo:
     # black holes, protocol A, SNR 20 per direction, the spherical mean a magnitude average.
     # The floor biases v_ax by about 0.07 (29%, three times its SD); predicted within 10%.
-    kw = riciannoise(m, θ; snr = 20, averages = pr.directions, averaging = :magnitude)
-    c = crlb(m, θ; kw..., weights = pr.directions)
+    c = crlb(m, θ; snr = 20, averages = pr.directions, noise = :rician, averaging = :magnitude,
+             weights = pr.directions)
+    # (the same as the data's mean and the Rician variance given by hand: what `riciannoise`
+    # wrote until 2026-11-12, with magnitude averaging's σ of one average and Var/NEX)
+    A = signal(m, θ)
+    ch = crlb(m, θ; simulate_with = RicianMean(m; σ) => θ,
+              Σ = Diagonal(ricianvar.(A, σ) ./ pr.directions), weights = pr.directions)
+    @test isapprox(c.bias.vax, ch.bias.vax; rtol = 1e-12) && isapprox(c.sd.vax, ch.sd.vax; rtol = 1e-12)
     mc = montecarlo(m, θ; snr = 20, averages = pr.directions, noise = :rician,
                     averaging = :magnitude, weights = pr.directions, n = 5000, rng)
     @test c.bias.vax ≈ mc.bias.vax rtol = 0.1

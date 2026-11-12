@@ -34,7 +34,7 @@
 # For each, the quantity users read (T2, ADC, T1; MD and FA; MD and MKT): bias, SD and RMSE in %
 # of the truth (for a truth of 0, FA and MKT in CSF: their mean and SD), the % of voxels
 # converged, and µs per voxel on this machine's threads. Below them, crlb's predictions for one
-# voxel: least squares on the magnitudes (`riciannoise`: the floor's bias and the sandwich), least
+# voxel: least squares on the magnitudes (`noise = :rician`: the floor's bias and the sandwich), least
 # squares on the Rician mean unweighted and weighted by 1/Var, and the Rician bound
 # (`ricianbound`): the plan's question of whether the weighted fit reaches the bound.
 #
@@ -191,7 +191,7 @@ function runcase(io, label, m, truth, qs, snr)
     A = abs.(signal(m, θ1))
     v = ricianvar.(A, σ)
     preds = [
-        "crlb gauss" => () -> crlb(m, θ1; riciannoise(m, θ1; snr)...),
+        "crlb gauss" => () -> crlb(m, θ1; snr, noise = :rician),
         "crlb rician" => () -> crlb(rm, θ1; Σ = Diagonal(v)),
         "crlb rician, 1/Var" => () -> crlb(rm, θ1; Σ = Diagonal(v), weights = 1 ./ v),
         "ricianbound" => () -> ricianbound(m, θ1; snr),

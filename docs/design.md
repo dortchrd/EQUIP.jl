@@ -6709,18 +6709,23 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      call, ProtocolDesign's keywords and the search's together, as `fit(m, data)` is `init` then
      `fit!`. No alias for the old name (the owner: "not necessary ... there are no users at this
      point"); bench/speed.jl falls back to it on older commits.
-   - **To review, the owner to decide** (each with why):
+   - **Reviewed with the owner, 2026-11-12** ("let's leave 1 alone for now. we will figure out
+     all the exports before the release. add consistent keyword for 2. make verbs consistent for
+     3 and leave 4 alone"):
      - crlb's pieces (`noisefree`, `bias`, `jacobian`, `hessian`, `biasgradient`, `sandwich`,
-       `biasedcrlb`, `noisecovariance`), exported for use at the REPL ("unexporting them is
-       open", the prerelease): `bias`, `jacobian` and `hessian` are common names elsewhere
-       (Symbolics exports `jacobian`), so `using` both would need one qualified. Unexported,
-       they stay `EQUIP.jacobian` etc.
-     - The Rician noise in crlb, now that the fit has `likelihood`: least squares on magnitude
-       data is `crlb(m, θ; riciannoise(m, θ; snr)...)`, a splat of keywords, where montecarlo
-       says `noise = :rician`; `crlb(m, θ; snr, noise = :rician)` would read the same in both.
-       And `ricianbound(m, θ; snr)` is now `crlb(m, θ; snr, likelihood = :rician)` (the same
-       numbers when nothing fixed is wrong): kept as a name for the bound, or dropped.
-     - File verbs: EQUIP's are load/save (`loaddata`, `loadmap`, `savemaps`) and write
-       (`writetable`), MRImages' read/write (`readimage`, `writeimage`, `readvalues`,
-       `readbvec`): one convention for both (Julia's FileIO uses load/save, Base read/write).
-     - `compare` and `Comparison`: a generic name for "a dataset fit against the truth's maps".
+       `biasedcrlb`, `noisecovariance`), exported for use at the REPL: left for now, every
+       export to be settled before the release (`bias`, `jacobian` and `hessian` are common
+       names elsewhere; Symbolics exports `jacobian`).
+     - **Done: the Rician noise in crlb by keyword.** `crlb(m, θ; snr, noise = :rician)` (with
+       `averages` and `averaging`, as `simulate` and `montecarlo` take them) predicts a
+       least-squares fit of magnitude data, the numbers `crlb(m, θ; riciannoise(m, θ; snr)...)`
+       gave (tested equal to the data's mean and the Rician variance given by hand, complex and
+       magnitude averaging); `riciannoise` removed (no users). The default is `:gaussian`, or
+       `:rician` for a fit with `likelihood = :rician` (`noise = :gaussian` with one is an
+       error: its data are magnitudes); fits side by side are judged on the same data.
+       montecarlo's crlb alongside a least-squares fit stays the Gaussian one, so that the floor
+       shows as the difference, as before. `ricianbound` kept, as the bound's own name (the same
+       numbers as `crlb(m, θ; snr, likelihood = :rician)` when nothing fixed is wrong; it also
+       takes magnitude averaging, which the Rician fit does not).
+     - File verbs: one convention (below, 2026-11-12).
+     - `compare` and `Comparison`: left as they are.

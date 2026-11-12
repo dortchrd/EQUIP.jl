@@ -8,7 +8,8 @@
 #   ricianinformation(A, σ)     the Fisher information about A in one magnitude value, R(A/σ)/σ²
 #   RicianMean(m; σ, ...)       a model whose signal is the mean of the magnitude data
 #
-# (crlb's keywords for Rician data, `riciannoise` and `ricianbound`, are in src/sim/rician.jl.
+# (The Rician bound, `ricianbound`, is in src/sim/rician.jl; crlb of magnitude data is crlb's
+# `noise = :rician` and `likelihood = :rician`, src/errors/crlb.jl.
 # These moved here from there on 2026-11-09, tier 2 step 1, so that the fit can use them: this
 # file is included before src/fit/.)
 #
@@ -193,9 +194,9 @@ divides σ by √NEX, so the floor falls; `:magnitude` (a spherical mean over di
 leaves the mean, so the floor, as it is.
 
 As the data a fit is judged against, it gives the bias of a least-squares fit of magnitude data
-(the noise floor's): `crlb(m, θ; simulate_with = RicianMean(m; σ) => θ, ...)`, which
-[`riciannoise`](@ref) writes for you. Fitted itself, it is least squares on the expected
-magnitude, a correction of the floor for any model (with σ known).
+(the noise floor's): what `crlb(m, θ; snr, noise = :rician)` uses. Fitted itself, it is least
+squares on the expected magnitude, a correction of the floor for any model (with σ known):
+`fit(m, data; likelihood = :rician, σ, method = :mean)` does that.
 """
 struct RicianMean{M<:MRIModel,S<:AbstractVector} <: MRIModel
     model::M
