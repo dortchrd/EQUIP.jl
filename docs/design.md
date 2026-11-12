@@ -4203,7 +4203,7 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
 - Full runs: EQUIP 2347, CLI 139, MRImages 103 (the first EQUIP run found the one test that
   printed T2Decay's old bound, Inf, in `nominal`'s table; fixed).
 
-## Tier 2, bias from noise at low SNR: the plan (2026-11-09; steps 0, 1, 2, 4 and 5 built, in `main` 2026-11-12)
+## Tier 2, bias from noise at low SNR: the plan (2026-11-09; steps 0, 1, 2, 4 and 5 built, in `main` 2026-11-12; step 3 on hold)
 
 The owner, 2026-11-09, asked what Rician work exists ("what rician stuff do we have now"), then
 for a plan of tier 2 before any building ("yes"), in the order: one switch for any model, σ as
@@ -4367,7 +4367,25 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      limit); a σ map with two regions gives each region the fit it gets alone with its own σ (an
      invariance); against step 0's table, DTI's MD bias ≤ 1% at SNR 10 in white matter with no
      hand-made starts, ≥ 98% converged in CSF, and the same table for the other four models.
-3. **σ: where it comes from.** `noisesd(data, background)` from the image background, Rayleigh
+3. **σ: where it comes from. On hold (the owner, 2026-11-12: "let's hold off on different ways
+   to estimate noise sd...mppca, psnr, residuals of fit etc").** The background estimate below
+   is dropped: it cannot be used on typical clinical images (the owner: "spatially varying
+   noise and filters applied on clinical scans"). Parallel imaging scales σ by the g-factor,
+   voxel by voxel; a multi-coil sum of squares makes the background noncentral χ, not Rayleigh,
+   with GRAPPA an effective σ and coil number varying in space (Constantinides et al., Magn
+   Reson Med 1997;38:852; Aja-Fernández et al., Magn Reson Med 2011;65:1195); vendors' k-space
+   filters, normalization, masked or zero-filled backgrounds and nonlinear denoising change or
+   remove it (Dietrich et al., J Magn Reson Imaging 2007;26:375). Until σ estimation is taken
+   up, σ is the user's, a number or a map (`readmap`), as `fit` takes it now. The options
+   discussed, for then: σ fitted per voxel in the Rician fit (`σ = Free()`, for protocols with
+   many images; SD about σ/√(2(n − p))), σ from two identical acquisitions (the local SD of
+   their difference over √2), pseudo-replicas from raw data (Robson et al., Magn Reson Med
+   2008;60:895), MP-PCA maps (item 22), the residuals of a fit; and first, how wrong σ may be
+   before the Rician correction does more harm than good (crlb through σ, a fixed parameter of
+   the Rician fit, checked by montecarlo). The same caution holds for the Rician model itself:
+   right for one coil or a complex coil combination (SENSE-type), not for a multi-coil sum of
+   squares, whose noncentral χ likelihood would be an item of its own.
+   The original plan, kept for the record: `noisesd(data, background)` from the image background, Rayleigh
    there: E[y²] = 2σ² exactly, so σ̂ = √(mean(y²)/2) (2Lσ² for L coils summed in squares,
    noncentral χ); from a noise-only scan the same way. A warning when the background looks
    masked or zero-filled (many exact zeros, common in vendors' reconstructions). σ maps by
@@ -6648,7 +6666,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **MP-PCA**: denoising and a σ map at once (Veraart et al., NeuroImage 2016;142:394: in a
      local patch the noise's eigenvalues follow the Marchenko–Pastur law, which separates them
      from the signal's and gives σ). The σ map is what the Rician fit takes per voxel (the tier 2
-     plan, step 3). Its σ is biased by the floor at low SNR on magnitude data, and the denoised
+     plan, step 3, on hold with every way of estimating σ: the owner, 2026-11-12). Its σ is biased by the floor at low SNR on magnitude data, and the denoised
      data's noise is neither Rician with that σ nor independent between voxels: how to fit
      denoised data with `likelihood = :rician` is to decide when built (fit the original data
      with the σ map; or the denoised data with a reduced, correlated noise, as crlb's Σ allows).

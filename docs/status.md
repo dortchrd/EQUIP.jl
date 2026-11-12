@@ -21,7 +21,8 @@ montecarlo and sweeps for them), the diffusivity, T1 and DTI/DKI-diagonal bounds
 `:loglinear` warning and src/fit/loglinear.jl, the docstrings attached. Checked first: the full
 `Pkg.test` (EQUIP 2497), the command line's (139), and CI on the merged commit, 1c38e11 (all six
 jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can carry the rest
-of tier 2 (steps 3, 6 to 9) or be deleted.
+of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
+off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
 
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
