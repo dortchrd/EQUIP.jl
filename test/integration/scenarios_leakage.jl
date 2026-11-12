@@ -263,7 +263,8 @@ end
     @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1)).sd
     @test occursin("SIR_lesion", sprint(show, MIME"text/plain"(), c)) && !occursin(":SIR_lesion", sprint(show, MIME"text/plain"(), c))
     @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = :kmf => [5.0, 10.0])))
-    @test occursin("crlb takes no noise", msg(() -> crlb(mm, two; snr = 200, noise = :rician)))
+    cr = crlb(mm, two; snr = 200, noise = :rician)      # magnitude data: each as the single call
+    @test cr[4].sd == crlb(mm, two[4]; snr = 200, noise = :rician).sd && cr[4].sd != c[4].sd
     @test occursin("Scenario takes no noise", msg(() -> scenarios(QMTSIR, [:SIR_WM_I]; noise = :rician)))
     @test occursin("not a set", msg(() -> montecarlo(mm, two; noise = :rician, snr = 200, n = 10, simulate_with = mm => nominal(mm))))
 end
