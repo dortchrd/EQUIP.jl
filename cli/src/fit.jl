@@ -5,9 +5,9 @@
 #   equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf 12.5 --mask brain.nii.gz
 #   equip fit ADCDecay dwi.nii.gz --weights @nex.txt --out results/sub-01_
 #
-# The data are read (EQUIP's `loaddata`), the model built from the flags and the files
+# The data are read (EQUIP's `readdata`), the model built from the flags and the files
 # (models.jl), the parameters' flags turned into `fit`'s keywords (args.jl), and the maps written
-# in the data's geometry with a sidecar recording how they were made (EQUIP's `savemaps`): NIfTI
+# in the data's geometry with a sidecar recording how they were made (EQUIP's `writemaps`): NIfTI
 # for NIfTI data, one .mat file for MATLAB data (or NIfTI in another image's geometry: --like).
 # =================================================================================================
 
@@ -38,14 +38,14 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
                                           "data.mat:NAME)"))
 
     precision = _precision(value(a, "precision", "Float64"))
-    data, info = loaddata(files; precision)
+    data, info = readdata(files; precision)
     m = buildmodel(M, a, info.found; warn = err)
     nobs(m) == size(data, 4) || throw(DimensionMismatch("$model has $(nobs(m)) observations " *
         "($(join(("$k: $(length(getfield(m, k)))" for k in fieldnames(M) if getfield(m, k) isa AbstractVector), ", "))); " *
         "the data have $(size(data, 4)) images"))
     pnames = paramnames(M)
     roles = (; (Symbol(n) => role(n, v, pnames, info) for (n, v) in lastflags(a) if Symbol(n) in pnames)...)
-    mask = has(a, "mask") ? loadmap(value(a, "mask"), info) .> 0 : nothing
+    mask = has(a, "mask") ? readmap(value(a, "mask"), info) .> 0 : nothing
     weights = has(a, "weights") ? numbers(value(a, "weights"), "weights") : nothing
     like = has(a, "like") ? readimage(value(a, "like")) : nothing
     prefix = value(a, "out", filestem(files[1]) * "_")
@@ -61,7 +61,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     end
 
     res = fit(m, data; mask, precision, weights, roles...)
-    # The sidecar: what savemaps records (the model, its acquisition, the fit's settings), and
+    # The sidecar: what writemaps records (the model, its acquisition, the fit's settings), and
     # the command's own: the flags as typed, the files.
     car = Dict{String,Any}(
         "Fit" => Dict(n => v for (n, v) in lastflags(a) if Symbol(n) in pnames),
@@ -69,7 +69,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         "Precision" => string(precision),
         "Command" => "equip fit " * join(words, " "),
         "Software" => "EQUIP $(pkgversion(EQUIP)) (EQUIPCLI $(pkgversion(@__MODULE__)))")
-    written = savemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like)
+    written = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like)
     show(io, MIME"text/plain"(), res)
     if length(written) == 1 && MRImages._ismat(written[1])
         println(io, "\n\nwrote the maps to ", basename(written[1]))

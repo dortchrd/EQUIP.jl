@@ -72,7 +72,7 @@ export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
 export ProtocolDesign, design, DesignResult                                 # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
-export loaddata, loadmap, DataInfo, savemaps, writetable                     # data in, maps out
+export readdata, readmap, DataInfo, writemaps, writetable                  # data in, maps out
 export diffusionencoding                                                    # .bval + .bvec -> b, gx, gy, gz
 export MRImage, readimage, writeimage, readvalues, readbvec                 # (from MRImages)
 
@@ -120,8 +120,8 @@ include("design/search.jl")            # design: the search (differential evolut
 
 # io: data files in, maps out (MRImages reads and writes the files; here, what fitting needs)
 include("io/encoding.jl")              # diffusionencoding: a .bval and a .bvec as b, gx, gy, gz
-include("io/data.jl")                  # loaddata, loadmap, DataInfo: a dataset's files as one array
-include("io/maps.jl")                  # savemaps: the maps in the data's geometry, with sidecars
+include("io/data.jl")                  # readdata, readmap, DataInfo: a dataset's files as one array
+include("io/maps.jl")                  # writemaps: the maps in the data's geometry, with sidecars
 include("io/tables.jl")                # writetable: crlb's and montecarlo's rows as TSV
 
 # Compile the common cases while the package is installed (see the file).

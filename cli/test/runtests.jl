@@ -23,7 +23,8 @@ writejson(p, d) = open(io -> JSON.json(io, d), p, "w")
 run(args...) = (o = IOBuffer(); e = IOBuffer(); c = EQUIPCLI.equip(collect(String, args); io = o, err = e);
                 (code = c, out = String(take!(o)), err = String(take!(e))))
 bad(args...) = (r = run(args...); r.code == 1 ? r.err : "exit $(r.code): $(r.err)")
-readmap2(f) = niread(f).raw
+# A written map's values as stored (Float32), read directly (EQUIP's `readmap` checks them against a dataset's `info`).
+rawmap(f) = niread(f).raw
 # A TSV table: its header and rows, as strings.
 function table(f)
     lines = split.(readlines(f), '\t')
@@ -31,11 +32,11 @@ function table(f)
 end
 
 @testset "EQUIPCLI" begin
-    @testset "loaddata: NIfTI files and their BIDS sidecars" begin
+    @testset "readdata: NIfTI files and their BIDS sidecars" begin
         # One 4-D file, its sidecar giving one EchoTime per volume
         niwrite(path("t2.nii.gz"), NIVolume(Float32.(Y); geometry...))
         writejson(path("t2.json"), Dict("EchoTime" => te, "RepetitionTime" => 2.0))
-        data, info = loaddata(path("t2.nii.gz"))
+        data, info = readdata(path("t2.nii.gz"))
         @test size(data) == (6, 5, 2, 8) && eltype(data) == Float64
         @test data ≈ Float32.(Y)
         @test info.spatial == (6, 5, 2) && info.found[:TE] ≈ te && info.found[:TR] == fill(2.0, 8)
@@ -48,48 +49,48 @@ end
             niwrite(files[k], NIVolume(raw; geometry..., scl_slope = 0.5f0, scl_inter = 0.0f0))
             writejson(replace(files[k], ".nii" => ".json"), Dict("EchoTime" => te[k]))
         end
-        d2, i2 = loaddata(files)
+        d2, i2 = readdata(files)
         @test size(d2) == (6, 5, 2, 8) && maximum(abs.(d2 .- Y)) <= 0.25
         @test i2.found[:TE] ≈ te
         # Float32: half the memory, the same values rounded (scaled in Float64 first)
-        d32, _ = loaddata(files; precision = Float32)
+        d32, _ = readdata(files; precision = Float32)
         @test eltype(d32) == Float32 && d32 == Float32.(d2)
-        @test loaddata(path("t2.nii.gz"); precision = Float32)[1] == Float32.(data)
+        @test readdata(path("t2.nii.gz"); precision = Float32)[1] == Float32.(data)
         # Diffusion: an FSL .bval file beside the data
         niwrite(path("dwi.nii"), NIVolume(Float32.(Y[:, :, :, 1:4]); geometry...))
         write(path("dwi.bval"), "0 500 1000 2000\n")
-        @test loaddata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
+        @test readdata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
         # Mistakes
         niwrite(path("other.nii"), NIVolume(Float32.(Y[:, :, :, 1]); voxel_size = (1.0f0, 1.0f0, 1.0f0)))
         niwrite(path("small.nii"), NIVolume(zeros(Float32, 4, 4, 2); geometry...))
-        @test occursin("different geometry", msg(() -> loaddata([files[1], path("other.nii")])))
-        @test occursin("same size", msg(() -> loaddata([files[1], path("small.nii")])))
-        @test occursin("one image is one observation", msg(() -> loaddata(files[1])))
-        @test occursin("give NIfTI files", msg(() -> loaddata(path("t2.json"))))
-        @test occursin("no such file", msg(() -> loaddata(path("missing.nii.gz"))))
+        @test occursin("different geometry", msg(() -> readdata([files[1], path("other.nii")])))
+        @test occursin("same size", msg(() -> readdata([files[1], path("small.nii")])))
+        @test occursin("one image is one observation", msg(() -> readdata(files[1])))
+        @test occursin("give NIfTI files", msg(() -> readdata(path("t2.json"))))
+        @test occursin("no such file", msg(() -> readdata(path("missing.nii.gz"))))
         writejson(path("echo1.json"), Dict("EchoTime" => [0.01, 0.02]))
-        @test occursin("EchoTime has 2 values for 1 images", msg(() -> loaddata(files)))
+        @test occursin("EchoTime has 2 values for 1 images", msg(() -> readdata(files)))
     end
 
-    @testset "loadmap, readvalues" begin
-        _, info = loaddata(path("t2.nii.gz"))
+    @testset "readmap, readvalues" begin
+        _, info = readdata(path("t2.nii.gz"))
         mask = T2map .> 0.06
         niwrite(path("mask.nii.gz"), NIVolume(UInt8.(mask); geometry...))
-        @test loadmap(path("mask.nii.gz"), info) == mask
-        @test occursin("different geometry", msg(() -> loadmap(path("other.nii"), info)))
-        @test occursin("the data are 6×5×2", msg(() -> loadmap(path("small.nii"), info)))
+        @test readmap(path("mask.nii.gz"), info) == mask
+        @test occursin("different geometry", msg(() -> readmap(path("other.nii"), info)))
+        @test occursin("the data are 6×5×2", msg(() -> readmap(path("small.nii"), info)))
         write(path("ti.txt"), "# TIs (s)\n0.01\n0.05, 0.056\n\n0.277\t0.843\n")
         @test readvalues(path("ti.txt")) == [0.01, 0.05, 0.056, 0.277, 0.843]
         write(path("bad.txt"), "0.01\nten\n")
         @test occursin("line 2: `ten` is not a number", msg(() -> readvalues(path("bad.txt"))))
     end
 
-    @testset "savemaps: the maps in the data's geometry, with sidecars" begin
-        data, info = loaddata(path("t2.nii.gz"))
-        mask = loadmap(path("mask.nii.gz"), info) .> 0
+    @testset "writemaps: the maps in the data's geometry, with sidecars" begin
+        data, info = readdata(path("t2.nii.gz"))
+        mask = readmap(path("mask.nii.gz"), info) .> 0
         res = fit(T2Decay(TE = info.found[:TE]), data; mask)
-        files = savemaps(joinpath(tmp, "out", "sub-01_"), res, info; stderror = true,
-                         sidecar = Dict("Model" => "T2Decay"))
+        files = writemaps(joinpath(tmp, "out", "sub-01_"), res, info; stderror = true,
+                          sidecar = Dict("Model" => "T2Decay"))
         @test basename.(files) == ["sub-01_S0map.nii.gz", "sub-01_T2map.nii.gz", "sub-01_status.nii.gz",
                                    "sub-01_SSE.nii.gz", "sub-01_S0map_SE.nii.gz", "sub-01_T2map_SE.nii.gz"]
         t2 = niread(files[2])
@@ -107,21 +108,20 @@ end
     end
 
     @testset "equip fit: the same maps as the Julia API's fit" begin
-        readmap(f) = niread(f).raw
         out(name) = joinpath(tmp, "cli", name)
-        data, info = loaddata(path("t2.nii.gz"))
-        mask = loadmap(path("mask.nii.gz"), info) .> 0
+        data, info = readdata(path("t2.nii.gz"))
+        mask = readmap(path("mask.nii.gz"), info) .> 0
         # T2 decay: TE from the sidecar, a mask
         r = run("fit", "T2Decay", path("t2.nii.gz"), "--mask", path("mask.nii.gz"), "--out", out("a_"))
         @test r.code == 0 && occursin("wrote 4 maps", r.out) && isempty(r.err)
         res = fit(T2Decay(TE = te), data; mask)
-        @test readmap(out("a_T2map.nii.gz")) ≈ Float32.(res.params.T2) nans = true
+        @test rawmap(out("a_T2map.nii.gz")) ≈ Float32.(res.params.T2) nans = true
         car = JSON.parsefile(out("a_T2map.json"))
         @test car["Model"] == "T2Decay" && car["Acquisition"]["TE"] ≈ te && car["Mask"] == path("mask.nii.gz")
         # TE given (from a text file, a range): the same; differing from the sidecar, a warning
         write(path("te.txt"), join(te, "\n"))
         @test run("fit", "T2Decay", path("t2.nii.gz"), "--TE", "@" * path("te.txt"), "--out", out("b_")).code == 0
-        @test readmap(out("b_T2map.nii.gz")) ≈ Float32.(fit(T2Decay(TE = te), data).params.T2)
+        @test rawmap(out("b_T2map.nii.gz")) ≈ Float32.(fit(T2Decay(TE = te), data).params.T2)
         r = run("fit", "T2Decay", path("t2.nii.gz"), "--TE", "0.02:0.02:0.16", "--out", out("c_"))
         @test r.code == 0 && occursin("--TE differs from the value in the data's sidecar", r.err)
         # parameters' flags: fixed, freed with a start, weights, Float32, standard errors
@@ -130,26 +130,26 @@ end
         @test r.code == 0 && occursin("wrote 4 maps", r.out) && isfile(out("d_T2map_SE.nii.gz"))
         rd = fit(T2Decay(TE = te), Float32.(data); S0 = 1000.0, T2 = Free(start = 0.07, lower = 0.01),
                  weights = [1, 1, 2, 2, 3, 3, 4, 4], precision = Float32)
-        @test readmap(out("d_T2map.nii.gz")) == rd.params.T2
+        @test rawmap(out("d_T2map.nii.gz")) == rd.params.T2
         # --save, then --config (and a flag after it wins): the same fit
         cnf = path("run.cnf")
         @test run("fit", "T2Decay", path("t2.nii.gz"), "--mask", path("mask.nii.gz"), "--save", cnf, "--out", out("e_")).code == 0
         @test occursin("--TE 0.01,0.03", read(cnf, String)) && occursin("--model T2Decay", read(cnf, String))
         @test run("fit", "--config", cnf, "--out", out("f_")).code == 0
-        @test isequal(readmap(out("f_T2map.nii.gz")), readmap(out("e_T2map.nii.gz")))
+        @test isequal(rawmap(out("f_T2map.nii.gz")), rawmap(out("e_T2map.nii.gz")))
         # qMT: a named protocol, kmf estimated with a start, the 5-point scheme
         m5 = QMTSIR(; SIR_5POINT...)
         θ = nominal(m5, :SIR_lesion)
         Ys = simulate(m5, map(x -> x isa Real ? fill(Float64(x), 3, 2, 1) : x, θ); snr = 200, noise = :rician, rng = MersenneTwister(5))
         niwrite(path("sir.nii.gz"), NIVolume(Float32.(Ys); geometry...))
         @test run("fit", "QMTSIR", path("sir.nii.gz"), "--protocol", "SIR_5POINT", "--kmf", "free,start=10", "--out", out("g_")).code == 0
-        rs = fit(m5, loaddata(path("sir.nii.gz"))[1]; kmf = Free(start = 10.0))
-        @test readmap(out("g_kmf.nii.gz")) ≈ Float32.(rs.params.kmf)
-        @test readmap(out("g_PSR.nii.gz")) ≈ Float32.(rs.params.PSR)
+        rs = fit(m5, readdata(path("sir.nii.gz"))[1]; kmf = Free(start = 10.0))
+        @test rawmap(out("g_kmf.nii.gz")) ≈ Float32.(rs.params.kmf)
+        @test rawmap(out("g_PSR.nii.gz")) ≈ Float32.(rs.params.PSR)
         # the same acquisition as flags
         @test run("fit", "QMTSIR", path("sir.nii.gz"), "--TI", join(SIR_5POINT.TI, ','), "--TD", join(SIR_5POINT.TD, ','),
                   "--kmf", "free,start=10", "--out", out("h_")).code == 0
-        @test readmap(out("h_PSR.nii.gz")) == readmap(out("g_PSR.nii.gz"))
+        @test rawmap(out("h_PSR.nii.gz")) == rawmap(out("g_PSR.nii.gz"))
         # help and the model list
         r = run("fit", "QMTSIR", "--help")
         @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
@@ -169,7 +169,6 @@ end
     end
 
     @testset "equip fit DTI and DKI: the gradients from the .bval and .bvec beside the data" begin
-        readmap(f) = niread(f).raw
         out(name) = joinpath(tmp, "dwi", name)
         # a b = 0 image and two shells of 15 directions, written as dcm2niix would: dti.nii.gz,
         # dti.bval (b in s/mm²), dti.bvec (three rows, the gradient directions)
@@ -183,16 +182,16 @@ end
         niwrite(path("dti.nii.gz"), NIVolume(Float32.(Yd); geometry...))
         write(path("dti.bval"), join(bv, ' ') * "\n")
         write(path("dti.bvec"), join((join(G[i, :], ' ') for i in 1:3), "\n") * "\n")
-        data, info = loaddata(path("dti.nii.gz"))
+        data, info = readdata(path("dti.nii.gz"))
         # DTI: the same maps as the Julia API's fit, the derived ones (MD, FA, AD, RD, V1) too
         r = run("fit", "DTI", path("dti.nii.gz"), "--out", out("a_"))
         @test r.code == 0 && isempty(r.err)
         res = fit(DTI(; acq...), data)
-        @test readmap(out("a_Dxx.nii.gz")) ≈ Float32.(res.params.Dxx)
-        @test readmap(out("a_Dxy.nii.gz")) ≈ Float32.(res.params.Dxy)
+        @test rawmap(out("a_Dxx.nii.gz")) ≈ Float32.(res.params.Dxx)
+        @test rawmap(out("a_Dxy.nii.gz")) ≈ Float32.(res.params.Dxy)
         d = derived(res)
         for k in (:MD, :FA, :AD, :RD)
-            @test readmap(out("a_$k.nii.gz")) ≈ Float32.(d[k])
+            @test rawmap(out("a_$k.nii.gz")) ≈ Float32.(d[k])
         end
         @test all(isfile(out("a_V1$c.nii.gz")) for c in "xyz")
         @test JSON.parsefile(out("a_FA.json"))["Model"] == "DTI"
@@ -200,8 +199,8 @@ end
         r = run("fit", "DKI", path("dti.nii.gz"), "--out", out("b_"))
         @test r.code == 0 && isempty(r.err)
         rk = fit(DKI(; acq...), data)
-        @test readmap(out("b_MK.nii.gz")) ≈ Float32.(derived(rk).MK)
-        @test readmap(out("b_V1111.nii.gz")) ≈ Float32.(rk.params.V1111)
+        @test rawmap(out("b_MK.nii.gz")) ≈ Float32.(derived(rk).MK)
+        @test rawmap(out("b_V1111.nii.gz")) ≈ Float32.(rk.params.V1111)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
         @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&
@@ -245,7 +244,7 @@ end
         r = run("fit", "T2Decay", path("t2_4d.mat"), "--TE", join(te, ','),
                 "--like", path("t2.nii.gz"), "--out", out("c_"))
         @test r.code == 0 && occursin("wrote 4 maps", r.out)
-        @test readmap2(out("c_T2map.nii.gz")) == Float32.(fit(T2Decay(TE = te), Y).params.T2)
+        @test rawmap(out("c_T2map.nii.gz")) == Float32.(fit(T2Decay(TE = te), Y).params.T2)
         @test MRI.samegeometry(readimage(out("c_T2map.nii.gz")), readimage(path("t2.nii.gz")))
         # mistakes
         @test occursin("name the one to read", bad("fit", "T2Decay", path("t2.mat"), "--TE", "0.01"))
@@ -348,7 +347,7 @@ end
                       snr = 200, noise = :rician, rng = MersenneTwister(6))
         niwrite(path("sir4.nii.gz"), NIVolume(Float32.(Yd); geometry...))
         @test run("fit", "--config", cnf, path("sir4.nii.gz"), "--out", path("fromdesign_")).code == 0
-        @test readmap2(path("fromdesign_PSR.nii.gz")) ≈ Float32.(fit(md, loaddata(path("sir4.nii.gz"))[1]).params.PSR)
+        @test rawmap(path("fromdesign_PSR.nii.gz")) ≈ Float32.(fit(md, readdata(path("sir4.nii.gz"))[1]).params.PSR)
         @test occursin("has 4 observations", bad("fit", "--config", cnf, path("sir.nii.gz")))
         # --scantime and --constraint as expressions of the model's fields
         @test run("design", sir..., "--tissue", "SIR_WM_I", "--acquisition", "TI=0.01..10,TD=0.01..10",

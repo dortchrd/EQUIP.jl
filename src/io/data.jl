@@ -2,9 +2,9 @@
 # Data in: the files of one dataset as one array (observations last), and what is needed to
 # write maps back and to build the model (the acquisition values found beside the files)
 #
-#   data, info = loaddata(paths; precision)   the data, 4-D, observations last; `info`: the
+#   data, info = readdata(paths; precision)   the data, 4-D, observations last; `info`: the
 #                                             geometry, the size, the acquisition values found
-#   loadmap(path, info)                       one image of the data's size: a mask, a B1 map, ...
+#   readmap(path, info)                       one image of the data's size: a mask, a B1 map, ...
 #
 # The files are read with MRImages (NIfTI with BIDS sidecars; MATLAB files after `using MAT`);
 # here, what is particular to fitting: images stacked into observations, and sidecar keys
@@ -16,7 +16,7 @@
 """
     DataInfo
 
-What [`loaddata`](@ref) returns beside the data:
+What [`readdata`](@ref) returns beside the data:
 
 - `files`: the files read;
 - `header`: the geometry maps are written with (the first file's NIfTI header), or `nothing`
@@ -39,7 +39,7 @@ struct DataInfo
 end
 
 """
-    loaddata(paths; precision = Float64) -> (data, info)
+    readdata(paths; precision = Float64) -> (data, info)
 
 The data of one dataset, as a 4-D array with the observations along the 4th dimension, and
 `info` (a [`DataInfo`](@ref)): the geometry to write maps with, and the acquisition values
@@ -55,7 +55,7 @@ found beside the files. From:
   reshaped to 4-D (`nvoxels×1×1×N`), and maps are written back in its own shape. No geometry.
 
 `precision = Float32` keeps the data in half the memory (each value scaled in Float64, then
-rounded: the same as `Float32.(loaddata(paths)[1])`), for a fit in Float32.
+rounded: the same as `Float32.(readdata(paths)[1])`), for a fit in Float32.
 
 The acquisition values found (`info.found`), one per observation, by the models' field names:
 
@@ -67,13 +67,13 @@ The acquisition values found (`info.found`), one per observation, by the models'
   [`diffusionencoding`](@ref) checks them.
 
 ```julia
-data, info = loaddata("sub-01_T2map.nii.gz")      # TE from sub-01_T2map.json
-res = fit(T2Decay(TE = info.found[:TE]), data; mask = loadmap("brain.nii.gz", info) .> 0)
-savemaps("results/sub-01_", res, info)
+data, info = readdata("sub-01_T2map.nii.gz")      # TE from sub-01_T2map.json
+res = fit(T2Decay(TE = info.found[:TE]), data; mask = readmap("brain.nii.gz", info) .> 0)
+writemaps("results/sub-01_", res, info)
 ```
 """
-loaddata(path::AbstractString; kwargs...) = loaddata([path]; kwargs...)
-function loaddata(paths::AbstractVector{<:AbstractString};
+readdata(path::AbstractString; kwargs...) = readdata([path]; kwargs...)
+function readdata(paths::AbstractVector{<:AbstractString};
                   precision::Type{<:AbstractFloat} = Float64)
     isempty(paths) && throw(ArgumentError("no data files given"))
     if any(MRImages._ismat, paths)
@@ -167,14 +167,14 @@ function _found(paths, cars, counts)
 end
 
 """
-    loadmap(path, info) -> Array{Float64,3}
+    readmap(path, info) -> Array{Float64,3}
 
-One image with the data's size and geometry (`info` from [`loaddata`](@ref)): a mask, or a map
+One image with the data's size and geometry (`info` from [`readdata`](@ref)): a mask, or a map
 for a fixed parameter (B1, Sm, ...). A NIfTI file (a 4-D file with one volume is taken as 3-D;
 its geometry is checked against the data's), or a MATLAB array (`file.mat:NAME`) of the data's
 shape. Returned in the shape the data are fitted in (3-D).
 """
-function loadmap(path::AbstractString, info::DataInfo)
+function readmap(path::AbstractString, info::DataInfo)
     img = readimage(path)
     a = img.data
     if MRImages._ismat(path)

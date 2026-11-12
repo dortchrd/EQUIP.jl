@@ -52,7 +52,7 @@ V = MD²·W:
   Every element starts from the weighted log-linear fit (`:loglinear`, the two-pass WLS: in V,
   ln S is linear in all of them)
 
-Derived ([`derived`](@ref), written by [`savemaps`](@ref)): MD, FA, AD, RD and the principal
+Derived ([`derived`](@ref), written by [`writemaps`](@ref)): MD, FA, AD, RD and the principal
 eigenvector (V1x, V1y, V1z), as DTI's; MK, AK, RK as DIPY's fit methods give them by default
 (Tabesh et al., Magn Reson Med 2011, analytic), and MKT (Hansen et al., Magn Reson Med 2013),
 each clipped to [−3/7, 10]; MK, AK and RK 0 where an eigenvalue is not positive.

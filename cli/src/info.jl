@@ -66,7 +66,7 @@ function _niftiinfo(io, path, pattern)
     for ext in (".bval", ".bvec")
         isfile(stem * ext) && println(io, "beside it: ", basename(stem * ext))
     end
-    # What loaddata finds for the models' fields: one value per volume.
+    # What readdata finds for the models' fields: one value per volume.
     n = h.dim[1] >= 4 ? Int(h.dim[5]) : 1
     found = try
         EQUIP._found([path], [meta], [n])

@@ -111,7 +111,7 @@ const SMT_PROTOCOLS = (
 The spherical mean of diffusion-weighted data: the volumes of each shell averaged, the input of
 [`SMT`](@ref) and its variants. `data` has the volumes along its last dimension (any number of
 dimensions before, as for `fit`), `b` one b-value per volume (s/mm², e.g. from the `.bval` file:
-`info.found[:b]` after [`loaddata`](@ref)). Volumes whose b-values are within `tol` of the lowest
+`info.found[:b]` after [`readdata`](@ref)). Volumes whose b-values are within `tol` of the lowest
 b-value of their shell form one shell (Devan 2020: within 100 s/mm²); b = 0 volumes are a shell
 too. With `TE` (s, one per volume: data at several echo times, for [`SMTT2`](@ref)), a shell is
 one echo time and one b-value: the volumes are grouped by TE first (TEs within 1 ms are one).

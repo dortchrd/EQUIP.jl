@@ -82,9 +82,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   search.jl, `design` (differential evolution, then Nelder–Mead, starts on threads;
   the result rounded to the ms by a search of its own)
 - src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
-  and a .bvec as a directional model's b, gx, gy, gz, checked), data.jl (`loaddata`,
-  `loadmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
-  model fields), maps.jl (`savemaps`: BIDS
+  and a .bvec as a directional model's b, gx, gy, gz, checked), data.jl (`readdata`,
+  `readmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
+  model fields), maps.jl (`writemaps`: BIDS
   names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`);
   ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
   invalidates MRImages' own, docs/design.md)

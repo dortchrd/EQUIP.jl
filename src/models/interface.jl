@@ -372,7 +372,7 @@ and V. `p` holds every parameter by name, fitted and fixed, ties evaluated (what
 are `signal!`'s: no allocation, generic in the number type (dual numbers, so that their errors
 can come from the fit's by the delta method), the same names in every voxel, and NaN where a
 quantity is undefined. `derived(res)` computes them for a fit (maps for a dataset),
-[`savemaps`](@ref) writes them beside the parameters' maps, and [`crlb`](@ref) and
+[`writemaps`](@ref) writes them beside the parameters' maps, and [`crlb`](@ref) and
 [`montecarlo`](@ref) report their bias, SD and RMSE after the parameters' (`c.sd.FA`). A name
 must not be a parameter's. The default, `nothing`, means none.
 A sketch, DTI's without its eigenvector (the whole one is in src/models/diffusion/dti.jl):

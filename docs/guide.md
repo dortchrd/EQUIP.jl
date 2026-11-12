@@ -180,7 +180,7 @@ names:
   +0.4% (b 1000 and 2500: median A/σ 3.6); DKI's MD in white matter hardly biased by the floor
   either way (b ≤ 2000: 2% of images below 3). It needs `σ`, the
   noise SD of each channel (as `simulate`'s): a number, or a map with one value per voxel (a σ map
-  from another tool, MRtrix's `dwidenoise -noise`, read with `loadmap`). `method` chooses how the
+  from another tool, MRtrix's `dwidenoise -noise`, read with `readmap`). `method` chooses how the
   noise model is used:
   - `:ml` (the default): the full Rician model, maximum likelihood (Sijbers et al. 1998);
   - `:mean`: least squares on the Rician mean E|y| = `ricianmean(S, σ)`, the data's average at
@@ -507,7 +507,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   ..., V1z = ...)`, from the six tensor elements (V1: the principal eigenvector, z ≥ 0). `p` holds every parameter, fitted and fixed; the rules are `signal!`'s (no
   allocation, generic in the number type, so their errors can come from the fit's). For a fit,
   `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
-  asked; `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
+  asked; `writemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
   `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
   them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
   (docs/design.md, item 19).
@@ -908,28 +908,30 @@ Philips PAR/REC): convert it first with [dcm2niix](https://github.com/rordenlab/
 DICOM headers' values in BIDS names and units.
 
 ```julia
-data, info = loaddata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
-mask = loadmap("brain.nii.gz", info) .> 0          # checked against the data's size and geometry
+data, info = readdata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
+mask = readmap("brain.nii.gz", info) .> 0          # checked against the data's size and geometry
 res = fit(T2Decay(TE = info.found[:TE]), data; mask)
-savemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map, status, SSE, ...
+writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map, status, SSE, ...
 ```
 
-- `loaddata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
+- `readdata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
   given; their size and geometry checked), the intensity scaling applied; `precision = Float32`
   for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
   `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), `b`
   from an FSL `.bval` beside the data, and `gx`, `gy`, `gz` from a `.bvec` beside that
   (checked as `diffusionencoding` checks them). Nothing is converted: seconds and degrees, as in
   BIDS.
-- MATLAB: `loaddata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
+- MATLAB: `readdata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
   observations along the last dimension after up to three spatial ones (`nx×ny×nz×N`,
-  `nx×ny×N`, or `nvoxels×N` for voxels already masked); `loadmap("data.mat:mask", info)`;
-  `readvalues("protocol.mat:TI")`. `savemaps` then writes one `.mat` file, a variable per map
+  `nx×ny×N`, or `nvoxels×N` for voxels already masked); `readmap("data.mat:mask", info)`;
+  `readvalues("protocol.mat:TI")`. `writemaps` then writes one `.mat` file, a variable per map
   in the data's own shape (or NIfTI in another image's geometry: `like = readimage(ref)`).
-- `savemaps(prefix, res, info)`: one NIfTI file per map in the data's geometry, with BIDS
+- `writemaps(prefix, res, info)`: one NIfTI file per map in the data's geometry, with BIDS
   names where they exist (`T1map`, `R1map`, `T2map`, `S0map`, ...), the status and SSE maps,
   and with `stderror = true` the standard errors; beside each a JSON sidecar recording how it
   was made (the model, its acquisition, each parameter's role, the precision, EQUIP's version).
+- (`readdata`, `readmap` and `writemaps` were `loaddata`, `loadmap` and `savemaps` until
+  2026-11-12: one verb pair, read and write, for every file function.)
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
   `readbvec(path)`: an FSL `.bvec` as its 3×N matrix; `diffusionencoding(bval, bvec)`: both,
   as a directional model's `b`, `gx`, `gy`, `gz` (from file names or from those arrays).

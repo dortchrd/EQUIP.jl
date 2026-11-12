@@ -155,7 +155,7 @@ Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 - The search's crlb and leakage from one kernel; the worst case inside a box.
 
 **4. Finish derived quantities** (item 19)
-- Standard-error maps from the fit's own covariance (`savemaps` writing `FA_SE`).
+- Standard-error maps from the fit's own covariance (`writemaps` writing `FA_SE`).
 - `compare` (a dataset fit against truth maps) for derived quantities.
 - An angular error for the principal direction (the cone of uncertainty) in place of V1's
   components, whose statistics break near the hemisphere's fold.

@@ -8,10 +8,10 @@
 #
 #   1. a phantom: T2 from 40 ms (white matter-like) to 2 s (CSF-like) across the image, S0 1000,
 #      32 echoes 10–320 ms, Rician noise at SNR 100 (relative to S0)
-#   2. loaddata: the 4-D file and its sidecar (TE from EchoTime)
+#   2. readdata: the 4-D file and its sidecar (TE from EchoTime)
 #   3. fit: T2Decay, a mask
 #   4. the fit's own statistics: standard errors, voxels that ended on a bound (`onbound`)
-#   5. savemaps: T2map.nii.gz, S0map, status, SSE, the standard errors; each with a JSON sidecar
+#   5. writemaps: T2map.nii.gz, S0map, status, SSE, the standard errors; each with a JSON sidecar
 #
 # Run from the repository folder (about 20 s, most of it compiling):
 #   julia -t auto --project=. examples/fit_maps.jl
@@ -35,8 +35,8 @@ writeimage(datafile, Float32.(Y); meta = Dict("EchoTime" => te))   # and its .js
 writeimage(joinpath(out, "mask.nii.gz"), UInt8.(trues(nx, ny, nz)))
 
 # --- 2. read: the data and the acquisition values beside them --------------------------------------
-data, info = loaddata(datafile)                                 # TE from the sidecar's EchoTime
-mask = loadmap(joinpath(out, "mask.nii.gz"), info) .> 0        # checked against the data's geometry
+data, info = readdata(datafile)                                 # TE from the sidecar's EchoTime
+mask = readmap(joinpath(out, "mask.nii.gz"), info) .> 0        # checked against the data's geometry
 println("read ", join(size(data), "×"), "; TE from the sidecar: ", info.found[:TE][1], " … ",
         info.found[:TE][end], " s")
 
@@ -55,5 +55,5 @@ nb = count(onbound(res).T2)
 println("voxels with T2 on its bound (2.5 s, or no decay): ", nb, " of ", count(mask))
 
 # --- 5. the maps ----------------------------------------------------------------------------------
-written = savemaps(joinpath(out, "sub-01_"), res, info; stderror = true)
+written = writemaps(joinpath(out, "sub-01_"), res, info; stderror = true)
 println("\nwrote ", join(basename.(written), ", "), "\nin ", out)

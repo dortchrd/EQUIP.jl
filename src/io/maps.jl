@@ -2,7 +2,7 @@
 # Maps out: a dataset fit's maps as files, in the data's geometry, each with a JSON sidecar
 # saying how it was made (the model, its acquisition, the fit's settings, EQUIP's version)
 #
-#   savemaps(prefix, res, info)     one NIfTI file per map (BIDS names where they exist), or for
+#   writemaps(prefix, res, info)    one NIfTI file per map (BIDS names where they exist), or for
 #                                   data from a MATLAB file, one .mat file of all the maps
 # =================================================================================================
 
@@ -13,10 +13,10 @@ const _MAPNAMES = (T1 = "T1map", R1 = "R1map", T2 = "T2map", R2 = "R2map", T2sta
 _mapname(p::Symbol) = haskey(_MAPNAMES, p) ? _MAPNAMES[p] : String(p)
 
 """
-    savemaps(prefix, res, info; stderror = false, sidecar = Dict(), like = nothing,
-             format = :auto) -> Vector{String}
+    writemaps(prefix, res, info; stderror = false, sidecar = Dict(), like = nothing,
+              format = :auto) -> Vector{String}
 
-Write a dataset fit's maps (`res` from `fit(m, data)`, `info` from [`loaddata`](@ref)): each
+Write a dataset fit's maps (`res` from `fit(m, data)`, `info` from [`readdata`](@ref)): each
 free parameter (BIDS names where they exist: `T1map`, `R1map`, `T2map`, `S0map`, ...; else the
 parameter's name), the quantities the model derives from them ([`derived`](@ref): DTI's `MD`,
 `FA`, `AD`, `RD`, `V1x`, `V1y`, `V1z`), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
@@ -33,17 +33,17 @@ The sidecar records how the maps were made: the model, its acquisition, the fit'
 (the parameters' roles, the precision, the weights), EQUIP's version; `sidecar`'s entries are
 added (and win: the command line adds the command and the data files).
 """
-savemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
-         sidecar::AbstractDict = Dict{String,Any}(), like::Union{Nothing,MRImage} = nothing,
-         format::Symbol = :auto) =
-    _savemaps(String(prefix), res, info, stderror, Dict{String,Any}(sidecar), like, format)
+writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
+          sidecar::AbstractDict = Dict{String,Any}(), like::Union{Nothing,MRImage} = nothing,
+          format::Symbol = :auto) =
+    _writemaps(String(prefix), res, info, stderror, Dict{String,Any}(sidecar), like, format)
 
 # Compiled once for any FitResult (`@nospecialize`): a result's type records the fit's settings
 # (which keywords were given, a mask or not), so each combination would compile this again (0.55
 # s a command, measured); reading its fields dynamically costs microseconds.
-function _savemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo, stderror::Bool,
-                   sidecar::Dict{String,Any}, like::Union{Nothing,MRImage}, format::Symbol)
-    _onevoxel(res) && throw(ArgumentError("savemaps writes a dataset fit's maps; this result " *
+function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo, stderror::Bool,
+                    sidecar::Dict{String,Any}, like::Union{Nothing,MRImage}, format::Symbol)
+    _onevoxel(res) && throw(ArgumentError("writemaps writes a dataset fit's maps; this result " *
                                           "is one voxel's"))
     sz = size(res.status)
     sz == info.spatial || throw(DimensionMismatch("the fit's maps are $(join(sz, "×")); the " *

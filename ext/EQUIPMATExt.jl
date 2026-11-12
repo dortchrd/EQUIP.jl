@@ -1,7 +1,7 @@
 # =================================================================================================
 # EQUIPMATExt: MATLAB files for EQUIP's fits, compiled ahead. Loaded by Julia when EQUIP and MAT
 # are both loaded (`using EQUIP, MAT`), a package extension holding only a precompile workload:
-# loaddata, loadmap, readvalues and savemaps on a small .mat file.
+# readdata, readmap, readvalues and writemaps on a small .mat file.
 #
 # Why a workload of its own: MRImages' MAT extension compiles MAT.jl's reading and writing when
 # it is built, but StaticArrays (which EQUIP loads, directly and through ForwardDiff) invalidates
@@ -31,10 +31,10 @@ using PrecompileTools: @setup_workload, @compile_workload
         MRImages.writemat(f, Dict{String,Any}("S" => S, "S4" => reshape(S, 2, 2, 1, 8),
                                               "TE" => collect(te'), "mask" => [1.0, 1.0, 1.0, 0.0]))
         for name in ("S", "S4"), precision in (Float64, Float32)
-            data, info = loaddata(f * ":" * name; precision)
-            name == "S" && loadmap(f * ":mask", info)
+            data, info = readdata(f * ":" * name; precision)
+            name == "S" && readmap(f * ":mask", info)
             res = fit(m, data)
-            savemaps(joinpath(dir, "out_"), res, info; stderror = true)
+            writemaps(joinpath(dir, "out_"), res, info; stderror = true)
         end
         readvalues(f * ":TE")
     end

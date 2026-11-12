@@ -633,7 +633,7 @@ src/
                        and protocol design")
   design/              (later) protocol objective (Eq. 5 and options), scan time, constraints,
                        tissue sets
-  io/                  (later) loaddata, protocol files, units, savemaps, PAR/REC reader
+  io/                  (later) readdata, protocol files, units, writemaps, PAR/REC reader
 ext/                   (later) package extensions: OptimExt (design), and one per file
                        format package (NIfTI, MAT, NPZ, DICOM, JSON3, MRIFiles)
 test/                  correctness and deterministic performance checks (no allocation, type
@@ -2615,7 +2615,7 @@ equip fit QMTSIR --help                                           # this model's
 
 ### The data reader
 
-`data, info = loaddata(paths)`: the data with the observations last, and `info` (the
+`data, info = readdata(paths)`: the data with the observations last, and `info` (the
 geometry, to write maps back, and the acquisition values found). For the release:
 
 - **NIfTI** (`.nii`, `.nii.gz`; NIfTI.jl): one 4-D file, or several 3-D files (one per echo,
@@ -2632,7 +2632,7 @@ geometry, to write maps back, and the acquisition values found). For the release
   (Waiting for the session's network to allow Julia's package server, which MAT.jl comes
   from; NIfTI.jl and a JSON package were installed already.)
 - **Text files** for values: `@file` (above).
-- **Writing**: `savemaps(prefix, res; like = info)`.
+- **Writing**: `writemaps(prefix, res; like = info)`.
 - **Later** (item 9): NumPy, ISMRMRD. (DICOM and Philips PAR/REC: converted with dcm2niix,
   decided 2026-11-02: "DICOM through dcm2niix", below.)
 
@@ -2665,10 +2665,10 @@ section.
 
 ### Progress
 
-- **The reader and writer** (`cli/src/io.jl`, 2026-11-01): `loaddata` (one 4-D file or one per
+- **The reader and writer** (`cli/src/io.jl`, 2026-11-01): `readdata` (one 4-D file or one per
   observation; scaling applied; size and geometry checked; BIDS sidecars' EchoTime,
   InversionTime, RepetitionTime, FlipAngle; an FSL `.bval` beside the data; `precision =
-  Float32` for half the memory), `loadmap`, `readvalues`, `savemaps` (the data's geometry, BIDS
+  Float32` for half the memory), `readmap`, `readvalues`, `writemaps` (the data's geometry, BIDS
   names, status, SSE, standard errors, a JSON sidecar per map). MATLAB `.mat` waits for MAT.jl.
 - **`equip fit`** (`cli/src/args.jl`, `models.jl`, `fit.jl`): the flags as planned; `--model` and
   `--data` as flags too, so a config file can hold a whole command; `--save` writes the
@@ -2685,9 +2685,9 @@ section.
   The commands write into IOBuffers that `main` copies to `stdout` and `stderr` at the end, so
   they are compiled once, for IOBuffer, whatever `stdout` is (a terminal, a file or a pipe each
   compiled the command again): 1.7 s a command. Then three more causes, found with
-  `--trace-compile-timing`: (1) `loaddata`'s `info` was a named tuple whose names were the
-  acquisition values found, so a dataset with a sidecar was a new type and `savemaps` compiled
-  again (549 ms): now a struct, `DataInfo`, with the values in a Dict; (2) `savemaps` and the
+  `--trace-compile-timing`: (1) `readdata`'s `info` was a named tuple whose names were the
+  acquisition values found, so a dataset with a sidecar was a new type and `writemaps` compiled
+  again (549 ms): now a struct, `DataInfo`, with the values in a Dict; (2) `writemaps` and the
   commands' runner are `@nospecialize`d on the result and the streams (a `FitResult`'s type
   records the flags given, a mask or not: each combination compiled them again); (3) `julia -m`
   calls `main(ARGS)`, which dispatched to the keyword method meant for Julia callers, compiled
@@ -2804,8 +2804,8 @@ characters, all capitals) passes AutoMerge's length and capitalization checks: t
   geometry and resets what describes the values (scaling, display range, intent; `descrip`).
 - **MATLAB data** (`file.mat:NAME`, or `file.mat` holding one variable): observations along the
   last dimension, after up to three spatial ones (`nx×ny×nz×N`, `nx×ny×N`, `nvoxels×N`);
-  `loaddata` reshapes to 4-D (`nvoxels×1×1×N`), so fits and maps are the same code (and the
-  same compiled code) as for NIfTI, and `savemaps` writes the maps back in the array's own
+  `readdata` reshapes to 4-D (`nvoxels×1×1×N`), so fits and maps are the same code (and the
+  same compiled code) as for NIfTI, and `writemaps` writes the maps back in the array's own
   shape, one `.mat` file (`PREFIX_maps.mat`, a variable per map) with a JSON sidecar; NIfTI
   maps in another image's geometry with `like`. MATLAB has no geometry, so a NIfTI map given
   with MATLAB data is checked for its size only. Written as v7.3 (MAT.jl writes v4 or v7.3;
@@ -2818,7 +2818,7 @@ characters, all capitals) passes AutoMerge's length and capitalization checks: t
 - **The command line loads MAT only when a command names a `.mat` file** (any word, after
   `--config` files are expanded: `Base.require` of MAT's package id, MAT in EQUIPCLI's
   dependencies). EQUIPCLI no longer depends on NIfTI.jl or JSON.jl directly.
-- **`savemaps` records how the maps were made by itself**: the model, its acquisition (the
+- **`writemaps` records how the maps were made by itself**: the model, its acquisition (the
   model's fields), each parameter's role as written (`Free(start = 0.07)`, a number, "a map"),
   the precision, the weights, EQUIP's version; the caller's `sidecar` entries are added and win
   (the command line adds the command, the data files, the flags as typed).
@@ -2849,14 +2849,14 @@ in MRImages' extension (writing and reading a small file of each kind of variabl
 `readmat` with nothing loaded first: 7 ms; with Statistics and LinearAlgebra, CommonSolve or
 StatsAPI loaded first: 6–10 ms; with StaticArrays: 1.72 s; ForwardDiff (which loads it): 2.18 s;
 EQUIP: 2.33 s. StaticArrays is loaded in every EQUIP session, so EQUIP has an extension of its
-own, `EQUIPMATExt` (triggers MAT and MRImages), holding only a precompile workload (loaddata,
-loadmap, a fit, savemaps and readvalues on a small `.mat` file), compiled with StaticArrays
+own, `EQUIPMATExt` (triggers MAT and MRImages), holding only a precompile workload (readdata,
+readmap, a fit, writemaps and readvalues on a small `.mat` file), compiled with StaticArrays
 loaded: its code stays valid. Its triggers include MRImages because Julia lets an extension load
 another while it is built only if the other's triggers are a strict subset of its own
 (Base.loading, `loadable_exts`), and the workload reads through MRImages' extension. Now: 2.0 s,
 which is 1.2 s as any command, 0.66 s loading MAT (HDF5) and the two extensions, and 0.16 s
 still compiled (small Base methods). In a Julia session (`using EQUIP, MAT`), the first `readmat`
-takes 6 ms, the first `loaddata` of a `.mat` file 24 ms, the first `savemaps` to `.mat` 0.25 s.
+takes 6 ms, the first `readdata` of a `.mat` file 24 ms, the first `writemaps` to `.mat` 0.25 s.
 
 **Results unchanged**: no code of fitting, crlb, montecarlo or design changed (`src/EQUIP.jl`
 gained includes and exports only), and the command line's tests compare its maps and tables
@@ -3416,7 +3416,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     compiled code, "MRImages" above), and a matrix is the easier form for rotating or flipping
     directions. EQUIP converts: `diffusionencoding(bval, bvec) -> (b = ..., g = ...)`, from files
     or arrays, splatted into any directional model (`DTI(; diffusionencoding("dwi.bval",
-    "dwi.bvec")...)`), with the checks (lengths, unit vectors, small b to 0), and `loaddata`
+    "dwi.bvec")...)`), with the checks (lengths, unit vectors, small b to 0), and `readdata`
     mapping a .bvec to `g`. Named with the owner: not `diffusion` (too broad), and not `diff…`,
     which in Julia and MATLAB reads as "differences".
   - **One supertype, a struct per model.** `abstract type DirectionalDiffusion <: MRIModel` (models
@@ -3461,13 +3461,13 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     accurate with it (DIPY's `b0_threshold` likewise marks the b = 0 images and changes no
     value). Errors say what is wrong: a direction per b-value, the matrix's shape, which image
     is not a unit vector and its length. `readbvec` is exported from EQUIP too.
-  - **`loaddata`** reads a `.bvec` beside the `.bval` into `found[:gx]`, `[:gy]`, `[:gz]`
+  - **`readdata`** reads a `.bvec` beside the `.bval` into `found[:gx]`, `[:gy]`, `[:gz]`
     through `diffusionencoding` (its errors given with the file's name), so the command line's
     model building, which takes every found value whose name is a field of the model, gives a
     directional model its directions with no flag; `equip info` labels them as from the .bvec.
   - **No supertype** (the owner, 2026-11-06: "do we need a supertype? since we are using gx, gy,
     gz"). Everything planned for `DirectionalDiffusion` works by field name: the keyword
-    constructors take `diffusionencoding`'s result, `loaddata` and the command line map by
+    constructors take `diffusionencoding`'s result, `readdata` and the command line map by
     name, the checks are in `diffusionencoding`, and the generic display already summarizes a
     long vector (`b = 131 values from 0.0 to 2600.0`, checked). Add one when code must dispatch
     on "a directional model" (a spherical mean of any of them, a shared log-linear start):
@@ -3518,7 +3518,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     `nobs` takes 2–3 ns with or without it (T2Decay, QMTSIR), no allocation. A matrix is not
     checked: it is not a per-observation field (a lookup table, say).
   - Tests: diffusionencoding (arrays, files, the layouts, copies, b kept, every error), a
-    .bvec in `loaddata` (and its errors), the blocks, a hand-written stick–zeppelin on them
+    .bvec in `readdata` (and its errors), the blocks, a hand-written stick–zeppelin on them
     (its signal against the equation written out, no allocation, fits in both precisions),
     and the refusal of 3-vector fields by `signal`, `fit` and `nobs`. 27 tests; full runs: EQUIP 2106, CLI 124, MRImages 103.
 
@@ -3677,7 +3677,7 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     examples/directional_models.jl now uses the built-in DTI, with the same results (its
     direction 0.2° from the fibers; v_ax 0.600 ± 0.004).
   - Not yet: FA, MD, AD, RD and the principal direction as maps (roadmap item 16's `propagate`
-    for their errors); DTI in the command line (`equip fit DTI`, which `loaddata`'s .bvec
+    for their errors); DTI in the command line (`equip fit DTI`, which `readdata`'s .bvec
     reading already allows) and in the precompile workload (SMT is in neither).
   - Tests: 37 (the signal against the matrix form, no allocation; the start exact on noise-free
     data in both precisions, no allocation, and isotropic for the three undetermined designs;
@@ -4130,7 +4130,7 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
     Sf ≥ −1.2), only on 0, 1, 2.5. Now within a few units in the last place of the fit's own
     precision too (src/fit/statistics.jl, `_near`); a test guards it.
 - **`equip fit DTI` and `equip fit DKI`.** In the command line's menu (cli/src/models.jl); the
-  gradient directions from the FSL `.bval` and `.bvec` beside the data (`loaddata` already read
+  gradient directions from the FSL `.bval` and `.bvec` beside the data (`readdata` already read
   them into b, gx, gy, gz), or `--b --gx --gy --gz`; the derived maps written (MD, FA, AD, RD,
   V1x–z; MK, AK, RK, MKT). A missing `.bvec` gets a message naming the files; `--help` says
   where the directions come from, and describes `:loglinear` as "the log-linear fit to the
@@ -4372,7 +4372,7 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
    noncentral χ); from a noise-only scan the same way. A warning when the background looks
    masked or zero-filled (many exact zeros, common in vendors' reconstructions). σ maps by
    MP-PCA wait, with the other preprocessing (item 22; the owner, 2026-11-09: "wait on
-   mp-pca"); until then a σ map made by another tool is read with `loadmap` and given as `σ`
+   mp-pca"); until then a σ map made by another tool is read with `readmap` and given as `σ`
    (MRtrix's `dwidenoise -noise`, DIPY's `mppca(..., return_sigma = True)`). Judged by: the
    background estimate within 1% at 10⁴ simulated background voxels (analytic).
 4. **Maximum likelihood, `likelihood = :rician`.** (Built, with step 2: below.) The negative log-likelihood per voxel,
@@ -5466,7 +5466,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    dcm2niix", above): make getting data in and maps out as easy as possible. An `io/` layer
    (dispatch on file type, protocol handling) plus one package extension per file-format
    package.
-   - Reading: `data, info = loaddata(path_or_paths; ...)` returns the data with observations
+   - Reading: `data, info = readdata(path_or_paths; ...)` returns the data with observations
      last, plus `info`: the geometry needed to write maps back, and any acquisition values found
      (TE, TR, FA, TI, ...).
 
@@ -5496,7 +5496,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - Units: seconds and degrees, as BIDS sidecars hold them (dcm2niix converts DICOM's and
        PAR/REC's ms). Warn when values look like the wrong unit (e.g. TE > 10 s). The number of
        observations must match the data's last dimension.
-   - Writing: `savemaps(prefix, res; like = info)` writes one file per map in the input's format
+   - Writing: `writemaps(prefix, res; like = info)` writes one file per map in the input's format
      and geometry (intensity scaling reset), with BIDS-derivative names where they exist
      (T1map, R1map, T2map, T2starmap, M0map, S0map, ...), plus status and SSE maps and a JSON
      sidecar recording the model, acquisition, fixed/free/start settings and package version.
@@ -6042,7 +6042,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      supertype `DirectionalDiffusion` for what the models share (decided 2026-11-05, dropped
      2026-11-06).
    - **The small things decided** (status.md): a clear error for a field of 3-vectors or a
-     matrix, pointing to `diffusionencoding`; `loaddata` mapping a .bvec to gx, gy, gz;
+     matrix, pointing to `diffusionencoding`; `readdata` mapping a .bvec to gx, gy, gz;
      `readbvec` exported from EQUIP (now only in EQUIP.MRImages); the directional example
      switched to `diffusionencoding`.
    - **The B-matrix, when b-tensor data come.** B = γ²∫F(t)F(t)ᵀdt with F the gradient's
@@ -6163,7 +6163,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    directly"; not built). What a user reads off a DTI or DKI fit is not its parameters (six
    tensor elements, fifteen of V = MD²·W) but quantities computed from them: MD, FA, AD, RD; MK,
    AK, RK, MKT. Each is a function of one voxel's parameters, so a model declares them once, and
-   every part of EQUIP that reports parameters reports them too: the fit's maps, `savemaps`, the
+   every part of EQUIP that reports parameters reports them too: the fit's maps, `writemaps`, the
    fit's standard errors, crlb, montecarlo, and a protocol design's objective. This is the
    vehicle for item 16's outputs (`propagate`): the model, not the caller, knows its g.
    - **The hook**, optional, as `datastart` and `relabel` are:
@@ -6198,7 +6198,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        from `resolve(res, i)` on threads, NaN where the voxel was not fitted, in the fit's
        precision. Computed when asked, like `stderror(res)`, not stored in `FitResult`: the fit
        pays nothing, and the result's type does not change.
-     - `savemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...), and with
+     - `writemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...), and with
        `stderror = true` their standard errors (`FA_SE`), by the delta method from the fit's
        own covariance: √(∇g Σ ∇gᵀ), ∇g from dual numbers through `derived`.
      - `crlb` and `montecarlo`: the derived quantities in the same `bias`, `sd` and `rmse` named
@@ -6228,7 +6228,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        prefers DIPY's convention.
      - Also derived from a fit's parameters elsewhere: SMT's extra-axonal D⊥ (tortuosity),
        qMT's exchange rate kfm = kmf·PSR, T1 from R1; a model can expose any of them.
-   - **Order:** the hook, `derived(res)` and `savemaps` with DTI's four; then crlb and
+   - **Order:** the hook, `derived(res)` and `writemaps` with DTI's four; then crlb and
      montecarlo (the delta method and the second-order bias, tested against Monte Carlo as in
      item 16); then DKI built in (V form) with MK, AK, RK and MKT, checked against DIPY on the
      comparison's data; then the standard-error maps and the protocol objective.
@@ -6236,21 +6236,21 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      = nothing`, exported, documented with `datastart` and `relabel`, in `newmodel`'s template
      and the README); `derived(res)` (src/fit/result.jl: numbers for one voxel; for a dataset a
      map per quantity in the fit's precision, on threads, from each voxel's `resolve(res, i)`, NaN
-     where a voxel's parameters are not finite; the names from one fitted voxel); `savemaps`
+     where a voxel's parameters are not finite; the names from one fitted voxel); `writemaps`
      writing them after the parameters' maps (an error if a derived name is a parameter map's);
      DTI's MD, FA, AD and RD (FA from the six elements by Frobenius norms, AD and RD from
      StaticArrays' closed-form eigenvalues). Names as proposed (MD, FA, AD, RD); the principal
      direction not derived yet (its sign, and λ1 = λ2). Tests: the four against the eigenvalues
      (1e-12), no allocation, FA's gradient through dual numbers against finite differences
      (1e-5), `derived(res)` for one voxel, a masked dataset and Float32, `nothing` for T2Decay,
-     and `savemaps` on a DTI fit read back from NIfTI. Full runs: EQUIP 2164, CLI 124.
+     and `writemaps` on a DTI fit read back from NIfTI. Full runs: EQUIP 2164, CLI 124.
    - **The principal eigenvector added** (the owner, the same day): V1x, V1y, V1z (FSL's V1, as
      three maps), from StaticArrays' closed-form `eigen` (no allocation; its derivatives with
      dual numbers equal finite differences to 1e-9), put in the upper hemisphere (z ≥ 0, then
      y ≥ 0, then x ≥ 0) so that neighbouring voxels agree, as `directionset`'s. Undefined where
      λ1 = λ2 (oblate or isotropic tensors): the values there are arbitrary, and so are any
      errors crlb would give them. Tested: D·e1 = λ1·e1, unit length, the hemisphere rule, and the
-     three maps written by `savemaps`. Full run: EQUIP 2168 (the CLI suite not rerun: the
+     three maps written by `writemaps`. Full run: EQUIP 2168 (the CLI suite not rerun: the
      command line has no DTI; 124 at the previous change).
    - **Step 3 built: DKI, with MK, AK, RK and MKT as DIPY's** (2026-11-07, the owner: "build dki
      with mk, ak, rk ... I would mirror dipy defaults"). src/models/diffusion/dki.jl, exported:
@@ -6479,7 +6479,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `radial_tensor_kurtosis`); KFA, the kurtosis fractional anisotropy (Glenn et al., NMR
        Biomed 2015; `kurtosis_fractional_anisotropy`); Kmax, the largest K(n) over a sphere
        (`kurtosis_maximum`, a search from a 100-direction sphere, refined). Each would be another
-       name in DKI's `derived`, so it comes into maps, `savemaps`, crlb and montecarlo with no
+       name in DKI's `derived`, so it comes into maps, `writemaps`, crlb and montecarlo with no
        other code; to check against DIPY's values as MK, AK and RK were.
      - **The numerical variants** (`analytical=False`): MK as the mean of K(n) over a
        45-direction spherical t-design, RK over 10 directions perpendicular to e1, AK the
@@ -6499,7 +6499,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        default), CLS and CWLS (K ≥ 0 imposed), NLS.
    - **Still open (2026-11-08; tier 4 of the priorities, except the protocol objective, tier
      3):**
-     - Standard-error maps from the fit's own covariance (`savemaps` writing `FA_SE`).
+     - Standard-error maps from the fit's own covariance (`writemaps` writing `FA_SE`).
      - `compare` (a dataset fit against truth maps) for derived quantities.
      - An angular error for the principal direction (the cone of uncertainty) in place of V1's
        components, whose statistics break near the hemisphere's fold.
@@ -6677,7 +6677,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    all assume them. A switch would convert only at the boundary.
    - **What it converts**: the acquisition (TE, TI, TR, TD in ms; b in ms/µm²); the fit's keywords
      (fixed values, maps, starts, bounds); the results (`res.params`, `derived`, `stderror`,
-     crlb's and montecarlo's tables, `nominal`, sweeps, every display); the files `savemaps` and
+     crlb's and montecarlo's tables, `nominal`, sweeps, every display); the files `writemaps` and
      `writetable` write, with the units in each sidecar. Files read keep their own declared units
      (a BIDS sidecar's EchoTime is in seconds whatever the session's): never the session's.
      µm²/ms is 1e-3 mm²/s and ms/µm² 1000 s/mm², so b·D is the same number in both.
@@ -6727,5 +6727,14 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        shows as the difference, as before. `ricianbound` kept, as the bound's own name (the same
        numbers as `crlb(m, θ; snr, likelihood = :rician)` when nothing fixed is wrong; it also
        takes magnitude averaging, which the Rician fit does not).
-     - File verbs: one convention (below, 2026-11-12).
+     - **Done: the file verbs read and write throughout.** `loaddata` → `readdata`, `loadmap`
+       → `readmap`, `savemaps` → `writemaps`, no aliases. EQUIP had two conventions side by
+       side: load/save for these three, read/write for `readvalues`, `readbvec`,
+       `writetable` and MRImages' `readimage` and `writeimage`. Read/write is Julia's own
+       (`read`, `write`, `readlines`, CSV.jl's `CSV.read`/`CSV.write`) and was already the
+       majority; load/save is FileIO's (`load(file)` choosing a reader by the file's format)
+       and nibabel's, a different idea. The new names are free in Base, NIfTI and MAT (checked:
+       neither exported nor defined). The command line is unchanged
+       to its users (its options name files, not functions); its code, its tests and the MAT
+       extension's precompile workload use the new names.
      - `compare` and `Comparison`: left as they are.

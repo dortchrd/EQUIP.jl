@@ -2,8 +2,8 @@
 # EQUIPCLI: EQUIP from the command line, and its data files
 #
 # The `equip` command, a subcommand per part of EQUIP (docs/design.md, "The command line and the
-# data reader: the plan"). The data are read and the maps written by EQUIP (`loaddata`,
-# `savemaps`, on MRImages); here, the command line:
+# data reader: the plan"). The data are read and the maps written by EQUIP (`readdata`,
+# `writemaps`, on MRImages); here, the command line:
 #   args.jl     the command line's words: flags, config files of flags, values, roles
 #   mat.jl      MATLAB files: MAT.jl loaded when a command names one
 #   models.jl   the models offered, built from the flags and the files; --help

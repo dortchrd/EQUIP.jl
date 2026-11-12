@@ -27,7 +27,7 @@ paramnames(M) = keys(parameters(M))
 
 The model of type `M` with its acquisition from, in order of priority: the flags named after
 its fields (`--TI 0.01,0.05`; a Bool field, `--magnitude false`), a named protocol
-(`--protocol SIR_5POINT`), and the values found beside the data (`found`, from `loaddata`).
+(`--protocol SIR_5POINT`), and the values found beside the data (`found`, from `readdata`).
 A field the flags give that the files also give differently is reported to `warn`.
 """
 function buildmodel(M, a::Args, found; warn::IO = stderr)

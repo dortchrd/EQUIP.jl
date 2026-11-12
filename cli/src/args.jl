@@ -163,7 +163,7 @@ end
 A parameter's flag, by `fit`'s rules: a number fixes it (`--kmf 12.5`); `free` estimates it,
 with a start or bounds if given (`--R1f free,start=0.8,lower=0`); another parameter's name ties
 it (`--R1m R1f`); a NIfTI file or a MATLAB array is a map of fixed values (`--Sm sm.nii.gz`,
-`--B1 maps.mat:B1`, checked against the data: `info` from `loaddata`; `nothing` where there are
+`--B1 maps.mat:B1`, checked against the data: `info` from `readdata`; `nothing` where there are
 no data, so no maps).
 """
 function role(name, s::AbstractString, params, info)
@@ -184,7 +184,7 @@ function role(name, s::AbstractString, params, info)
     if MRImages._isnifti(t) || MRImages._ismat(t)
         info === nothing && throw(ArgumentError("`--$name $s`: a map needs data (maps are for " *
                                                 "`equip fit`); give a number"))
-        return loadmap(t, info)
+        return readmap(t, info)
     end
     throw(ArgumentError("`--$name $s`: give a number (fixed), `free` (estimated; " *
         "`free,start=0.8,lower=0`), another parameter's name (a tie: `--R1m R1f`), or a map " *
