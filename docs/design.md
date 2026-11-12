@@ -4203,7 +4203,7 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
 - Full runs: EQUIP 2347, CLI 139, MRImages 103 (the first EQUIP run found the one test that
   printed T2Decay's old bound, Inf, in `nominal`'s table; fixed).
 
-## Tier 2, bias from noise at low SNR: the plan (2026-11-09; not built)
+## Tier 2, bias from noise at low SNR: the plan (2026-11-09; steps 0, 1, 2, 4 and 5 built, in `main` 2026-11-12)
 
 The owner, 2026-11-09, asked what Rician work exists ("what rician stuff do we have now"), then
 for a plan of tier 2 before any building ("yes"), in the order: one switch for any model, σ as

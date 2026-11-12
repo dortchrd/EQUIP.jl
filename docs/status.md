@@ -14,6 +14,15 @@ Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageabl
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). |
 
+Merged into `main` (fast-forward, 2026-11-12, at the owner's request: "yes, run the full tests
+and merge"): `rician`, 17 commits: tier 2 steps 0, 1, 2 and 4, 5 (the Rician fits, and crlb,
+montecarlo and sweeps for them), the diffusivity, T1 and DTI/DKI-diagonal bounds, `design` (was
+`optimize_protocol`), crlb's `noise = :rician`, `readdata`/`readmap`/`writemaps`, the
+`:loglinear` warning and src/fit/loglinear.jl, the docstrings attached. Checked first: the full
+`Pkg.test` (EQUIP 2497), the command line's (139), and CI on the merged commit, 1c38e11 (all six
+jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can carry the rest
+of tier 2 (steps 3, 6 to 9) or be deleted.
+
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
 
@@ -108,7 +117,7 @@ design.md, "The prerelease: what was done", has the measurements)
 "Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged. Decided
 (the owner, 2026-11-09): the keyword is `likelihood`; MP-PCA waits, with the other
 preprocessing (item 22); the diffusivity cap, 4e-3 mm²/s, in every fit ("cap everywhere").
-Done on branch `rician` (2026-11-09, not merged): step 0, the baseline (bench/rician_baseline.jl;
+Done on branch `rician` (2026-11-09 to 12; merged into `main` 2026-11-12): step 0, the baseline (bench/rician_baseline.jl;
 design.md, "Step 0, measured"), and the cap (ADCDecay, ADCKurtosis, DTI's and DKI's diagonal;
 Gaussian fits in tissue unchanged; the Rician fit in CSF 98–100% converged with it, 70–94%
 without). What step 0 found: the Rician mean removes the floor's bias in tissue from SNR 10;
