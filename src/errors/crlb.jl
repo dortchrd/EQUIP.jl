@@ -296,18 +296,6 @@ function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = 
                        noise, averaging)
 end
 
-"""
-    _crlb!(c, m, t, σ²[, dm, dt]) -> (; fit, truth, bias, cov, status, pinned, exact, H, G, ∇b)
-
-The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
-values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
-0 for those on a bound), the noise-free fit's status, which parameters are on a bound (held
-there), whether the fit was exact, H and J₀ᵀJ₀ at θ̂, and ∇b (Eq. 3 only; `NaN` otherwise). `m`
-may be another protocol than the cache's, with as many observations and Float64 acquisition
-values (static vectors work), as a protocol optimizer needs. `t` from `_crlb_truth`, `σ²` a
-number, a vector (one variance per observation) or a `_FullNoise` (`_kernelnoise`). With `dm`
-and `dt` the data come from another model (the sandwich only).
-"""
 # The kernel's pieces, inlined for models with few free parameters and called as functions for
 # many (roadmap items 11 and 17). Inlined, the pieces' unrolled P×P static-array code becomes one
 # function, and the compiler's time grows much faster than that code's size: the first crlb took
@@ -322,6 +310,18 @@ macro _piece(call)
     esc(:(P > _CRLB_INLINE_MAXP ? (@noinline $call) : $call))
 end
 
+"""
+    _crlb!(c, m, t, σ²[, dm, dt]) -> (; fit, truth, bias, cov, status, pinned, exact, H, G, ∇b)
+
+The kernel of [`crlb`](@ref), without allocation: the noise-free fit's values θ̂, the true free
+values, the bias, the covariance (an `SMatrix`; `Inf` for parameters the data cannot determine,
+0 for those on a bound), the noise-free fit's status, which parameters are on a bound (held
+there), whether the fit was exact, H and J₀ᵀJ₀ at θ̂, and ∇b (Eq. 3 only; `NaN` otherwise). `m`
+may be another protocol than the cache's, with as many observations and Float64 acquisition
+values (static vectors work), as a protocol optimizer needs. `t` from `_crlb_truth`, `σ²` a
+number, a vector (one variance per observation) or a `_FullNoise` (`_kernelnoise`). With `dm`
+and `dt` the data come from another model (the sandwich only).
+"""
 _crlb!(c::CRLBCache, m::MRIModel, t::NamedTuple, σ2) = _crlb!(c, m, t, σ2, m, t)
 function _crlb!(c::CRLBCache{F,P,T}, m::MRIModel, t::NamedTuple, σ2, dm::MRIModel,
                 dt::NamedTuple) where {F,P,T}

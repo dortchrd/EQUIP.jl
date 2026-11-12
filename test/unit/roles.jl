@@ -1,6 +1,7 @@
 # =================================================================================================
 # test/unit/roles.jl: Parameter roles and the model interface: nominal and resolve, ties, setup's keywords,
-# parameters(m; changes...), and what models and roles print; StatsAPI's names.
+# parameters(m; changes...), and what models and roles print; StatsAPI's names; a docstring for
+# every exported name.
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl roles
@@ -236,4 +237,12 @@ end
     @test nameof(parentmodule(fit!)) == :StatsAPI
     @test nameof(parentmodule(nobs)) == :StatsAPI
     @test nameof(parentmodule(init)) == :CommonSolve
+end
+
+@testset "every exported name has a docstring (`?stick` at the REPL)" begin
+    # A docstring documents only the expression right after it: with a comment or a blank line
+    # between, Julia discards it (VS Code: "detached_docstring"). `stick`, `zeppelin` and
+    # `nominal` lost theirs that way until 2026-11-12, and `SIR_4POINT`, `SIR_16POINT` and
+    # `powder` had none of their own. Docs.undocumented_names: Julia 1.11 on, as EQUIP.
+    @test isempty(Docs.undocumented_names(EQUIP))
 end

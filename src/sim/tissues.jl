@@ -165,6 +165,7 @@ nominal(R1IR(TI = ti), :GM; Sf = -0.95)            # (M0 = 1.0, Sf = -0.95, R1 =
 nominal(T2Decay(TE = 0.01:0.01:0.32); T2 = 0.08)   # T2 starts from the data, so give it
 ```
 """
+function nominal end                     # the function, for the docstring (see `stick`'s)
 # Three methods, one per kind of second argument; Julia picks by its type ("dispatch"): none
 # (the model's own values, starts included), a preset's name, or your own values. Each passes
 # the shared body what it knows: the tissue's values, the call as the user wrote it (for error

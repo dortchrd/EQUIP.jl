@@ -160,3 +160,7 @@ const SIR_5POINT = (TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489
 const SIR_4POINT = (TI = [0.010, 0.010, 0.278, 1.007], TD = [0.684, 4.171, 2.730, 0.010])
 const SIR_16POINT = (TI = [round.(exp.(range(log(0.010), log(2.0); length = 15)); digits = 3); 10.0],
                      TD = fill(2.5, 16))
+# A docstring documents the one expression right after it, here SIR_5POINT; the other two take
+# the same text (`@doc` with the docstring of SIR_5POINT), so `?SIR_4POINT` shows it too.
+@doc (@doc SIR_5POINT) SIR_4POINT
+@doc (@doc SIR_5POINT) SIR_16POINT

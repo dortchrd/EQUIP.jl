@@ -60,17 +60,17 @@ iso(4000.0, 0.0)                 # 1: a dot
 """
 @inline iso(b, D) = exp(-b * D)
 
+struct Powder end
+# `Powder` is a type with one value, `powder`: a stick or a zeppelin given it picks its
+# spherical-mean method, given a number its directional one. Julia chooses the method by the
+# argument's type, when compiling (dispatch), so the view costs no test at run time.
 """
     powder
 
 The view of a diffusion compartment averaged over all gradient directions: the spherical mean
 (NMR's powder average), what SMT fits. `stick(b, D, powder)`; `stick(b, D, ξ)` is one direction.
 """
-struct Powder end
 const powder = Powder()
-# `Powder` is a type with one value, `powder`: a stick or a zeppelin given it picks its
-# spherical-mean method, given a number its directional one. Julia chooses the method by the
-# argument's type, when compiling (dispatch), so the view costs no test at run time.
 
 """
     stick(b, D, powder)    the spherical mean: √π·erf(√(b·D)) / (2√(b·D))
@@ -88,6 +88,10 @@ stick(1000.0, 2e-3, 1.0)         # exp(−2): along the fiber
 stick(1000.0, 2e-3, 0.0)         # 1: across it
 ```
 """
+function stick end
+# (`function stick end` makes the function, with no methods yet, for the docstring above to
+# document: a docstring must come right before what it documents, and each method below keeps
+# its own comment.)
 # S̄ = ∫₀¹ exp(−b·D·ξ²) dξ = √π·erf(√(b·D)) / (2√(b·D))                     (Gong & Yendiki, Eq. 3)
 @inline stick(b, D, ::Powder) = _meanexp(b * D)
 @inline stick(b, D, ξ::Real) = exp(-b * D * ξ^2)
@@ -117,6 +121,7 @@ zeppelin(1000.0, 2e-3, 0.5e-3, 1.0)      # exp(−2): along the fiber
 zeppelin(1000.0, 2e-3, 0.5e-3, 0.0)      # exp(−0.5): across it
 ```
 """
+function zeppelin end                    # the function, for the docstring (as `stick`'s above)
 # S(ξ) = exp(−b·D⊥)·exp(−b·(D∥ − D⊥)·ξ²): every direction sees D⊥; only the excess D∥ − D⊥
 # depends on the angle (= exp(−b·D∥·ξ² − b·D⊥·(1 − ξ²)), Gong & Yendiki, Eq. 7). One exp of the
 # two exponents: the same numbers as the product, without a second exp per image.

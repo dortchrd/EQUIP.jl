@@ -182,13 +182,6 @@ end
 # a stack-allocated record; no names are looked up at run time.
 @inline _params(::Val{F}, θ, fixed) where {F} = _resolve_ties(merge(NamedTuple{F}(Tuple(θ)), fixed))
 
-"""
-    normal_equations(prob, θ, buf) -> (sse, JᵀWJ, JᵀWr)
-
-Evaluate the model at θ with dual numbers into `buf` (one dual per observation) and sum the
-SSE, JᵀJ (P×P) and Jᵀr (P) from it, each term times the observation's weight wᵢ (1 when the
-fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
-"""
 # One function for weighted and unweighted fits: each term times the observation's weight,
 # `_wt(prob.w, i, T)`, which is 1 for an unweighted fit (exact: the same numbers, bit for bit, as
 # without it). Not inlined into `levmar`: inlined there (twice, at the start and at each trial
@@ -196,6 +189,13 @@ fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
 # iterations (weights all 1: 39% for the 16-point SIR with kmf free, 18% for the biexponential),
 # though the sum alone costs the same; as a call, weighted and unweighted fits run at the same
 # speed (docs/design.md, "Weighted fits").
+"""
+    normal_equations(prob, θ, buf) -> (sse, JᵀWJ, JᵀWr)
+
+Evaluate the model at θ with dual numbers into `buf` (one dual per observation) and sum the
+SSE, JᵀJ (P×P) and Jᵀr (P) from it, each term times the observation's weight wᵢ (1 when the
+fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
+"""
 @noinline function normal_equations(prob::VoxelProblem{F}, θ::SVector{P,T}, buf) where {F,P,T}
     p = _params(Val(F), _seed(θ), prob.fixed)   # every parameter; the free ones are duals
     signal!(buf, prob.model, p)                 # the model fills buf[i] = (fᵢ, ∂fᵢ/∂θ)
