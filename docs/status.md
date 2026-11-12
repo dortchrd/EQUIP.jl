@@ -143,7 +143,10 @@ least-squares fit crlb's kernel already computes (`:ml` the magnitude weighted b
 information: `ricianbound` when nothing is wrong). Checked against montecarlo (T2 decay at SNR
 20; the 5-point SIR with kmf wrong at SNR 200). Not yet: a protocol design for these fits,
 `leakage`, `weights`, averages. The command line: `equip fit --likelihood rician --sigma SD`
-(a number or a map) `[--method ml|mean|wmean]`, 2026-11-12. Found while answering the owner (2026-11-09): least squares on the
+(a number or a map) `[--method ml|mean|wmean]`, 2026-11-12. Step 9, uncertain inputs (2026-11-12):
+`crlb(m, θ; snr, B1 = 1.05, uncertain = (B1 = 0.03,))` adds a measured fixed value's SD through
+leakage's slope; montecarlo draws each copy's value (T1's SD 0.0572 s predicted, 0.0577 ± 0.0003
+measured). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data

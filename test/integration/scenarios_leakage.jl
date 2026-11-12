@@ -1,6 +1,7 @@
 # =================================================================================================
 # test/integration/scenarios_leakage.jl: Scenario (a truth and the fit judged against it), leakage (how an error in a fixed
-# parameter moves the fitted ones), and sets of scenarios (calcVmax's modes).
+# parameter moves the fitted ones), uncertain inputs (a measured fixed value's SD, through
+# leakage's slope), and sets of scenarios (calcVmax's modes).
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl scenarios_leakage
@@ -185,6 +186,48 @@ end
     @test occursin("kmf = 12.5 (true 5.0)", out) && occursin("relative:", out) && occursin("elasticity:", out)
     @test occursin("fixes no parameter at a number", msg(() -> leakage(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08))))
     @test occursin("the scenario is for QMTSIR", msg(() -> leakage(T2Decay(TE = te), Scenario(m5, θ))))
+end
+
+@testset "uncertain inputs: a measured fixed value's SD in crlb and montecarlo" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    # VFA T1 with a B1 map 5% high whose values scatter with an SD of 0.03 (docs/design.md,
+    # roadmap item 16: the case measured when the method was worked out)
+    m = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+    θ = (M0 = 1000.0, T1 = 1.0, B1 = 1.0)
+    c0 = crlb(m, θ; snr = 1000, B1 = 1.05)
+    cu = crlb(m, θ; snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,))
+    # The covariance adds d·s²·dᵀ, d = dθ̂/dB1 where the fit runs (B1 = 1.05), here by central
+    # differences of crlb's noise-free fits (independent of leakage's derivatives); the bias is
+    # the map's systematic error, as without `uncertain`
+    h = 1e-5
+    d = [(crlb(m, θ; snr = 1000, B1 = 1.05 + h).fit[p] - crlb(m, θ; snr = 1000, B1 = 1.05 - h).fit[p]) / 2h
+         for p in (:M0, :T1)]
+    @test cu.cov ≈ c0.cov + d * d' * 0.03^2 rtol = 1e-6
+    @test cu.bias == c0.bias && cu.rmse.T1 ≈ hypot(cu.bias.T1, cu.sd.T1)
+    # An SD of 0 is no uncertainty; the result keeps the SDs given and shows them
+    @test crlb(m, θ; snr = 1000, B1 = 1.05, uncertain = (B1 = 0.0,)).sd == c0.sd
+    @test cu.uncertain == (B1 = 0.03,) && occursin("B1 ± 0.03", sprint(show, MIME"text/plain"(), cu))
+    # A sweep and fits side by side (code paths of their own): each setting as the single call
+    @test crlb(m, θ; snr = [500, 1000], B1 = 1.05, uncertain = (B1 = 0.03,))[2].sd == cu.sd
+    @test crlb(m, (a = Scenario(m, θ; B1 = 1.05),); snr = 1000, uncertain = (B1 = 0.03,))[1].sd == cu.sd
+    # montecarlo: each copy fitted with its own B1, drawn from N(1.05, 0.03²); the SDs as crlb
+    # predicts within 3 standard errors (T1: 0.0572 s; the image noise alone, 0.0223). The bias
+    # is not compared: the measured one adds the second-order terms (−0.0926 against −0.0945)
+    mc = montecarlo(m, θ; snr = 1000, noise = :gaussian, B1 = 1.05, uncertain = (B1 = 0.03,),
+                    n = 20_000, rng = MersenneTwister(1))
+    @test mc.crlb.sd == cu.sd
+    @test all(p -> abs(mc.sd[p] - cu.sd[p]) < 3 * mc.se_sd[p], (:M0, :T1))
+    # Mistakes, and what is not yet
+    θq = nominal(QMTSIR, :SIR_WM_I)
+    @test occursin("`M0` is estimated", msg(() -> crlb(m, θ; snr = 1000, uncertain = (M0 = 10.0,))))
+    @test occursin("`R1m` is tied", msg(() -> crlb(QMTSIR(; SIR_4POINT...), θq; snr = 200, uncertain = (R1m = 0.1,))))
+    @test occursin("`T2` is not a parameter of T1MFA", msg(() -> crlb(m, θ; snr = 1000, uncertain = (T2 = 0.01,))))
+    @test occursin("SD of `B1`", msg(() -> crlb(m, θ; snr = 1000, uncertain = (B1 = -0.03,))))
+    @test occursin("likelihood = :rician: not yet", msg(() -> crlb(m, θ; snr = 1000, likelihood = :rician, uncertain = (B1 = 0.03,))))
+    @test occursin("noise = :rician: not yet", msg(() -> crlb(m, θ; snr = 1000, noise = :rician, uncertain = (B1 = 0.03,))))
+    @test occursin("`simulate_with`: not yet", msg(() -> crlb(m, θ; snr = 1000, simulate_with = m => θ, uncertain = (B1 = 0.03,))))
+    @test occursin("give it to `crlb(m, θ", msg(() -> crlb!(CRLBCache(m, θ), θ; snr = 1000, uncertain = (B1 = 0.03,))))
+    @test occursin("protocol design: not yet", msg(() -> ProtocolDesign(m, [Scenario(m, θ)]; snr = 1000, uncertain = (B1 = 0.03,))))
 end
 
 @testset "scenarios: tissues, boxes of true values, and both (calcVmax's modes)" begin

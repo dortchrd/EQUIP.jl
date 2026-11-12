@@ -780,6 +780,17 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   compare fixed parameters with different units). From derivatives: −H_θθ⁻¹H_θc, the blocks of
   the cost's Hessian over the free and fixed parameters, which at the truth is
   −(JᵀJ)⁻¹Jᵀ∂g/∂c.
+- **Uncertain inputs: a fixed value that was measured.** A B1 map, a T1 map for MTsat: the fit
+  holds the parameter at a value that has its own error. `crlb(m, θ; snr, B1 = 1.05, uncertain
+  = (B1 = 0.03,))` predicts a fit with a B1 map 5% high (the bias, as without `uncertain`) whose
+  values scatter with an SD of 0.03 (in B1's units; independent of the image noise, another
+  scan): the covariance adds D·s²·Dᵀ, D = leakage's slope at the value the fit assumes, so the
+  SD, RMSE and derived quantities include it, to first order in both errors. `montecarlo` takes
+  the same keyword and fits each copy with its own value, drawn from N(value, s²). Measured
+  (T1MFA, flip angles 2–30°, T1 = 1 s, SNR 1000): T1's SD 0.0572 s predicted, 0.0577 ± 0.0003
+  measured over 20,000 copies; the image noise alone gives 0.0223. Several at once, each
+  independent of the others: QMTSIR's `uncertain = (kmf = 2.0, Sm = 0.05)`. Not yet with
+  `likelihood = :rician`, `noise = :rician`, `simulate_with` or a protocol design.
 - **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
   `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
   cache's):

@@ -57,7 +57,8 @@ on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fi
 σ/√NEX with averages), `truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`,
 or the `model => truth` the data came from, with `simulate_with`), `Σ` (`nothing`, or the
 noise covariance matrix given), `averages` (`nothing`, or the number of averages of each
-observation) and `weights` (`nothing`, or the fit's weights). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
+observation), `weights` (`nothing`, or the fit's weights) and `uncertain` (`nothing`, or
+the SD of each uncertain fixed value given). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
 the information and covariance matrices and the SDs, under StatsAPI's names.
 
 Diagnostics, computed when called (as `fitted(res)` is for a fit): [`cond`](@ref)`(c)`, how hard
@@ -90,11 +91,12 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     rician::Symbol             # :none (least squares), or the Rician fit's method predicted
     noise::Symbol              # the data's noise: :gaussian, or :rician (magnitude data)
     averaging::Union{Nothing,Symbol}   # with Rician noise and averages: :complex or :magnitude
+    uncertain::Union{Nothing,NamedTuple}   # nothing, or the SD of each uncertain input given
 end
 
 """
-    crlb(m, s::Scenario; snr or σ or Σ, averages, cov = :sandwich, vary, simulate_with) -> CRLBResult or Sweep
-    crlb(m, θ; snr or σ or Σ, averages, cov, vary, simulate_with, changes...)
+    crlb(m, s::Scenario; snr or σ or Σ, averages, cov = :sandwich, vary, simulate_with, uncertain) -> CRLBResult or Sweep
+    crlb(m, θ; snr or σ or Σ, averages, cov, vary, simulate_with, uncertain, changes...)
     crlb(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
     crlb(m, set; snr or σ or Σ, averages, cov) -> Sweep          (a set from `scenarios`)
 
@@ -121,6 +123,15 @@ SD from the derivatives at that fit's answer, first order in the noise.
   `σ` given for one average: σⱼ = σ/√NEXⱼ, as [`simulate`](@ref) makes the data. To first order
   in the noise this holds however the averages were combined, so crlb takes no `averaging`;
   the noise floor that averaging magnitude images keeps is [`montecarlo`](@ref)'s to measure.
+- `uncertain`: fixed parameters whose values were measured, with the SD of that measurement,
+  in the parameter's units: `uncertain = (B1 = 0.03,)` for a B1 map with a 3% SD on B1 ≈ 1.
+  Each adds D·s²·Dᵀ to the covariance, D = dθ̂/dc the fit's sensitivity to that value
+  ([`leakage`](@ref)'s slope, where the fit runs: at the value it assumes), so the SD, RMSE
+  and the derived quantities include it: first order in both errors, which are independent
+  (another scan). A systematic error is the fixed value itself (`B1 = 1.05` for a map 5% high,
+  against the truth's 1.0): crlb's bias, as without `uncertain`. Each must be a parameter the
+  fit holds at a number. Not yet with `likelihood = :rician`, `noise = :rician` or
+  `simulate_with`. [`montecarlo`](@ref) takes the same keyword.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
@@ -183,6 +194,8 @@ crlb(m, s; snr = 200)                              # and judged under any protoc
 crlb(QMTSIR(; SIR_5POINT...), θ; snr = 200, kmf = Free())   # kmf fitted: unbiased, larger SD
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
 crlb(m, θ; snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # the bias against the true kmf
+crlb(T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.0, B1 = 1.0);
+     snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,))   # a B1 map 5% high, with a 3% SD
 crlb(m, (assumed = s, exact = Scenario(m, θ)); snr = 200)   # side by side
 θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
@@ -191,18 +204,21 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
 """
 function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, noise = nothing, averaging = nothing, cov::Symbol = :sandwich,
-              vary = (;), simulate_with = nothing, changes...)
+              vary = (;), simulate_with = nothing, uncertain::NamedTuple = (;), changes...)
     # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
     # as for `fit`.
     ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :noise, :averaging, :cov,
-                                           :vary, :simulate_with))
+                                           :vary, :simulate_with, :uncertain))
     return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, averages, noise, averaging, cov, vary,
-                simulate_with)
+                simulate_with, uncertain)
 end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
               Σ = nothing, averages = nothing, cov::Symbol = :sandwich, vary = (;),
-              simulate_with = nothing, noise = nothing, averaging = nothing)
+              simulate_with = nothing, noise = nothing, averaging = nothing,
+              uncertain::NamedTuple = (;))
     noise, averaging = _crlb_noise(_scenarios(s), noise, averaging, averages)
+    # Uncertain inputs (diagnostics.jl): each scenario's leakage cache, made once
+    unc(x) = _uncertain(m, x, uncertain; noise, simulate_with)
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     _check_simulate_with(simulate_with)
@@ -212,6 +228,8 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         settings = _sweep_settings(_datamodel(m, simulate_with), snr, vary, fits)
         caches = map(x -> _CRLBCache(m, x, cov), s isa Scenario ? (one = s,) : s)
         cacheof(st) = haskey(st, :fit) ? caches[st.fit] : caches.one
+        uncs = map(unc, s isa Scenario ? (one = s,) : s)
+        uncof(st) = haskey(st, :fit) ? uncs[st.fit] : uncs.one
         # Numbers varied in the fitted model's truth: each setting's truth needs no second check
         # (`_crlb_varied!`); otherwise (a tie varied, data from another model) `crlb!` checks it.
         # (A derived quantity varied, `vary = :FA => ...`: each truth made again and checked.)
@@ -219,15 +237,16 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
                   all(k -> haskey(parameters(m), k), keys(vary))
         resultof(st) = numbers ?
             _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s), nothing);
-                          snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging) :
+                          snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging,
+                          uncertain = uncof(st)) :
             crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s), simulate_with);
                   snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging,
-                  simulate_with = _data_of(st, simulate_with))
+                  simulate_with = _data_of(st, simulate_with), uncertain = uncof(st))
         results = [resultof(st) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, averages, noise, averaging,
-                 simulate_with)
+                 simulate_with, uncertain = unc(s))
 end
 
 # The data's noise, `noise`: `:gaussian` (real-valued data; the default for a least-squares fit)
@@ -263,8 +282,13 @@ cs = [crlb!(c, nominal(m, :SIR_WM_I); snr) for snr in (50, 100, 200)]
 ```
 """
 function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
-               averages = nothing, noise = nothing, averaging = nothing, simulate_with = nothing)
+               averages = nothing, noise = nothing, averaging = nothing, simulate_with = nothing,
+               uncertain = nothing)
     _check_simulate_with(simulate_with)
+    # (`uncertain` here is what `crlb` makes from its keyword, with the scenario's leakage cache;
+    # a cache alone has no scenario to make one from.)
+    uncertain isa NamedTuple && throw(ArgumentError("`uncertain`: give it to `crlb(m, θ; ...)` " *
+        "or `crlb(m, s; ...)`, which make the leakage cache it needs from the scenario"))
     noise, averaging = _crlb_noise((c,), noise, averaging, averages)
     (simulate_with === nothing && noise === :gaussian) || !c.biased ||
         throw(ArgumentError("with data from another model (`simulate_with`, or the Rician " *
@@ -277,7 +301,8 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
     dm, dt = _datasource(c.model, truth, simulate_with)
     t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
     Σn = noisecovariance(dm, dt; snr, σ, Σ, averages)
-    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging)
+    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging,
+                       uncertain)
 end
 
 # Every parameter's name, from the cache's types (its free ones and its fixed ones): known when
@@ -290,10 +315,10 @@ _parameternames(c::CRLBCache{F}) where {F} = (F..., keys(c.fixed)...)
 # sweep takes this path only when every varied value is a number and the data are the fitted
 # model's own.
 function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = nothing,
-                       noise = :gaussian, averaging = nothing)
+                       noise = :gaussian, averaging = nothing, uncertain = nothing)
     Σn = noisecovariance(c.model, truth; snr, σ, Σ, averages)
     return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages,
-                       noise, averaging)
+                       noise, averaging, uncertain)
 end
 
 # The kernel's pieces, inlined for models with few free parameters and called as functions for
@@ -371,26 +396,32 @@ end
 # The kernel, then its numbers as a CRLBResult: named tuples by quantity, then parameter. A
 # separate function (a "function barrier") so that F and P are known types here.
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with,
-                     averages = nothing, noise = :gaussian, averaging = nothing) where {F,P,T}
+                     averages = nothing, noise = :gaussian, averaging = nothing,
+                     unc = nothing) where {F,P,T}
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
     if c.rician !== :none                            # a fit with likelihood = :rician (below)
         σ2r, dmr = _rician!(c, simulate_with === nothing ? c.mT.model : dmT, dtt, Σn)
         return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
-                           averages, noise, averaging)
+                           averages, noise, averaging, unc)
     elseif noise === :rician                         # least squares on magnitude data (below)
         σ2r, dmr = _riciandata(dmT, dtt, Σn, averages, averaging)
         return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
-                           averages, noise, averaging)
+                           averages, noise, averaging, unc)
     end
     return _crlbresult(c, truth, t, dmT, dtt, Σn, Σn, _kernelnoise(Σn, P), Σ, simulate_with,
-                       averages, noise, averaging)
+                       averages, noise, averaging, unc)
 end
 # The rest, given the kernel's noise σ2 (and Σk, the same as a matrix) and the data's model: a
 # function of its own, so that each branch above calls it with concrete types (a function
 # barrier: the Rician branch's σ2 is a vector, least squares' often a number).
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ, simulate_with,
-                     averages, noise, averaging) where {F,P,T}
-    k = _crlb!(c, c.mT, t, σ2, dmT, dtt)
+                     averages, noise, averaging, unc) where {F,P,T}
+    # Uncertain inputs: their covariance added to the image noise's (diagnostics.jl), before
+    # anything is computed from it (SD, RMSE, the derived quantities' delta method). `k` is
+    # assigned once: `rel` below captures it, and a captured variable that is reassigned is
+    # boxed (measured: 12.1 µs and 18 kB a crlb! call, against 4.6 µs and 4.2 kB).
+    k0 = _crlb!(c, c.mT, t, σ2, dmT, dtt)
+    k = unc === nothing ? k0 : merge(k0, (cov = _withinputs(unc, t, k0.cov),))
     sd = sqrt.(diag(k.cov))
     rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
     nt(x) = NamedTuple{F}(Tuple(x))
@@ -421,7 +452,7 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
                       averages === nothing ? nothing : _averages(averages, length(c.y)),
                       c.w === nothing || c.rician !== :none ? nothing : copy(c.w), c.rician,
-                      noise, averaging)
+                      noise, averaging, unc === nothing ? nothing : unc.sd)
 end
 
 # A least-squares fit of magnitude data (`noise = :rician`; `riciannoise`'s keywords until
@@ -595,6 +626,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
     _print_data(io, c.data)
     # The fit's fixed values, with the truth where it differs: the source of any bias.
     _print_fixed(io, c.fixed, resolve(c.model, c.truth))
+    _print_uncertain(io, c.uncertain)
     c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
     c.rician === :none ||
         print(io, "\nthe fit: likelihood = :rician, method = :", c.rician, " (magnitude data, ",
@@ -631,6 +663,13 @@ function _print_fixed(io::IO, fixed::NamedTuple, θt, label = "fixed in the fit"
     end
     print(io, "\n", label, ": ", join((item(n, x) for (n, x) in pairs(fixed)), ", "))
 end
+
+# The uncertain inputs, when given: each fixed value's SD, independent of the image noise. Shared
+# with `montecarlo`'s display.
+_print_uncertain(io::IO, ::Nothing) = nothing
+_print_uncertain(io::IO, u::NamedTuple) =
+    print(io, "\nuncertain fixed values (SD, independent of the noise; first order): ",
+          join(("$n ± $(_showvalue(x))" for (n, x) in pairs(u)), ", "))
 
 # The noise, in words: one σ, σ per observation (its range), or a covariance matrix; with
 # averages, one average's σ (σ·√NEX, the level given) and the averages' range.

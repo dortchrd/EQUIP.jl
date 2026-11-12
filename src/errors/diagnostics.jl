@@ -268,6 +268,77 @@ function _leakageresult(lc::LeakageCache{C,K}, truth, t) where {C,K}
                          k.status, c.model)
 end
 
+# -------------------------------------------------------------------------------------------------
+# Uncertain inputs: a fixed parameter whose value was measured (a B1 map, a T1 for MTsat), with
+# the SD of that measurement (the tier 2 plan, step 9; roadmap item 16)
+#
+#   the fit's value c = c₀ + ε, ε ~ N(0, s²), independent of the image noise (another scan)
+#   so θ̂(c) ≈ θ̂(c₀) + D·ε, D = dθ̂/dc (leakage's slope, at c₀: where the fit runs)
+#   and the covariance adds D·diag(s²)·Dᵀ to the image noise's (crlb's), to first order in both
+#
+# The bias of a wrong c₀ (a B1 map 5% high) is already crlb's, at that fixed value; this adds its
+# random part. The slope is taken where the fit runs, at the fit's c₀, not at the truth: measured
+# (T1MFA, FA 2–30°, a B1 map 5% high with a 3% SD, SNR 1000, 20,000 copies, 2026-11-05), SD
+# 0.0572 s predicted at B1 = 1.05 against 0.0576 measured, 0.0657 at the truth's B1 = 1 (14%
+# high: VFA's T1 goes as 1/B1²). montecarlo takes the same keyword and draws each copy's value.
+# -------------------------------------------------------------------------------------------------
+
+# What crlb carries for the uncertain inputs: the scenario's leakage cache (made once, used at
+# every truth of a sweep), each fixed number's input variance in that cache's order (0 for those
+# not listed), and the SDs as given (kept in the result).
+struct _Uncertain{L<:LeakageCache,K,U<:NamedTuple}
+    lc::L
+    var::SVector{K,Float64}
+    sd::U
+end
+_fixednames(::LeakageCache{C}) where {C} = C
+
+# `uncertain` checked against the scenario and made into an `_Uncertain`; `nothing` for none.
+# Each must be a parameter the fit holds at a number; refused where leakage is not yet (a Rician
+# fit, least squares on magnitude data, data from another model).
+function _uncertain(m::MRIModel, s::Scenario, u::NamedTuple; noise = :gaussian,
+                    simulate_with = nothing)
+    isempty(u) && return nothing
+    s.likelihood === :rician && throw(ArgumentError("`uncertain` with likelihood = :rician: " *
+        "not yet (leakage of a Rician fit is not yet)"))
+    noise === :rician && throw(ArgumentError("`uncertain` with noise = :rician: not yet (the " *
+        "slopes of a fit to the Rician mean)"))
+    simulate_with === nothing || throw(ArgumentError("`uncertain` with `simulate_with`: not yet"))
+    M = nameof(s.model)
+    for (n, x) in pairs(u)
+        haskey(s.roles, n) || throw(ArgumentError("`uncertain`: `$n` is not a parameter of $M " *
+            "($(join(keys(s.roles), ", ")))"))
+        r = s.roles[n]
+        (r isa Fixed && r.value isa Real) || throw(ArgumentError("`uncertain`: `$n` is " *
+            (r isa Free ? "estimated by the fit" : "tied to another parameter") * "; an " *
+            "uncertain input is a parameter the fit holds at a measured number (`$n = value`)"))
+        (x isa Real && isfinite(x) && x >= 0) || throw(ArgumentError("`uncertain`: the SD of " *
+            "`$n` must be a number ≥ 0 (in $n's units), got $(repr(x))"))
+    end
+    lc = _LeakageCache(m, s)
+    C = _fixednames(lc)
+    var = SVector{length(C),Float64}(map(n -> haskey(u, n) ? Float64(u[n])^2 : 0.0, C))
+    return _Uncertain(lc, var, map(Float64, u))
+end
+
+# crlb's covariance with the inputs' added, D·diag(s²)·Dᵀ, D at the noise-free fit for truth `t`
+# (the kernel's form). Left as it is when the data cannot determine the parameters (Inf already).
+function _withinputs(u::_Uncertain, t, cov::SMatrix{P,P,Float64}) where {P}
+    all(isfinite, cov) || return cov
+    D = _leakage!(u.lc, u.lc.crlb.mT, t).D
+    return cov + D * Diagonal(u.var) * D'
+end
+
+# Each copy's own value of each uncertain input, for montecarlo: the fit's value plus a Gaussian
+# error with the SD given (independent between inputs and of the image noise), from a stream of
+# its own seeded from the noise's seed, so that a sweep's settings share the draws (common random
+# numbers, as for the noise). A fixed map over the copies, as a B1 map is over voxels.
+function _inputdraws(s::Scenario, u::NamedTuple, n::Integer, seed)
+    rng = Xoshiro(hash(seed, hash(:uncertain)))
+    return NamedTuple{keys(u)}(Tuple(Float64(s.roles[k].value) .+ Float64(u[k]) .* randn(rng, n)
+                                     for k in keys(u)))
+end
+
 # At the REPL: the relative slopes (in %) and the elasticities (a ratio, % per %), one row per
 # fixed parameter. A slope of zero is shown as 0 (not -0.0).
 function Base.show(io::IO, ::MIME"text/plain", l::LeakageResult)

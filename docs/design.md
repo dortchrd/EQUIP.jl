@@ -4443,7 +4443,7 @@ Then item 16's three, which share crlb's derivatives:
    measured, −0.069 from the two added); whether it closes DTI's FA gap at SNR 20 (+1.16e-3
    from ½ tr(∇²g·C) alone, +1.37e-3 measured); where the expansion fails (FA near isotropy, near
    a bound), montecarlo the reference, said in the docstring.
-9. **Uncertain inputs** (`crlb(m, θ; snr, uncertain = (B1 = 0.03,))`): L·Σc·Lᵀ added to the
+9. **Uncertain inputs** (built 2026-11-12: "Step 9, built and measured", below) (`crlb(m, θ; snr, uncertain = (B1 = 0.03,))`): L·Σc·Lᵀ added to the
    covariance, L from leakage's dθ̂/dc at the fit's value. Judged by: T1MFA with a B1 map 5%
    high and a 3% SD (SD 0.0572 s predicted, 0.0576 measured in the scratch study).
 
@@ -4731,6 +4731,44 @@ Not yet, refused with the reason: a protocol design for these fits (the noise an
 depend on each truth's signal, which changes with every protocol tried: the design's
 allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =
 :biased`; montecarlo's Rician fits with averages or σ per observation (the fit takes one σ).
+
+### Step 9, built and measured (2026-11-12)
+
+The owner, 2026-11-12: "merge once CI passes, then do step 9". `crlb(m, θ; snr, B1 = 1.05,
+uncertain = (B1 = 0.03,))`: a fixed value that was measured, with its measurement's SD (in the
+parameter's units). The covariance adds D·diag(s²)·Dᵀ, D = dθ̂/dc from leakage's kernel at the
+noise-free fit (where the fit runs: at the value it assumes), before the SD, RMSE and the
+derived quantities' delta method are computed from it; the bias is the fixed value's own, as
+without the keyword. `montecarlo` takes the same keyword and fits each copy with its own value,
+the fit's plus N(0, s²), as a fixed map over the copies (the fit already takes maps of fixed
+values), from a stream of its own seeded from the noise's seed (a sweep's settings share the
+draws, as they share the noise); crlb alongside adds the same.
+
+- **Where**: the helpers beside leakage (diagnostics.jl: `_Uncertain`, the scenario's leakage
+  cache made once per scenario and reused at every truth of a sweep; `_withinputs`;
+  `_inputdraws`); in crlb, the inner `_crlbresult`, so the one call, sweeps, fits side by side
+  and sets of scenarios all take it. `CRLBResult` keeps the SDs given (`c.uncertain`), and
+  crlb's and montecarlo's displays name them ("uncertain fixed values ... B1 ± 0.03").
+- **Measured** (T1MFA, FA 2, 5, 10, 15, 20, 30°, TR 15 ms, T1 = 1 s, SNR 1000, the fit's B1 =
+  1.05 for a true 1.0, SD 0.03): T1's SD 0.0572 s predicted (0.0223 from the image noise alone),
+  0.0577 ± 0.0003 measured over 20,000 copies (1.009 ± 0.005 of the prediction; M0 1.007 ±
+  0.005); the bias −0.0945 s at first order, −0.0926 ± 0.0004 measured, the difference the
+  second-order terms (step 8: the image noise's own and the input's ½·d²θ̂/dc²·s²).
+- **Tests** (test/integration/scenarios_leakage.jl): the covariance against central differences
+  of crlb's noise-free fits (independent of leakage's derivatives) to 1e-6; an SD of 0 the plain
+  crlb; a sweep and fits side by side equal to the single call; montecarlo's SDs within 3
+  standard errors; the display; each refusal.
+- **Unchanged without it**: crlb and montecarlo results bit for bit against `main` (QMTSIR
+  sandwich and Eq. 3, T1MFA, DTI with derived quantities, montecarlo, a Rician fit's crlb);
+  `crlb!` 4.7–4.9 µs and 4224 bytes for QMTSIR's 4-point, as on `main`. A first version took
+  12.1 µs and 18 kB: the kernel's result was reassigned where a closure captured it, which Julia
+  boxes; assigned once now.
+- **Not yet, refused with the reason**: with `likelihood = :rician`, `noise = :rician` or
+  `simulate_with` (leakage covers least squares on the fitted model's data only); in a protocol
+  design (the objective's allocation-free kernel would need leakage's slopes per protocol
+  tried); in `crlb!` with a cache alone (no scenario to make the leakage cache from); the
+  command line (`equip crlb --uncertain B1=0.03`: small, when wanted); inputs correlated with
+  each other (a full Σc).
 
 ### SNR: S0/σ, and each image's own (2026-11-09)
 

@@ -68,7 +68,7 @@ end
 
 """
     montecarlo(m, s::Scenario; snr or σ or Σ, n = 10_000, noise, averages, averaging, rng,
-               vary, simulate_with, solver, precision) -> MonteCarloResult or Sweep
+               vary, simulate_with, solver, precision, uncertain) -> MonteCarloResult or Sweep
     montecarlo(m, θ; ..., starts = :truth, changes...)
     montecarlo(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
     montecarlo(m, set; snr or σ or Σ, n, noise, averages, averaging, rng, solver, precision) -> Sweep   (`scenarios`)
@@ -100,6 +100,10 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
   One number is drawn from it, the seed of the noise.
 - `solver`, `precision`: the fits' options, as for `fit`.
+- `uncertain`: fixed parameters whose values were measured, with the SD of that measurement, as
+  for [`crlb`](@ref) (`uncertain = (B1 = 0.03,)`): each copy is fitted with its own value, the
+  fit's plus a Gaussian error with that SD (independent of the noise; the same draws for every
+  setting of a sweep), and crlb alongside adds the same to its covariance.
 - Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = :kmf => 5:2.5:20` (true values; the
   fit stays the scenario's, and starts taken from the truth follow it; a derived quantity, `vary
   = :FA => ...`, with the truth given by derived quantities), every combination; the
@@ -142,21 +146,21 @@ function montecarlo(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(),
                     vary = (;), simulate_with = nothing, solver::LM = LM(),
                     precision::Type{<:AbstractFloat} = Float64, starts::Symbol = :truth,
-                    changes...)
+                    uncertain::NamedTuple = (;), changes...)
     # The scenario from the truth and the changes: every keyword that is not one of
     # montecarlo's own, as for `fit` (whose options, `solver` and `precision`, are among them).
     haskey(changes, :mask) && throw(ArgumentError("`mask`: montecarlo fits every copy"))
     ch = _fitsettings("montecarlo", m, changes, (:snr, :σ, :Σ, :n, :noise, :averages,
                                                  :averaging, :rng, :vary, :simulate_with,
-                                                 :solver, :precision, :starts))
+                                                 :solver, :precision, :starts, :uncertain))
     return montecarlo(m, Scenario(m, θ; starts, ch...); snr, σ, Σ, n, noise, averages,
-                      averaging, rng, vary, simulate_with, solver, precision)
+                      averaging, rng, vary, simulate_with, solver, precision, uncertain)
 end
 function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
                     Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
                     simulate_with = nothing, solver::LM = LM(),
-                    precision::Type{<:AbstractFloat} = Float64)
+                    precision::Type{<:AbstractFloat} = Float64, uncertain::NamedTuple = (;))
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
@@ -171,17 +175,18 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
         results = [_montecarlo(m, _scenario_of(st, s),
                                _truth_of(st, _scenario_of(st, s), simulate_with),
                                _snr_of(st, snr), σ, Σ, n, options, noise, averages,
-                               averaging, seed, _data_of(st, simulate_with)) for st in settings]
+                               averaging, seed, _data_of(st, simulate_with), uncertain)
+                   for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     return _montecarlo(m, s, s.truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
-                       simulate_with)
+                       simulate_with, uncertain)
 end
 
 # One setting: one scenario, judged at one truth (the scenario's, or a setting's in a sweep over
 # true values), one noise level.
 function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
-                     simulate_with)
+                     simulate_with, uncertain = (;))
     θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
 
     # The prediction first: it also checks the noise level (and averages) and the data's model.
@@ -189,16 +194,20 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     # floor of Rician data shows as the difference; `crlb(...; noise = :rician)` predicts it. A
     # Rician fit's assumes the Rician data it fits.)
     rf = s.likelihood === :rician
+    cnoise = rf ? :rician : :gaussian
     c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, averages, simulate_with,
-              noise = rf ? :rician : :gaussian, averaging = rf ? averaging : nothing)
+              noise = cnoise, averaging = rf ? averaging : nothing,
+              uncertain = _uncertain(m, s, uncertain; noise = cnoise, simulate_with))
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset with the
     # scenario's fit (its starts taken from the truth follow this truth).
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
     Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
+    # Uncertain inputs: each copy fitted with its own value of each (a fixed map over the copies)
+    roles = merge(_roles_at(s, m, θ), isempty(uncertain) ? (;) : _inputdraws(s, uncertain, n, seed))
     res = fit(m, Y; options..., weights = s.weights, _rician_fit(s, c, noise, averages)...,
-              _roles_at(s, m, θ)...)                         # the scenario's fit
+              roles...)                                      # the scenario's fit
 
     # Statistics over every fitted copy (as `compare`), each against the parameter's true value;
     # then the same for the model's derived quantities (`derived`, e.g. DTI's FA), computed from
@@ -279,6 +288,7 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
           string(round(100 * mc.converged; sigdigits = 4)), "% converged")
     _print_data(io, mc.data)
     _print_fixed(io, mc.fixed, resolve(mc.model, mc.truth))
+    _print_uncertain(io, c.uncertain)
     c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
     print(io, "\nmeasured (± standard error) and predicted by crlb (",
           c.rician === :none ? "sandwich, Gaussian noise" :

@@ -114,11 +114,15 @@ function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
                         averages = nothing, acquisition = nothing, scantime = nothing,
                         constraints = nothing, shared = (), weights::NamedTuple = (;),
                         budget = nothing, aggregate = maximum, cov::Symbol = :sandwich,
-                        vary = nothing, noise = nothing, averaging = nothing)
+                        vary = nothing, noise = nothing, averaging = nothing,
+                        uncertain = nothing)
     # `noise` and `averaging` are taken only to say why they are refused (the objective is
     # crlb's: Gaussian noise, first order), `vary` only to say where its meaning went:
-    # elsewhere it changes true values.
+    # elsewhere it changes true values; `uncertain` to say it is not yet.
     noise === nothing || throw(_noise_refused("ProtocolDesign"))
+    uncertain === nothing || throw(ArgumentError("`uncertain` in a protocol design: not yet " *
+        "(the objective's allocation-free kernel would need leakage's slopes at every protocol " *
+        "tried); crlb and montecarlo take it"))
     averaging === nothing || throw(_noise_refused("ProtocolDesign", :averaging))
     vary === nothing || throw(ArgumentError("`vary` changes true parameter values (crlb, " *
         "montecarlo, scenarios); the acquisition to optimize is `acquisition = (TI = (0.01, " *
