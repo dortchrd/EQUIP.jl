@@ -10,7 +10,7 @@
 #   cache.jl    `init` wraps the FitSpec in a FitCache (with the model in the working precision,
 #               the solver settings and work buffers)
 #   voxel.jl    fitting one voxel with it: `fit!(cache, y)`, and `fit(m, y)` for a vector
-#   starts.jl   each voxel's starting point (:data, :loglinear, BestOf, :scale)
+#   starts.jl   each voxel's starting point (:data, BestOf, :scale; :loglinear in loglinear.jl)
 #   levmar.jl   the solver (Levenberg–Marquardt) for one voxel
 #   dataset.jl  `fit(m, data)`: every voxel of a dataset, spread over threads; `refit`
 #   result.jl   FitResult: what `fit` and `fit!` return
@@ -32,7 +32,7 @@ The resolved parameter roles of one fit (made by `setup`):
 - `fromdata`: for each free parameter, whether it starts at `:data` (the model's
   [`datastart`](@ref))
 - `fromlog`: for each free parameter, whether it starts at `:loglinear` (the weighted fit of
-  ln y with ln S, starts.jl)
+  ln y with ln S, loglinear.jl)
 - `reciprocal`: for each `:loglinear` parameter, whether it is a time constant (no signal at 0, as
   T2), whose log fit runs on its reciprocal (1/T2)
 - `weights`: `nothing` (unweighted), or one weight per observation in precision `T`: the fit
@@ -216,7 +216,7 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
                 throw(ArgumentError("`$n` starts at :data, but $M has no data start for it (see `datastart`)"))
         end
     end
-    #    `:loglinear`: the fit's own log-linear start (starts.jl; `init` warns where ln S is not
+    #    `:loglinear`: the fit's own log-linear start (loglinear.jl; `init` warns where ln S is not
     #    linear in those parameters, so that the start is not the log-linear fit).
     fromlog = map(n -> start(n) === :loglinear, F)
     #    The values `_fit_voxel` starts from. `:scale` and `:data` hold the placeholder 1, replaced
@@ -232,7 +232,7 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     #    in every observation. A time constant gives none at 0 (T2 = 0: every echo has decayed),
     #    but its reciprocal is the rate, for which ln S is linear: such a parameter starts very
     #    long instead (`_LONG`, no decay to speak of), and the log fit runs on 1/θ (`reciprocal`,
-    #    starts.jl). Found by trying each `:loglinear` parameter long in turn, keeping the change
+    #    loglinear.jl). Found by trying each `:loglinear` parameter long in turn, keeping the change
     #    when it makes more observations valid (a rate made long only loses signal), and only
     #    where the signal is missing at 0, not negative: a time constant at 0 gives no signal
     #    (0, or 0/0 = NaN where TE = 0), while a signal that changes sign (a real-valued

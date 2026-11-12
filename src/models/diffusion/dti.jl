@@ -26,7 +26,7 @@
 #     negative, and the eigenvalues being positive is a condition on all six at once, which box
 #     bounds cannot state.
 #
-# Each voxel starts from the weighted log-linear fit, `:loglinear` (src/fit/starts.jl): ln S is
+# Each voxel starts from the weighted log-linear fit, `:loglinear` (src/fit/loglinear.jl): ln S is
 # linear in ln S0 and the six elements, so EQUIP's Gauss–Newton step on ln y, with the derivatives
 # of this `signal!`, lands on it at once. No start is written here, and none needs tuning; S0 is
 # then set by least squares.

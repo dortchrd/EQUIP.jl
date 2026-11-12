@@ -23,7 +23,7 @@
 # such steps, see src/fit/levmar.jl.)
 #
 # Starting values: T2Decay starts each voxel from the log-linear fit to its data, the same two
-# passes as DTI's, on 1/T2 (`T2 = Free(start = :loglinear)`; starts.jl). The others start from the
+# passes as DTI's, on 1/T2 (`T2 = Free(start = :loglinear)`; loglinear.jl). The others start from the
 # acquisition: R2 = 1/mean(TE), T2 = mean(TE) (a decay comparable to the sampled range). S0
 # starts at the least-squares scale.
 #
@@ -73,7 +73,7 @@ end
 
 parameters(::Type{<:T2Decay}) = (
     S0 = Free(start = :scale, lower = 0),
-    T2 = Free(start = :loglinear, lower = _TMIN, upper = _T2MAX),  # the log-linear fit, on 1/T2 (starts.jl);
+    T2 = Free(start = :loglinear, lower = _TMIN, upper = _T2MAX),  # the log-linear fit, on 1/T2 (loglinear.jl);
                                                                    # at most 2.5 s (builtin.jl)
 )
 

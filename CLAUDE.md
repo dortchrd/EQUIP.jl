@@ -52,10 +52,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
   evenly, to simulate a scheme)
-- src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl → cache.jl (`init`, `FitCache`)
-  → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`) → statistics.jl (`stderror`,
-  `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's own JᵀJ); levmar.jl is the
-  solver, result.jl the `FitResult`
+- src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl and loglinear.jl (`:loglinear`)
+  → cache.jl (`init`, `FitCache`) → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`)
+  → statistics.jl (`stderror`, `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's
+  own JᵀJ); levmar.jl is the solver, result.jl the `FitResult`
 - src/sim/, from true values to data (uses models only): `nominal` and tissue presets
   (`TISSUES`), noise.jl (the noise model: `snr`, `σ` or `Σ` checked once for
   `simulate` and crlb; `noisecovariance`), `simulate`; rician.jl (`ricianmean`, `ricianvar`,

@@ -1017,9 +1017,10 @@ src/
     diffusion/            adc_decay.jl, adc_kurtosis.jl
     qmt/                  qmt_sir.jl
   fit/                    levmar.jl (solver), setup.jl (roles -> FitSpec), result.jl
-                          (FitResult), starts.jl (each voxel's starting point), cache.jl
-                          (init), voxel.jl (fit!, and fit for one voxel), dataset.jl (fit for
-                          a dataset, threaded; refit)
+                          (FitResult), starts.jl (each voxel's starting point),
+                          loglinear.jl (the :loglinear start), cache.jl (init), voxel.jl
+                          (fit!, and fit for one voxel), dataset.jl (fit for a dataset,
+                          threaded; refit)
   sim/                    from true values to data: tissues.jl (TISSUES, nominal),
                           noise.jl (snr, σ or Σ; noisecovariance), simulate.jl
   errors/                 a fit's errors against the truth (bias, SD, RMSE): scenario.jl

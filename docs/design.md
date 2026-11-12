@@ -6756,4 +6756,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        which is `init` already), nothing per voxel of `fit!` or a dataset. (A first version
        took 11 µs for DTI: a closure captured a variable reassigned in a loop, which Julia
        boxes.) A session-wide memo of the verdict would remove the 12%, at the price of the
-       package's first global state and a lock; not done.
+       package's first global state and a lock; not done. The start's code then moved to a file
+       of its own, src/fit/loglinear.jl (the owner: "I also wonder if loglinear fitting makes
+       more sense to live in the fit folder?"): it was 280 of starts.jl's 361 lines, the two
+       passes, the shared first pass and this check; starts.jl keeps `:data`, BestOf and the
+       scale. Moved verbatim (the files' concatenation unchanged but for the new header).

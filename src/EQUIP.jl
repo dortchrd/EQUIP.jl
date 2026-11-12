@@ -91,7 +91,8 @@ include("models/rician.jl")            # Rician noise: mean, variance, informati
 include("fit/levmar.jl")               # the solver for one voxel
 include("fit/setup.jl")                # parameter roles + the keywords of a fit -> FitSpec
 include("fit/result.jl")               # FitResult: what fit and fit! return
-include("fit/starts.jl")               # each voxel's starting point: :data, :loglinear, BestOf, :scale
+include("fit/starts.jl")               # each voxel's starting point: :data, BestOf, :scale
+include("fit/loglinear.jl")            # ... and :loglinear, the weighted fit of ln y with ln S
 include("fit/cache.jl")                # init -> FitCache: everything a voxel fit needs, made once
 include("fit/voxel.jl")                # one voxel: fit!(cache, y), fit(m, y::AbstractVector)
 include("fit/dataset.jl")              # every voxel of a dataset, on threads: fit(m, data); refit

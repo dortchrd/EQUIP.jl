@@ -3,7 +3,8 @@
 #
 #   FitCache (cache.jl) + one voxel's data y
 #        │
-#        ▼  _fit_voxel   copy y in, pick the voxel's map values, set its start (starts.jl), run LM
+#        ▼  _fit_voxel   copy y in, pick the voxel's map values, set its start (starts.jl and
+#                        loglinear.jl), run LM
 #   result               (levmar.jl). Allocates nothing.
 #
 # Three ways in:
@@ -106,7 +107,7 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
         return _invalid(spec)
     end
     prob = VoxelProblem{F}(c.model, c.y, fixed, spec.weights)
-    # 4. Starting point from the data (starts.jl): parameters starting at `:data` from the model's
+    # 4. Starting point from the data (starts.jl, loglinear.jl): parameters starting at `:data` from the model's
     #    estimates (`datastart`); those starting at `:loglinear` from the weighted fit of ln y with
     #    ln S; then a `BestOf` parameter at its best value, or else the `:scale` parameter at the
     #    value that best matches the data's scale.
