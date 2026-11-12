@@ -957,6 +957,7 @@ equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf free,start=10 --mask bra
 equip fit ADCDecay dwi.nii.gz --b @dwi.bval --weights @nex.txt --stderror --out res/sub-01_
 equip fit DTI dwi.nii.gz                                       # b and the directions from dwi.bval, dwi.bvec
 equip fit DKI dwi.nii.gz --out res/sub-01_                     # MK, AK, RK, MKT maps too
+equip fit DTI dwi.nii.gz --likelihood rician --sigma sigma.nii.gz   # magnitude data at low SNR
 equip crlb QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_GM,SIR_lesion --snr 100,200 --kmf 12.5 --out crlb.tsv
 equip montecarlo QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I --snr 200 --noise rician --kmf 12.5 --seed 1
 equip design QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_WM_II,SIR_GM,SIR_lesion --snr 200 \
@@ -972,6 +973,12 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
   `fit`'s rules: `--kmf 12.5` fixes, `--kmf free,start=10,lower=0` estimates, `--R1m R1f` ties,
   `--Sm map.nii.gz` fixes to a map. A value given wins over the data's sidecar (with a warning
   if they differ). Times in seconds.
+- Magnitude data at low SNR: `--likelihood rician --sigma SD` fits the Rician model
+  (`fit(m, data; likelihood = :rician, σ, method)`), with `--sigma` the noise SD of each
+  channel, a number or a map (`sigma.nii.gz`, or `file.mat:NAME`; voxels where it is 0 or NaN
+  are not fitted), and `--method ml` (maximum likelihood, the default), `mean` or `wmean`.
+  EQUIP does not estimate σ: give one from your own measurement or tool. The maps' sidecar
+  records `Likelihood`, `Sigma` (as typed: the number or the map's file) and `Method`.
 - `--save run.cnf` writes the command as a file of flags, one per line (FSL's style), the
   acquisition used included; `--config run.cnf` reads one, and flags after it win.
 - The truth for `crlb`, `montecarlo` and `design`: `--tissue` (several: one scenario each) and

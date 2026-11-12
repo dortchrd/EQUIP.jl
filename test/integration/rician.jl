@@ -18,6 +18,9 @@
     @test c isa EQUIP.RicianFitCache && c.method === :ml            # the default: the full model
     r = fit!(c, y)
     @test r.settings.likelihood === :rician && r.settings.method === :ml && r.settings.σ == 10.0
+    # the display names the noise model (least squares' display has no such line)
+    @test occursin("noise    Rician, σ = 10.0, method ml", sprint(show, MIME"text/plain"(), r))
+    @test !occursin("noise", sprint(show, MIME"text/plain"(), fit(m, y)))
     @test occursin("`σ`", msg(() -> fit(m, y; likelihood = :rician)))
     @test occursin(":wmean", msg(() -> fit(m, y; likelihood = :rician, σ = 10.0, method = :lsq)))
     @test occursin("likelihood = :rician", msg(() -> fit(m, y; method = :mean)))

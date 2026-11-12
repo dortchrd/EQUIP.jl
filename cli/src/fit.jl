@@ -4,6 +4,7 @@
 #   equip fit T2Decay t2.nii.gz                                       TE from the BIDS sidecar
 #   equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf 12.5 --mask brain.nii.gz
 #   equip fit ADCDecay dwi.nii.gz --weights @nex.txt --out results/sub-01_
+#   equip fit DTI dwi.nii.gz --likelihood rician --sigma 50           magnitude data, σ known
 #
 # The data are read (EQUIP's `readdata`), the model built from the flags and the files
 # (models.jl), the parameters' flags turned into `fit`'s keywords (args.jl), and the maps written
@@ -12,7 +13,7 @@
 # =================================================================================================
 
 const _FIT_OPTIONS = ["model", "data", "protocol", "mask", "weights", "precision", "out",
-                      "like", "stderror", "save", "help"]
+                      "like", "stderror", "save", "likelihood", "sigma", "method", "help"]
 
 function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
@@ -28,7 +29,9 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         modelhelp(io, M, "fit")
         println(io, "\nOptions: --mask FILE, --weights VALUES, --precision Float32, --out PREFIX, " *
                     "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --config FILE, " *
-                    "--save FILE")
+                    "--save FILE; for magnitude data at low SNR, --likelihood rician --sigma SD " *
+                    "(the noise SD of each channel: a number, or a map as FILE.nii.gz or " *
+                    "FILE.mat:NAME; not estimated) and --method ml (the default), mean or wmean")
         return 0
     end
     _check_flags(a, M, _FIT_OPTIONS, "fit")
@@ -47,6 +50,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     roles = (; (Symbol(n) => role(n, v, pnames, info) for (n, v) in lastflags(a) if Symbol(n) in pnames)...)
     mask = has(a, "mask") ? readmap(value(a, "mask"), info) .> 0 : nothing
     weights = has(a, "weights") ? numbers(value(a, "weights"), "weights") : nothing
+    noise = _fitnoise(a, info)                   # (;), or the Rician fit's keywords
     like = has(a, "like") ? readimage(value(a, "like")) : nothing
     prefix = value(a, "out", filestem(files[1]) * "_")
 
@@ -60,15 +64,20 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
                    "$(pkgversion(EQUIP))\nrun again: equip fit --config $(value(a, "save"))")
     end
 
-    res = fit(m, data; mask, precision, weights, roles...)
+    res = fit(m, data; mask, precision, weights, noise..., roles...)
     # The sidecar: what writemaps records (the model, its acquisition, the fit's settings), and
     # the command's own: the flags as typed, the files.
     car = Dict{String,Any}(
         "Fit" => Dict(n => v for (n, v) in lastflags(a) if Symbol(n) in pnames),
         "Data" => files, "Mask" => value(a, "mask", nothing), "Weights" => weights,
         "Precision" => string(precision),
+        "Likelihood" => value(a, "likelihood", "gaussian"),
         "Command" => "equip fit " * join(words, " "),
         "Software" => "EQUIP $(pkgversion(EQUIP)) (EQUIPCLI $(pkgversion(@__MODULE__)))")
+    if haskey(noise, :σ)                         # σ as typed: a number, or the map's file
+        car["Sigma"] = value(a, "sigma")
+        car["Method"] = String(noise.method)
+    end
     written = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like)
     show(io, MIME"text/plain"(), res)
     if length(written) == 1 && MRImages._ismat(written[1])
@@ -78,6 +87,36 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     end
     println(io, "in ", abspath(dirname(written[1])))
     return 0
+end
+
+# The noise model the fit assumes (EQUIP's `fit(m, data; likelihood, σ, method)`): least squares
+# by default, `(;)`; with `--likelihood rician`, the Rician fit of magnitude data, which needs
+# `--sigma`, the noise SD of each channel: a number, or a map read as a fixed parameter's (a NIfTI
+# file or file.mat:NAME, checked against the data; voxels where it is 0 or NaN are not fitted).
+# σ is the user's: EQUIP does not estimate it (docs/design.md, tier 2 step 3, on hold: background
+# estimates do not hold on clinical images). `--method`: ml (maximum likelihood, the default),
+# mean (least squares on the Rician mean) or wmean (the same, weighted by 1/Var).
+function _fitnoise(a::Args, info)
+    lik = value(a, "likelihood", "gaussian")
+    lik in ("gaussian", "rician") || throw(ArgumentError("`--likelihood`: gaussian (least " *
+        "squares, the default) or rician (magnitude data, with --sigma), got `$lik`"))
+    if lik == "gaussian"
+        for f in ("sigma", "method")
+            has(a, f) && throw(ArgumentError("`--$f` is for `--likelihood rician` (magnitude " *
+                                             "data); least squares, the default, takes none"))
+        end
+        return (;)
+    end
+    has(a, "sigma") || throw(ArgumentError("`--likelihood rician` needs `--sigma`, the noise SD " *
+        "of each channel: a number, or a map (sigma.nii.gz, or file.mat:NAME); EQUIP does not " *
+        "estimate it"))
+    s = strip(value(a, "sigma"))
+    σ = MRImages._isnifti(s) || MRImages._ismat(s) ? readmap(s, info) : _number(s, "sigma")
+    method = value(a, "method", "ml")
+    method in ("ml", "mean", "wmean") || throw(ArgumentError("`--method`: ml (maximum " *
+        "likelihood, the default), mean (least squares on the Rician mean) or wmean (the same, " *
+        "weighted by 1/Var), got `$method`"))
+    return (; likelihood = :rician, σ, method = Symbol(method))
 end
 
 # A field's value as a flag holds it: numbers as a comma list (shortest exact form), a Bool.

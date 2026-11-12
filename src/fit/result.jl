@@ -175,6 +175,7 @@ function Base.show(io::IO, ::MIME"text/plain", r::FitResult)
         for (n, x) in pairs(r.params)
             print(io, "\n  ", rpad(n, w), " = ", round(x; sigdigits = 6))
         end
+        _print_noise(io, r)
         _print_fixed(io, r)
     else
         nvox = length(r.status)
@@ -196,8 +197,22 @@ function Base.show(io::IO, ::MIME"text/plain", r::FitResult)
                       round(q1; sigdigits = 4), " to ", round(q3; sigdigits = 4), ")")
             end
         end
+        _print_noise(io, r)
         _print_fixed(io, r)
     end
+end
+
+# For a fit with likelihood = :rician, a line before the last: "noise    Rician, σ = 10.0, method
+# ml (maximum likelihood)", σ "map" for a map. Nothing for least squares, whose display is as it
+# was. (`_isrician` is in rician.jl, included later: Julia looks a function up when it runs.)
+function _print_noise(io, r)
+    _isrician(r) || return nothing
+    σ, method = r.settings.σ, r.settings.method
+    how = (ml = "maximum likelihood", mean = "least squares on the Rician mean",
+           wmean = "least squares on the Rician mean, weighted by 1/Var")[method]
+    print(io, "\n  noise    Rician, σ = ", σ isa AbstractArray ? "map" : σ, ", method ", method,
+          " (", how, ")")
+    return nothing
 end
 
 # A last line: "fixed    kmf = 12.5, R1m = R1f (tied), Sm = 0.83, B1 = map", or "fixed    none".

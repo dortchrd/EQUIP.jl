@@ -4712,6 +4712,21 @@ fails outright (T1MFA with B1 fixed wrong at SNR 20–50: T1's SD near 1.8 s for
 13–25), it fails for every method alike: montecarlo is the reference there, as for least
 squares.
 
+The command line (2026-11-12, the owner: "do the command line flag first"): `equip fit MODEL DATA
+--likelihood rician --sigma SD [--method ml|mean|wmean]`, `--sigma` a number or a map read as a
+fixed parameter's (NIfTI or `file.mat:NAME`, checked against the data). σ is the user's (step 3
+on hold). `--sigma` without `--likelihood rician`, or the reverse, is an error naming the other
+flag, not a silent choice. The maps' sidecar records `Likelihood` (also `gaussian`), `Sigma` as
+typed (a map's file name, more use than "a map") and `Method`: the command line's own `Fit`
+entry replaces the one `writemaps` makes, so these are written by the command. The result's
+display (REPL and command line) gained a line, `noise    Rician, σ = 50, method ml (maximum
+likelihood)`, for Rician fits only, so a least-squares fit's display is as before. Measured, a whole
+command from the shell (Julia's start included): T2 decay on 4000 voxels, 1.3 s least squares,
+2.3 s Rician; DTI on 500 voxels (33 images), 1.4 s and 3.0 s. The Rician fit compiles on each
+call (it is not in the command line's precompile workload): 1–1.6 s, left so; adding it to the
+workload for the common models is the option if that matters. Tested: the same maps as the Julia API's, σ a number and a
+map, `mean`, the sidecar, the four mistakes.
+
 Not yet, refused with the reason: a protocol design for these fits (the noise and the weights
 depend on each truth's signal, which changes with every protocol tried: the design's
 allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =

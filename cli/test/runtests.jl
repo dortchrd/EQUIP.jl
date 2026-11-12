@@ -150,9 +150,31 @@ end
         @test run("fit", "QMTSIR", path("sir.nii.gz"), "--TI", join(SIR_5POINT.TI, ','), "--TD", join(SIR_5POINT.TD, ','),
                   "--kmf", "free,start=10", "--out", out("h_")).code == 0
         @test rawmap(out("h_PSR.nii.gz")) == rawmap(out("g_PSR.nii.gz"))
+        # magnitude data at low SNR: the Rician fit, σ a number or a map (each channel's noise SD:
+        # S0/SNR = 1000/20), method ml by default or mean; recorded in the sidecar as typed
+        Yr = simulate(m, (S0 = S0map, T2 = T2map); snr = 20, noise = :rician, rng = MersenneTwister(7))
+        niwrite(path("t2r.nii.gz"), NIVolume(Float32.(Yr); geometry...))
+        niwrite(path("sigma.nii.gz"), NIVolume(fill(50.0f0, 6, 5, 2); geometry...))
+        dr = readdata(path("t2r.nii.gz"))[1]
+        rician(args...) = run("fit", "T2Decay", path("t2r.nii.gz"), "--TE", join(te, ','), args...)
+        @test rician("--likelihood", "rician", "--sigma", "50", "--out", out("r_")).code == 0
+        rr = fit(T2Decay(TE = te), dr; likelihood = :rician, σ = 50.0)
+        @test rawmap(out("r_T2map.nii.gz")) ≈ Float32.(rr.params.T2) nans = true
+        car = JSON.parsefile(out("r_T2map.json"))
+        @test car["Likelihood"] == "rician" && car["Sigma"] == "50" && car["Method"] == "ml"
+        @test rician("--likelihood", "rician", "--sigma", path("sigma.nii.gz"), "--method", "mean", "--out", out("s_")).code == 0
+        rm_ = fit(T2Decay(TE = te), dr; likelihood = :rician, σ = fill(50.0, 6, 5, 2), method = :mean)
+        @test rawmap(out("s_T2map.nii.gz")) ≈ Float32.(rm_.params.T2) nans = true
+        @test JSON.parsefile(out("s_T2map.json"))["Sigma"] == path("sigma.nii.gz")
+        @test JSON.parsefile(out("a_T2map.json"))["Likelihood"] == "gaussian"
+        @test occursin("needs `--sigma`", bad("fit", "T2Decay", path("t2.nii.gz"), "--likelihood", "rician"))
+        @test occursin("`--sigma` is for `--likelihood rician`", bad("fit", "T2Decay", path("t2.nii.gz"), "--sigma", "50"))
+        @test occursin("`--method`", bad("fit", "T2Decay", path("t2.nii.gz"), "--likelihood", "rician", "--sigma", "50", "--method", "mle"))
+        @test occursin("`--likelihood`", bad("fit", "T2Decay", path("t2.nii.gz"), "--likelihood", "poisson"))
         # help and the model list
         r = run("fit", "QMTSIR", "--help")
         @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
+        @test occursin("--likelihood rician --sigma", r.out)
         @test occursin("T2Decay", run("models").out) && occursin("equip fit MODEL DATA", run().out)
         # mistakes: a message naming what to do, exit code 1, nothing written
         @test occursin("`--kmf` is not a flag of `equip fit T2Decay`", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
