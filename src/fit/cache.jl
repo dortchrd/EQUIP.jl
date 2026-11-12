@@ -74,6 +74,7 @@ function CommonSolve.init(model::MRIModel; precision::Type{<:AbstractFloat} = Fl
     T = precision
     n = nobs(model)                                # also checks the acquisition's lengths
     spec = setup(model, T; weights, params...)     # the parameter keywords, the weights
+    _warn_loglinear(model, spec)                   # a :loglinear start that is not the log fit
     opts = SolverOptions{T}(solver)
     # Kept for the results (`(; solver)` = `(solver = solver,)`); the weights only when given.
     settings = weights === nothing ? (; precision, solver, params...) :

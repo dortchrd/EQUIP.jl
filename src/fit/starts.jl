@@ -257,3 +257,105 @@ end
     (ok && minimum(diag(L)) > sqrt(sqrt(eps(S)))) || return zero(SVector{P,S}), false
     return sc .* _chol_solve(L, -(sc .* g)), true
 end
+
+# -------------------------------------------------------------------------------------------------
+# Is the start the log-linear fit? A warning when it is not (the owner, 2026-11-12: "keep
+# :loglinear and add the setup warning")
+#
+# The two passes are the weighted linear regression of ln y only when ln S is linear in what they
+# move: each `:loglinear` parameter (through 1/θ for a time constant), with the scale as ln S0.
+# Then ∂ln S/∂φ (φ = θ, or 1/θ) does not depend on φ: the same at any two points. ADCDecay's ADC,
+# DTI, DKI in V = MD²·W and T2Decay's T2 (through 1/T2) are; ADCKurtosis with ADC and K both at
+# `:loglinear` is not (ln S = ln S0 − b·ADC + b²·ADC²·K/6: ∂ln S/∂K = b²·ADC²/6 is 0 at the
+# start, ADC = 0, and grows with ADC). There the passes are two Gauss–Newton steps on ln S, a
+# start that LM refines, and the name would mislead, so the fit says so once (`init`).
+#
+# The two points: the start (the placeholders; every other parameter at its start or fixed
+# value, the first voxel's of a map), and the start with each `:loglinear` parameter moved by
+# 1/max|∂ln S/∂φ|, the step that changes ln S by about 1 in its most sensitive observation (so
+# the test needs no unit), clamped to the bounds. The scale is not moved: by the `:scale` rule
+# the signal is proportional to it, so it adds ln S0 and changes no other derivative. Observations
+# whose signal is not positive at either point (no logarithm) are left out, as the passes leave
+# them out. A derivative counts as changed when it moves by more than 1e-6 of its largest value:
+# measured (2026-11-12, scratch llwarn/margin.jl), at most 3.5e-16 for the linear models above
+# (T2Decay's 1/T2 the largest; DKI 1.4e-16 at 63 images), 1.0 for ADCKurtosis's K, both
+# precisions. Computed in Float64 whatever the fit's precision: linearity is the model's, not
+# the arithmetic's.
+#
+# Returns `nothing`, or the name of the parameter whose derivative changed most and by how much
+# (a fraction of the derivative's largest value). Cost, once per fit set up (measured): 1.3 µs
+# for T2Decay, 4.5 µs for DTI, 25 µs for DKI, about 12% of a one-voxel `fit(m, y)` (most of it
+# `init` itself); nothing per voxel.
+# -------------------------------------------------------------------------------------------------
+
+const _LOGLINEAR_TOL = 1e-6
+
+function _loglinear_nonlinearity(model, spec::FitSpec{F,P}) where {F,P}
+    any(spec.fromlog) || return nothing
+    θ0 = SVector{P,Float64}(map(x -> _pick(x, 1, Float64), Tuple(spec.start)))
+    fixed = map(x -> _pick(x, 1, Float64), spec.fixed)
+    n = nobs(model)
+    b0, b1 = Vector{Dual{FitTag,Float64,P}}(undef, n), Vector{Dual{FitTag,Float64,P}}(undef, n)
+    signal!(b0, model, _params(Val(F), _seed(θ0), fixed))
+    s0 = zero(SVector{P,Float64})                # max |∂ln S/∂φ| at the start, by parameter
+    for s in b0
+        J = _logderivative(s, θ0, spec.reciprocal)
+        J === nothing || (s0 = max.(s0, abs.(J)))
+    end
+    θ1 = _logmove(θ0, s0, spec)
+    signal!(b1, model, _params(Val(F), _seed(θ1), fixed))
+    big = zero(SVector{P,Float64})               # max |∂ln S/∂φ| at either point
+    dif = zero(SVector{P,Float64})               # max change between them
+    for i in 1:n
+        J0 = _logderivative(b0[i], θ0, spec.reciprocal)
+        J1 = _logderivative(b1[i], θ1, spec.reciprocal)
+        (J0 === nothing || J1 === nothing) && continue
+        big = max.(big, abs.(J0), abs.(J1))
+        dif = max.(dif, abs.(J1 .- J0))
+    end
+    worst, change = 0, 0.0
+    for k in 1:P                                 # a parameter no observation measures: skipped
+        spec.fromlog[k] && big[k] > 0 && dif[k] / big[k] > change && ((worst, change) = (k, dif[k] / big[k]))
+    end
+    return change > _LOGLINEAR_TOL ? (F[worst], change) : nothing
+end
+
+# The second point: each `:loglinear` parameter moved by 1/s (s its largest |∂ln S/∂φ|; through
+# 1/θ for a time constant), clamped to its bounds. A function of its own, not a closure: `s0` is
+# reassigned in the loop above, and a closure capturing it would box it (measured: 25 kB
+# allocated and 11 µs for DTI's check, against 8 kB, the two buffers, and 4.5 µs).
+function _logmove(θ0::SVector{P,Float64}, s0, spec) where {P}
+    moved(k) = !spec.fromlog[k] || s0[k] == 0 ? θ0[k] :
+               clamp(spec.reciprocal[k] ? inv(inv(θ0[k]) + 1 / s0[k]) : θ0[k] + 1 / s0[k],
+                     spec.lower[k], spec.upper[k])
+    return SVector{P,Float64}(ntuple(moved, Val(P)))
+end
+
+# ∂ln S/∂φ of one observation (∂S/∂θ / S, times −θ² for a time constant: ∂/∂(1/θ)), or
+# `nothing` where its signal is not positive (no logarithm).
+@inline function _logderivative(s::Dual, θ::SVector{P,T}, recip) where {P,T}
+    f = value(s)
+    (isfinite(f) && f > 0) || return nothing
+    d = SVector{P,T}(ntuple(k -> recip[k] ? -θ[k]^2 : one(T), Val(P)))
+    return SVector{P,T}(partials(s).values) .* d ./ f
+end
+
+# The warning, once per model and set of `:loglinear` parameters in a session (`maxlog`, counted
+# by `_id`): a dataset, a montecarlo or a sweep sets up its fit once each, and would say it again.
+function _warn_loglinear(model, spec::FitSpec{F}) where {F}
+    r = _loglinear_nonlinearity(model, spec)
+    r === nothing && return nothing
+    name, change = r
+    M = nameof(typeof(model))
+    lognames = Tuple(n for (n, l) in zip(F, spec.fromlog) if l)
+    k = findfirst(==(name), F)
+    d = spec.reciprocal[k] ? "∂ln S/∂(1/$name)" : "∂ln S/∂$name"
+    @warn("`$(join(lognames, "`, `"))` start at :loglinear, but the logarithm of $M's signal is " *
+          "not linear in them ($d changed by $(round(100 * change; sigdigits = 2))% between two " *
+          "points): the start is then two Gauss–Newton steps on ln S, which the fit refines, not " *
+          "the weighted log-linear fit. It is that fit for a signal whose logarithm is linear " *
+          "(ADCDecay's ADC, DTI, DKI in V = MD²·W, T2Decay's T2 through 1/T2); for this one, " *
+          "write the signal so, or start these parameters otherwise (a number, :data, BestOf).",
+          maxlog = 1, _id = (:loglinear, M, lognames))
+    return nothing
+end

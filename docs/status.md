@@ -137,7 +137,9 @@ Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data
 (`riciannoise` removed); `readdata`, `readmap`, `writemaps` (were `loaddata`, `loadmap`,
-`savemaps`). Full runs on the branch: EQUIP 2492, CLI 139 (MRImages unchanged, not rerun).
+`savemaps`); `:loglinear` kept, and `init` warns (once) where ln S is not linear in those
+parameters, so the start is not the log-linear fit. Full runs on the branch: EQUIP 2492, CLI 139
+(MRImages unchanged, not rerun).
 - Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood
   = :ricianmean or :rician, σ)` (least squares on E|y|, then maximum likelihood), the Gaussian
   fit first, σ a fixed parameter so a map works as B1's does. Measured for DTI and DKI (MD 11%

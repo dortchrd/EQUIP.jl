@@ -105,7 +105,10 @@ parameters(::Type{<:QMTSIR}) = (
     parameters: diffusivities and rates, and time constants through their reciprocal (T2 = 0
     is no signal, so T2 starts very long and the fit runs on 1/T2). DTI's tensor,
     `Dxx = Free(start = :loglinear)`, DKI written in V = MD²·W, T2Decay's T2. No code in the
-    model; when nothing in the start varies by voxel, the first pass is made once per fit;
+    model; when nothing in the start varies by voxel, the first pass is made once per fit. For
+    a model whose ln S is not linear in them (ADCKurtosis with ADC and K both at `:loglinear`)
+    the passes are two Gauss–Newton steps on ln S, a start the fit refines, and the fit warns
+    once (it compares ∂ln S/∂θ at two points);
   - `BestOf(values)`: try each value (with the `:scale` parameter solved for each) and start
     from the one that fits best, e.g. the inversion-recovery models'
     `T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = ...)`, 30 values spanning the TIs.

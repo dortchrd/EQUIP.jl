@@ -156,6 +156,7 @@ end
     y = simulate(m, (S0 = 1000.0, ADC = 0.8e-3); snr = 40, n = 1, noise = :rician, rng = MersenneTwister(3))[1, :]
     @test start(m, y; ll...).ADC ≈ twopass([ones(8) -b], y)[2] rtol = 1e-12
     @test start(m, y; weights = fill(2.0, 8), ll...).ADC ≈ start(m, y; ll...).ADC rtol = 1e-12
+    @test_logs min_level = Base.CoreLogging.Warn init(m; ll...)        # the log fit itself: no warning
     # bounds hold in the start: an upper bound below the truth is where the start stops (and
     # the fit, which reports convergence there); a signal rising with b starts at the lower 0
     y0 = signal(m, (S0 = 1000.0, ADC = 0.8e-3))
@@ -167,14 +168,17 @@ end
     # ADCKurtosis: ln S = ln S0 − b·ADC + b²·ADC²·K/6 is not linear in (ADC, K), so the two
     # passes are two Gauss–Newton steps (K, whose column is zero at ADC = 0, moves in the
     # second only): an approximate start, from which the fit reaches the same minimum as from
-    # the model's own start
+    # the model's own start. The fit says so, naming K (∂ln S/∂K = b²·ADC²/6 is 0 at the start
+    # and not at the second point), once per model and parameters (`maxlog`: two fits, one
+    # warning); K alone at :loglinear is linear (ADC held at its start), and says nothing
     mk = ADCKurtosis(b = b)
     llk = (ADC = Free(start = :loglinear, lower = 0), K = Free(start = :loglinear, lower = 0, upper = 3))
     θk = (S0 = 1000.0, ADC = 1e-3, K = 0.9)
     yk = simulate(mk, θk; snr = 80, n = 1, noise = :gaussian, rng = MersenneTwister(4))[1, :]
-    sk = start(mk, yk; llk...)
+    sk, rk = @test_logs (:warn, r"`ADC`, `K` start at :loglinear.*∂ln S/∂K changed") (start(mk, yk; llk...), fit(mk, yk; llk...))
+    @test_logs min_level = Base.CoreLogging.Warn init(mk; K = Free(start = :loglinear, lower = 0, upper = 3))
     @test isfinite(sk.ADC) && 0 <= sk.K <= 3
-    rk, rd = fit(mk, yk; llk...), fit(mk, yk)
+    rd = fit(mk, yk)
     @test isconverged(rk) && isconverged(rd)
     @test rk.params.ADC ≈ rd.params.ADC rtol = 1e-6
     @test rk.params.K ≈ rd.params.K rtol = 1e-5
@@ -186,6 +190,7 @@ end
     # (T2Decay's own start; until 2026-11-08 refused here, the start then stuck at T2's
     # lower bound); a signal that changes sign is refused
     @test start(T2Decay(TE = te), signal(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08)); T2 = Free(start = :loglinear, lower = 1e-6)).T2 ≈ 0.08 rtol = 1e-12
+    @test_logs min_level = Base.CoreLogging.Warn init(T2Decay(TE = te))   # linear in 1/T2: no warning
     mir = R1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2], magnitude = false)
     @test occursin("not positive and finite", msg(() -> fit(mir, signal(mir, (M0 = 1000.0, Sf = -0.95, R1 = 1.1)); R1 = Free(start = :loglinear))))
     # and where it suits, a rate: R2Decay's start is the log-linear fit's

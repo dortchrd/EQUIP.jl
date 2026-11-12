@@ -6738,3 +6738,22 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        to its users (its options name files, not functions); its code, its tests and the MAT
        extension's precompile workload use the new names.
      - `compare` and `Comparison`: left as they are.
+     - **`:loglinear` kept, with a warning** (the owner: "does :loglinear make sense? it sounds
+       like we are doing a linear regression which is not fully true"; then "keep :loglinear
+       and add the setup warning"). The name is true for every model that uses it: ln S is
+       linear in DTI's and DKI's (V) elements and in T2Decay's 1/T2, so each pass is the
+       weighted linear regression of ln y (DIPY's WLS, to 1e-13), and it is only the start, the
+       fit being least squares on S. It would mislead for a model whose ln S is not linear in
+       those parameters, where the passes are two Gauss–Newton steps: `init` now compares
+       ∂ln S/∂φ (φ = θ, or 1/θ for a time constant) at the start and at a second point, each
+       `:loglinear` parameter moved by the step that changes ln S by about 1 (no unit needed),
+       and warns when one moves by more than 1e-6 of its largest value, naming it, once per
+       model and set of parameters (`maxlog`). Measured: at most 3.5e-16 for ADCDecay, R2Decay,
+       T2Decay, DTI and DKI (both precisions), 1.0 for ADCKurtosis with ADC and K. In `init`,
+       not `setup`: `setup` also makes crlb's caches, and crlb does not use the start. The
+       cost, two evaluations of the signal with dual numbers once per fit set up: 1.3 µs for
+       T2Decay, 4.5 µs for DTI, 25 µs for DKI, about 12% of a one-voxel `fit(m, y)` (most of
+       which is `init` already), nothing per voxel of `fit!` or a dataset. (A first version
+       took 11 µs for DTI: a closure captured a variable reassigned in a loop, which Julia
+       boxes.) A session-wide memo of the verdict would remove the 12%, at the price of the
+       package's first global state and a lock; not done.

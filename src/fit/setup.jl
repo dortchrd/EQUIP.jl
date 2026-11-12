@@ -216,7 +216,8 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
                 throw(ArgumentError("`$n` starts at :data, but $M has no data start for it (see `datastart`)"))
         end
     end
-    #    `:loglinear`: the fit's own log-linear start (starts.jl); nothing to check here.
+    #    `:loglinear`: the fit's own log-linear start (starts.jl; `init` warns where ln S is not
+    #    linear in those parameters, so that the start is not the log-linear fit).
     fromlog = map(n -> start(n) === :loglinear, F)
     #    The values `_fit_voxel` starts from. `:scale` and `:data` hold the placeholder 1, replaced
     #    voxel by voxel; `:loglinear` 0, where its Gauss–Newton steps begin (and where the
