@@ -149,7 +149,10 @@ leakage's slope; montecarlo draws each copy's value (T1's SD 0.0572 s predicted,
 measured); `equip crlb` and `equip montecarlo` take `--uncertain B1=0.03`. 2026-11-13: values by
 name are named tuples everywhere (`vary` no longer takes pairs; one check, `_byname`, with a
 message for the missing comma); design's `weights` (per parameter) against everyone else's
-(per observation) is on the names review (item 24). Found while answering the owner (2026-11-09): least squares on the
+(per observation) is on the names review (item 24). Step 8 (2026-11-13): `crlb(m, θ; snr,
+secondorder = true)`, the noise's own bias to second order (Box 1971, with the residual's term
+when something fixed is wrong), parameters and derived quantities; montecarlo within 1 standard
+error in every case measured; the validation group's first file, test/validation/secondorder.jl. Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data

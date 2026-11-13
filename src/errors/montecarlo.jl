@@ -68,7 +68,7 @@ end
 
 """
     montecarlo(m, s::Scenario; snr or σ or Σ, n = 10_000, noise, averages, averaging, rng,
-               vary, simulate_with, solver, precision, uncertain) -> MonteCarloResult or Sweep
+               vary, simulate_with, solver, precision, uncertain, secondorder) -> MonteCarloResult or Sweep
     montecarlo(m, θ; ..., starts = :truth, changes...)
     montecarlo(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
     montecarlo(m, set; snr or σ or Σ, n, noise, averages, averaging, rng, solver, precision) -> Sweep   (`scenarios`)
@@ -100,6 +100,8 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
 - `rng`: the random number generator; `MersenneTwister(seed)` (from Random) for repeatable data.
   One number is drawn from it, the seed of the noise.
 - `solver`, `precision`: the fits' options, as for `fit`.
+- `secondorder = true`: crlb alongside adds the noise's own bias to second order, as
+  [`crlb`](@ref)'s keyword; the measured bias includes it whatever this says.
 - `uncertain`: fixed parameters whose values were measured, with the SD of that measurement, as
   for [`crlb`](@ref) (`uncertain = (B1 = 0.03,)`): each copy is fitted with its own value, the
   fit's plus a Gaussian error with that SD (independent of the noise; the same draws for every
@@ -146,21 +148,24 @@ function montecarlo(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(),
                     vary = (;), simulate_with = nothing, solver::LM = LM(),
                     precision::Type{<:AbstractFloat} = Float64, starts::Symbol = :truth,
-                    uncertain = (;), changes...)
+                    uncertain = (;), secondorder::Bool = false, changes...)
     # The scenario from the truth and the changes: every keyword that is not one of
     # montecarlo's own, as for `fit` (whose options, `solver` and `precision`, are among them).
     haskey(changes, :mask) && throw(ArgumentError("`mask`: montecarlo fits every copy"))
     ch = _fitsettings("montecarlo", m, changes, (:snr, :σ, :Σ, :n, :noise, :averages,
                                                  :averaging, :rng, :vary, :simulate_with,
-                                                 :solver, :precision, :starts, :uncertain))
+                                                 :solver, :precision, :starts, :uncertain,
+                                                 :secondorder))
     return montecarlo(m, Scenario(m, θ; starts, ch...); snr, σ, Σ, n, noise, averages,
-                      averaging, rng, vary, simulate_with, solver, precision, uncertain)
+                      averaging, rng, vary, simulate_with, solver, precision, uncertain,
+                      secondorder)
 end
 function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
                     Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
                     simulate_with = nothing, solver::LM = LM(),
-                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;))
+                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;),
+                    secondorder::Bool = false)
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
@@ -175,18 +180,19 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
         results = [_montecarlo(m, _scenario_of(st, s),
                                _truth_of(st, _scenario_of(st, s), simulate_with),
                                _snr_of(st, snr), σ, Σ, n, options, noise, averages,
-                               averaging, seed, _data_of(st, simulate_with), uncertain)
+                               averaging, seed, _data_of(st, simulate_with), uncertain,
+                               secondorder)
                    for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     return _montecarlo(m, s, s.truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
-                       simulate_with, uncertain)
+                       simulate_with, uncertain, secondorder)
 end
 
 # One setting: one scenario, judged at one truth (the scenario's, or a setting's in a sweep over
 # true values), one noise level.
 function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, averaging, seed,
-                     simulate_with, uncertain = (;))
+                     simulate_with, uncertain = (;), secondorder = false)
     θ = resolve(m, truth)                    # checks the truth: every parameter, no roles
 
     # The prediction first: it also checks the noise level (and averages) and the data's model.
@@ -197,7 +203,7 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     cnoise = rf ? :rician : :gaussian
     c = crlb!(_CRLBCache(m, s, :sandwich), truth; snr, σ, Σ, averages, simulate_with,
               noise = cnoise, averaging = rf ? averaging : nothing,
-              uncertain = _uncertain(m, s, uncertain; noise = cnoise, simulate_with))
+              uncertain = _uncertain(m, s, uncertain; noise = cnoise, simulate_with), secondorder)
 
     # n noisy copies (an n × observations matrix: one voxel per row), from the fitted model at
     # the truth or from the data's model (`simulate_with`), fitted as one dataset with the
@@ -292,7 +298,8 @@ function Base.show(io::IO, ::MIME"text/plain", mc::MonteCarloResult)
     c.weights === nothing || print(io, "\nweighted fit: ", _weightstext(c.weights))
     print(io, "\nmeasured (± standard error) and predicted by crlb (",
           c.rician === :none ? "sandwich, Gaussian noise" :
-          "the fit with likelihood = :rician, method = :$(c.rician), first order", ")")
+          "the fit with likelihood = :rician, method = :$(c.rician), first order",
+          c.noisebias === nothing ? "" : "; its bias with the noise's own, to second order", ")")
     header = ("parameter", "true", "mean", "rel bias", "crlb", "SD", "crlb", "SD/crlb",
               "rel RMSE", "crlb")
     rows = map(collect(keys(mc.sd))) do p

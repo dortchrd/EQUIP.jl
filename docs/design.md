@@ -4436,8 +4436,8 @@ Then item 16's three, which share crlb's derivatives:
 7. **`propagate(c, g)`** for any function of the parameters: the `derived` hook's code with g in
    its place (the delta method's SD and covariance, the bias g(θ̂) − g(θ)). Judged by: equal to
    the `derived` path for DTI's FA and MD (identity), and against montecarlo for a ratio.
-8. **The second-order noise bias, opt-in** (`crlb(m, θ; snr, secondorder = true)`): Box's bias
-   of the parameters, −½(JᵀWJ)⁻¹JᵀW·d with dᵢ = tr(C·Hᵢ), from the nested duals crlb's Hessian
+8. **The second-order noise bias, opt-in** (built 2026-11-13: "Step 8, built and measured",
+   below) (`crlb(m, θ; snr, secondorder = true)`): Box's bias of the parameters, −½(JᵀWJ)⁻¹JᵀW·d with dᵢ = tr(C·Hᵢ), from the nested duals crlb's Hessian
    already evaluates, and a derived quantity's ½ tr(∇²g·C). Judged by: T1MFA at SNR 100, B1
    right (Monte Carlo bias +0.026 s, crlb's first order 0), and with the biased B1 map (−0.0686 s
    measured, −0.069 from the two added); whether it closes DTI's FA gap at SNR 20 (+1.16e-3
@@ -4731,6 +4731,58 @@ Not yet, refused with the reason: a protocol design for these fits (the noise an
 depend on each truth's signal, which changes with every protocol tried: the design's
 allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =
 :biased`; montecarlo's Rician fits with averages or σ per observation (the fit takes one σ).
+
+### Step 8, built and measured (2026-11-13)
+
+The owner, 2026-11-13: "merge into main, then do step 8". `crlb(m, θ; snr, secondorder = true)`
+adds the noise's own bias, to second order, to crlb's: a least-squares fit is biased by the
+noise even with nothing fixed wrong, because the signal is curved in its parameters.
+
+- **The formula, derived for crlb's general case**, not Box's alone (crlb.jl, "The noise's own
+  bias"): with the fit's equation ψ = Jᵀ W(g − y) = 0 expanded to second order in the noise,
+  E[b] = H⁻¹[Σᵢ ∇²gᵢ·C1[:, i] − ½ Σⱼₖ Cⱼₖ ∂²ψ/∂θⱼ∂θₖ], C1 = H⁻¹JᵀWΣW, C the sandwich; the
+  second derivatives of ψ bring in the residual times the signal's third derivatives. With an
+  exact fit (nothing wrong) and W = I, Σ = σ²I it reduces to Box's −½(JᵀJ)⁻¹Jᵀd (J R Stat Soc B
+  1971), tested equal to 1e-8. With a fixed value wrong the residual's term matters: the noise's
+  part of T1's bias is +0.0236 s with it, +0.026 without (T1MFA, the fit's B1 = 1.05, SNR 100).
+  It uses the noise's second moments only, so it also holds for least squares on Rician data.
+  Derived quantities: ∇q·b + ½ tr(∇²q C) (the plan had the second term only).
+- **Measured, against montecarlo** (scratch step8/, 2026-11-13):
+
+  | case | first order | second order | montecarlo |
+  |---|---|---|---|
+  | T1MFA, B1 right, SNR 100, T1 (s) | 0 | +0.0261 | +0.0256 ± 0.0013 (40,000) |
+  | T1MFA, B1 = 1.05 (true 1.0), SNR 100, T1 | −0.0945 | −0.0708 | −0.0713 ± 0.0012 |
+  | T1MFA, B1 right, SNR 200, T1 | 0 | +0.00652 | +0.0059 ± 0.0006 |
+  | DTI (6 + 30, b = 1000), SNR 20, FA | 0 | +1.18e-3 | +1.05e-3 ± 0.19e-3 (20,000) |
+  | the same, MD (mm²/s) | 0 | +1.07e-6 | +1.12e-6 ± 0.22e-6 |
+  | T2 decay, Rician data, least squares, SNR 15, T2 (s) | +0.01082 | +0.01102 | +0.01101 ± 0.00005 |
+
+  Every one within 1 standard error (|z| ≤ 0.8 for the DTI tensor and its four indices at SNR 50
+  and 20); the Rician case's first order alone is 3.8 standard errors off. (The plan's FA
+  figure, +1.37e-3 measured, was another run's; this one is the same protocol at 20,000 copies.)
+- **Where**: `_noisebias` and `_derivednoisebias` (crlb.jl), with nested ForwardDiff duals on
+  the model's signal, allocating, outside the allocation-free kernel; the third-derivative term
+  only when the fit is not exact; parameters on a bound left out. `_SecondOrder`, a type with
+  one value, passed down so that the default compiles it away (two calls in crlb! rather than
+  one with `nothing` or the type: each concrete). The result keeps it in `noisebias` (by
+  parameter, then derived quantity) and in `bias` and the RMSE; displays and sweep tables show
+  a "noise bias" column; montecarlo's crlb alongside takes the keyword.
+- **Cost**: DTI 0.3–0.8 ms a call, DKI 8 ms; the first call compiles, DTI 8.6 s, DKI 94 s (the
+  nested duals over 22 parameters and the derived indices' Hessians). Without the keyword,
+  crlb! as before (interleaved best-of timings within each other's noise: QMTSIR 4-point
+  4.1–4.6 µs, T1MFA 1.5–2.0 µs) and its results bit for bit `main`'s; the result struct's new
+  field takes 32 bytes more in T1MFA's call (an allocation size class, as when a field was
+  added before).
+- **Tests**: Box's closed form from the signal's own derivatives; σ² scaling (a quarter at twice
+  the SNR); 0 for a signal linear in its free parameters; montecarlo within 3 standard errors
+  with B1 right and wrong (test/integration/crlb.jl); MD's equal to the diagonal's mean (MD is
+  linear); the display; the refusals. test/validation/secondorder.jl, the validation group's
+  first file: DTI's tensor and indices at SNR 20 and the Rician case at 20,000 copies (30 s).
+- **Not yet**: a Rician fit's (`likelihood = :rician`: the likelihood's, not least squares');
+  with `cov = :biased` (refused: Eq. 3 is a bound for any estimator); the uncertain inputs' own
+  second-order term (½·d²θ̂/dc²·s²: with `uncertain`, the noise bias is the image noise's only);
+  DKI's first-call compile (94 s) if it matters; in a protocol design.
 
 ### Step 9, built and measured (2026-11-12)
 
@@ -6012,7 +6064,9 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      1.05: dT1/dB1 = −1.76; at the truth, −2.03, it over-predicts the SD by 14%: VFA's T1 goes as
      1/B1²). Errors in the data themselves (the spherical mean's Rician floor, noise and
      orientational sampling) are the sandwich's and `simulate_with`'s: `sphericalmeannoise`.
-   - **The estimator's own noise bias** (Box, J R Stat Soc B 1971): a nonlinear least-squares fit
+   - **The estimator's own noise bias** (built 2026-11-13, tier 2 step 8: "Step 8, built and
+     measured"; `crlb(m, θ; snr, secondorder = true)`) (Box, J R Stat Soc B 1971): a nonlinear
+     least-squares fit
      is biased at second order in the noise, b ≈ −½ (JᵀWJ)⁻¹JᵀW·d, dᵢ = tr(Cov·Hᵢ), Hᵢ the Hessian
      of observation i's signal. An addition to crlb, not part of the sandwich (the sandwich is the
      first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against

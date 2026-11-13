@@ -787,6 +787,17 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   compare fixed parameters with different units). From derivatives: −H_θθ⁻¹H_θc, the blocks of
   the cost's Hessian over the free and fixed parameters, which at the truth is
   −(JᵀJ)⁻¹Jᵀ∂g/∂c.
+- **The noise's own bias: `secondorder = true`.** crlb's bias is first order in the noise: the
+  bias of assuming something wrong (kmf = 12.5, a B1 map 5% high). A least-squares fit is also
+  biased by the noise itself, at second order, because the signal is curved in its parameters:
+  VFA's T1 at SNR 100 comes out 2.6% long with nothing wrong (crlb +0.0261 s; montecarlo, 40,000
+  copies, +0.0256 ± 0.0013). `crlb(m, θ; snr = 100, secondorder = true)` adds it to `bias` (and
+  the RMSE), keeps it apart in `c.noisebias`, shows it as a column, and gives the derived
+  quantities theirs (DTI's FA at SNR 20: +1.18e-3, montecarlo +1.05e-3 ± 0.19e-3). It is Box's
+  bias (J R Stat Soc B 1971) when the fit is exact, and also holds with something fixed wrong
+  and for least squares on Rician magnitude data (the floor's bias plus the noise's). Allocating:
+  under 1 ms for DTI, and the first call compiles (DTI 9 s, DKI 94 s). Sandwich only; not yet
+  for `likelihood = :rician`. Near a bound or at very low SNR the expansion fails: montecarlo.
 - **Uncertain inputs: a fixed value that was measured.** A B1 map, a T1 map for MTsat: the fit
   holds the parameter at a value that has its own error. `crlb(m, θ; snr, B1 = 1.05, uncertain
   = (B1 = 0.03,))` predicts a fit with a B1 map 5% high (the bias, as without `uncertain`) whose

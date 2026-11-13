@@ -132,9 +132,11 @@ function _rows(settings, results)
 end
 
 _settingrows(st::NamedTuple, c::CRLBResult, θt) =
-    map(p -> (; st..., parameter = p, truth = _truthcell(θt, p, c.fit[p] - c.bias[p]), noisefree = c.fit[p],
-              bias = c.bias[p], relbias = c.relbias[p], sd = c.sd[p], relsd = c.relsd[p],
-              rmse = c.rmse[p], relrmse = c.relrmse[p]), keys(c.fit))
+    map(p -> (; st..., parameter = p, truth = _truthcell(θt, p, _truevalue(c, p)), noisefree = c.fit[p],
+              bias = c.bias[p], _noisebiascell(c, p)..., relbias = c.relbias[p], sd = c.sd[p],
+              relsd = c.relsd[p], rmse = c.rmse[p], relrmse = c.relrmse[p]), keys(c.fit))
+# With `secondorder = true`, the table's column of the noise's own bias (in `bias` too).
+_noisebiascell(c::CRLBResult, p) = c.noisebias === nothing ? (;) : (noisebias = c.noisebias[p],)
 _settingrows(st::NamedTuple, r::MonteCarloResult, θt) =
     map(p -> (; st..., parameter = p, truth = _truthcell(θt, p, r.mean[p] - r.bias[p]), mean = r.mean[p],
               bias = r.bias[p], relbias = r.relbias[p], sd = r.sd[p], relsd = r.relsd[p],
@@ -378,7 +380,7 @@ end
 # `Sweep` of scenarios needs `Sweep` defined, which this file does after them.
 function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
-              noise = nothing, averaging = nothing, uncertain = (;))
+              noise = nothing, averaging = nothing, uncertain = (;), secondorder::Bool = false)
     noise, averaging = _crlb_noise(set.results, noise, averaging, averages)
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
@@ -387,7 +389,7 @@ function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, 
     levels = snr isa AbstractVector ? collect(snr) : [snr]
     settings = _set_settings(set, snr, levels)
     results = [crlb!(caches[i], set[i].truth; snr = x, σ, Σ, averages, noise, averaging,
-                     uncertain = uncs[i])
+                     uncertain = uncs[i], secondorder)
                for x in levels for i in eachindex(caches)]
     return Sweep(settings, results, _rows(settings, results))
 end
@@ -395,7 +397,8 @@ function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = not
                     Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
                     simulate_with = nothing, solver::LM = LM(),
-                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;))
+                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;),
+                    secondorder::Bool = false)
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
@@ -406,7 +409,7 @@ function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = not
     levels = snr isa AbstractVector ? collect(snr) : [snr]
     settings = _set_settings(set, snr, levels)
     results = [_montecarlo(m, sc, sc.truth, x, σ, Σ, n, options, noise, averages, averaging,
-                           seed, nothing, uncertain)
+                           seed, nothing, uncertain, secondorder)
                for x in levels for sc in set.results]
     return Sweep(settings, results, _rows(settings, results))
 end

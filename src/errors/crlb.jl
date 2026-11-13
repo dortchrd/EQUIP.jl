@@ -57,8 +57,9 @@ on a bound in the noise-free fit: held there, SD 0), `status` (the noise-free fi
 σ/√NEX with averages), `truth`, `fixed` (the fit's fixed values), `model`, `data` (`nothing`,
 or the `model => truth` the data came from, with `simulate_with`), `Σ` (`nothing`, or the
 noise covariance matrix given), `averages` (`nothing`, or the number of averages of each
-observation), `weights` (`nothing`, or the fit's weights) and `uncertain` (`nothing`, or
-the SD of each uncertain fixed value given). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
+observation), `weights` (`nothing`, or the fit's weights), `uncertain` (`nothing`, or the SD
+of each uncertain fixed value given) and `noisebias` (`nothing`, or with `secondorder = true`
+the noise's own bias to second order, by parameter then derived quantity: already in `bias`). [`informationmatrix`](@ref)`(c)`, [`vcov`](@ref)`(c)` and [`stderror`](@ref)`(c)` give
 the information and covariance matrices and the SDs, under StatsAPI's names.
 
 Diagnostics, computed when called (as `fitted(res)` is for a fit): [`cond`](@ref)`(c)`, how hard
@@ -92,11 +93,12 @@ struct CRLBResult{M<:MRIModel,N<:NamedTuple,Tr<:NamedTuple,X<:NamedTuple,D,S,G}
     noise::Symbol              # the data's noise: :gaussian, or :rician (magnitude data)
     averaging::Union{Nothing,Symbol}   # with Rician noise and averages: :complex or :magnitude
     uncertain::Union{Nothing,NamedTuple}   # nothing, or the SD of each uncertain input given
+    noisebias::Union{Nothing,NamedTuple}   # nothing, or the noise's own bias to second order
 end
 
 """
-    crlb(m, s::Scenario; snr or σ or Σ, averages, cov = :sandwich, vary, simulate_with, uncertain) -> CRLBResult or Sweep
-    crlb(m, θ; snr or σ or Σ, averages, cov, vary, simulate_with, uncertain, changes...)
+    crlb(m, s::Scenario; snr or σ or Σ, averages, cov = :sandwich, vary, simulate_with, uncertain, secondorder) -> CRLBResult or Sweep
+    crlb(m, θ; snr or σ or Σ, averages, cov, vary, simulate_with, uncertain, secondorder, changes...)
     crlb(m, (name1 = s1, name2 = s2, ...); ...) -> Sweep
     crlb(m, set; snr or σ or Σ, averages, cov) -> Sweep          (a set from `scenarios`)
 
@@ -132,6 +134,16 @@ SD from the derivatives at that fit's answer, first order in the noise.
   against the truth's 1.0): crlb's bias, as without `uncertain`. Each must be a parameter the
   fit holds at a number. Not yet with `likelihood = :rician`, `noise = :rician` or
   `simulate_with`. [`montecarlo`](@ref) takes the same keyword.
+- `secondorder = true`: add the noise's own bias, to second order. A least-squares fit is biased
+  by the noise even when nothing fixed is wrong (the signal is curved in its parameters: T1 from
+  VFA at SNR 100 comes out 2.6% long), which the first order (the default) leaves out. Box's
+  bias (J R Stat Soc B 1971) when the fit is exact; in general with the residual's third
+  derivatives too (a fixed value wrong, data from another model, Rician magnitude data's
+  floor). Added to `bias` (and so to the RMSE), and kept apart in `c.noisebias`; for the derived
+  quantities, ∇q·b + ½ tr(∇²q C). Computed with nested dual numbers, allocating: under 1 ms a
+  call for DTI, 8 ms for DKI, and the first call compiles (9 s for DTI, 94 s for DKI). With the
+  sandwich only, and not yet for a fit with `likelihood = :rician`. Near a bound or at very low
+  SNR the expansion fails: [`montecarlo`](@ref) is the reference there.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
@@ -196,6 +208,8 @@ crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # seve
 crlb(m, θ; snr = 200, kmf = 12.5, vary = (kmf = 5:2.5:20,))  # the bias against the true kmf
 crlb(T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.0, B1 = 1.0);
      snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,))   # a B1 map 5% high, with a 3% SD
+crlb(T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.0, B1 = 1.0);
+     snr = 100, secondorder = true)          # T1's noise bias, +0.026 s (montecarlo: +0.026)
 crlb(m, (assumed = s, exact = Scenario(m, θ)); snr = 200)   # side by side
 θb = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08)       # bi-exponential data,
 crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono-exponentially
@@ -204,18 +218,19 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
 """
 function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, noise = nothing, averaging = nothing, cov::Symbol = :sandwich,
-              vary = (;), simulate_with = nothing, uncertain = (;), changes...)
+              vary = (;), simulate_with = nothing, uncertain = (;), secondorder::Bool = false,
+              changes...)
     # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
     # as for `fit`.
     ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :noise, :averaging, :cov,
-                                           :vary, :simulate_with, :uncertain))
+                                           :vary, :simulate_with, :uncertain, :secondorder))
     return crlb(m, Scenario(m, θ; ch...); snr, σ, Σ, averages, noise, averaging, cov, vary,
-                simulate_with, uncertain)
+                simulate_with, uncertain, secondorder)
 end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
               Σ = nothing, averages = nothing, cov::Symbol = :sandwich, vary = (;),
               simulate_with = nothing, noise = nothing, averaging = nothing,
-              uncertain = (;))
+              uncertain = (;), secondorder::Bool = false)
     noise, averaging = _crlb_noise(_scenarios(s), noise, averaging, averages)
     # Uncertain inputs (diagnostics.jl): each scenario's leakage cache, made once
     unc(x) = _uncertain(m, x, uncertain; noise, simulate_with)
@@ -238,15 +253,16 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         resultof(st) = numbers ?
             _crlb_varied!(cacheof(st), _truth_of(st, _scenario_of(st, s), nothing);
                           snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging,
-                          uncertain = uncof(st)) :
+                          uncertain = uncof(st), secondorder) :
             crlb!(cacheof(st), _truth_of(st, _scenario_of(st, s), simulate_with);
                   snr = _snr_of(st, snr), σ, Σ, averages, noise, averaging,
-                  simulate_with = _data_of(st, simulate_with), uncertain = uncof(st))
+                  simulate_with = _data_of(st, simulate_with), uncertain = uncof(st),
+                  secondorder)
         results = [resultof(st) for st in settings]
         return Sweep(settings, results, _rows(settings, results))
     end
     return crlb!(_CRLBCache(m, s, cov), s.truth; snr, σ, Σ, averages, noise, averaging,
-                 simulate_with, uncertain = unc(s))
+                 simulate_with, uncertain = unc(s), secondorder)
 end
 
 # The data's noise, `noise`: `:gaussian` (real-valued data; the default for a least-squares fit)
@@ -283,7 +299,7 @@ cs = [crlb!(c, nominal(m, :SIR_WM_I); snr) for snr in (50, 100, 200)]
 """
 function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
                averages = nothing, noise = nothing, averaging = nothing, simulate_with = nothing,
-               uncertain = nothing)
+               uncertain = nothing, secondorder::Bool = false)
     _check_simulate_with(simulate_with)
     # (`uncertain` here is what `crlb` makes from its keyword, with the scenario's leakage cache;
     # a cache alone has no scenario to make one from.)
@@ -301,8 +317,14 @@ function crlb!(c::CRLBCache, truth::NamedTuple; snr = nothing, σ = nothing, Σ 
     dm, dt = _datasource(c.model, truth, simulate_with)
     t = _crlb_truth(c.model, truth)                  # checked; in the kernel's form
     Σn = noisecovariance(dm, dt; snr, σ, Σ, averages)
-    return _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging,
-                       uncertain)
+    # Two calls rather than one with `_secondorder(c, secondorder)` (`nothing` or the type): each
+    # then has a concrete type, so the default compiles the noise bias away with no dispatch on it
+    # (crlb! as fast as before, interleaved timings, docs/design.md "Step 8, built and measured")
+    return _secondorder(c, secondorder) === nothing ?
+        _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging,
+                    uncertain, nothing) :
+        _crlbresult(c, truth, t, dm, dt, Σn, Σ, simulate_with, averages, noise, averaging,
+                    uncertain, _SecondOrder())
 end
 
 # Every parameter's name, from the cache's types (its free ones and its fixed ones): known when
@@ -315,10 +337,15 @@ _parameternames(c::CRLBCache{F}) where {F} = (F..., keys(c.fixed)...)
 # sweep takes this path only when every varied value is a number and the data are the fitted
 # model's own.
 function _crlb_varied!(c::CRLBCache, truth::NamedTuple; snr, σ, Σ, averages = nothing,
-                       noise = :gaussian, averaging = nothing, uncertain = nothing)
+                       noise = :gaussian, averaging = nothing, uncertain = nothing,
+                       secondorder::Bool = false)
     Σn = noisecovariance(c.model, truth; snr, σ, Σ, averages)
-    return _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages,
-                       noise, averaging, uncertain)
+    so = _secondorder(c, secondorder)            # (two calls: concrete types, as in crlb!)
+    return so === nothing ?
+        _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages, noise,
+                    averaging, uncertain, nothing) :
+        _crlbresult(c, truth, map(_tie, truth), c.model, truth, Σn, Σ, nothing, averages, noise,
+                    averaging, uncertain, _SecondOrder())
 end
 
 # The kernel's pieces, inlined for models with few free parameters and called as functions for
@@ -397,33 +424,37 @@ end
 # separate function (a "function barrier") so that F and P are known types here.
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dm, dt, Σn, Σ, simulate_with,
                      averages = nothing, noise = :gaussian, averaging = nothing,
-                     unc = nothing) where {F,P,T}
+                     unc = nothing, so = nothing) where {F,P,T}
     dmT, dtt = simulate_with === nothing ? (c.mT, t) : (_with_precision(dm, Float64), _crlb_truth(dm, dt))
     if c.rician !== :none                            # a fit with likelihood = :rician (below)
         σ2r, dmr = _rician!(c, simulate_with === nothing ? c.mT.model : dmT, dtt, Σn)
         return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
-                           averages, noise, averaging, unc)
+                           averages, noise, averaging, unc, so)
     elseif noise === :rician                         # least squares on magnitude data (below)
         σ2r, dmr = _riciandata(dmT, dtt, Σn, averages, averaging)
         return _crlbresult(c, truth, t, dmr, dtt, Σn, Diagonal(σ2r), σ2r, Σ, simulate_with,
-                           averages, noise, averaging, unc)
+                           averages, noise, averaging, unc, so)
     end
     return _crlbresult(c, truth, t, dmT, dtt, Σn, Σn, _kernelnoise(Σn, P), Σ, simulate_with,
-                       averages, noise, averaging, unc)
+                       averages, noise, averaging, unc, so)
 end
 # The rest, given the kernel's noise σ2 (and Σk, the same as a matrix) and the data's model: a
 # function of its own, so that each branch above calls it with concrete types (a function
 # barrier: the Rician branch's σ2 is a vector, least squares' often a number).
 function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ, simulate_with,
-                     averages, noise, averaging, unc) where {F,P,T}
+                     averages, noise, averaging, unc, so) where {F,P,T}
     # Uncertain inputs: their covariance added to the image noise's (diagnostics.jl), before
     # anything is computed from it (SD, RMSE, the derived quantities' delta method). `k` is
     # assigned once: `rel` below captures it, and a captured variable that is reassigned is
     # boxed (measured: 12.1 µs and 18 kB a crlb! call, against 4.6 µs and 4.2 kB).
     k0 = _crlb!(c, c.mT, t, σ2, dmT, dtt)
     k = unc === nothing ? k0 : merge(k0, (cov = _withinputs(unc, t, k0.cov),))
+    # The noise's own bias to second order (`secondorder = true`, below), from the image noise's
+    # covariance alone (k0's), added to the noise-free fit's
+    b2 = so === nothing ? nothing : _noisebias(c, k0, Σk)
+    bias = b2 === nothing ? k.bias : k.bias + b2
     sd = sqrt.(diag(k.cov))
-    rmse = sqrt.(k.bias .^ 2 .+ sd .^ 2)
+    rmse = sqrt.(bias .^ 2 .+ sd .^ 2)
     nt(x) = NamedTuple{F}(Tuple(x))
     rel(x) = x ./ abs.(k.truth)
     # The information matrices at θ̂, over every free parameter: the Fisher (expected)
@@ -441,10 +472,11 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ,
     onbound = Symbol[F[j] for j in 1:P if k.pinned[j]]
     # The model's derived quantities after the parameters (`_derivedcrlb`, below); the
     # parameters alone for a model that derives none.
-    q = (fit = nt(k.fit), bias = nt(k.bias), sd = nt(sd), rmse = nt(rmse),
-         relbias = nt(rel(k.bias)), relsd = nt(rel(sd)), relrmse = nt(rel(rmse)))
-    g = _derivedcrlb(c, k, truth)
-    q = g === nothing ? q : map(merge, q, g)
+    q = (fit = nt(k.fit), bias = nt(bias), sd = nt(sd), rmse = nt(rmse),
+         relbias = nt(rel(bias)), relsd = nt(rel(sd)), relrmse = nt(rel(rmse)))
+    g = _derivedcrlb(c, k, truth, b2, k0.cov)
+    q = g === nothing ? q : map(merge, q, Base.structdiff(g, NamedTuple{(:noisebias,)}))
+    nb = b2 === nothing ? nothing : g === nothing ? nt(b2) : merge(nt(b2), g.noisebias)
     return CRLBResult(q.fit, q.bias, q.sd, q.rmse, q.relbias, q.relsd, q.relrmse,
                       Matrix(k.cov), k.G, onbound, k.status,
                       c.biased ? :biased : :sandwich, sqrt.(diag(Σn)), truth,
@@ -452,7 +484,7 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ,
                       Σ === nothing ? nothing : Matrix{Float64}(Σ), info, observed,
                       averages === nothing ? nothing : _averages(averages, length(c.y)),
                       c.w === nothing || c.rician !== :none ? nothing : copy(c.w), c.rician,
-                      noise, averaging, unc === nothing ? nothing : unc.sd)
+                      noise, averaging, unc === nothing ? nothing : unc.sd, nb)
 end
 
 # A least-squares fit of magnitude data (`noise = :rician`; `riciannoise`'s keywords until
@@ -541,7 +573,7 @@ end
 # bound have C's rows 0, so they add nothing; when the data cannot determine the parameters
 # (C is Inf), neither the derived quantities (SD Inf). `nothing` for a model that derives none:
 # known from the model's type, so the branch costs nothing when compiling for it.
-function _derivedcrlb(c::CRLBCache{F,P,T}, k, truth) where {F,P,T}
+function _derivedcrlb(c::CRLBCache{F,P,T}, k, truth, b2 = nothing, C0 = nothing) where {F,P,T}
     g(θ) = derived(c.mT, _params(Val(F), θ, c.fixed))
     ĝ = g(k.fit)
     ĝ === nothing && return nothing
@@ -552,12 +584,99 @@ function _derivedcrlb(c::CRLBCache{F,P,T}, k, truth) where {F,P,T}
     sd = all(isfinite, k.cov) ? sqrt.(max.(diag(∇g * k.cov * ∇g'), 0)) :
                                 fill(Inf, SVector{length(G),Float64})
     ĝ = map(Float64, ĝ)
-    b = map(-, ĝ, gt)
+    # With `secondorder = true` (b2: the parameters' second-order noise bias; C0: the image
+    # noise's covariance), each derived quantity's own: ∇q·b2 + ½ tr(∇²q C0) (below)
+    nb = b2 === nothing ? nothing : NamedTuple{G}(Tuple(_derivednoisebias(g, k.fit, ∇g, b2, C0)))
+    b = nb === nothing ? map(-, ĝ, gt) : map((x, t, n) -> x - t + n, ĝ, gt, nb)
     s = NamedTuple{G}(Tuple(sd))
     r = map((b, s) -> sqrt(b^2 + s^2), b, s)
     rel(x) = map((x, t) -> x / abs(t), x, gt)
     return (fit = ĝ, bias = b, sd = s, rmse = r, relbias = rel(b), relsd = rel(s),
-            relrmse = rel(r))
+            relrmse = rel(r), noisebias = nb)
+end
+
+# -------------------------------------------------------------------------------------------------
+# The noise's own bias, to second order (`secondorder = true`; the tier 2 plan, step 8; roadmap
+# item 16)
+#
+# A least-squares fit is biased at second order in the noise even when nothing fixed is wrong:
+# the signal is curved in the parameters, so noise that moves the estimate one way does not move
+# it back as far the other (Box, J R Stat Soc B 1971;33:171). With the fit's equation
+# ψ(θ, y) = J(θ)ᵀW(g(θ) − y) = 0, data y = μ + ε (Cov ε = Σ), θ0 the noise-free fit and
+# H = ∂ψ/∂θ = JᵀWJ + Σᵢ wᵢr₀ᵢ∇²gᵢ (crlb's Hessian), θ̂ = θ0 + a + b + ... with
+#   a = H⁻¹JᵀWε                                   (first order: Cov a = C, the sandwich)
+#   E[b] = H⁻¹ [ Σᵢ ∇²gᵢ·C1[:, i] − ½ Σⱼₖ Cⱼₖ ∂²ψ/∂θⱼ∂θₖ ],   C1 = H⁻¹JᵀWΣW
+# where, per row l, Σⱼₖ Cⱼₖ ∂²ψ_l/∂θⱼ∂θₖ = τ_l + 2 Σᵢ wᵢ (∇²gᵢ C J)ᵢₗ + Σᵢ J_il wᵢ tr(C∇²gᵢ),
+# and τ_l = ∂/∂θ_l Σᵢ wᵢr₀ᵢ tr(C∇²gᵢ(θ)), the residual's third-derivative term. With an exact
+# fit (r₀ = 0: nothing fixed is wrong) and W = I, Σ = σ²I, τ = 0 and E[b] is Box's
+# −½(JᵀJ)⁻¹Jᵀ·d, dᵢ = tr(C∇²gᵢ) (tested equal). The general form matters when a fixed value is
+# wrong: measured (T1MFA, the fit's B1 = 1.05 for a true 1.0, SNR 100, 40,000 copies), T1's
+# total bias −0.0708 s predicted against −0.0713 ± 0.0012 measured; the noise's part is +0.0236
+# with the residual's term, +0.026 without it.
+#
+# It depends on the noise's second moments only (Σ), so it holds for a least-squares fit of
+# Rician magnitude data too (`noise = :rician`: the Rician mean and variance). Computed with
+# nested ForwardDiff duals on the model's signal, allocating (opt-in, outside the allocation-free
+# kernel); the third-derivative term only when the fit is not exact. Parameters held on a bound
+# are left out (their bias stays the noise-free fit's: near a bound the expansion does not hold;
+# montecarlo is the reference). For a derived quantity q: ∇q·E[b] + ½ tr(∇²q C).
+# -------------------------------------------------------------------------------------------------
+
+# What `secondorder = true` passes down: a type with one value, so that `nothing` (the default)
+# compiles the noise bias away and crlb! costs what it did.
+struct _SecondOrder end
+
+function _secondorder(c::CRLBCache, on::Bool)
+    on || return nothing
+    c.rician === :none || throw(ArgumentError("`secondorder` with likelihood = :rician: not yet " *
+        "(the Rician fit's second-order bias is the likelihood's, not least squares')"))
+    c.biased && throw(ArgumentError("`secondorder` is the least-squares fit's own bias: with " *
+        "cov = :sandwich (Eq. 3's bound is for any estimator with the first-order bias gradient)"))
+    return _SecondOrder()
+end
+
+# E[b] above, for the cache's fit at the kernel's noise-free fit k (its sandwich k.cov, from the
+# image noise alone) and the noise covariance Σk; zero for the parameters on a bound, and when
+# the data cannot determine the parameters (their covariance is Inf already).
+function _noisebias(c::CRLBCache{F,P,T}, k, Σk) where {F,P,T}
+    all(isfinite, k.cov) || return zero(SVector{P,Float64})
+    U = [j for j in 1:P if !k.pinned[j]]
+    isempty(U) && return zero(SVector{P,Float64})
+    N, Q = length(c.y), length(U)
+    gsig(θ) = (out = Vector{eltype(θ)}(undef, N);
+               signal!(out, c.mT, _params(Val(F), SVector{P}(θ), c.fixed)); out)
+    hess(θ) = reshape(ForwardDiff.jacobian(t -> vec(ForwardDiff.jacobian(gsig, t)), θ), N, P, P)
+    θ0 = Vector{Float64}(k.fit)
+    J = ForwardDiff.jacobian(gsig, θ0)[:, U]
+    Hs = hess(θ0)[:, U, U]                                   # [i, l, j]: ∂²gᵢ/∂θ_l∂θⱼ
+    w = c.w === nothing ? ones(N) : Vector{Float64}(c.w)
+    v = w .* (gsig(θ0) .- c.y)                               # wᵢ r₀ᵢ
+    C = Matrix(k.cov)[U, U]
+    H = J' * (w .* J) + sum(v[i] * Hs[i, :, :] for i in 1:N)
+    C1 = H \ (J' * (Diagonal(w) * Σk * Diagonal(w)))         # H⁻¹JᵀWΣW, Q × N
+    term1 = [sum(Hs[i, l, j] * C1[j, i] for i in 1:N, j in 1:Q) for l in 1:Q]
+    HC = [sum(Hs[i, l, j] * C[j, kk] for j in 1:Q) for i in 1:N, l in 1:Q, kk in 1:Q]
+    A2 = [2 * sum(w[i] * HC[i, l, kk] * J[i, kk] for i in 1:N, kk in 1:Q) for l in 1:Q]
+    A3 = [sum(J[i, l] * w[i] * tr(C * Hs[i, :, :]) for i in 1:N) for l in 1:Q]
+    # τ: the residual's third-derivative term (0 for an exact fit)
+    s(θ) = (h = hess(θ); sum(v[i] * sum(C .* h[i, U, U]) for i in 1:N))
+    τ = k.exact ? zeros(Q) : ForwardDiff.gradient(s, θ0)[U]
+    b = zeros(P)
+    b[U] = H \ (term1 .- (τ .+ A2 .+ A3) ./ 2)
+    return SVector{P,Float64}(b)
+end
+
+# A derived quantity's second-order bias: ∇q·b2 + ½ tr(∇²q C0), q the model's `derived` at the
+# free values (`g`, from `_derivedcrlb`), ∇q its Jacobian there (length(G) × P).
+function _derivednoisebias(g, θ, ∇q, b2, C0)
+    P = length(θ)
+    qv(x) = collect(values(g(SVector{P}(x))))
+    x0 = Vector{Float64}(θ)
+    G = length(qv(x0))
+    all(isfinite, C0) || return fill(NaN, G)
+    H2 = reshape(ForwardDiff.jacobian(x -> vec(ForwardDiff.jacobian(qv, x)), x0), G, P, P)
+    C = Matrix(C0)
+    return [dot(∇q[q, :], b2) + tr(C * H2[q, :, :]) / 2 for q in 1:G]
 end
 
 # A derived quantity named as one of the model's parameters would take its place in the
@@ -635,9 +754,14 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
         print(io, "\nthe noise-free fit did not converge ($(c.status)): the bias may be inaccurate")
     isempty(c.onbound) ||
         print(io, "\non a bound in the noise-free fit (held there, SD 0): ", join(c.onbound, ", "))
-    header = ("parameter", "true", "noise-free fit", "bias", "rel bias", "SD", "rel SD", "RMSE",
-              "rel RMSE")
-    rows = [(string(n), f(c.fit[n] - c.bias[n]), f(c.fit[n]), f(c.bias[n]), pct(c.relbias[n]),
+    nb = c.noisebias
+    nb === nothing ||
+        print(io, "\nbias: the noise-free fit's, plus the noise's own to second order (`noise ",
+              "bias`; Box 1971)")
+    header = ("parameter", "true", "noise-free fit", "bias", (nb === nothing ? () : ("noise bias",))...,
+              "rel bias", "SD", "rel SD", "RMSE", "rel RMSE")
+    rows = [(string(n), f(_truevalue(c, n)), f(c.fit[n]), f(c.bias[n]),
+             (nb === nothing ? () : (f(nb[n]),))..., pct(c.relbias[n]),
              f(c.sd[n]), pct(c.relsd[n]), f(c.rmse[n]), pct(c.relrmse[n])) for n in keys(c.fit)]
     w = [maximum(length, (header[j], (r[j] for r in rows)...)) for j in eachindex(header)]
     print(io, "\n  ", rstrip(join((rpad(header[j], w[j]) for j in eachindex(header)), "  ")))
@@ -647,6 +771,10 @@ function Base.show(io::IO, ::MIME"text/plain", c::CRLBResult)
         print(io, "\n  ", rstrip(join((rpad(r[j], w[j]) for j in eachindex(r)), "  ")))
     end
 end
+
+# The true value of a result's parameter or derived quantity: the noise-free fit less its bias
+# (and the noise's own, when `secondorder` added it to the bias).
+_truevalue(c::CRLBResult, n) = c.fit[n] - c.bias[n] + (c.noisebias === nothing ? 0.0 : c.noisebias[n])
 
 # The fit's fixed values, with the truth where it differs (`_wrong`, scenario.jl: a tie
 # followed at the truth too, e.g. R1m = :R1f against a true R1m of 1.0): the source of any bias.

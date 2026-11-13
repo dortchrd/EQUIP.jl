@@ -1,6 +1,6 @@
 # =================================================================================================
-# test/integration/crlb.jl: crlb: bias, SD and RMSE from derivatives (Dortch et al., MRM 2018), its pieces, and the
-# textbook formulas.
+# test/integration/crlb.jl: crlb: bias, SD and RMSE from derivatives (Dortch et al., MRM 2018), its pieces, the
+# textbook formulas, and the noise's own bias to second order (Box 1971).
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl crlb
@@ -325,4 +325,50 @@ end
     @test occursin("`cov` must be :sandwich or :biased", msg(() -> CRLBCache(m5, nominal(m5, :SIR_WM_I); cov = :eq3)))
     @test occursin("the sandwich only", msg(() -> crlb!(CRLBCache(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); cov = :biased),
         (S0 = 1000.0, T2 = 0.08); snr = 100, simulate_with = T2BiexpDecay(TE = te) => θb)))
+end
+
+@testset "the noise's own bias, to second order (secondorder = true)" begin
+    FD = EQUIP.ForwardDiff
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    m = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+    θ = (M0 = 1000.0, T1 = 1.0, B1 = 1.0)
+    c = crlb(m, θ; snr = 100, secondorder = true)
+    # Nothing fixed is wrong (the fit is exact): Box's −½(JᵀJ)⁻¹Jᵀd, dᵢ = tr(C∇²gᵢ) (Box, J R Stat
+    # Soc B 1971), with J and ∇²gᵢ here from the signal itself; the first-order bias is 0
+    g(x) = signal(m, (M0 = x[1], T1 = x[2], B1 = 1.0))
+    x0 = [1000.0, 1.0]
+    J = FD.jacobian(g, x0)
+    Hs = reshape(FD.jacobian(x -> vec(FD.jacobian(g, x)), x0), 6, 2, 2)
+    d = [tr(c.cov * Hs[i, :, :]) for i in 1:6]
+    @test collect(c.noisebias) ≈ -0.5 * ((J' * J) \ (J' * d)) rtol = 1e-8
+    @test c.bias == c.noisebias && c.fit == crlb(m, θ; snr = 100).fit
+    # Second order in σ: a quarter at twice the SNR (and a sweep's setting as the single call);
+    # 0 where the signal is linear in the free parameters (S0, with T2 fixed)
+    c2 = crlb(m, θ; snr = 200, secondorder = true)
+    @test collect(c2.noisebias) ≈ collect(c.noisebias) ./ 4 rtol = 1e-10
+    @test crlb(m, θ; snr = [100, 200], secondorder = true)[2].noisebias == c2.noisebias
+    te = collect(0.01:0.01:0.32)
+    @test crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); snr = 50, T2 = 0.08, secondorder = true).noisebias.S0 == 0
+    # Against montecarlo (40,000 copies): with B1 right, where the first-order bias (0) is 14
+    # standard errors off, and with the fit's B1 5% high, where the residual's third-derivative
+    # term counts; T1 and M0 within 3 standard errors (measured: z = −0.4 and −0.4 for T1)
+    for b1 in (1.0, 1.05)
+        mc = montecarlo(m, θ; snr = 100, B1 = b1, noise = :gaussian, secondorder = true,
+                        n = 40_000, rng = MersenneTwister(1))
+        @test mc.crlb.noisebias !== nothing
+        @test all(p -> abs(mc.bias[p] - mc.crlb.bias[p]) < 3 * mc.se_mean[p], (:M0, :T1))
+    end
+    # A derived quantity, ∇q·b + ½ tr(∇²q C): MD is linear in the tensor's diagonal, so its noise
+    # bias is their mean's (FA against montecarlo: test/validation/secondorder.jl)
+    dirs = directionset(30)
+    gd = vcat(fill(SVector(1.0, 0, 0), 6), dirs)
+    md = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), gx = getindex.(gd, 1), gy = getindex.(gd, 2), gz = getindex.(gd, 3))
+    cd = crlb(md, (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0);
+              snr = 20, secondorder = true)
+    nb = cd.noisebias
+    @test nb.MD ≈ (nb.Dxx + nb.Dyy + nb.Dzz) / 3 rtol = 1e-10
+    # Shown as a column; refused where it is not least squares' bias
+    @test occursin("noise bias", sprint(show, MIME"text/plain"(), c))
+    @test occursin("cov = :sandwich", msg(() -> crlb(m, θ; snr = 100, cov = :biased, secondorder = true)))
+    @test occursin("likelihood = :rician: not yet", msg(() -> crlb(m, θ; snr = 100, likelihood = :rician, secondorder = true)))
 end
