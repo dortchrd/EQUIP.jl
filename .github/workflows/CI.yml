@@ -3,6 +3,9 @@
 # packages allow (their [compat]: 1.11) and the latest release. Manifest.toml is not committed,
 # so each job resolves the dependencies first (Pkg.instantiate). The precompile workloads run as
 # a user's install would (they are part of what is tested).
+#
+# And EQUIP's validation group (test/validation/: statistical checks at thousands of copies, a
+# few minutes) nightly on `main`, and by hand from the Actions tab (docs/design.md, tier 2 step 6).
 name: CI
 
 on:
@@ -17,6 +20,8 @@ on:
       - 'docs/**'
       - 'LICENSE'
   workflow_dispatch:              # run by hand from GitHub's Actions tab, whatever changed
+  schedule:
+    - cron: '23 6 * * *'          # nightly, 06:23 UTC (on the default branch, `main`): validation
 
 concurrency:                      # a newer push to the same branch cancels the older run
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +30,7 @@ concurrency:                      # a newer push to the same branch cancels the 
 jobs:
   test:
     name: ${{ matrix.package }}, Julia ${{ matrix.version }}
+    if: github.event_name != 'schedule'      # the nightly run is the validation group's only
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -51,3 +57,22 @@ jobs:
             printf '[EQUIP]\nprecompile_workload = true\n' > test/LocalPreferences.toml
           fi
           julia --color=yes --project="$dir" -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+
+  validation:
+    name: EQUIP validation, Julia 1
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      JULIA_NUM_THREADS: auto
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Validation group
+        shell: bash
+        run: |
+          printf '[EQUIP]\nprecompile_workload = true\n' > test/LocalPreferences.toml
+          julia --color=yes --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(test_args = ["validation"])'

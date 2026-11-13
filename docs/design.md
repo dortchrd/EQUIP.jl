@@ -4203,7 +4203,7 @@ The owner, 2026-11-08: "ok lets do tier1". Each item, with what was measured:
 - Full runs: EQUIP 2347, CLI 139, MRImages 103 (the first EQUIP run found the one test that
   printed T2Decay's old bound, Inf, in `nominal`'s table; fixed).
 
-## Tier 2, bias from noise at low SNR: the plan (2026-11-09; steps 0, 1, 2, 4 and 5 built, in `main` 2026-11-12; step 3 on hold)
+## Tier 2, bias from noise at low SNR: the plan (2026-11-09; steps 0–2 and 4–9 built: 0–5 in `main` 2026-11-12, 7–9 on 2026-11-13, 6 on branch `rician`; step 3 on hold)
 
 The owner, 2026-11-09, asked what Rician work exists ("what rician stuff do we have now"), then
 for a plan of tier 2 before any building ("yes"), in the order: one switch for any model, σ as
@@ -4425,8 +4425,8 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
      Measured: what a Rician fit changes in an optimal T2 or DTI protocol at SNR 10 (recorded).
    - Judged by: the identities exact; montecarlo against crlb within 3 Monte Carlo standard
      errors, as bench/agreement.jl does for the Gaussian fits.
-6. **Validation** (test/validation/, item 21): per model, the floor's bias removed against step
-   0's table, the SD against `ricianbound`, the no-information cases ending on their bounds, σ
+6. **Validation** (built 2026-11-13: "Step 6, built and measured", below) (test/validation/,
+   item 21): per model, the floor's bias removed against step 0's table, the SD against `ricianbound`, the no-information cases ending on their bounds, σ
    maps; bench/agreement.jl moved in as the Gaussian half. A cheap version of each in
    test/integration (one model, one SNR, a few thousand voxels). Run nightly in CI (a schedule
    in CI.yml: CI before merging).
@@ -4731,6 +4731,102 @@ Not yet, refused with the reason: a protocol design for these fits (the noise an
 depend on each truth's signal, which changes with every protocol tried: the design's
 allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =
 :biased`; montecarlo's Rician fits with averages or σ per observation (the fit takes one σ).
+
+### Step 6, built and measured (2026-11-13)
+
+The owner, 2026-11-13: "How do we finish 6?"; then yes to the measurement run, and to tests on
+the criteria it gave and the two roadmap items it found. The validation group (test/validation/,
+run apart: `julia -t auto --project=test test/runtests.jl validation`) now holds three files:
+
+- **rician_fits.jl** (new, about 2.5 minutes): the Rician fits (`likelihood = :rician`, `:ml`)
+  against least squares on the same magnitude data (one seed for both), per model, below.
+  Asserted: in tissue, where the floor dominates least squares' bias (T2, ADC, DTI's MD and FA),
+  the Rician fit's under a third of it and halving or better from SNR 10 to 20; the SD within 6%
+  of `ricianbound` in every tissue case; ≥ 99.5% converged. Without information (CSF): ≥ 98%
+  converged, a tenth or more of the voxels on a cap, and for ADC and DTI less bias than least
+  squares. A σ map with two regions (σ 50 and 100): each under 2% with the map, one beyond 5%
+  with one σ for both.
+- **agreement.jl** (bench/agreement.jl moved, its printout made assertions; about a minute):
+  montecarlo against its own crlb, with `secondorder = true`, at 10,000 copies; |z| < 4 in Monte
+  Carlo standard errors for every value where agreement is asserted (88 values: 3 would fail by
+  chance one run in five on another random stream, 4 one in 180), and the two places
+  where first order ends, below.
+- **secondorder.jl** (step 8).
+
+The cheap versions in test/integration/rician.jl: the floor at SNR 10, montecarlo against crlb
+at SNR 20 and a σ map's invariance were there from steps 2–5; added, ADC in free water at SNR 10
+(1000 voxels: converged, a quarter on the cap, less biased than least squares). CI runs the
+validation group nightly (06:23 UTC) and on demand (`workflow_dispatch`), on Julia 1 with the
+precompile workload on; the per-push jobs skip the nightly run.
+
+**The Rician fits, measured** (montecarlo; LS least squares on the magnitudes, `noise = :rician`;
+ML `likelihood = :rician`; 5000 copies for T2, ADC and T1, 2000 for DTI and DKI; step 0's
+protocols and truths). Bias in % of the truth; the ML fit's SD ÷ `ricianbound`'s:
+
+| case | SNR | LS bias | ML bias | ML SD ÷ bound | ML: converged, on a cap |
+|---|---:|---:|---:|---:|---|
+| T2Decay WM, T2 | 10 | +41.18 | +0.76 | 1.018 | |
+| | 20 | +9.97 | +0.19 | 1.005 | |
+| ADCDecay tissue, ADC | 10 | −7.71 | +1.84 | 1.044 | |
+| | 20 | −1.87 | +0.34 | 1.002 | |
+| DTI WM, MD | 10 | −8.68 | +0.48 | 0.963 | |
+| | 20 | −2.10 | +0.11 | 0.968 | |
+| DTI WM, FA | 10 | −4.70 | +0.86 | 0.995 | |
+| | 20 | −1.15 | +0.19 | 1.007 | |
+| DKI WM, MD | 10 | −1.33 | −0.38 | 0.981 | |
+| | 20 | −0.31 | −0.04 | 0.974 | |
+| T1IR WM, T1 | 10 | −3.37 | +2.92 | 1.017 | 388 of 5000 on the cap |
+| | 20 | −1.56 | +0.94 | 1.042 | |
+| DKI WM, MKT | 10 | −4.61 | −12.60 | 1.378 | |
+| | 20 | −1.02 | −2.60 | 1.078 | |
+| ADCDecay CSF, ADC | 10 | −20.16 | +2.14 | 0.775 | 100%, 1225 of 5000 |
+| | 20 | −6.26 | +1.62 | | 216 of 5000 |
+| T1IR CSF, T1 | 10 | +2.14 | +3.23 | 0.338 | 100%, 3668 of 5000 |
+| | 20 | +1.15 | +2.82 | 0.591 | 2443 of 5000 |
+| DTI CSF, MD | 10 | −37.17 | +13.75 | 0.641 | 99.1%, 1887 of 2000 |
+| | 20 | −15.75 | +8.25 | 1.615 | 99.8% |
+| DKI CSF, MD | 10 | +0.51 | −4.14 | | 2.0% |
+| | 20 | +22.56 | −10.32 | | 5.1% |
+
+- **The floor's bias is removed where it is the error** (T2, ADC, DTI in tissue): the ML bias a
+  tenth or less of least squares' at SNR 10 (T2 +0.76% against +41.2%), and what remains falls
+  about fourfold from SNR 10 to 20, as σ²: the likelihood's own second-order bias, not the floor.
+  The SD is at the Rician bound (0.96–1.04).
+- **Where the floor is not the main error, maximum likelihood is not better**: T1 inversion
+  recovery in WM (+2.9% against −3.4% at SNR 10: near the null the fit's own nonlinearity) and
+  DKI's MKT (−12.6% against −4.6%, its SD 1.38 of the bound). Step 4 asked whether ML avoids
+  `:ricianmean`'s −8% for MKT at SNR 20: no (−2.6% at 20, −12.6% at 10); it is the estimator's own
+  second-order bias, which crlb's `secondorder` would predict for least squares but does not yet
+  for the likelihood (roadmap item 16, "The estimator's own noise bias", still to do).
+- **Without information the caps hold**: 99–100% converge, many voxels on a cap, ADC and DTI's MD
+  less biased than least squares (+2.1% against −20.2%, +13.8% against −37.2%); T1 in CSF not
+  (+3.2% against +2.1%). The SD there is not the bound's (0.34–1.6): the caps truncate the
+  estimates, and the expansion does not hold; `onbound` says which voxels to mask.
+- **A σ map** (T2 in WM, regions at σ 50 and 100, 3000 voxels each): with the map +0.05% and
+  +1.28% (the second the fit's own bias at SNR 10); with one σ = 75 for both, −6.50% and
+  +13.73%; least squares +9.82% and +41.73%.
+- **DKI in CSF fails to converge** (2–5%): 285 of 300 voxels examined stopped at the iteration
+  limit (median 115 iterations), the likelihood flat in the 15 kurtosis elements (the signal at
+  b = 2000 is 2.48 against σ = 50). Left out of the tests; roadmap item 20, still to do.
+
+**Agreement, measured** (agreement.jl's cases and seeds; max |z| over a case's biases and SDs):
+
+| case | first order | with `secondorder` |
+|---|---:|---:|
+| T2 decay, Gaussian, SNR 50, T2 20, 80, 200 ms | 3.99 (S0's bias at 20 ms, +0.2%) | 1.86 |
+| Dortch 2018 Fig. 1, 4-point, kmf assumed 12.5, four tissues, Rician, SNR 200 | 3.21 (Sf's bias in the lesion) | 1.72 |
+| 4-point, WM I, SNR 25 / 50 / 100 / 200 / 400 | 10.9 / 6.0 / 3.2 / 1.9 / 1.3 | 7.7 / 3.9 / 1.8 / 1.6 / 1.5 |
+| 5-point, kmf fitted, WM I, SNR 200 / 400 / 800 / 1600 | 34 at 200 (another draw) | 31 / 5.5 / 1.3 / 0.7 |
+
+- The second order closes every bias gap where the fit is nearly linear; what remains at low SNR
+  is the next order (the 4-point's PSR at SNR 25: −18.9% measured, −15.9% predicted, its SD 0.95
+  of crlb's).
+- **The 5-point SIR with kmf fitted** (five parameters from five points) is far from first order
+  at SNR 200: PSR's SD 1.28 of crlb's (1.31 in another draw), kmf's 1.06 (the lesion's 1.41);
+  1.04 at SNR 400, within Monte Carlo error from 800. bench/agreement.jl's header said its
+  section 2 "should agree, as the paper found": it does for the 4-point, not for the 5-point.
+  Whether Fig. 1 showed the 5-point, and at which SNR, is for the owner (docs/status.md, open
+  questions). Step 7 found the same (f's SD 21% above, PSR's 33%).
 
 ### Step 7, built and measured (2026-11-13)
 
@@ -6120,6 +6216,19 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
      crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
      measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).
+     **Still to do: a Rician fit's** (`likelihood = :rician`; refused today, "not yet"). Step 6
+     measured what it would predict: the maximum-likelihood fit removes the floor but keeps a
+     bias of its own that falls as σ² (T2 in WM +0.76% at SNR 10, +0.19% at 20), and where that
+     bias is as large as the floor's, the Rician fit is no better than least squares (T1
+     inversion recovery in WM +2.9% against −3.4%; DKI's MKT −12.6% against −4.6%, at SNR 10).
+     Box's formula is least squares'; a maximum-likelihood estimator's is Cox and Snell's (J R
+     Stat Soc B 1968), b = I⁻¹·(½κ₃ + κ₂,₁) contracted with I⁻¹, from the expected third
+     derivatives of the log-likelihood and the expected product of its second and first. For the
+     Rician likelihood each is, per observation, a function of A/σ alone (tabulated once, as R
+     is) times the signal's first and second derivatives, which crlb's nested duals already
+     evaluate; for Gaussian noise it reduces to Box's. Judged by: montecarlo's ML bias in the
+     table of step 6 (T2, ADC, DTI, T1IR, MKT at SNR 10 and 20), and whether it predicts MKT's
+     −12.6%.
    - **Where it stands (2026-11-08; tier 2 of the priorities, beside Rician fitting, the owner:
      "put it in tier 2").** `propagate`'s first-order half is built, as the `derived` hook in
      crlb and montecarlo (item 19: the delta method's SD, the bias g(θ̂) − g(θ) of what the fit
@@ -6708,8 +6817,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - A protocol objective on a derived quantity (`ProtocolDesign` for MK's SD).
      - The second-order terms: item 16, tier 2.
 20. **Rician fitting, for every model** (the owner, 2026-11-07: "put Rician fitting on the
-   roadmap for everything"; not built; planned with item 13 in "Tier 2, bias from noise at low
-   SNR: the plan", 2026-11-09, where `likelihood = :ricianmean | :rician` replaces the `noise =
+   roadmap for everything"; built in tier 2, steps 2, 4, 5 and 6, 2026-11-09 to 13, as planned
+   with item 13 in "Tier 2, bias from noise at low SNR: the plan", 2026-11-09, where `likelihood = :ricianmean | :rician` replaces the `noise =
    :rician` below: the owner, 2026-11-09, "use likelihood"; MP-PCA moved to item 22). Magnitude data are Rician: where the true signal
    approaches the noise (high b; long TE in a T2 decay; an inversion recovery near its null; a
    SIR's early TIs), the measured signal sits on a floor of about 1.25σ, and every fit that
@@ -6756,6 +6865,17 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      bias recovered against simulations for each, the no-information cases with bounds, σ maps.
    - **Not the remedy for everything:** where the data have no information (CSF at b = 2000 in
      DKI: 0.25% of S0, below the floor) no noise model recovers it; mask, or constrain.
+   - **Still to do: DKI in CSF with the Rician fit** (found in tier 2's step 6, 2026-11-13). It
+     converges in 2–5% of voxels at SNR 10–20 (least squares in all): 285 of 300 voxels examined
+     stopped at the iteration limit (median 115 iterations), the likelihood flat in the 15
+     kurtosis elements, as the signal at b = 2000 is 2.5 against σ = 50. Two ways, to compare: bounds
+     on the kurtosis (on W, or MK ≥ 0 at the fit's direction; K ≥ 0 in every direction is a
+     condition on all 15, item 17), so the flat directions end on a bound as the diffusivities
+     do; or a convergence test for a flat likelihood (the objective's relative change below a
+     tolerance for several iterations: a converged fit whose parameters the data do not
+     determine, reported as such, `onbound`'s analogue). Either way MD in CSF (−4.1% at SNR 10,
+     −10.3% at 20, from the few converged) is the quantity to judge it by; masking CSF stays the
+     advice. Left out of test/validation/rician_fits.jl until then.
 21. **Tests and benchmarks** (the owner, 2026-11-08: "a systematic look at our testing and
    benchmarking infrastructure"; an audit first, then "do 1 and 6 and add other items to
    roadmap").
@@ -6818,11 +6938,13 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        differences (today only against ForwardDiff, EQUIP's own engine); DKI's MK, AK and RK
        gradients against central differences (FA, AD, RD and V1's are checked); edge cases (an
        all-false mask, empty data, Inf, as many observations as parameters).
-     - **With tier 2: the validation group** (test/validation/): crlb against Monte Carlo at
-       n = 10 000 (bench/agreement.jl moved), the search to Table 2's optima, convergence with
-       SNR, the Rician fits' statistical checks; and the large Monte Carlo checks of the main
-       suite moved there if they grow; CI runs it nightly, on demand, and before merging into
-       `main`.
+     - **With tier 2: the validation group** (test/validation/). Done (2026-11-13, tier 2
+       steps 6 and 8): crlb against Monte Carlo at n = 10 000 (agreement.jl, bench/agreement.jl
+       moved), the Rician fits' statistical checks (rician_fits.jl), the second-order bias
+       (secondorder.jl); CI runs it nightly and on demand. Still to come: the search to Table
+       2's optima, convergence with SNR, and the large Monte Carlo checks of the main suite
+       moved there if they grow; and running it before merging into `main` when a change
+       touches what it checks (CLAUDE.md).
      - **When work touches an area: consolidation**, area by area, keeping a list of the
        behaviors each test covers: loops of per-voxel assertions into dataset fits; one error
        check per error path, matching the name the message is about; regression values traced
@@ -6836,8 +6958,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        full; JSON with the commit and the machine; compared with a baseline by `judge`, the
        minimum, tolerances for this VM's ±20–50%; an older commit through a git worktree),
        `firstcall.jl` (fresh sessions: load, first calls, the precompile), `baselines/`, and
-       `comparison/` (solvers.jl and cases.jl as they are); speed.jl folded into the suite;
-       agreement.jl to the validation group. No timing assertions in tests.
+       `comparison/` (solvers.jl and cases.jl as they are); speed.jl folded into the suite
+       (agreement.jl went to the validation group, 2026-11-13). No timing assertions in tests.
 22. **Preprocessing: denoising and σ maps, masks, Gibbs ringing, perhaps filtering** (the owner,
    2026-11-09: "wait on mp-pca - put this into pre-processing steps - also median otsu - gibbs,
    maybe filtering"; not built, not ranked). The steps between the scanner's images and a fit,

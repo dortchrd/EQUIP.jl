@@ -6,7 +6,8 @@
 #   integration/   the parts together: datasets, statistics, crlb, montecarlo, sweeps, leakage,
 #                  design, files, the diffusion models, derived quantities, @mrimodel,
 #                  fits with the Rician noise model
-#   validation/    expensive statistical and numerical validation, run apart (secondorder)
+#   validation/    expensive statistical and numerical validation, run apart (secondorder,
+#                  rician_fits, agreement); CI runs it nightly
 #
 # Which ones run:
 #   Pkg.test()                                   unit and integration (CI on every push)
@@ -35,7 +36,7 @@ const GROUPS = (
     unit = ["models", "roles", "starts_solver"],
     integration = ["fitting", "simulation", "crlb", "montecarlo_sweeps", "noise_weights",
                    "scenarios_leakage", "design", "io", "diffusion", "derived", "macro", "rician"],
-    validation = ["secondorder"],
+    validation = ["secondorder", "rician_fits", "agreement"],
 )
 
 # The files to run, from the arguments: group names, "all", or file names; none: unit and integration.

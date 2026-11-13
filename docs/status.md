@@ -154,7 +154,15 @@ secondorder = true)`, the noise's own bias to second order (Box 1971, with the r
 when something fixed is wrong), parameters and derived quantities; montecarlo within 1 standard
 error in every case measured; the validation group's first file, test/validation/secondorder.jl.
 Step 7 (2026-11-13): `propagate(c, p -> 1 / p.T1)`, crlb's errors for any function of the
-parameters (the derived path's numbers for DTI's FA and MD; montecarlo for PSR/(1 + PSR)). Found while answering the owner (2026-11-09): least squares on the
+parameters (the derived path's numbers for DTI's FA and MD; montecarlo for PSR/(1 + PSR)).
+Step 6 (2026-11-13, branch `rician`): the validation group filled and run nightly in CI
+(test/validation/: rician_fits.jl, the Rician fits per model; agreement.jl, bench/agreement.jl
+moved and asserted, with `secondorder`; secondorder.jl). Measured (design.md, "Step 6, built
+and measured"): the Rician fit removes the floor's bias in tissue (T2 +0.76% against least
+squares' +41.2% at SNR 10) at the Rician bound's SD; not better than least squares where the
+floor is not the main error (T1IR in WM, DKI's MKT −12.6%); without information, converged on
+the caps; DKI in CSF does not converge (2–5%). Two roadmap items from it: the Rician fit's
+second-order bias (item 16) and DKI in CSF (item 20). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data
@@ -173,8 +181,12 @@ parameters, so the start is not the log-linear fit. Full runs on the branch: EQU
 - Uncertain inputs: a measured B1 map's SD added to the covariance.
 - With it, from the test audit (design.md item 21): the missing independent checks (the T1
   signals' analytic values, invariances, every model's Jacobian and DKI's index gradients against
-  central differences, edge cases), and test/validation/ filled with the statistical checks
-  (bench/agreement.jl, the Rician fits'), run nightly in CI.
+  central differences, edge cases). (test/validation/ filled and run nightly in CI: step 6,
+  done 2026-11-13.)
+- Still to do from tier 2 (design.md): the Rician fit's second-order bias, Cox and Snell's
+  (item 16; it would predict DKI's MKT −12.6% and T1IR's +2.9%, where maximum likelihood is not
+  better than least squares); DKI in CSF with the Rician fit (item 20: bounds on the kurtosis,
+  or a convergence test for a flat likelihood).
 
 **3. Protocol design** (items 3, 14, 19)
 - A protocol from a number of points (item 14).
@@ -238,6 +250,11 @@ first")
   sinc gradient echo (12).
 
 **The owner's own**
+- Open (2026-11-13, tier 2 step 6): Dortch et al. 2018, Fig. 1: did it show the 5-point SIR
+  (kmf fitted), and at which SNR? At 10,000 copies crlb predicts the 4-point at SNR 200 within
+  Monte Carlo error, but not the 5-point: PSR's SD is 1.28 of crlb's at SNR 200, 1.04 at 400,
+  within error from 800 (design.md, "Step 6, built and measured"). The old bench/agreement.jl
+  said "the paper: they agree".
 - The remote has moved (github.com/dortchrd/voxelfit.jl → dortchrd/EQUIP.jl): update the
   remote URL in clones (`git remote set-url origin https://github.com/dortchrd/EQUIP.jl.git`).
 - Later: whether to delete `lean`; adopt or not one working branch at a time.

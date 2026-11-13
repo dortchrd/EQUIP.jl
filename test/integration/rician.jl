@@ -82,6 +82,16 @@ end
         r = fit(m, Y2; likelihood = :rician, σ, method)
         @test abs(bias(r)) < 0.03 && all(isconverged, r.status)
     end
+    # 5. No information (free water at b up to 3000, SNR 10: the signal under the floor from
+    #    b = 1500): the fits converge, a quarter of them on the cap (ADC ≤ 4e-3) rather than
+    #    running away, and the mean is nearer the truth than least squares' (validation's
+    #    rician_fits.jl at 5000 copies: +2.1% against −20.2%, 1225 on the cap)
+    ma = ADCDecay(b = collect(0.0:500.0:3000.0))
+    Ya = simulate(ma, (S0 = 1000.0, ADC = 3.0e-3); noise = :rician, snr = 10, n = 1000,
+                  rng = MersenneTwister(8))
+    ra = fit(ma, Ya; likelihood = :rician, σ = 100.0)
+    @test all(isconverged, ra.status) && count(onbound(ra).ADC) > 100
+    @test abs(mean(ra.params.ADC) / 3.0e-3 - 1) < abs(mean(fit(ma, Ya).params.ADC) / 3.0e-3 - 1)
 end
 
 @testset "likelihood = :rician: standard errors, fitted values, maps, refit, precision" begin

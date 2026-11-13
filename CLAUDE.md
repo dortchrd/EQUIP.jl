@@ -31,8 +31,11 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   (own environment: `julia --project=bench -e 'using Pkg; Pkg.instantiate()'` once)
 - Speed of the main paths (fit!, datasets, crlb!, sweeps, montecarlo, a design, fit statistics),
   in the package's own environment: `julia -t auto --project=. bench/speed.jl` (about 1 minute)
-- Monte Carlo against crlb (bias and SD, z in Monte Carlo standard errors; T2, Dortch 2018
-  Fig. 1, an SNR sweep): `julia -t auto --project=. bench/agreement.jl` (about 25 s)
+- The validation group (expensive statistical checks, run apart; CI runs it nightly):
+  `julia -t auto --project=test test/runtests.jl validation` (about 5 minutes), or a file:
+  `agreement` (Monte Carlo against crlb, z in Monte Carlo standard errors: T2, Dortch 2018
+  Fig. 1, SNR sweeps; was bench/agreement.jl), `rician_fits` (the Rician fits per model),
+  `secondorder`
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed),
   and for the direct test command `julia --project=test -e 'using Pkg; Pkg.instantiate()'`
 - The first `using EQUIP` after a code change takes about a minute (precompile workload,
@@ -103,9 +106,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - test/: setup.jl (packages, test models, CASES, `@test_noalloc`, the independent references) and
   the groups: unit/ (models.jl: signals against their equations; roles.jl; starts_solver.jl),
   integration/ (fitting, simulation, crlb, montecarlo_sweeps, noise_weights, scenarios_leakage,
-  design, io, diffusion, derived, macro), validation/ (expensive statistical checks, run apart).
-  bench/: speed (bench/speed.jl), crlb against Monte Carlo (agreement.jl), other packages
-  (solvers.jl); their framework is on the roadmap (docs/design.md, "Tests and benchmarks").
+  design, io, diffusion, derived, macro, rician), validation/ (expensive statistical checks, run
+  apart, nightly in CI: agreement, rician_fits, secondorder). bench/: speed (bench/speed.jl),
+  the Rician baseline (rician_baseline.jl), other packages (solvers.jl); their framework is on
+  the roadmap (docs/design.md, "Tests and benchmarks").
 - docs/status.md: where the work stands (branches, what waits on the lab, open questions): the
   map to read first when coming back; design.md has the reasons.
 
