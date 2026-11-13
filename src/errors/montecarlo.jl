@@ -15,7 +15,7 @@
 # 2013;69:127 (within 8%, at very high SNR for the 7-parameter mcDESPOT fit).
 #
 # One case (a Scenario: the truth and the fit, with the fit's starts), or a sweep (`snr = [...]`,
-# `vary = :kmf => 5:2.5:20`, sweep.jl), scenarios side by side and data from another model
+# `vary = (kmf = 5:2.5:20,)`, sweep.jl), scenarios side by side and data from another model
 # (`simulate_with`); docs/design.md, "montecarlo".
 # =================================================================================================
 
@@ -104,7 +104,7 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
   for [`crlb`](@ref) (`uncertain = (B1 = 0.03,)`): each copy is fitted with its own value, the
   fit's plus a Gaussian error with that SD (independent of the noise; the same draws for every
   setting of a sweep), and crlb alongside adds the same to its covariance.
-- Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = :kmf => 5:2.5:20` (true values; the
+- Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = (kmf = 5:2.5:20,)` (true values; the
   fit stays the scenario's, and starts taken from the truth follow it; a derived quantity, `vary
   = :FA => ...`, with the truth given by derived quantities), every combination; the
   result is a [`Sweep`](@ref) of `MonteCarloResult`s, with a table in `s.rows`. Every setting's
@@ -136,7 +136,7 @@ m = QMTSIR(; SIR_4POINT...)
 mc = montecarlo(m, θ; noise = :rician, snr = 200, kmf = 12.5)   # the fit assumes kmf = 12.5
 mc.bias.PSR, mc.sd.PSR, mc.sd.PSR / mc.crlb.sd.PSR          # measured, and against the CRLB
 montecarlo(m, θ; noise = :rician, snr = 200, starts = :model, rng = MersenneTwister(1))   # fit's own starts
-montecarlo(m, nominal(m, :SIR_WM_II); noise = :rician, snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # Fig. 2B
+montecarlo(m, nominal(m, :SIR_WM_II); noise = :rician, snr = 200, kmf = 12.5, vary = (kmf = 5:2.5:20,))  # Fig. 2B
 m5 = QMTSIR(; SIR_5POINT...)
 montecarlo(m5, (fixed = Scenario(m5, θ), free = Scenario(m5, θ; kmf = Free())); noise = :rician, snr = 200)
 ```
@@ -146,7 +146,7 @@ function montecarlo(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(),
                     vary = (;), simulate_with = nothing, solver::LM = LM(),
                     precision::Type{<:AbstractFloat} = Float64, starts::Symbol = :truth,
-                    uncertain::NamedTuple = (;), changes...)
+                    uncertain = (;), changes...)
     # The scenario from the truth and the changes: every keyword that is not one of
     # montecarlo's own, as for `fit` (whose options, `solver` and `precision`, are among them).
     haskey(changes, :mask) && throw(ArgumentError("`mask`: montecarlo fits every copy"))
@@ -160,7 +160,7 @@ function montecarlo(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, �
                     Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
                     simulate_with = nothing, solver::LM = LM(),
-                    precision::Type{<:AbstractFloat} = Float64, uncertain::NamedTuple = (;))
+                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;))
     foreach(x -> _check_protocol(m, x), _scenarios(s))
     vary = _varyaxes(vary)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))
@@ -205,7 +205,7 @@ function _montecarlo(m, s, truth, snr, σ, Σ, n, options, noise, averages, aver
     dm, dt = simulate_with === nothing ? (m, truth) : (simulate_with.first, simulate_with.second)
     Y = simulate(dm, dt; snr, σ, Σ, noise, averages, averaging, n, rng = Xoshiro(seed))
     # Uncertain inputs: each copy fitted with its own value of each (a fixed map over the copies)
-    roles = merge(_roles_at(s, m, θ), isempty(uncertain) ? (;) : _inputdraws(s, uncertain, n, seed))
+    roles = merge(_roles_at(s, m, θ), c.uncertain === nothing ? (;) : _inputdraws(s, c.uncertain, n, seed))
     res = fit(m, Y; options..., weights = s.weights, _rician_fit(s, c, noise, averages)...,
               roles...)                                      # the scenario's fit
 

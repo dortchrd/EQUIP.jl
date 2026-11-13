@@ -296,8 +296,8 @@ _fixednames(::LeakageCache{C}) where {C} = C
 # `uncertain` checked against the scenario and made into an `_Uncertain`; `nothing` for none.
 # Each must be a parameter the fit holds at a number; refused where leakage is not yet (a Rician
 # fit, least squares on magnitude data, data from another model).
-function _uncertain(m::MRIModel, s::Scenario, u::NamedTuple; noise = :gaussian,
-                    simulate_with = nothing)
+function _uncertain(m::MRIModel, s::Scenario, u; noise = :gaussian, simulate_with = nothing)
+    u = _byname(u, "uncertain", "(B1 = 0.03,)")
     isempty(u) && return nothing
     s.likelihood === :rician && throw(ArgumentError("`uncertain` with likelihood = :rician: " *
         "not yet (leakage of a Rician fit is not yet)"))

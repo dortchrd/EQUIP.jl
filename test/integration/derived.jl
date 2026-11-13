@@ -222,18 +222,18 @@ end
     @test scenarios(DTI, spec).results[1].truth == s.truth          # (a named tuple: a tissue)
     # a sweep over FA: MD and the direction held as given, each setting the crlb of its own
     # truth; montecarlo's too; a parameter varied as before
-    sw = crlb(mt, spec; snr = 50, vary = :FA => [0.3, 0.6])
+    sw = crlb(mt, spec; snr = 50, vary = (FA = [0.3, 0.6],))
     @test [r.fit.FA for r in sw.results] ≈ [0.3, 0.6] && all(r -> r.fit.MD ≈ 0.8e-3, sw.results)
     @test sw.results[2].sd == crlb(mt, merge(spec, (FA = 0.6,)); snr = 50).sd
     @test count(r -> r.parameter == :FA, sw.rows) == 2 && sw.settings[1] == (FA = 0.3,)
-    msw = montecarlo(mt, spec; snr = 50, noise = :gaussian, n = 50, vary = :FA => [0.3, 0.6], rng = MersenneTwister(3))
+    msw = montecarlo(mt, spec; snr = 50, noise = :gaussian, n = 50, vary = (FA = [0.3, 0.6],), rng = MersenneTwister(3))
     @test [r.crlb.fit.FA for r in msw.results] ≈ [0.3, 0.6]
-    @test crlb(mt, spec; snr = 50, vary = :S0 => [500.0, 1000.0]).results[2].sd == crlb(mt, θ; snr = 50).sd
+    @test crlb(mt, spec; snr = 50, vary = (S0 = [500.0, 1000.0],)).results[2].sd == crlb(mt, θ; snr = 50).sd
     # refused: a derived quantity varied with a truth given by parameters (what would stay
     # fixed?); a name the model does not take; `scenarios`' vary, which takes parameters
-    @test occursin("given by its parameters", msg(() -> crlb(mt, θ; snr = 50, vary = :FA => [0.3])))
-    @test occursin("the derived quantities it takes", msg(() -> crlb(mt, spec; snr = 50, vary = :Fa => [0.3])))
-    @test occursin("takes parameters", msg(() -> scenarios(DTI, spec; vary = :FA => [0.3])))
+    @test occursin("given by its parameters", msg(() -> crlb(mt, θ; snr = 50, vary = (FA = [0.3],))))
+    @test occursin("the derived quantities it takes", msg(() -> crlb(mt, spec; snr = 50, vary = (Fa = [0.3],))))
+    @test occursin("takes parameters", msg(() -> scenarios(DTI, spec; vary = (FA = [0.3],))))
     # data from another model, by derived quantities: DTI fitted to DKI's signal with K = 1
     # (b to 2000 s/mm²): the kurtosis the tensor leaves out biases MD down and FA up
     m66 = DTI(; diffusionencoding(bv, G)...)

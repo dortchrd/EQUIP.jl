@@ -80,7 +80,7 @@ end
     m4 = QMTSIR(; SIR_4POINT...)
     θ = nominal(m4, :SIR_WM_II)                                   # kmf = 10
     # crlb against the true kmf, the fit keeping 12.5 (Dortch 2018 Fig. 2B): one crlb each
-    s = crlb(m4, θ; snr = 200, kmf = 12.5, vary = :kmf => 5.0:2.5:20.0)
+    s = crlb(m4, θ; snr = 200, kmf = 12.5, vary = (kmf = 5.0:2.5:20.0,))
     @test s isa Sweep && length(s) == 7 && eltype(s) <: CRLBResult
     @test s.settings[1] == (kmf = 5.0,) && s.settings[end] == (kmf = 20.0,)
     @test s[3].bias == crlb(m4, (; θ..., kmf = 10.0); snr = 200, kmf = 12.5).bias
@@ -90,8 +90,8 @@ end
     @test s[2].sd == crlb!(CRLBCache(m4, θ; kmf = 12.5), (; θ..., kmf = 7.5); snr = 200).sd
     @test cond(s[2]) == cond(crlb(m4, (; θ..., kmf = 7.5); snr = 200, kmf = 12.5))
     @test cond.(s.results)[2] == cond(s[2])
-    st = crlb(m4, (; θ..., R1m = 1.0); snr = 200, vary = :R1m => [:R1f, 1.2])
-    @test st[1].bias == crlb(m4, (; θ..., R1m = 1.0); snr = 200, R1m = 1.0, vary = :R1m => [θ.R1f]).results[1].bias
+    st = crlb(m4, (; θ..., R1m = 1.0); snr = 200, vary = (R1m = [:R1f, 1.2],))
+    @test st[1].bias == crlb(m4, (; θ..., R1m = 1.0); snr = 200, R1m = 1.0, vary = (R1m = [θ.R1f],)).results[1].bias
     @test st[2].sd == crlb!(CRLBCache(m4, (; θ..., R1m = 1.0)), (; θ..., R1m = 1.2); snr = 200).sd
     @test [r.fixed.kmf for r in s] == fill(12.5, 7)               # the fit never changes
     @test length(s.rows) == 7 * 4 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR
@@ -106,9 +106,10 @@ end
     @test length(u) == 8 && u.settings[1] == (snr = 100, kmf = 5.0, Sm = 0.8)
     @test u.settings[2] == (snr = 100, kmf = 5.0, Sm = 0.83) && u.settings[end] == (snr = 200, kmf = 10.0, Sm = 0.83)
     # several parameters as a vector of pairs: the same settings, in the same order
-    u2 = crlb(m4, θ; snr = [100, 200], vary = [:kmf => [5.0, 10.0], :Sm => [0.8, 0.83]])
+    u2 = crlb(m4, θ; snr = [100, 200], vary = (kmf = [5.0, 10.0], Sm = [0.8, 0.83]))
     @test u2.settings == u.settings && [r.sd for r in u2] == [r.sd for r in u]
-    @test occursin("vary = :kmf => 5:2.5:20", msg(() -> crlb(m4, θ; snr = 200, vary = 5:10)))
+    @test occursin("vary = (kmf = 5:2.5:20,)", msg(() -> crlb(m4, θ; snr = 200, vary = 5:10)))
+    @test occursin("Got a pair", msg(() -> crlb(m4, θ; snr = 200, vary = :kmf => 5:2.5:20)))   # pairs: not since 2026-11-13
     # the fit's settings are keywords, as for `fit`; the old form and unknown names explained
     @test occursin("as keywords, as for `fit`", msg(() -> crlb(m4, θ; snr = 200, fit = (kmf = 5.0,))))
     @test occursin("side by side as scenarios", msg(() -> crlb(m4, θ; snr = 200, fits = (a = (;),))))
@@ -124,7 +125,7 @@ end
     @test a[1].crlb.sd == crlb(m4, θ; snr = 100).sd
     # the bias curve measured matches crlb's (Gaussian noise; within 4 standard errors)
     v = montecarlo(m4, θ; snr = 200, n = 2000, noise = :gaussian, kmf = 12.5,
-                   vary = :kmf => [5.0, 20.0], rng = MersenneTwister(2))
+                   vary = (kmf = [5.0, 20.0],), rng = MersenneTwister(2))
     for r in v, p in keys(r.mean)
         @test abs(r.mean[p] - r.crlb.fit[p]) < 4 * r.se_mean[p]
     end
@@ -140,9 +141,9 @@ end
     @test occursin(r"\n  kmf +parameter +rel bias +crlb +SD/crlb +rel RMSE +crlb +converged\n", sm)
     @test repr(s) == "Sweep(7 crlb results: kmf)" && repr(a) == "Sweep(2 montecarlo results: snr)"
     # mistakes
-    @test occursin("not a parameter", msg(() -> crlb(m4, θ; snr = 200, vary = :kfm => [1.0])))
-    @test occursin("vector or a range", msg(() -> crlb(m4, θ; snr = 200, vary = :kmf => 5.0)))
-    @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; noise = :rician, snr = 200, vary = :kmf => Float64[])))
+    @test occursin("not a parameter", msg(() -> crlb(m4, θ; snr = 200, vary = (kfm = [1.0],))))
+    @test occursin("vector or a range", msg(() -> crlb(m4, θ; snr = 200, vary = (kmf = 5.0,))))
+    @test occursin("vector or a range", msg(() -> montecarlo(m4, θ; noise = :rician, snr = 200, vary = (kmf = Float64[],))))
 end
 
 @testset "scenarios side by side, and data from another model" begin
@@ -184,10 +185,10 @@ end
     @test abs(mc.sd.T2 - c.sd.T2) < 4 * mc.se_sd.T2
     @test montecarlo(mt, ref; noise = :rician, snr = 100, n = 50, simulate_with = mb => θb).noise === :rician
     # vary changes the data's truth; the reference stays
-    w = crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :fshort => [0.1, 0.3])
+    w = crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = (fshort = [0.1, 0.3],))
     @test w[1].fit.T2 > w[2].fit.T2 && w[1].truth == ref && w[2].data.second.fshort == 0.3
     @test occursin("not a parameter of T2BiexpDecay",
-                   msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = :T2 => [0.07])))
+                   msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, vary = (T2 = [0.07],))))
     # mistakes
     @test occursin("the sandwich only", msg(() -> crlb(mt, ref; snr = 100, simulate_with = mb => θb, cov = :biased)))
     @test occursin("observations", msg(() -> crlb(mt, ref; snr = 100, simulate_with = T2BiexpDecay(TE = te[1:10]) => θb)))

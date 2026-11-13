@@ -38,7 +38,7 @@ a protocol (a model with its acquisition): `crlb(m, s; snr = 200)`. Made from a 
 true value (numbers, or ties), as for [`simulate`](@ref): e.g. `nominal(QMTSIR, :SIR_WM_I)`. Or,
 for a model with derived quantities ([`fromderived`](@ref)), the truth by them, as `nominal` takes
 them: `Scenario(DTI, (S0 = 1000.0, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)))`; a sweep can
-then vary one of them (`crlb(m, θ; vary = :FA => 0.2:0.1:0.9)`, the others held as given).
+then vary one of them (`crlb(m, θ; vary = (FA = 0.2:0.1:0.9,))`, the others held as given).
 
 The fit is built from the truth:
 

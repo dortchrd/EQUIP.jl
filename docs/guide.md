@@ -29,6 +29,13 @@ fields).
 Acquisition fields have one value per observation. Where it makes sense, a single number
 stands for all of them, e.g. `T1MFA(FA = [2, 5, 10, 15], TR = 0.015)`. **All times are in seconds.**
 
+Values given by name are named tuples everywhere, as the parameters are and as the results come
+back (`res.params.T2`, `c.sd.PSR`): the true values swept, `vary = (kmf = 5:2.5:20,)`; an
+uncertain input, `uncertain = (B1 = 0.03,)`; a protocol design's `acquisition = (TI = (0.01,
+10.0), TD = (0.01, 10.0))` and `weights = (PSR = 1, R1f = 0)`. With one entry Julia needs the
+trailing comma, `(B1 = 0.03,)`, or the form `(; B1 = 0.03)`: `(B1 = 0.03)` is just the number,
+and EQUIP says so. (The fit's own settings are plain keywords, one per parameter: `kmf = 12.5`.)
+
 ## Quick start
 
 ```julia
@@ -727,12 +734,12 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   statistics come with standard errors (`se_mean`, `se_sd`). The parameters are fitted to the
   same noise, so their errors move together: several ratios low in one sample are one
   fluctuation, not several.
-- **Sweeps:** `snr = [100, 200, 400]` and `vary = :kmf => 5:2.5:20` (true values; several as
-  `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`; the fit stays the scenario's, so with
+- **Sweeps:** `snr = [100, 200, 400]` and `vary = (kmf = 5:2.5:20,)` (true values; several as
+  `vary = (kmf = 5:5:20, PSR = [0.1, 0.2])`; the fit stays the scenario's, so with
   `kmf = 12.5` this is the bias of that assumption against the truth, the paper's Fig. 2B; starts
   taken from the truth follow it; a derived quantity, with the truth given by derived
   quantities: `crlb(m, (S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)); snr = 50,
-  vary = :FA => 0.2:0.1:0.9)` holds MD and the direction as given), and scenarios side by side, by name,
+  vary = (FA = 0.2:0.1:0.9,))` holds MD and the direction as given), and scenarios side by side, by name,
   `crlb(m, (assumed = s, fitted = Scenario(QMTSIR, θ; kmf = Free())); snr = 200)`, run every
   combination and return a `Sweep`: `s[i]`, `s.settings`, and `s.rows`, a table
   (`DataFrame(s.rows)`). In a Monte Carlo sweep every setting sees the same noise (one seed
@@ -891,7 +898,7 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   ```julia
   box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, midpoint = true, vary = (PSR = [0.05, 0.2],
                   kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))                   # 17
-  robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
+  robust = scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), kmf = 12.5, Sm = 0.83)  # 4 × 3
   crlb(m, robust; snr = 200)          # one crlb result per scenario (montecarlo too), a Sweep
   ```
 

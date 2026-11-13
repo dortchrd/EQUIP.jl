@@ -404,7 +404,7 @@ usual. The default, `nothing`: none (the names are then unknown parameters).
 `fromderived(M)`, with the type alone, lists the names it takes (the default: none). With it, a
 tissue preset can give derived quantities ([`nominal`](@ref)`(DTI, :DKI_CC_splenium; direction)`
 takes the preset's MD and FA, and leaves its T1 alone), and a sweep can vary one
-(`crlb(m, θ; vary = :FA => 0.2:0.1:0.9)`, with θ given by its derived quantities).
+(`crlb(m, θ; vary = (FA = 0.2:0.1:0.9,))`, with θ given by its derived quantities).
 """
 fromderived(::Type{<:MRIModel}, q::NamedTuple) = nothing
 fromderived(::Type{<:MRIModel}) = ()

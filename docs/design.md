@@ -6812,6 +6812,29 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        to its users (its options name files, not functions); its code, its tests and the MAT
        extension's precompile workload use the new names.
      - `compare` and `Comparison`: left as they are.
+   - **Values by name: one rule, named tuples (2026-11-13).** The owner, on `uncertain = (B1 =
+     0.03,)`: "not sure I like [it]...does this match our other conventions?", then, offered
+     pairs (`uncertain = :B1 => 0.03`, as `vary` took them): "I am wondering if I am going down
+     a rabbit hole with weird syntax that users will think is strange just to avoid a trailing
+     comma - and there seems to be some inconsistency across the package"; then "yes, go ahead"
+     with the rule below. What there was: the fit's settings as a keyword per parameter (`kmf =
+     12.5`); `vary` as a pair in crlb's and montecarlo's docs, a named tuple in `scenarios`'
+     (both taken); protocol design's `acquisition` and `weights`, and `uncertain`, as named
+     tuples. A missing comma (`(B1 = 0.03)`, to Julia the number) gave `vary` and `acquisition`
+     a message saying what to write, but `uncertain` and design's `weights` a bare TypeError
+     ("expected NamedTuple, got a value of type Float64").
+     - **The rule**: values given by name are named tuples, the shape of the parameters and of
+       every result (`res.params.T2`, `c.sd.PSR`); the fit's own settings stay plain keywords.
+       One check for all of them, `_byname` (derivatives.jl), whose message writes the form out
+       and names the comma (or `(; name = value)`). `vary` takes named tuples only: its pairs
+       dropped (no users), its examples rewritten in src, tests, the guide and bench (61, by a
+       script that tracks brackets; this log keeps the old form where it records the past).
+     - **`weights`, two meanings: for the names review before the release.** In `fit`, `crlb`,
+       `Scenario` and `montecarlo` it is the observation weights, one per image (`weights =
+       nex`); in protocol design, Eq. 5's weight per parameter (`weights = (PSR = 1, R1f = 0)`).
+       The command line tells them apart by an `=` (`--weights 1,1,2,2` against `--weights
+       PSR=1,R1f=0`). A different name for design's (e.g. `importance`, or `objective = (PSR =
+       1, ...)`) is the candidate; not changed now.
      - **`:loglinear` kept, with a warning** (the owner: "does :loglinear make sense? it sounds
        like we are doing a linear regression which is not fully true"; then "keep :loglinear
        and add the setup warning"). The name is true for every model that uses it: ln S is

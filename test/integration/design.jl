@@ -77,6 +77,9 @@
     @test occursin("(lower, upper)", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (TI = (1.0, 0.1),), scantime = st)))
     @test occursin("`snr` or `σ`", msg(() -> ProtocolDesign(m4, s4; acquisition = space, scantime = st)))
     @test occursin("not a free parameter", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, weights = (kmf = 1,))))
+    # values by name are named tuples (`_byname`): a single entry without its comma is the value
+    @test occursin("`weights = (PSR = 1, R1f = 0)`", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, weights = 1)))
+    @test occursin("`acquisition` takes values by name", msg(() -> ProtocolDesign(m4, s4; snr = 200, acquisition = (0.01, 10.0), scantime = st)))
     @test occursin("the scenario is for QMTSIR", msg(() -> ProtocolDesign(T2Decay(TE = TD5), s4; snr = 200, acquisition = (TE = (0.01, 1.0),), scantime = sum)))
     @test occursin("is 0 in a scenario's truth", msg(() -> ProtocolDesign(m4, [Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I; PSR = 0.0))];
                                                                           snr = 200, acquisition = space, scantime = st)))

@@ -1,9 +1,9 @@
 # =================================================================================================
 # Sweeps: crlb or montecarlo over several noise levels and true values
 #
-#   crlb(m, s; snr = [100, 200], vary = :kmf => 5:2.5:20)        14 settings, one crlb each
-#   montecarlo(m, s; snr = 200, vary = :kmf => 5:2.5:20)          7 settings, one run each
-#   crlb(m, s; snr = 200, vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]])   8 settings
+#   crlb(m, s; snr = [100, 200], vary = (kmf = 5:2.5:20,))        14 settings, one crlb each
+#   montecarlo(m, s; snr = 200, vary = (kmf = 5:2.5:20,))          7 settings, one run each
+#   crlb(m, s; snr = 200, vary = (kmf = 5:5:20, PSR = [0.1, 0.2]))   8 settings
 #   crlb(m, (fixed = s1, free = s2); snr = [100, 200])            4 settings: fits side by side
 #
 # The settings are every combination of the values given, the first keyword varying slowest
@@ -19,7 +19,7 @@
     Sweep
 
 What [`crlb`](@ref) and [`montecarlo`](@ref) return for several settings (`snr = [...]`,
-`vary = :kmf => 5:2.5:20`):
+`vary = (kmf = 5:2.5:20,)`):
 
 - `settings`: one named tuple per setting, e.g. `(snr = 100, kmf = 5.0)`
 - `results`: the [`CRLBResult`](@ref) or [`MonteCarloResult`](@ref) of each, in the same order;
@@ -42,18 +42,10 @@ Base.eltype(::Type{Sweep{R}}) where {R} = R
 
 _issweep(snr, vary, fits = (;)) = snr isa AbstractVector || !isempty(vary) || !isempty(fits)
 
-# `vary` as a named tuple of axes, from one pair (`:kmf => 5:2.5:20`), several (a vector or tuple
-# of pairs: `[:kmf => 5:5:20, :PSR => [0.1, 0.2]]`), or a named tuple (`(kmf = 5:5:20, PSR =
-# [0.1, 0.2])`). `(; pairs...)` makes a named tuple from pairs of a name and a value.
-_varyaxes(v::NamedTuple) = v
-_varyaxes(v::Pair{Symbol}) = NamedTuple{(v.first,)}((v.second,))
-function _varyaxes(v::Union{AbstractVector,Tuple})
-    all(p -> p isa Pair{Symbol}, v) || throw(ArgumentError(_VARY_FORMS))
-    return (; v...)
-end
-_varyaxes(v) = throw(ArgumentError(_VARY_FORMS))
-const _VARY_FORMS = "`vary`: a parameter's name and its true values, `vary = :kmf => 5:2.5:20`, " *
-    "or several, `vary = [:kmf => 5:5:20, :PSR => [0.1, 0.2]]`"
+# `vary`: the true values by name, a named tuple of axes, `(kmf = 5:2.5:20,)` or several, `(kmf =
+# 5:5:20, PSR = [0.1, 0.2])`, as every value given by name (`_byname`, derivatives.jl). It also
+# took pairs, `:kmf => 5:2.5:20`, until 2026-11-13: one form now, the package's.
+_varyaxes(v) = _byname(v, "vary", "(kmf = 5:2.5:20,)")
 
 # Every combination of the noise levels and the varied values, the first keyword slowest.
 # `Iterators.product` varies its FIRST argument fastest, so the axes go in reversed and each
@@ -61,14 +53,14 @@ const _VARY_FORMS = "`vary`: a parameter's name and its true values, `vary = :km
 function _sweep_settings(m::_ModelOrType, snr, vary::NamedTuple, fits::NamedTuple = (;))
     roles = parameters(m)
     for (k, v) in pairs(vary)
-        k === :fit && throw(ArgumentError("`vary = :fit => ...`: `fit` names the fits in a " *
+        k === :fit && throw(ArgumentError("`vary = (fit = ...,)`: `fit` names the fits in a " *
             "sweep; for several fits, give scenarios side by side: `crlb(m, (a = s1, b = s2); ...)`"))
         M = m isa Type ? m : typeof(m)
-        haskey(roles, k) || k in fromderived(M) || throw(ArgumentError("`vary = :$k => ...`: " *
+        haskey(roles, k) || k in fromderived(M) || throw(ArgumentError("`vary = ($k = ...,)`: " *
             "not a parameter of $(_modelname(m)); the parameters are $(keys(roles))" *
             (isempty(fromderived(M)) ? "" :
              ", and the derived quantities it takes, $(join(fromderived(M), ", "))")))
-        v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = :$k => ...`: give " *
+        v isa AbstractVector && !isempty(v) || throw(ArgumentError("`vary = ($k = ...,)`: give " *
             "the values as a vector or a range, e.g. `:$k => [5.0, 10.0]` or `:$k => 5:2.5:20`"))
     end
     ax = map(collect, vary)                    # the axes: the values of each keyword
@@ -92,11 +84,11 @@ _truth_of(setting, s::Scenario, ::Pair) = s.truth
 function _truth_of(setting, s::Scenario, ::Nothing)
     v = _varied(setting)
     all(n -> haskey(s.truth, n), keys(v)) && return merge(s.truth, v)   # parameters varied
-    # A derived quantity varied (`vary = :FA => ...`): each setting's truth made again from the
+    # A derived quantity varied (`vary = (FA = ...,)`): each setting's truth made again from the
     # truth as given (`s.given`, e.g. MD, FA and the direction), with the varied values in place,
     # so that what stays fixed is what the truth was given by: with MD and FA given, MD.
     for n in keys(v)
-        haskey(s.truth, n) || haskey(s.given, n) || throw(ArgumentError("`vary = :$n => ...`: " *
+        haskey(s.truth, n) || haskey(s.given, n) || throw(ArgumentError("`vary = ($n = ...,)`: " *
             "$n is a derived quantity, and the truth was given by its parameters: give it by " *
             "its derived quantities, e.g. `(S0 = ..., MD = ..., FA = ..., direction = ...)` for " *
             "DTI, so that what stays fixed while $n varies is what you gave"))
@@ -231,7 +223,7 @@ end
 #   scenarios(QMTSIR, :SIR_WM_I; kmf = 12.5)                         one
 #   scenarios(QMTSIR, [:SIR_WM_I, :SIR_GM]; kmf = 12.5)              discrete tissues
 #   scenarios(QMTSIR, θ; vary = (PSR = [0.05, 0.2], ...), midpoint = true)   a box: corners + center
-#   scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], Sm = 0.83)   each tissue × each value
+#   scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), Sm = 0.83)   each tissue × each value
 #
 # A sweep of the truth, as `vary` is for crlb and montecarlo (the same forms and order; the fit
 # never changes), whose results are the scenarios themselves rather than their numbers: a
@@ -253,8 +245,8 @@ the worst.
   (filled in from the model as [`nominal`](@ref) does), or several: a vector of them, or a named
   tuple of named truths, `(wm = θ1, gm = θ2)`. With several, `settings` has their name (or
   place) as `tissue`, varying slowest.
-- `vary`: true values to combine with each truth, as crlb's `vary` (`:Sm => [0.78, 0.88]`,
-  `[:kmf => [5, 20], :PSR => [0.05, 0.2]]`, or a named tuple): every combination, the first
+- `vary`: true values to combine with each truth, by name, as crlb's `vary` (`(Sm = [0.78,
+  0.88],)`, or several, `(kmf = [5, 20], PSR = [0.05, 0.2])`): every combination, the first
   parameter varying slowest. Two values each give the corners of a box; more, a grid.
 - `midpoint = true`: also the box's center for each truth (each varied parameter halfway
   between its smallest and largest value, to 12 significant digits), first, as calcVmax's
@@ -295,7 +287,7 @@ tissues = [:SIR_WM_I, :SIR_WM_II, :SIR_GM, :SIR_lesion]
 s4 = scenarios(QMTSIR, tissues; kmf = 12.5)                       # Dortch 2018 (calcVmax 'multiple')
 box = scenarios(QMTSIR, nominal(QMTSIR); kmf = 12.5, midpoint = true,   # 'ranges': 2⁴ + 1
                 vary = (PSR = [0.05, 0.2], kmf = [5, 20], R1f = [0.5, 1.5], Sf = [-1, -0.8]))
-robust = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)  # 4 × 3
+robust = scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), kmf = 12.5, Sm = 0.83)  # 4 × 3
 d = ProtocolDesign(QMTSIR(; SIR_4POINT..., magnitude = false), robust; snr = 200,
                    acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0)),
                    scantime = m -> sum(m.TI .+ m.TD .+ 0.3))
@@ -306,13 +298,13 @@ function scenarios(M::_ModelOrType, truths; vary = (;), midpoint::Bool = false,
                    starts::Symbol = :truth, changes...)
     named = _named_truths(M, truths)               # name => complete truth, or nothing => one
     ax = _varyaxes(vary)
-    haskey(ax, :tissue) && throw(ArgumentError("`vary = :tissue => ...`: `tissue` names the truths; give several truths instead"))
+    haskey(ax, :tissue) && throw(ArgumentError("`vary = (tissue = ...,)`: `tissue` names the truths; give several truths instead"))
     for n in keys(ax)      # a derived quantity the model takes (others: "not a parameter", below)
         haskey(parameters(M), n) || !(n in fromderived(M isa Type ? M : typeof(M))) ||
-            throw(ArgumentError("`scenarios`: `vary = :$n => ...` takes " *
+            throw(ArgumentError("`scenarios`: `vary = ($n = ...,)` takes " *
             "parameters; to vary a derived quantity, give crlb or montecarlo the truth by its " *
             "derived quantities: `crlb(m, (S0 = ..., MD = ..., FA = ..., direction = ...); " *
-            "vary = :FA => ...)`"))
+            "vary = (FA = ...,))`"))
     end
     # Every combination of the varied values (crlb's order: the first slowest), then the box's
     # center first, as calcVmax evaluates it first.
@@ -386,7 +378,7 @@ end
 # `Sweep` of scenarios needs `Sweep` defined, which this file does after them.
 function crlb(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, cov::Symbol = :sandwich, vary = (;), simulate_with = nothing,
-              noise = nothing, averaging = nothing, uncertain::NamedTuple = (;))
+              noise = nothing, averaging = nothing, uncertain = (;))
     noise, averaging = _crlb_noise(set.results, noise, averaging, averages)
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
@@ -403,7 +395,7 @@ function montecarlo(m::MRIModel, set::Sweep{<:Scenario}; snr = nothing, σ = not
                     Σ = nothing, n::Integer = 10_000, noise = nothing, averages = nothing,
                     averaging = nothing, rng::AbstractRNG = Random.default_rng(), vary = (;),
                     simulate_with = nothing, solver::LM = LM(),
-                    precision::Type{<:AbstractFloat} = Float64, uncertain::NamedTuple = (;))
+                    precision::Type{<:AbstractFloat} = Float64, uncertain = (;))
     _check_set(set, vary, simulate_with)
     foreach(x -> _check_protocol(m, x), set.results)
     n >= 2 || throw(ArgumentError("montecarlo needs at least 2 noisy copies (n = $n)"))

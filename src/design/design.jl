@@ -55,7 +55,7 @@ MRM 2010), the worst scenario's sum of relative mean squared errors times the sc
   each a truth and the fit judged against it (a tissue, and what the fit assumes):
   `scenarios(QMTSIR, tissues; kmf = 12.5)`. A wrong assumption counts as the bias it causes;
   uncertain conditions are more scenarios, the truth changed and the fit kept:
-  `scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)`. After an
+  `scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), kmf = 12.5, Sm = 0.83)`. After an
   evaluation, `d.values` holds each scenario's value.
 - The noise, independent: `snr` (relative to each scenario's scale parameter, as for `crlb`)
   or `σ` (a number, or one per point); with `averages` (the number of averages of each point,
@@ -112,7 +112,7 @@ end
 
 function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
                         averages = nothing, acquisition = nothing, scantime = nothing,
-                        constraints = nothing, shared = (), weights::NamedTuple = (;),
+                        constraints = nothing, shared = (), weights = (;),
                         budget = nothing, aggregate = maximum, cov::Symbol = :sandwich,
                         vary = nothing, noise = nothing, averaging = nothing,
                         uncertain = nothing)
@@ -127,9 +127,12 @@ function ProtocolDesign(m::MRIModel, scenarios; snr = nothing, σ = nothing,
     vary === nothing || throw(ArgumentError("`vary` changes true parameter values (crlb, " *
         "montecarlo, scenarios); the acquisition to optimize is `acquisition = (TI = (0.01, " *
         "10.0), TD = (0.01, 10.0))`, each field with its bounds"))
-    acquisition isa NamedTuple && !isempty(acquisition) ||
-        throw(ArgumentError("give `acquisition`, the fields to optimize with their bounds (s), " *
-                            "e.g. `acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0))`"))
+    noacq = ArgumentError("give `acquisition`, the fields to optimize with their bounds (s), " *
+                          "e.g. `acquisition = (TI = (0.01, 10.0), TD = (0.01, 10.0))`")
+    acquisition === nothing && throw(noacq)
+    acquisition = _byname(acquisition, "acquisition", "(TI = (0.01, 10.0), TD = (0.01, 10.0))")
+    isempty(acquisition) && throw(noacq)
+    weights = _byname(weights, "weights", "(PSR = 1, R1f = 0)")      # (named tuples: `_byname`)
     ss = scenarios isa Scenario ? Scenario[scenarios] : Scenario[s for s in scenarios]
     isempty(ss) && throw(ArgumentError("give at least one scenario"))
     foreach(s -> _check_protocol(m, s), ss)

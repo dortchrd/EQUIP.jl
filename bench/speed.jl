@@ -92,7 +92,7 @@ for (label, m, kw) in (("4-point, kmf assumed 12.5", QMTSIR(; SIR_4POINT...), (k
     row("crlb! " * label, @sprintf("%6.2f µs, %d bytes", 1e6t, a))
 end
 m4 = QMTSIR(; SIR_4POINT...)
-t = best(() -> crlb(m4, θwm; snr = 200, kmf = 12.5, vary = :kmf => 5.0:0.5:20.0), 20) / 31
+t = best(() -> crlb(m4, θwm; snr = 200, kmf = 12.5, vary = (kmf = 5.0:0.5:20.0,)), 20) / 31
 row("crlb sweep over 31 true kmf, 4-point", @sprintf("%6.2f µs a setting", 1e6t))
 
 # -------------------------------------------------------------------------------------------------

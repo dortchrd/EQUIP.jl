@@ -62,7 +62,7 @@
     mm = montecarlo(m4, θ; noise = :rician, snr = 200, n = 200, kmf = 12.5, starts = :model, rng = MersenneTwister(1))
     @test mm.result.settings.M0f.start === :scale && mm.result.settings.PSR.start == own.PSR.start
     # in a sweep over true values the starts from the truth follow it; the fixed values stay
-    v = montecarlo(m4, s; noise = :rician, snr = 200, n = 50, vary = :PSR => [0.1, 0.15], rng = MersenneTwister(2))
+    v = montecarlo(m4, s; noise = :rician, snr = 200, n = 50, vary = (PSR = [0.1, 0.15],), rng = MersenneTwister(2))
     @test [r.result.settings.PSR.start for r in v] == [0.1, 0.15]
     @test [r.result.settings.kmf for r in v] == [Fixed(12.5), Fixed(12.5)]
     # a start that depends on the protocol: kept as a function, computed for each protocol
@@ -223,6 +223,7 @@ end
     @test occursin("`R1m` is tied", msg(() -> crlb(QMTSIR(; SIR_4POINT...), θq; snr = 200, uncertain = (R1m = 0.1,))))
     @test occursin("`T2` is not a parameter of T1MFA", msg(() -> crlb(m, θ; snr = 1000, uncertain = (T2 = 0.01,))))
     @test occursin("SD of `B1`", msg(() -> crlb(m, θ; snr = 1000, uncertain = (B1 = -0.03,))))
+    @test occursin("trailing comma", msg(() -> crlb(m, θ; snr = 1000, uncertain = 0.03)))   # `(B1 = 0.03)`: the number
     @test occursin("likelihood = :rician: not yet", msg(() -> crlb(m, θ; snr = 1000, likelihood = :rician, uncertain = (B1 = 0.03,))))
     @test occursin("noise = :rician: not yet", msg(() -> crlb(m, θ; snr = 1000, noise = :rician, uncertain = (B1 = 0.03,))))
     @test occursin("`simulate_with`: not yet", msg(() -> crlb(m, θ; snr = 1000, simulate_with = m => θ, uncertain = (B1 = 0.03,))))
@@ -255,7 +256,7 @@ end
     @test box[2].truth == merge(nominal(QMTSIR), box.settings[2]) && box[2].wrong.kmf.truth == 5.0
     @test box.rows[2].PSR == 0.05 && box.rows[2].Sm == 0.83                       # every true value
     # both: each tissue × each condition, the fit's assumption kept (a robust design's set)
-    rob = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)
+    rob = scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), kmf = 12.5, Sm = 0.83)
     @test length(rob) == 12 && rob.settings[1:3] == [(tissue = :SIR_WM_I, Sm = s) for s in (0.78, 0.83, 0.88)]
     @test rob[1].wrong.Sm.truth == 0.78 && !haskey(rob[2].wrong, :Sm)     # 0.83: not wrong
     hr = [Scenario(QMTSIR, merge(nominal(QMTSIR, t), (Sm = s,)); kmf = 12.5, Sm = 0.83) for t in tissues for s in (0.78, 0.83, 0.88)]
@@ -264,11 +265,11 @@ end
     @test rob.settings[argmax(d.values)] == (tissue = :SIR_WM_I, Sm = 0.78)
     # the midpoint only when asked for (vary's combinations as for crlb), rounded (not
     # 0.8300000000000001) and not repeated; a fixed value not given follows each truth
-    @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88])) == 8
-    mid = scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.88], midpoint = true, kmf = 12.5, Sm = 0.83)
+    @test length(scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.88],))) == 8
+    mid = scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.88],), midpoint = true, kmf = 12.5, Sm = 0.83)
     @test length(mid) == 12 && mid.settings[1] == (tissue = :SIR_WM_I, Sm = 0.83) && !haskey(mid[1].wrong, :Sm)
-    @test length(scenarios(QMTSIR, tissues; vary = :Sm => [0.78, 0.83, 0.88], midpoint = true)) == 12
-    own = scenarios(QMTSIR, [:SIR_WM_I]; vary = :Sm => [0.78, 0.83, 0.88])
+    @test length(scenarios(QMTSIR, tissues; vary = (Sm = [0.78, 0.83, 0.88],), midpoint = true)) == 12
+    own = scenarios(QMTSIR, [:SIR_WM_I]; vary = (Sm = [0.78, 0.83, 0.88],))
     @test all(x -> isempty(x.wrong), own) && length(ProtocolDesign(m4, own; kw...).groups) == 3
     # truths: one name, a named tuple, named truths, a vector of named tuples (by place)
     @test scenarios(QMTSIR, :SIR_GM).settings == [(tissue = :SIR_GM,)]
@@ -279,22 +280,22 @@ end
     @test occursin("12 scenarios for QMTSIR: tissue × Sm", out) && occursin("the fit: PSR, R1f, Sf, M0f free", out)
     @test occursin("SIR_WM_I    0.78  kmf (true 5.0), Sm (true 0.78)", out)
     @test occursin("the fits differ", sprint(show, MIME"text/plain"(), own))
-    @test occursin("a tie has no midpoint", msg(() -> scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0], midpoint = true)))
-    @test length(scenarios(QMTSIR, tissues; vary = :R1m => [:R1f, 1.0])) == 8
-    @test occursin("names the truths", msg(() -> scenarios(QMTSIR, tissues; vary = :tissue => [1, 2])))
-    @test occursin("not a parameter of QMTSIR", msg(() -> scenarios(QMTSIR, tissues; vary = :T1 => [1.0, 2.0])))
+    @test occursin("a tie has no midpoint", msg(() -> scenarios(QMTSIR, tissues; vary = (R1m = [:R1f, 1.0],), midpoint = true)))
+    @test length(scenarios(QMTSIR, tissues; vary = (R1m = [:R1f, 1.0],))) == 8
+    @test occursin("names the truths", msg(() -> scenarios(QMTSIR, tissues; vary = (tissue = [1, 2],))))
+    @test occursin("not a parameter of QMTSIR", msg(() -> scenarios(QMTSIR, tissues; vary = (T1 = [1.0, 2.0],))))
     @test occursin("a tissue name", msg(() -> scenarios(QMTSIR, [1.0, 2.0])))
     @test occursin("at least one truth", msg(() -> scenarios(QMTSIR, Symbol[])))
     # the scale parameter need not be varied: with snr relative to it, Eq. 5's terms do not
     # depend on it
-    sm0 = scenarios(QMTSIR, nominal(QMTSIR, :SIR_WM_I); vary = :M0f => [0.8, 1.0, 1.2], kmf = 12.5)
+    sm0 = scenarios(QMTSIR, nominal(QMTSIR, :SIR_WM_I); vary = (M0f = [0.8, 1.0, 1.2],), kmf = 12.5)
     dm0 = ProtocolDesign(m4, sm0; kw...)
     dm0(m4)
     @test maximum(dm0.values) - minimum(dm0.values) < 1e-12 * maximum(dm0.values)
     # crlb and montecarlo take a set: one result per scenario, the set's settings (after the
     # noise levels), each as the single-scenario call
     mm = QMTSIR(; SIR_4POINT...)
-    two = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; vary = :Sm => [0.78, 0.83, 0.88], kmf = 12.5, Sm = 0.83)
+    two = scenarios(QMTSIR, [:SIR_WM_I, :SIR_lesion]; vary = (Sm = [0.78, 0.83, 0.88],), kmf = 12.5, Sm = 0.83)
     c = crlb(mm, two; snr = 200)
     @test c isa Sweep && length(c) == 6 && c.settings == two.settings
     @test all(i -> c[i].sd == crlb(mm, two[i]; snr = 200).sd && c[i].bias == crlb(mm, two[i]; snr = 200).bias, 1:6)
@@ -305,7 +306,7 @@ end
     mc = montecarlo(mm, two; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1))
     @test length(mc) == 6 && mc[3].sd == montecarlo(mm, two[3]; noise = :rician, snr = 200, n = 200, rng = MersenneTwister(1)).sd
     @test occursin("SIR_lesion", sprint(show, MIME"text/plain"(), c)) && !occursin(":SIR_lesion", sprint(show, MIME"text/plain"(), c))
-    @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = :kmf => [5.0, 10.0])))
+    @test occursin("vary them in `scenarios`", msg(() -> crlb(mm, two; snr = 200, vary = (kmf = [5.0, 10.0],))))
     cr = crlb(mm, two; snr = 200, noise = :rician)      # magnitude data: each as the single call
     @test cr[4].sd == crlb(mm, two[4]; snr = 200, noise = :rician).sd && cr[4].sd != c[4].sd
     @test occursin("Scenario takes no noise", msg(() -> scenarios(QMTSIR, [:SIR_WM_I]; noise = :rician)))

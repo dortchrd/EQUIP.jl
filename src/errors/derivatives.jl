@@ -771,6 +771,19 @@ end
 # Checks shared by crlb, montecarlo and the functions above
 # -------------------------------------------------------------------------------------------------
 
+# Values given by name (`vary`, `uncertain`, protocol design's `weights` and `acquisition`) are a
+# named tuple, the shape of EQUIP's results (`res.params.T2`, `c.sd.PSR`): one rule for the whole
+# package (the owner, 2026-11-13; docs/design.md, item 24). Anything else is refused with the form
+# written out. The usual slip is one entry without its comma: `(B1 = 0.03)` is, to Julia, the
+# value 0.03 in parentheses, so the keyword gets a number (`(; B1 = 0.03)` also makes one).
+function _byname(x, what::AbstractString, example::AbstractString)
+    x isa NamedTuple && return x
+    got = x isa Pair ? "a pair, `$(repr(x))`" : "`$(first(repr(x), 60))`"
+    throw(ArgumentError("`$what` takes values by name, as a named tuple: `$what = $example`. " *
+        "With one entry Julia needs the trailing comma, `(name = value,)`, or `(; name = value)`: " *
+        "without either, the parentheses hold just the value. Got $got"))
+end
+
 _hasmap(x::AbstractArray) = true
 _hasmap(x::Free) = x.start isa AbstractArray
 _hasmap(x::Fixed) = x.value isa AbstractArray

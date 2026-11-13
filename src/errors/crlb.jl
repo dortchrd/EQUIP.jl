@@ -137,13 +137,13 @@ SD from the derivatives at that fit's answer, first order in the noise.
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
   are the classical CRLB σ²(JᵀJ)⁻¹ when nothing fixed is wrong, and equal each other when the
   fit is exact (as many observations as free parameters); otherwise `:biased` ≤ `:sandwich`.
-- Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = :kmf => 5:2.5:20` (several
-  true values of a parameter; several parameters as a vector of pairs, every combination). The
-  fit stays the scenario's, so with `kmf = 12.5` this is the bias of that assumption against the
-  true kmf (Dortch 2018 Fig. 2B). Every combination is computed, the first keyword varying
+- Sweeps: `snr = [50, 100, 200]` (several noise levels), `vary = (kmf = 5:2.5:20,)` (several
+  true values of a parameter; several parameters in one named tuple, `(kmf = 5:5:20, Sm =
+  [0.78, 0.88])`, every combination). The fit stays the scenario's, so with `kmf = 12.5` this is
+  the bias of that assumption against the true kmf (Dortch 2018 Fig. 2B). Every combination is computed, the first keyword varying
   slowest; the result is a [`Sweep`](@ref), with a table in `s.rows`. A derived quantity too,
   when the truth is given by derived quantities ([`fromderived`](@ref)): `crlb(m, (S0 = 1000.0,
-  MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)); snr = 50, vary = :FA => 0.2:0.1:0.9)`, the
+  MD = 0.8e-3, FA = 0.7, direction = (1, 0, 0)); snr = 50, vary = (FA = 0.2:0.1:0.9,))`, the
   others held as given (here MD and the direction).
 - Fits side by side: scenarios by name, `crlb(m, (fixed = Scenario(m, θ), free = Scenario(m, θ;
   kmf = Free())); snr = 200)`: one more axis of the sweep (the last, so a table has the fits of
@@ -193,7 +193,7 @@ s = Scenario(QMTSIR, θ; kmf = 12.5)                # the same, made once,
 crlb(m, s; snr = 200)                              # and judged under any protocol
 crlb(QMTSIR(; SIR_5POINT...), θ; snr = 200, kmf = Free())   # kmf fitted: unbiased, larger SD
 crlb.(Ref(m), [nominal(m, t) for t in (:SIR_WM_I, :SIR_GM)]; snr = 200)   # several tissues
-crlb(m, θ; snr = 200, kmf = 12.5, vary = :kmf => 5:2.5:20)  # the bias against the true kmf
+crlb(m, θ; snr = 200, kmf = 12.5, vary = (kmf = 5:2.5:20,))  # the bias against the true kmf
 crlb(T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.0, B1 = 1.0);
      snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,))   # a B1 map 5% high, with a 3% SD
 crlb(m, (assumed = s, exact = Scenario(m, θ)); snr = 200)   # side by side
@@ -204,7 +204,7 @@ crlb(T2Decay(TE = te), (S0 = 1.0, T2 = 0.08); snr = 100,           # fitted mono
 """
 function crlb(m::MRIModel, θ::NamedTuple; snr = nothing, σ = nothing, Σ = nothing,
               averages = nothing, noise = nothing, averaging = nothing, cov::Symbol = :sandwich,
-              vary = (;), simulate_with = nothing, uncertain::NamedTuple = (;), changes...)
+              vary = (;), simulate_with = nothing, uncertain = (;), changes...)
     # The scenario from the truth and the changes: every keyword that is not one of crlb's own,
     # as for `fit`.
     ch = _fitsettings("crlb", m, changes, (:snr, :σ, :Σ, :averages, :noise, :averaging, :cov,
@@ -215,7 +215,7 @@ end
 function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = nothing,
               Σ = nothing, averages = nothing, cov::Symbol = :sandwich, vary = (;),
               simulate_with = nothing, noise = nothing, averaging = nothing,
-              uncertain::NamedTuple = (;))
+              uncertain = (;))
     noise, averaging = _crlb_noise(_scenarios(s), noise, averaging, averages)
     # Uncertain inputs (diagnostics.jl): each scenario's leakage cache, made once
     unc(x) = _uncertain(m, x, uncertain; noise, simulate_with)
@@ -232,7 +232,7 @@ function crlb(m::MRIModel, s::Union{Scenario,_Scenarios}; snr = nothing, σ = no
         uncof(st) = haskey(st, :fit) ? uncs[st.fit] : uncs.one
         # Numbers varied in the fitted model's truth: each setting's truth needs no second check
         # (`_crlb_varied!`); otherwise (a tie varied, data from another model) `crlb!` checks it.
-        # (A derived quantity varied, `vary = :FA => ...`: each truth made again and checked.)
+        # (A derived quantity varied, `vary = (FA = ...,)`: each truth made again and checked.)
         numbers = simulate_with === nothing && all(v -> all(x -> x isa Real, v), values(vary)) &&
                   all(k -> haskey(parameters(m), k), keys(vary))
         resultof(st) = numbers ?
