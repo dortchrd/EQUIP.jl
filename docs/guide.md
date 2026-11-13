@@ -810,9 +810,18 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   the RMSE), keeps it apart in `c.noisebias`, shows it as a column, and gives the derived
   quantities theirs (DTI's FA at SNR 20: +1.18e-3, montecarlo +1.05e-3 ± 0.19e-3). It is Box's
   bias (J R Stat Soc B 1971) when the fit is exact, and also holds with something fixed wrong
-  and for least squares on Rician magnitude data (the floor's bias plus the noise's). Allocating:
-  under 1 ms for DTI, and the first call compiles (DTI 9 s, DKI 94 s). Sandwich only; not yet
-  for `likelihood = :rician`. Near a bound or at very low SNR the expansion fails: montecarlo.
+  and for least squares on Rician magnitude data (the floor's bias plus the noise's). For a fit
+  with `likelihood = :rician` (maximum likelihood, the default `method = :ml`) it is Cox and
+  Snell's (J R Stat Soc B 1968): the maximum-likelihood fit removes the floor's bias but keeps a
+  second-order bias of its own, from the signal's curvature and from the Rician likelihood's
+  asymmetry near the floor. Measured (montecarlo, 20,000 copies, SNR 10): T2 in white matter
+  +0.83 ± 0.10%, predicted +0.78%; T1 by inversion recovery +2.51 ± 0.12%, predicted +2.26%
+  (first order: 0). Where it is as large as the floor's bias, maximum likelihood is not better
+  than least squares: compare the two with `crlb(m, θ; snr, likelihood = :rician, secondorder =
+  true)` and `crlb(m, θ; snr, noise = :rician, secondorder = true)` before scanning. `:mean`
+  takes Box's bias on the Rician mean; not yet `:wmean`. Allocating: under 1 ms for DTI (a Rician
+  fit's about 10 ms more for each 100 images), and the first call compiles (DTI 9 s, DKI 94 s).
+  Sandwich only. Near a bound or at very low SNR the expansion fails: montecarlo.
 - **Uncertain inputs: a fixed value that was measured.** A B1 map, a T1 map for MTsat: the fit
   holds the parameter at a value that has its own error. `crlb(m, θ; snr, B1 = 1.05, uncertain
   = (B1 = 0.03,))` predicts a fit with a B1 map 5% high (the bias, as without `uncertain`) whose

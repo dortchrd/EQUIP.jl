@@ -205,7 +205,49 @@ end
                          n = 4000, rng = MersenneTwister(3))
         @test mcq.crlb.bias.PSR < -0.05 && all(<(3), z(mcq, :PSR))
     end
-    # 4. Not yet, and why
+    # 4. The second-order bias (`secondorder = true`). :ml is Cox and Snell's (J R Stat Soc B 1968),
+    #    written here from its closed form with the model right, every piece from the signal or
+    #    the moments: b = I⁻¹ Σᵢ Jᵢ [(Cov(vᵢ,uᵢ) + ½E[wᵢ])·JᵢᵀI⁻¹Jᵢ − ½(Rᵢ/σ²)·tr(I⁻¹∇²Aᵢ)]
+    FD = EQUIP.ForwardDiff
+    c2 = crlb(m, θ; σ, likelihood = :rician, secondorder = true)
+    A(x) = signal(m, (S0 = x[1], T2 = x[2]))
+    x0 = [θ.S0, θ.T2]
+    J = FD.jacobian(A, x0)
+    Hs = reshape(FD.jacobian(x -> vec(FD.jacobian(A, x)), x0), 32, 2, 2)
+    mo = [EQUIP._ricianmoments(a / σ, a / σ) for a in A(x0)]
+    R = [EQUIP._ricianR(a / σ) for a in A(x0)]
+    Ii = inv(sum(R[i] / σ^2 * J[i, :] * J[i, :]' for i in 1:32))
+    bcs = Ii * sum(J[i, :] * ((mo[i].vu + mo[i].w / 2) / σ^3 * dot(J[i, :], Ii * J[i, :]) -
+                              R[i] / σ^2 / 2 * tr(Ii * Hs[i, :, :])) for i in 1:32)
+    @test collect(c2.noisebias) ≈ bcs rtol = 1e-7
+    @test c2.bias == c2.noisebias && c2.noisebias.T2 > 0          # nothing wrong: T2 +0.78% at SNR 10
+    #    ... and it is the maximum-likelihood fit's bias: montecarlo at 20,000 copies (under a
+    #    second) within 3 standard errors of it, and more than 5 from the first order's 0
+    #    (measured +0.83 ± 0.10% against +0.78%: z 0.5, and 8.3 from 0)
+    mc2 = montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician, secondorder = true,
+                     n = 20_000, rng = MersenneTwister(11))
+    @test abs(mc2.bias.T2 - mc2.crlb.bias.T2) < 3 * mc2.se_mean.T2 && mc2.bias.T2 > 5 * mc2.se_mean.T2
+    #    Its general form (with a fixed value wrong too) with Gaussian moments is least squares'
+    #    second-order bias, written independently (Box's, `_noisebias`): T1MFA, B1 right and 5%
+    #    wrong (the residual's third-derivative term), equal to rounding
+    gauss(a, as) = (u = as - a, v = -1.0, w = 0.0, uu = 1.0, vu = 0.0)
+    mv = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+    θv = (M0 = 1000.0, T1 = 1.0, B1 = 1.0)
+    for b1 in (1.0, 1.05)
+        cc = CRLBCache(mv, Scenario(mv, θv; B1 = b1))
+        k = EQUIP._crlb!(cc, cc.mT, EQUIP._crlb_truth(mv, θv), 100.0)
+        @test k.exact == (b1 == 1.0)
+        @test EQUIP._mlnoisebias(cc, k, fill(10.0, 6), gauss) ≈ EQUIP._noisebias(cc, k, Diagonal(fill(100.0, 6))) rtol = 1e-12
+    end
+    #    At high SNR the Rician likelihood is Gaussian, and the bias least squares' (T1MFA at
+    #    SNR 1000, its smallest signal 33σ); :mean is least squares on the Rician mean with the
+    #    Rician variance, so Box's on RicianMean, as given by hand
+    @test crlb(mv, θv; snr = 1000, likelihood = :rician, secondorder = true).noisebias.T1 ≈
+          crlb(mv, θv; snr = 1000, secondorder = true).noisebias.T1 rtol = 0.01
+    @test crlb(m, θ; σ, likelihood = :rician, method = :mean, secondorder = true).noisebias.T2 ≈
+          crlb(RicianMean(m; σ), θ; Σ = Diagonal(v), secondorder = true).noisebias.T2 rtol = 1e-10
+    # 5. Not yet, and why
+    @test occursin(":wmean", msg(() -> crlb(m, θ; σ, likelihood = :rician, method = :wmean, secondorder = true)))
     @test occursin("noise = :rician", msg(() -> montecarlo(m, θ; snr = 20, noise = :gaussian,
                                                             likelihood = :rician, n = 10)))
     @test occursin("sandwich", msg(() -> crlb(m, θ; snr = 20, likelihood = :rician, cov = :biased)))

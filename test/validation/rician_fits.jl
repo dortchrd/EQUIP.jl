@@ -7,8 +7,10 @@
 #
 # What is asserted is what holds (measured 2026-11-13, docs/design.md "Step 6, built and
 # measured"). The fit's own second-order bias remains (about 1% at SNR 10, falling as σ²), so the
-# bias is not asserted to be 0; and where it is as large as the floor's (T1 inversion recovery in
-# WM, DKI's MKT) maximum likelihood is not better than least squares: recorded, not asserted.
+# bias is not asserted to be 0, but to be what crlb predicts for it (`secondorder = true`, Cox and
+# Snell's: docs/design.md, "The Rician fit's second-order bias, built and measured"); where it is
+# as large as the floor's (T1 inversion recovery in WM, DKI's MKT) maximum likelihood is not
+# better than least squares: recorded, not asserted.
 # DKI in CSF is left out: its kurtosis has no information there, and the fit stops at its
 # iteration limit (roadmap: design.md item 20).
 #
@@ -28,42 +30,50 @@ function _encoding(nb0, ndirs, shells)
     return diffusionencoding(bval, bvec)
 end
 
-# Least squares and the Rician fit on the same data (the same seed)
+# Least squares and the Rician fit on the same data (the same seed); the Rician fit's crlb with
+# its second-order bias
 _pair(m, θ, snr, n) = (montecarlo(m, θ; snr, noise = :rician, n, rng = MersenneTwister(1)),
                        montecarlo(m, θ; snr, noise = :rician, likelihood = :rician, n,
-                                  rng = MersenneTwister(1)))
+                                  secondorder = true, rng = MersenneTwister(1)))
 
-@testset "Rician fits in tissue: the floor's bias removed, the SD at the Rician bound" begin
+@testset "Rician fits in tissue: the floor's bias removed, the SD at the Rician bound, the rest predicted" begin
     dti = DTI(; _encoding(4, 64, (1000.0, 2500.0))...)
     dki = DKI(; _encoding(6, 30, (1000.0, 2000.0))...)
     wm, dir = TISSUES.DKI_WM, fiberdirection(0.7, 0.3)
-    # Each case's quantities, and whether the floor dominates the least-squares bias there (then
-    # the Rician fit's is under a third of it, and halves or better from SNR 10 to 20). Measured,
-    # least squares → Rician at SNR 10 and 20 (%): T2 +41.2 → +0.76, +10.0 → +0.19; ADC −7.7 →
-    # +1.84, −1.9 → +0.34; MD −8.7 → +0.48, −2.1 → +0.11; FA −4.7 → +0.86, −1.2 → +0.19. SD ÷
-    # bound 0.96–1.04 everywhere asserted (DKI's MKT 1.38 at SNR 10 and T1's bias +2.9% against
-    # −3.4%: recorded, not asserted).
+    # Each case's quantities: whether the floor dominates the least-squares bias there (then the
+    # Rician fit's is under a third of it, and halves or better from SNR 10 to 20), whether the SD
+    # is asserted at the bound, and at which SNRs the bias is asserted to be crlb's second-order
+    # one, within 4 Monte Carlo standard errors (as test/validation/agreement.jl: about 14 values).
+    # Measured, least squares → Rician at SNR 10 and 20 (%): T2 +41.2 → +0.76, +10.0 → +0.19; ADC
+    # −7.7 → +1.84, −1.9 → +0.34; MD −8.7 → +0.48, −2.1 → +0.11; FA −4.7 → +0.86, −1.2 → +0.19.
+    # SD ÷ bound 0.96–1.04 everywhere asserted (DKI's MKT 1.38 at SNR 10, 1.08 at 20). The second
+    # order against montecarlo at 20,000 copies (5000 for DTI and DKI), z at SNR 10 and 20: T2 0.5
+    # and 0.4, ADC 0.4 and −0.3, T1 2.1 and 0.1, DTI's MD −1.6 and −1.7, FA 2.2 and 1.9, DKI's MD
+    # −1.0 and −0.7, MKT −4.4 (the next order: −13.2% against −11.2% predicted) and −0.7; first
+    # order alone 8.3, 13.5, 21.5, ... (DKI's MK: not predicted, docs/design.md; not asserted).
     cases = [("T2Decay WM", T2Decay(TE = _TE), (S0 = 1000.0, T2 = TISSUES.WM.T2), 5000,
-              [(:T2, true)]),
+              [(:T2, true, true, (10, 20))]),
              ("ADCDecay tissue", ADCDecay(b = _BADC), (S0 = 1000.0, ADC = 0.8e-3), 5000,
-              [(:ADC, true)]),
+              [(:ADC, true, true, (10, 20))]),
              ("T1IR WM", T1IR(TI = _TI), nominal(T1IR(TI = _TI); M0 = 1000.0, T1 = TISSUES.WM.T1,
-                                                  Sf = -1.0), 5000, [(:T1, false)]),
+                                                  Sf = -1.0), 5000, [(:T1, false, true, (10, 20))]),
              ("DTI WM", dti, nominal(DTI; S0 = 1000.0, MD = wm.MD, FA = wm.FA, direction = dir),
-              2000, [(:MD, true), (:FA, true)]),
+              2000, [(:MD, true, true, (10, 20)), (:FA, true, true, (10, 20))]),
              ("DKI WM", dki, nominal(DKI, :DKI_WM; S0 = 1000.0, direction = dir), 2000,
-              [(:MD, false)])]
+              [(:MD, false, true, (10, 20)), (:MKT, false, false, (20,))])]
     for (name, m, θ, n, qs) in cases
         ls10, ml10 = _pair(m, θ, 10, n)
         ls20, ml20 = _pair(m, θ, 20, n)
         @testset "$name" begin
             @test ml10.converged >= 0.995 && ml20.converged >= 0.995
-            for (q, floor) in qs, (ls, ml) in ((ls10, ml10), (ls20, ml20))
-                @test abs(ml.sd[q] / ml.crlb.sd[q] - 1) < 0.06            # at the Rician bound
+            for (q, floor, bound, second) in qs, (snr, ls, ml) in ((10, ls10, ml10), (20, ls20, ml20))
+                bound && @test abs(ml.sd[q] / ml.crlb.sd[q] - 1) < 0.06   # at the Rician bound
                 floor && @test abs(ml.bias[q]) < abs(ls.bias[q]) / 3      # the floor's bias gone
+                snr in second &&                                          # what remains, predicted
+                    @test abs(ml.bias[q] - ml.crlb.bias[q]) < 4 * ml.se_mean[q]
             end
-            for (q, floor) in qs                                          # what remains falls
-                floor && @test abs(ml20.bias[q]) < abs(ml10.bias[q]) / 2  # with the SNR (as σ²)
+            for (q, floor) in qs                                          # ... and falling with
+                floor && @test abs(ml20.bias[q]) < abs(ml10.bias[q]) / 2  # the SNR (as σ²)
             end
         end
     end

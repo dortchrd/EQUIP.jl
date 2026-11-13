@@ -169,7 +169,13 @@ and measured"): the Rician fit removes the floor's bias in tissue (T2 +0.76% aga
 squares' +41.2% at SNR 10) at the Rician bound's SD; not better than least squares where the
 floor is not the main error (T1IR in WM, DKI's MKT −12.6%); without information, converged on
 the caps; DKI in CSF does not converge (2–5%). Two roadmap items from it: the Rician fit's
-second-order bias (item 16) and DKI in CSF (item 20). Found while answering the owner (2026-11-09): least squares on the
+second-order bias (item 16; built the same day, below) and DKI in CSF (item 20). The Rician
+fit's second-order bias (2026-11-13, the owner: "do the cox snell bias"; branch `rician`):
+`crlb(m, θ; snr, likelihood = :rician, secondorder = true)`, Cox and Snell's, predicts the
+maximum-likelihood fit's remaining bias (T2 +0.78% at SNR 10, montecarlo +0.83 ± 0.10; T1IR
++2.26%, +2.51 ± 0.12; MKT from SNR 20), so crlb tells before scanning whether maximum
+likelihood or least squares is less biased; DKI's MK is not predicted (design.md, "The Rician
+fit's second-order bias"). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data
@@ -190,10 +196,8 @@ parameters, so the start is not the log-linear fit. Full runs on the branch: EQU
   signals' analytic values, invariances, every model's Jacobian and DKI's index gradients against
   central differences, edge cases). (test/validation/ filled and run nightly in CI: step 6,
   done 2026-11-13.)
-- Still to do from tier 2 (design.md): the Rician fit's second-order bias, Cox and Snell's
-  (item 16; it would predict DKI's MKT −12.6% and T1IR's +2.9%, where maximum likelihood is not
-  better than least squares); DKI in CSF with the Rician fit (item 20: bounds on the kurtosis,
-  or a convergence test for a flat likelihood).
+- Still to do from tier 2 (design.md): DKI in CSF with the Rician fit (item 20: bounds on the
+  kurtosis, or a convergence test for a flat likelihood); the second-order bias for `:wmean`.
 
 **3. Protocol design** (items 3, 14, 19)
 - A protocol from a number of points (item 14).

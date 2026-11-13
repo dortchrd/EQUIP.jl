@@ -131,6 +131,24 @@ end
     end
     @test ricianinformation(0.0, 1.0) == 0 && ricianinformation(2.0, 2.0) ≈ ricianinformation(1.0, 1.0) / 4
     @test EQUIP._ricianR(39.999) ≈ EQUIP._ricianR(40.001) rtol = 1e-7
+    # The likelihood's derivatives in A and their moments (`_ricianmoments`, for the maximum-
+    # likelihood fit's second-order bias): with the model right, Bartlett's identities (E[u] = 0,
+    # Var u = −E[v] = R); and by central differences, as only the density depends on as and only
+    # the derivatives on a: ∂E[u]/∂a = E[v], ∂E[v]/∂a = E[w], and at a = as ∂E[u]/∂as = Var u,
+    # ∂E[v]/∂as = Cov(v, u) (the score identity). Measured within 2e-8, the differences' error.
+    M = EQUIP._ricianmoments
+    for s in (0.3, 1.0, 5.0, 100.0)
+        m0, h = M(s, s), 1e-4
+        ∂a(f) = (f(M(s + h, s)) - f(M(s - h, s))) / 2h
+        ∂as(f) = (f(M(s, s + h)) - f(M(s, s - h))) / 2h
+        @test abs(m0.u) < 1e-9 && isapprox(m0.v, -EQUIP._ricianR(s); atol = 1e-9) &&
+              isapprox(m0.uu, EQUIP._ricianR(s); atol = 1e-9)
+        @test isapprox(∂a(x -> x.u), m0.v; atol = 1e-7) && isapprox(∂a(x -> x.v), m0.w; atol = 1e-7)
+        @test isapprox(∂as(x -> x.u), m0.uu; atol = 1e-7) && isapprox(∂as(x -> x.v), m0.vu; atol = 1e-7)
+    end
+    # ... and towards the Gaussian (0, −1, 0, 1, 0) at high SNR: E[w] ≈ −1/s³, where the closed
+    # form of (I₁/I₀)″ cancels (`_besselratio`'s asymptotic series there)
+    @test isapprox(M(1e3, 1e3).w, -1e-9; rtol = 1e-3)
 
     # RicianMean: the model's signal through the Rician mean; complex averaging divides σ by
     # √NEX, magnitude averaging leaves it

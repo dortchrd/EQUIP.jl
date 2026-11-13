@@ -367,8 +367,8 @@ end
               snr = 20, secondorder = true)
     nb = cd.noisebias
     @test nb.MD ≈ (nb.Dxx + nb.Dyy + nb.Dzz) / 3 rtol = 1e-10
-    # Shown as a column; refused where it is not least squares' bias
+    # Shown as a column; refused with Eq. 3, a bound for any estimator (the Rician fits':
+    # test/integration/rician.jl)
     @test occursin("noise bias", sprint(show, MIME"text/plain"(), c))
     @test occursin("cov = :sandwich", msg(() -> crlb(m, θ; snr = 100, cov = :biased, secondorder = true)))
-    @test occursin("likelihood = :rician: not yet", msg(() -> crlb(m, θ; snr = 100, likelihood = :rician, secondorder = true)))
 end

@@ -182,6 +182,81 @@ function _ricianRtable(s::Real)
            (-(t + 1) * t * (t - 2) / 2) * y2 + ((t + 1) * t * (t - 1) / 6) * y3
 end
 
+# ρ = I₁(z)/I₀(z) and its first two derivatives, ρ′ = 1 − ρ/z − ρ², ρ″ = −ρ′/z + ρ/z² − 2ρρ′,
+# accurate where those closed forms cancel (ρ″ is formed from terms 1/z² times larger than
+# itself near 0, and z³ times larger at high z: at z = 1e4 the closed form's ρ″ was off 0.4%):
+#
+#   z < 0.1   the Taylor series ρ = Σₖ cₖz²ᵏ⁺¹, c = 1/2, −1/16, 1/96, −11/6144, 19/61440
+#   z > 50    the asymptotic series ρ = Σₖ qₖtᵏ, t = 1/z, q = 1, −1/2, −1/8, −1/8, −25/128,
+#             −13/32, −1073/1024, −103/32, −375733/32768, −23797/512
+#   between   the closed forms, from `_i01e`
+#
+# Both series are I₁'s divided by I₀'s (their power series, and their asymptotic ones, Abramowitz
+# and Stegun 9.6.10 and 9.7.1), divided in exact rationals; ρ′ and ρ″ are their term-by-term
+# derivatives. Checked against I₀ and I₁ summed in 320-bit arithmetic from z = 0.001 to 1e5: ρ
+# within 4e-15, ρ′ and ρ″ within 3e-10 (relative), at worst just below the switches.
+const _RHO_TAYLOR = (1 / 2, -1 / 16, 1 / 96, -11 / 6144, 19 / 61440)
+const _RHO_ASYMPTOTIC = (1.0, -1 / 2, -1 / 8, -1 / 8, -25 / 128, -13 / 32, -1073 / 1024, -103 / 32,
+                         -375733 / 32768, -23797 / 512)
+function _besselratio(z::Float64)
+    ρ = ρ1 = ρ2 = 0.0
+    if z < 0.1
+        for (k, c) in enumerate(_RHO_TAYLOR)
+            n = 2k - 1                                   # the power of z
+            ρ += c * z^n
+            ρ1 += n * c * z^(n - 1)
+            n > 1 && (ρ2 += n * (n - 1) * c * z^(n - 2))   # (the z term's is 0: none at z = 0)
+        end
+        return ρ, ρ1, ρ2
+    elseif z > 50
+        t = 1 / z
+        for (k, q) in enumerate(_RHO_ASYMPTOTIC)
+            n = k - 1                                    # the power of t; d/dz = −t² d/dt
+            ρ += q * t^n
+            ρ1 -= n * q * t^(n + 1)
+            ρ2 += n * (n + 1) * q * t^(n + 2)
+        end
+        return ρ, ρ1, ρ2
+    end
+    i0, i1 = _i01e(z)
+    ρ = i1 / i0
+    ρ1 = 1 - ρ / z - ρ^2
+    return ρ, ρ1, -ρ1 / z + ρ / z^2 - 2ρ * ρ1
+end
+
+# The Rician log-likelihood's first three derivatives in the amplitude, and their expectations
+# over the data: what the maximum-likelihood fit's second-order bias needs (crlb's `secondorder =
+# true` with `likelihood = :rician`; src/errors/crlb.jl, `_mlnoisebias`). For one magnitude value
+# y, ℓ(A) = −A²/2σ² + log I₀(yA/σ²) + (terms without A). In units of σ (x = y/σ, a = A/σ the
+# amplitude the fit evaluates, as = A★/σ the data's true one) and with ρ = I₁/I₀ at z = x·a:
+#
+#   u = σ·∂ℓ/∂A    = −a + x·ρ(z)
+#   v = σ²·∂²ℓ/∂A² = −1 + x²·ρ′(z),     ρ′ = 1 − ρ/z − ρ²            (from I₀′ = I₁, I₁′ = I₀ − I₁/z)
+#   w = σ³·∂³ℓ/∂A³ = x³·ρ″(z),          ρ″ = −ρ′/z + ρ/z² − 2ρρ′
+#
+# Returned over x ~ Rice(as, 1): (u = E[u], v = E[v], w = E[w], uu = Var[u], vu = Cov[v, u]); in
+# A's units divide by σ, σ², σ³, σ² and σ³. With a = as (the model right) Bartlett's identities
+# hold: E[u] = 0 and Var[u] = −E[v] = R(a), the information (`_ricianR`). Gaussian noise would
+# give (0, −1, 0, 1, 0), the limit at high SNR. By quadrature, as R (Simpson, 1201 points over
+# as ± 12, where the density lies, normalized by its own sum); ρ, ρ′ and ρ″ from `_besselratio`.
+function _ricianmoments(a::Real, as::Real)
+    n = 1201
+    lo, hi = max(0.0, as - 12), as + 12
+    h = (hi - lo) / (n - 1)
+    s0 = su = sv = sw = suu = svu = 0.0
+    for i in 1:n
+        x = lo + (i - 1) * h
+        i0s, _ = _i01e(x * as)
+        pdf = x * i0s * exp(-(x - as)^2 / 2)                   # Rice(as, 1): x e^(−(x²+as²)/2) I₀(x·as)
+        ρ, ρ1, ρ2 = _besselratio(x * a)
+        u, v, w = -a + x * ρ, -1 + x^2 * ρ1, x^3 * ρ2
+        c = (i == 1 || i == n ? 1 : (iseven(i) ? 4 : 2)) * pdf
+        s0 += c; su += c * u; sv += c * v; sw += c * w; suu += c * u^2; svu += c * v * u
+    end
+    Eu, Ev = su / s0, sv / s0
+    return (u = Eu, v = Ev, w = sw / s0, uu = suu / s0 - Eu^2, vu = svu / s0 - Ev * Eu)
+end
+
 # -------------------------------------------------------------------------------------------------
 """
     RicianMean(m; σ, averages = nothing, averaging = :complex)

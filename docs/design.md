@@ -4796,8 +4796,8 @@ protocols and truths). Bias in % of the truth; the ML fit's SD ÷ `ricianbound`'
   recovery in WM (+2.9% against −3.4% at SNR 10: near the null the fit's own nonlinearity) and
   DKI's MKT (−12.6% against −4.6%, its SD 1.38 of the bound). Step 4 asked whether ML avoids
   `:ricianmean`'s −8% for MKT at SNR 20: no (−2.6% at 20, −12.6% at 10); it is the estimator's own
-  second-order bias, which crlb's `secondorder` would predict for least squares but does not yet
-  for the likelihood (roadmap item 16, "The estimator's own noise bias", still to do).
+  second-order bias, which crlb predicts since (`secondorder = true`, Cox and Snell's: "The
+  Rician fit's second-order bias", below).
 - **Without information the caps hold**: 99–100% converge, many voxels on a cap, ADC and DTI's MD
   less biased than least squares (+2.1% against −20.2%, +13.8% against −37.2%); T1 in CSF not
   (+3.2% against +2.1%). The SD there is not the bound's (0.34–1.6): the caps truncate the
@@ -4967,6 +4967,99 @@ draws, as they share the noise); crlb alongside adds the same.
   `equip crlb` and `equip montecarlo` take `--uncertain NAME=SD,...`, as `--truth` and `--vary`
   take NAME=value; numbers only (no ties, which `--truth`'s parser allows); the same numbers as
   the Julia API's (tested, montecarlo with the same seed).
+
+### The Rician fit's second-order bias: Cox and Snell, built and measured (2026-11-13)
+
+The owner, 2026-11-13: "what is cox's and snells and what are we doing now with our maximum
+likelihood (full rician) fitting", then "merge into main, then do the cox snell bias". Step 6
+found that the maximum-likelihood fit removes the floor's bias and keeps one of its own, falling
+as σ², and that where it is as large as the floor's (T1 inversion recovery, DKI's MKT) least
+squares does better. `crlb(m, θ; snr, likelihood = :rician, secondorder = true)` now predicts it
+(and with it montecarlo's crlb, sweeps and `propagate`).
+
+- **The formula** (src/errors/crlb.jl, `_mlnoisebias`). Cox and Snell's bias of a
+  maximum-likelihood estimate (J R Stat Soc B 1968;30:248), written as an estimating equation's
+  (Rilstone, Srivastava and Ullah, J Econometrics 1996;75:369), so that a fixed value assumed
+  wrong is covered as Box's is for least squares (step 8). ℓ = Σᵢ ℓᵢ(Aᵢ(θ)), Aᵢ the model's
+  magnitude: every expectation is per observation, of the first three derivatives of ℓᵢ in Aᵢ
+  (u, v, w) times the signal's first and second derivatives, which nested dual numbers give as
+  in step 8. With the model right it reduces to
+  b = I⁻¹ Σᵢ Jᵢ [(Cov(vᵢ,uᵢ) + ½E[wᵢ])·JᵢᵀI⁻¹Jᵢ − ½(Rᵢ/σ²)·tr(I⁻¹∇²Aᵢ)]: the second term Box's,
+  weighted by the Rician information; the first the likelihood's own asymmetry, about
+  −1/(2s³σ³) per observation at high SNR s = A/σ, so it counts where the signal nears the floor.
+  For Gaussian noise the moments are (0, −1, 0, 1, 0)/σᵏ and the formula is least squares',
+  term for term: checked against step 8's code, which was derived separately, to 1e-14, with B1
+  right and with B1 wrong (the residual's third-derivative term).
+- **The moments** (src/models/rician.jl, `_ricianmoments`): E[u], E[v], E[w], Var u and Cov(v,
+  u) over the Rician density, by quadrature as R (1201 points over A★/σ ± 12), about 0.1 ms per
+  observation, at the model's amplitude and the data's (they differ when a fixed value is
+  wrong). Checked: Bartlett's identities (E[u] = 0, Var u = −E[v] = R) and, by central
+  differences, ∂E[u]/∂a = E[v], ∂E[v]/∂a = E[w], ∂E[u]/∂a★ = Var u and ∂E[v]/∂a★ = Cov(v, u)
+  at a = a★, all within 1e-9. The Bessel ratio ρ = I₁/I₀ and its derivatives (`_besselratio`):
+  ρ″'s closed form, −ρ′/z + ρ/z² − 2ρρ′, cancels at both ends (0.4% off at z = 1e4), so a Taylor
+  series below z = 0.1 and the asymptotic series above 50 (both divided from I₁'s and I₀'s in
+  exact rationals); within 3e-10 everywhere against I₀ and I₁ summed in 320-bit arithmetic.
+- **`method = :mean`**: least squares on the Rician mean with the Rician variance, so Box's
+  bias, which needs the noise's second moments only (the same code as step 8's, equal to crlb of
+  `RicianMean` by hand). **`:wmean`** refused: its weights are re-estimated from the data (two
+  passes), which adds a second-order term of their own.
+- **Measured** (montecarlo of the maximum-likelihood fit, 20,000 copies, 5000 for DTI and DKI;
+  step 0's protocols and truths; bias in % of the truth, ± the Monte Carlo standard error; z in
+  those errors, with the second order and with the first order alone, whose bias is 0):
+
+  | case | SNR | measured | predicted | z | z, first order |
+  |---|---:|---:|---:|---:|---:|
+  | T2Decay WM, T2 | 10 | +0.83 ± 0.10 | +0.78 | 0.5 | 8.3 |
+  | | 20 | +0.19 ± 0.04 | +0.17 | 0.4 | 4.3 |
+  | | 40 | +0.05 ± 0.02 | +0.04 | 0.4 | 2.4 |
+  | ADCDecay tissue, ADC | 10 | +1.75 ± 0.13 | +1.70 | 0.4 | 13.5 |
+  | | 20 | +0.31 ± 0.06 | +0.32 | −0.3 | 5.1 |
+  | T1IR WM, T1 | 10 | +2.51 ± 0.12 | +2.26 | 2.1 | 21.5 |
+  | | 20 | +0.70 ± 0.06 | +0.70 | 0.1 | 12.4 |
+  | | 40 | +0.15 ± 0.03 | +0.15 | 0.0 | 5.5 |
+  | DTI WM, MD | 10 | +0.30 ± 0.08 | +0.43 | −1.6 | 4.1 |
+  | DTI WM, FA | 10 | +1.25 ± 0.12 | +0.98 | 2.2 | 10.4 |
+  | | 20 | +0.35 ± 0.06 | +0.24 | 1.9 | 5.9 |
+  | DKI WM, MD | 10 | −0.54 ± 0.21 | −0.34 | −1.0 | −2.6 |
+  | DKI WM, MKT | 10 | −13.2 ± 0.45 | −11.2 | −4.4 | −29.4 |
+  | | 20 | −2.78 ± 0.18 | −2.65 | −0.7 | −15.8 |
+  | | 40 | −0.65 ± 0.08 | −0.66 | 0.1 | −8.0 |
+  | DKI WM, MK | 10 / 20 / 40 | −63.0 / −16.2 / −3.54 | −34.9 / −8.5 / −2.11 | −36 / −21 / −11 | |
+  | 5-point SIR, kmf = 12.5 (wrong), WM I, PSR | 50 | −47.01 ± 0.16 | −47.32 (noise −1.50) | 2.0 | −7.7 |
+  | the same, R1f | 50 | +16.84 ± 0.09 | +17.07 (noise +0.79) | −2.6 | 6.5 |
+  | the same, PSR / R1f | 100 | | | 1.0 / −1.2 | −3.7 / 3.3 |
+  | `:mean`, T2Decay WM, T2 | 10 | +0.62 ± 0.10 | +0.72 | −1.0 | |
+
+  (The seed is the same at each SNR, so a case's z repeats across its SNRs: DTI's −1.6 and 2.2
+  are one draw's.)
+- **What it says.** The bias that remains after the floor is the fit's own, and crlb now
+  predicts it: T1 by inversion recovery (+2.5% at SNR 10, first order 21 standard errors off)
+  and DKI's MKT (within error from SNR 20; at SNR 10, −13.2% against −11.2%, the next order, as
+  T1MFA's at SNR 50 in step 8). With a fixed value wrong, it closes step 5's gap (the 5-point
+  SIR at SNR 50, 7.7 standard errors to 2.0). So whether maximum likelihood or least squares is
+  less biased for a protocol can be read before scanning: `crlb(m, θ; snr, likelihood = :rician,
+  secondorder = true)` against `crlb(m, θ; snr, noise = :rician, secondorder = true)`.
+- **DKI's MK is not predicted**, at any SNR measured (measured ÷ predicted 1.8, 1.9 and 1.7 at
+  SNR 10, 20 and 40, where a right second order tends to 1; its SD 1.6, 1.5 and 1.1 of crlb's).
+  Not the fit's bias: MD and MKT, from the same fits, agree; not the derived quantity's Hessian
+  either, whose ½tr(∇²MK·C) through the eigensolver at the white-matter truth's repeated
+  eigenvalue equals central differences' (−0.0922 against −0.0927, SNR 20). Being checked: whether MK is too curved for a quadratic expansion
+  in the parameters, or the fits' parameters are far from normally distributed.
+- **Cost**: crlb with `secondorder` 3.5 ms for T2 (32 images), 13 ms for DTI (132), 15–19 ms for
+  DKI (66), most of it the moments' quadrature; opt-in, outside the allocation-free kernel. A
+  table of the five moments would make it cheaper (one dimension, A/σ, when the model is right;
+  two when a fixed value is wrong): not needed now.
+- **Tests**: the moments' identities (test/integration/simulation.jl); in
+  test/integration/rician.jl, Cox and Snell's closed form written in the test against crlb's
+  (T2 at SNR 10, to 1e-7), the general form with Gaussian moments against step 8's least squares
+  (B1 right and wrong, to 1e-12), the high-SNR limit (least squares' bias, T1MFA at SNR 1000),
+  `:mean` against `RicianMean` by hand, montecarlo at 20,000 copies (T2 at SNR 10: within 3
+  standard errors of the second order, more than 5 from the first), `:wmean`'s refusal; in
+  test/validation/rician_fits.jl, the bias of every tissue case at SNR 10 and 20 within 4
+  standard errors of the prediction (MKT at 20 only).
+- **Not yet**: `:wmean`; the likelihood's exact pseudo-truth with a fixed value wrong (crlb's
+  noise-free fit is its first-order approximation, step 5; the moments are taken there); a
+  protocol design for Rician fits (refused before this).
 
 ### SNR: S0/σ, and each image's own (2026-11-09)
 
@@ -6216,8 +6309,9 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      first-order covariance). Measured, the same T1MFA at SNR 100 with B1 right: +0.026 s against
      crlb's 0; with the biased B1 map the two add, −0.0945 + 0.026 = −0.069 against −0.0686
      measured. crlb would report it beside `bias`, and `propagate` would use ∇g·b + ½ tr(H Σ).
-     **Still to do: a Rician fit's** (`likelihood = :rician`; refused today, "not yet"). Step 6
-     measured what it would predict: the maximum-likelihood fit removes the floor but keeps a
+     **A Rician fit's: built 2026-11-13** ("The Rician fit's second-order bias: Cox and Snell,
+     built and measured", in tier 2; `:ml` and `:mean`, not yet `:wmean`). Step 6 measured what
+     it had to predict: the maximum-likelihood fit removes the floor but keeps a
      bias of its own that falls as σ² (T2 in WM +0.76% at SNR 10, +0.19% at 20), and where that
      bias is as large as the floor's, the Rician fit is no better than least squares (T1
      inversion recovery in WM +2.9% against −3.4%; DKI's MKT −12.6% against −4.6%, at SNR 10).
@@ -6228,7 +6322,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      is) times the signal's first and second derivatives, which crlb's nested duals already
      evaluate; for Gaussian noise it reduces to Box's. Judged by: montecarlo's ML bias in the
      table of step 6 (T2, ADC, DTI, T1IR, MKT at SNR 10 and 20), and whether it predicts MKT's
-     −12.6%.
+     −12.6%: it does, from SNR 20 (at 10, −11.2% against −13.2%: the next order); not DKI's MK.
    - **Where it stands (2026-11-08; tier 2 of the priorities, beside Rician fitting, the owner:
      "put it in tier 2").** `propagate`'s first-order half is built, as the `derived` hook in
      crlb and montecarlo (item 19: the delta method's SD, the bias g(θ̂) − g(θ) of what the fit

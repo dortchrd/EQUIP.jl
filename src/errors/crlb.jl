@@ -134,16 +134,21 @@ SD from the derivatives at that fit's answer, first order in the noise.
   against the truth's 1.0): crlb's bias, as without `uncertain`. Each must be a parameter the
   fit holds at a number. Not yet with `likelihood = :rician`, `noise = :rician` or
   `simulate_with`. [`montecarlo`](@ref) takes the same keyword.
-- `secondorder = true`: add the noise's own bias, to second order. A least-squares fit is biased
-  by the noise even when nothing fixed is wrong (the signal is curved in its parameters: T1 from
-  VFA at SNR 100 comes out 2.6% long), which the first order (the default) leaves out. Box's
-  bias (J R Stat Soc B 1971) when the fit is exact; in general with the residual's third
-  derivatives too (a fixed value wrong, data from another model, Rician magnitude data's
-  floor). Added to `bias` (and so to the RMSE), and kept apart in `c.noisebias`; for the derived
-  quantities, ∇q·b + ½ tr(∇²q C). Computed with nested dual numbers, allocating: under 1 ms a
-  call for DTI, 8 ms for DKI, and the first call compiles (9 s for DTI, 94 s for DKI). With the
-  sandwich only, and not yet for a fit with `likelihood = :rician`. Near a bound or at very low
-  SNR the expansion fails: [`montecarlo`](@ref) is the reference there.
+- `secondorder = true`: add the noise's own bias, to second order. A fit is biased by the noise
+  even when nothing fixed is wrong (the signal is curved in its parameters: T1 from VFA at SNR
+  100 comes out 2.6% long), which the first order (the default) leaves out. For least squares,
+  Box's bias (J R Stat Soc B 1971) when the fit is exact, in general with the residual's third
+  derivatives too (a fixed value wrong, data from another model, Rician magnitude data's floor).
+  For a fit with `likelihood = :rician`, the maximum-likelihood fit's (`method = :ml`, the
+  default), Cox and Snell's (J R Stat Soc B 1968): the signal's curvature as in Box's, weighted
+  by the Rician information, and the likelihood's own asymmetry where the signal nears the
+  floor (T2 decay in WM at SNR 10: +0.78%, montecarlo +0.83 ± 0.10%); for `:mean`, Box's on the
+  Rician mean; not yet for `:wmean`. Added to `bias` (and so to the RMSE), and kept apart in
+  `c.noisebias`; for the derived quantities, ∇q·b + ½ tr(∇²q C). Computed with nested dual
+  numbers, allocating: under 1 ms a call for DTI, 8 ms for DKI (a Rician fit's about 10 ms more
+  for each 100 images, its moments by quadrature), and the first call compiles (9 s for DTI,
+  94 s for DKI). With the sandwich only. Near a bound or at very low SNR the expansion fails:
+  [`montecarlo`](@ref) is the reference there.
 - `cov`: the covariance, `:sandwich` (default) or `:biased`. The sandwich is the covariance of
   the least-squares fit itself (what EQUIP's fit achieves; the misspecified CRB); `:biased` is
   Eq. 3 of Dortch et al., MRM 2018, a bound for any estimator with the same bias gradient. Both
@@ -450,8 +455,11 @@ function _crlbresult(c::CRLBCache{F,P,T}, truth, t, dmT, dtt, Σn, Σk, σ2, Σ,
     k0 = _crlb!(c, c.mT, t, σ2, dmT, dtt)
     k = unc === nothing ? k0 : merge(k0, (cov = _withinputs(unc, t, k0.cov),))
     # The noise's own bias to second order (`secondorder = true`, below), from the image noise's
-    # covariance alone (k0's), added to the noise-free fit's
-    b2 = so === nothing ? nothing : _noisebias(c, k0, Σk)
+    # covariance alone (k0's), added to the noise-free fit's: Box's for a least-squares fit
+    # (`:mean`'s too, on the Rician mean with the Rician variance), Cox and Snell's for the
+    # maximum-likelihood one
+    b2 = so === nothing ? nothing : c.rician === :ml ? _mlnoisebias(c, k0, sqrt.(diag(Σn))) :
+                                     _noisebias(c, k0, Σk)
     bias = b2 === nothing ? k.bias : k.bias + b2
     sd = sqrt.(diag(k.cov))
     rmse = sqrt.(bias .^ 2 .+ sd .^ 2)
@@ -628,8 +636,9 @@ struct _SecondOrder end
 
 function _secondorder(c::CRLBCache, on::Bool)
     on || return nothing
-    c.rician === :none || throw(ArgumentError("`secondorder` with likelihood = :rician: not yet " *
-        "(the Rician fit's second-order bias is the likelihood's, not least squares')"))
+    c.rician === :wmean && throw(ArgumentError("`secondorder` with likelihood = :rician and " *
+        "method = :wmean: not yet (its weights are re-estimated from the data, which adds a " *
+        "second-order term of their own); :ml, the default, and :mean are covered"))
     c.biased && throw(ArgumentError("`secondorder` is the least-squares fit's own bias: with " *
         "cov = :sandwich (Eq. 3's bound is for any estimator with the first-order bias gradient)"))
     return _SecondOrder()
@@ -643,9 +652,7 @@ function _noisebias(c::CRLBCache{F,P,T}, k, Σk) where {F,P,T}
     U = [j for j in 1:P if !k.pinned[j]]
     isempty(U) && return zero(SVector{P,Float64})
     N, Q = length(c.y), length(U)
-    gsig(θ) = (out = Vector{eltype(θ)}(undef, N);
-               signal!(out, c.mT, _params(Val(F), SVector{P}(θ), c.fixed)); out)
-    hess(θ) = reshape(ForwardDiff.jacobian(t -> vec(ForwardDiff.jacobian(gsig, t)), θ), N, P, P)
+    gsig, hess = _signalfunctions(c)
     θ0 = Vector{Float64}(k.fit)
     J = ForwardDiff.jacobian(gsig, θ0)[:, U]
     Hs = hess(θ0)[:, U, U]                                   # [i, l, j]: ∂²gᵢ/∂θ_l∂θⱼ
@@ -663,6 +670,82 @@ function _noisebias(c::CRLBCache{F,P,T}, k, Σk) where {F,P,T}
     τ = k.exact ? zeros(Q) : ForwardDiff.gradient(s, θ0)[U]
     b = zeros(P)
     b[U] = H \ (term1 .- (τ .+ A2 .+ A3) ./ 2)
+    return SVector{P,Float64}(b)
+end
+
+# The fitted model's signal as a function of the free values (a vector, of dual numbers for the
+# derivatives) and its Hessians, one P×P per observation: for the second-order biases (allocating)
+function _signalfunctions(c::CRLBCache{F,P}) where {F,P}
+    N = length(c.y)
+    gsig(θ) = (out = Vector{eltype(θ)}(undef, N);
+               signal!(out, c.mT, _params(Val(F), SVector{P}(θ), c.fixed)); out)
+    hess(θ) = reshape(ForwardDiff.jacobian(t -> vec(ForwardDiff.jacobian(gsig, t)), θ), N, P, P)
+    return gsig, hess
+end
+
+# The maximum-likelihood fit's second-order bias (likelihood = :rician, method = :ml): Cox and
+# Snell's (J R Stat Soc B 1968;30:248), written for an estimator that solves an estimating
+# equation (Rilstone, Srivastava and Ullah, J Econometrics 1996;75:369) so that a fixed value
+# assumed wrong is covered as for least squares above. The fit solves ψ(θ) = ∂ℓ/∂θ = 0, ℓ the
+# Rician log-likelihood, ℓ = Σᵢ ℓᵢ(Aᵢ(θ)) with Aᵢ the model's magnitude (c.mT is `_Magnitude`).
+# With uᵢ, vᵢ, wᵢ the first three derivatives of ℓᵢ in Aᵢ (their moments over the data from
+# `_ricianmoments`, src/models/rician.jl), Jᵢ = ∇Aᵢ and ∇²Aᵢ at θ0:
+#
+#   ψ = Σᵢ uᵢJᵢ,  ∇ψ = Σᵢ (vᵢJᵢJᵢᵀ + uᵢ∇²Aᵢ),  H = E[∇ψ],  V = ∇ψ − H
+#   θ̂ = θ0 + a + b + ...:  a = −H⁻¹ψ, Cov a = C = H⁻¹KH⁻¹ with K = E[ψψᵀ] = Σᵢ Var(uᵢ)JᵢJᵢᵀ
+#   E[b] = −H⁻¹ ( E[V a] + ½ Σⱼₖ Cⱼₖ E[∂²ψ/∂θⱼ∂θₖ] ),  per row l
+#   E[V a]_l = −Σᵢ [ Cov(vᵢ,uᵢ)·J_il·(JᵢᵀH⁻¹Jᵢ) + Var(uᵢ)·(∇²AᵢH⁻¹Jᵢ)_l ]
+#   Σⱼₖ Cⱼₖ E[∂²ψ_l/∂θⱼ∂θₖ] = Σᵢ [ E[wᵢ]·J_il·(JᵢᵀCJᵢ) + E[vᵢ]·(2(∇²AᵢCJᵢ)_l + J_il·tr(C∇²Aᵢ)) ] + τ_l
+#
+# τ_l = ∂/∂θ_l Σᵢ E[uᵢ]·tr(C∇²Aᵢ(θ)), the third derivatives' term, 0 when the model is right. Then
+# E[uᵢ] = 0 and Var(uᵢ) = −E[vᵢ] = Rᵢ/σᵢ² (Bartlett), H = −I (I the Rician information), C = I⁻¹,
+# and it is Cox and Snell's,
+#
+#   E[b] = I⁻¹ Σᵢ Jᵢ [ (Cov(vᵢ,uᵢ) + ½E[wᵢ])·(JᵢᵀI⁻¹Jᵢ) − ½(Rᵢ/σᵢ²)·tr(I⁻¹∇²Aᵢ) ]
+#
+# its second term Box's, weighted by the information (R → 1 at high SNR: least squares'), its
+# first the Rician likelihood's own asymmetry, about −1/2sᵢ³σᵢ³ at high SNR sᵢ = Aᵢ/σᵢ, so it
+# matters where the signal nears the floor. For Gaussian noise the moments are 0, −1/σ², 0, 1/σ²
+# and 0, and this is `_noisebias` above, term for term (checked).
+#
+# θ0 is the kernel's noise-free fit: the truth when the model is right; with a fixed value wrong,
+# the likelihood's pseudo-truth to first order (`_rician!`), where the moments are then taken at
+# the model's magnitudes against the data's (E[uᵢ] ≠ 0). σ the data's noise, one per observation;
+# `moments` the noise model's (a, as) -> (u, v, w, uu, vu) in units of σ: the Rician one, or for
+# the tests, the Gaussian one, with which this is least squares' (`_noisebias`).
+function _mlnoisebias(c::CRLBCache{F,P,T}, k, σ, moments = _ricianmoments) where {F,P,T}
+    all(isfinite, k.cov) || return zero(SVector{P,Float64})
+    U = [j for j in 1:P if !k.pinned[j]]
+    isempty(U) && return zero(SVector{P,Float64})
+    N, Q = length(c.y), length(U)
+    gsig, hess = _signalfunctions(c)
+    θ0 = Vector{Float64}(k.fit)
+    A = gsig(θ0)
+    J = ForwardDiff.jacobian(gsig, θ0)[:, U]
+    Hs = hess(θ0)[:, U, U]                                   # [i, l, j]: ∂²Aᵢ/∂θ_l∂θⱼ
+    mo = [moments(A[i] / σ[i], c.y[i] / σ[i]) for i in 1:N]   # c.y: the data's (true |S★|)
+    Eu = k.exact ? zeros(N) : [mo[i].u / σ[i] for i in 1:N]
+    Ev = [mo[i].v / σ[i]^2 for i in 1:N]
+    Ew = [mo[i].w / σ[i]^3 for i in 1:N]
+    Vu = [mo[i].uu / σ[i]^2 for i in 1:N]
+    Cvu = [mo[i].vu / σ[i]^3 for i in 1:N]
+    H = sum(Ev[i] * J[i, :] * J[i, :]' + Eu[i] * Hs[i, :, :] for i in 1:N)
+    K = sum(Vu[i] * J[i, :] * J[i, :]' for i in 1:N)
+    Hi = inv(H)
+    C = Hi * K * Hi
+    C = (C + C') / 2
+    HJ = Hi * J'                                             # Q × N: H⁻¹Jᵢ
+    CJ = C * J'
+    EVa = [-sum(Cvu[i] * J[i, l] * dot(J[i, :], HJ[:, i]) + Vu[i] * dot(Hs[i, l, :], HJ[:, i])
+                for i in 1:N) for l in 1:Q]
+    S = [sum(Ew[i] * J[i, l] * dot(J[i, :], CJ[:, i]) +
+             Ev[i] * (2 * dot(Hs[i, l, :], CJ[:, i]) + J[i, l] * tr(C * Hs[i, :, :])) for i in 1:N)
+         for l in 1:Q]
+    # τ: the third derivatives' term (0 when the model is right)
+    s(θ) = (h = hess(θ); sum(Eu[i] * sum(C .* h[i, U, U]) for i in 1:N))
+    τ = k.exact ? zeros(Q) : ForwardDiff.gradient(s, θ0)[U]
+    b = zeros(P)
+    b[U] = -(H \ (EVa .+ (S .+ τ) ./ 2))
     return SVector{P,Float64}(b)
 end
 
