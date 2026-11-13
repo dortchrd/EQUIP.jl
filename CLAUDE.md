@@ -72,7 +72,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   montecarlo.jl, `montecarlo` (the same measured by simulating and fitting, with `crlb`
   alongside; derived quantities from each copy's fit); compare.jl, `compare` (the same measured on a dataset fit, e.g. simulated maps);
   diagnostics.jl, `cond`, `cor` and `leakage` (where the errors come from: dθ̂/dc of each
-  fixed parameter, from a joint cache with the fixed numbers seeded too); sweep.jl:
+  fixed parameter, from a joint cache with the fixed numbers seeded too); propagate.jl,
+  `propagate(c, g)` (crlb's errors for any function of the parameters); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
   returning a `Sweep`, and `scenarios` (a set of `Scenario`s: tissues, boxes of true values,
   or both; calcVmax's modes; a `Sweep` whose results are the scenarios), which `crlb` and

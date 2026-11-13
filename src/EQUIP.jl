@@ -70,6 +70,7 @@ export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # cr
 export ricianmean, ricianvar, ricianinformation, RicianMean, ricianbound   # Rician noise
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
+export propagate, Propagation                                               # functions of the parameters
 export ProtocolDesign, design, DesignResult                                 # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 export readdata, readmap, DataInfo, writemaps, writetable                  # data in, maps out
@@ -113,6 +114,7 @@ include("errors/crlb.jl")              # crlb: bias, SD and RMSE without noisy f
 include("errors/montecarlo.jl")        # montecarlo: the same measured, with crlb alongside
 include("errors/compare.jl")           # compare: the same measured on a dataset (maps)
 include("errors/diagnostics.jl")       # cond, cor, leakage: where the errors come from
+include("errors/propagate.jl")         # propagate: crlb's errors for any function of the parameters
 include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise levels and truths
 
 # design: protocols chosen by their predicted errors (uses errors)

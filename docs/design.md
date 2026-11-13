@@ -4433,8 +4433,8 @@ montecarlo(m, θ; snr = 10, noise = :rician, likelihood = :rician)   # simulate 
 
 Then item 16's three, which share crlb's derivatives:
 
-7. **`propagate(c, g)`** for any function of the parameters: the `derived` hook's code with g in
-   its place (the delta method's SD and covariance, the bias g(θ̂) − g(θ)). Judged by: equal to
+7. **`propagate(c, g)`** (built 2026-11-13: "Step 7, built and measured", below) for any
+   function of the parameters: the `derived` hook's code with g in its place (the delta method's SD and covariance, the bias g(θ̂) − g(θ)). Judged by: equal to
    the `derived` path for DTI's FA and MD (identity), and against montecarlo for a ratio.
 8. **The second-order noise bias, opt-in** (built 2026-11-13: "Step 8, built and measured",
    below) (`crlb(m, θ; snr, secondorder = true)`): Box's bias of the parameters, −½(JᵀWJ)⁻¹JᵀW·d with dᵢ = tr(C·Hᵢ), from the nested duals crlb's Hessian
@@ -4731,6 +4731,41 @@ Not yet, refused with the reason: a protocol design for these fits (the noise an
 depend on each truth's signal, which changes with every protocol tried: the design's
 allocation-free kernel would set them per evaluation, from the R table); `leakage`; `cov =
 :biased`; montecarlo's Rician fits with averages or σ per observation (the fit takes one σ).
+
+### Step 7, built and measured (2026-11-13)
+
+The owner, 2026-11-13: "do step 7". `propagate(c::CRLBResult, g) -> Propagation`
+(src/errors/propagate.jl): crlb's bias, SD and RMSE for any quantity computed from the fitted
+parameters, after the fact, by the delta method that `_derivedcrlb` uses for a model's own
+`derived` quantities.
+
+- **The form**: `g` takes every parameter by name, a named tuple (the free ones as fitted, the
+  fixed ones at the fit's values, ties followed), as `signal!` and `derived` do; it returns a
+  number, or a named tuple of numbers for several (the values-by-name rule). A number in,
+  numbers out (`r.sd`); a named tuple in, named tuples by name out (`r.sd.R1`), with `r.cov`
+  between them. The result has crlb's fields (fit, truth, bias, sd, rmse, the relative ones)
+  and `noisebias` with crlb's `secondorder = true` (∇g·b + ½ tr(∇²g C), the step 8 code,
+  `_derivednoisebias`, reused). Not with both `secondorder` and `uncertain` (crlb's covariance
+  then holds the inputs' too): refused, not yet.
+- **Measured** (scratch step8/):
+  - DTI's FA and MD through `propagate`: crlb's derived numbers, to 1e-12, with and without
+    `secondorder` (the identity the plan asked for).
+  - By hand: a linear g's SD from crlb's covariance; `(M0 = p.M0, T1 = p.T1)` gives the
+    covariance back; R1 = 1/T1 gives SD(T1)/T1² and the noise bias −b(T1)/T1² + Var(T1)/T1³
+    (+0.0343 1/s at SNR 100: R1 biased up more than T1, +0.026 s, because 1/T1 is curved).
+  - Against montecarlo, for a ratio, the macromolecular fraction f = PSR/(1 + PSR) (20,000
+    copies): 4-point SIR, kmf fixed, SNR 200, SD 1.005 of the prediction and the bias at z =
+    −0.5; SNR 100, 1.008 and −0.5. Where crlb's own parameters are off, g is as much: the
+    5-point SIR with kmf estimated (five parameters from five points) has PSR's SD 33% above
+    crlb's at SNR 200 and f's 21% (f compresses PSR); R1's SD is 8.5% above the prediction at
+    SNR 100 and 1.9% at 200 (T1's own 4%), the next order in σ, falling about fourfold per
+    doubling of the SNR. `propagate` is first order, as crlb.
+- **Tests** (test/integration/derived.jl): the derived identity; the linear and covariance
+  checks; R1's closed forms; a fixed value's bias; montecarlo for f within 3 standard errors;
+  the display; the mistakes.
+- **Not yet**: `propagate(mc, g)` (g over a montecarlo's copies, with its crlb alongside: today
+  computed from `mc.result`'s estimates by hand); `propagate(res, g)` for a fit's maps and
+  standard errors (the fit's own covariance); the command line.
 
 ### Step 8, built and measured (2026-11-13)
 
@@ -6057,7 +6092,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    noise bias** (discussed 2026-11-05; not built; its order of work in "Tier 2, bias from noise
    at low SNR: the plan", steps 7–9). Three pieces, each the delta method with a
    different Jacobian:
-   - **Outputs: `propagate(c, g)`.** A quantity g of the fitted parameters (FA, MD, AD, RD from
+   - **Outputs: `propagate(c, g)`** (built 2026-11-13, tier 2 step 7: "Step 7, built and
+     measured"). A quantity g of the fitted parameters (FA, MD, AD, RD from
      DTI's six elements; any index or ratio): SD √(J Σ Jᵀ) with Σ = `c.cov`, bias g(fit) − g(truth)
      (the assumptions', exact) + ½ tr(H Σ) (the noise's, second order), a covariance when g gives
      several. Tested in a scratch script (DTI, 6 + 30 images, eigenvalues 1.7, 0.4, 0.3e-3, SNR 50

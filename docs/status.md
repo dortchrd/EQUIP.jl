@@ -152,7 +152,9 @@ message for the missing comma); design's `weights` (per parameter) against every
 (per observation) is on the names review (item 24). Step 8 (2026-11-13): `crlb(m, θ; snr,
 secondorder = true)`, the noise's own bias to second order (Box 1971, with the residual's term
 when something fixed is wrong), parameters and derived quantities; montecarlo within 1 standard
-error in every case measured; the validation group's first file, test/validation/secondorder.jl. Found while answering the owner (2026-11-09): least squares on the
+error in every case measured; the validation group's first file, test/validation/secondorder.jl.
+Step 7 (2026-11-13): `propagate(c, p -> 1 / p.T1)`, crlb's errors for any function of the
+parameters (the derived path's numbers for DTI's FA and MD; montecarlo for PSR/(1 + PSR)). Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data

@@ -766,6 +766,20 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   (the axially symmetric truths `nominal` makes are: finite). A principal direction is folded into
   one hemisphere in each fit, so montecarlo's V1 near the fold (fibers in the x–y plane) is the
   folded vectors'. `vcov`, `stderror`, `cor` and `cond` stay the parameters'.
+- **Any other function of the parameters: `propagate`.** The same delta method for a quantity
+  the model does not derive, after the fact, from a crlb result: `propagate(c, p -> 1 / p.T1)`
+  (R1 from a T1 fit), or several by name, `propagate(c, p -> (kfm = p.PSR * p.kmf, f = p.PSR /
+  (1 + p.PSR)))`. `g` takes every parameter by name (the free ones as fitted, the fixed ones at
+  the fit's values) and returns a number or a named tuple of numbers; the result has crlb's
+  fields (`r.fit`, `r.truth`, `r.bias`, `r.sd`, `r.rmse`, the relative ones, and `r.cov`
+  between several), numbers for a number, named tuples by name otherwise. With crlb's
+  `secondorder = true`, the bias has the noise's own too, ∇g·b + ½ tr(∇²g C) (R1 = 1/T1 at SNR
+  100: +0.034 1/s, longer than T1's +0.026 s because 1/T1 is curved). For DTI's FA and MD it
+  gives the derived path's numbers exactly. Against montecarlo (the macromolecular fraction
+  PSR/(1 + PSR), 4-point SIR, SNR 200): SD 1.005 of the prediction, bias within 0.5 standard
+  errors. It is as good as crlb's own parameters: where they are off (the 5-point fit with kmf
+  estimated, PSR's SD 33% above crlb's at SNR 200), so is g (21%). For a sweep,
+  `propagate.(s.results, Ref(g))`; for montecarlo, compute g from `mc.result`'s estimates.
 - **StatsAPI's names:** `informationmatrix(c)` (the Fisher information at the noise-free fit),
   `informationmatrix(c; expected = false)` (the observed information), `vcov(c)`,
   `stderror(c)`; `informationmatrix(m, θ; snr = 200)` at any values; `vcov(mc)`, `stderror(mc)`

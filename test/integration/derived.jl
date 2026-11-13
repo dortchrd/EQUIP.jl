@@ -1,6 +1,7 @@
 # =================================================================================================
 # test/integration/derived.jl: Derived quantities: in crlb and montecarlo (the delta method), truths given by them
-# (nominal, fromderived) with the eigen derivatives, presets, Scenario, simulate and sweeps.
+# (nominal, fromderived) with the eigen derivatives, presets, Scenario, simulate and sweeps; and
+# propagate, the same for any function of the parameters.
 #
 # Part of EQUIP's tests (test/runtests.jl runs it, after test/setup.jl). Alone, from the repository:
 #     julia -t auto --project=test test/runtests.jl derived
@@ -241,4 +242,50 @@ end
     cw = crlb(m66, θ; snr = 50, simulate_with = mk => θk)
     @test cw.bias.MD < 0 && cw.bias.FA > 0
     @test cw.bias == crlb(m66, θ; snr = 50, simulate_with = mk => nominal(DKI; θk...)).bias
+end
+
+@testset "propagate: crlb's errors for any function of the parameters" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    # The derived path's numbers, exactly, for DTI's FA and MD (with the noise's own bias too)
+    dirs = directionset(30)
+    gd = vcat(fill(SVector(1.0, 0, 0), 6), dirs)
+    md = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), gx = getindex.(gd, 1), gy = getindex.(gd, 2), gz = getindex.(gd, 3))
+    θd = (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
+    cd = crlb(md, θd; snr = 20, secondorder = true)
+    rd = propagate(cd, p -> (FA = derived(md, p).FA, MD = derived(md, p).MD))
+    @test isapprox(rd.sd.FA, cd.sd.FA; rtol = 1e-12) && isapprox(rd.bias.FA, cd.bias.FA; rtol = 1e-12)
+    @test isapprox(rd.sd.MD, cd.sd.MD; rtol = 1e-12) && isapprox(rd.noisebias.MD, cd.noisebias.MD; rtol = 1e-12)
+    # By hand: a linear function's SD from crlb's covariance; two quantities give it back whole
+    m = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015)
+    θ = (M0 = 1000.0, T1 = 1.0, B1 = 1.0)
+    c = crlb(m, θ; snr = 100)
+    @test propagate(c, p -> 2p.M0 + 3p.T1).sd ≈ sqrt(([2 3] * c.cov * [2, 3])[1]) rtol = 1e-12
+    @test propagate(c, p -> (M0 = p.M0, T1 = p.T1)).cov ≈ c.cov rtol = 1e-12
+    # R1 = 1/T1: SD(T1)/T1², and the noise's bias −b(T1)/T1² + Var(T1)/T1³ (g' = −1/T1²,
+    # g'' = 2/T1³ at T1 = 1); a number in, numbers out
+    c2 = crlb(m, θ; snr = 100, secondorder = true)
+    r = propagate(c2, p -> 1 / p.T1)
+    @test r.sd isa Float64 && isapprox(r.sd, c2.sd.T1; rtol = 1e-12)
+    @test isapprox(r.noisebias, -c2.noisebias.T1 + c2.cov[2, 2]; rtol = 1e-10) && r.bias == r.noisebias
+    # A fixed value is the fit's: B1 assumed 1.05 against a true 1.0
+    rb = propagate(crlb(m, θ; snr = 100, B1 = 1.05), p -> (B1 = p.B1,))
+    @test rb.fit.B1 == 1.05 && rb.truth.B1 == 1.0 && rb.bias.B1 ≈ 0.05 && rb.sd.B1 == 0
+    # Against montecarlo, the macromolecular fraction f = PSR/(1 + PSR) from the 4-point SIR at
+    # SNR 200 (crlb's own PSR within 0.5% of montecarlo there): SD and bias within 3 standard
+    # errors (measured: SD 1.005 of the prediction, bias z = −0.5). (Where crlb's own
+    # parameters are off, f's are as much: the 5-point fit with kmf estimated, PSR's SD 33%
+    # above crlb's at SNR 200, f's 21%: docs/design.md, "Step 7".)
+    m4 = QMTSIR(; SIR_4POINT...)
+    θ4 = nominal(m4, :SIR_WM_I)
+    g(p) = p.PSR / (1 + p.PSR)
+    rf = propagate(crlb(m4, θ4; snr = 200, secondorder = true), g)
+    mc = montecarlo(m4, θ4; snr = 200, noise = :gaussian, n = 20_000, rng = MersenneTwister(6))
+    f = mc.result.params.PSR ./ (1 .+ mc.result.params.PSR)
+    @test abs(std(f) - rf.sd) < 3 * std(f) / sqrt(2 * (length(f) - 1))
+    @test abs(mean(f) - g(θ4) - rf.bias) < 3 * std(f) / sqrt(length(f))
+    # Shown by name; mistakes
+    @test occursin("R1", sprint(show, MIME"text/plain"(), propagate(c, p -> (R1 = 1 / p.T1,))))
+    @test occursin("a number or a named tuple of numbers", msg(() -> propagate(c, p -> "T1")))
+    @test occursin("not yet", msg(() -> propagate(crlb(m, θ; snr = 100, B1 = 1.05, secondorder = true,
+                                                        uncertain = (B1 = 0.03,)), g -> g.T1)))
 end
