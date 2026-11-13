@@ -5043,8 +5043,14 @@ squares does better. `crlb(m, θ; snr, likelihood = :rician, secondorder = true)
   SNR 10, 20 and 40, where a right second order tends to 1; its SD 1.6, 1.5 and 1.1 of crlb's).
   Not the fit's bias: MD and MKT, from the same fits, agree; not the derived quantity's Hessian
   either, whose ½tr(∇²MK·C) through the eigensolver at the white-matter truth's repeated
-  eigenvalue equals central differences' (−0.0922 against −0.0927, SNR 20). Being checked: whether MK is too curved for a quadratic expansion
-  in the parameters, or the fits' parameters are far from normally distributed.
+  eigenvalue equals central differences' (−0.0922 against −0.0927, SNR 20). The parameters are
+  right: drawn 20,000 times from crlb's normal distribution, with Cox and Snell's bias and crlb's
+  covariance, they give MK's mean as montecarlo's fits do (−16.4% ± 0.2 against −16.2% at SNR 20;
+  −3.54% against −3.54% at 40), and its SD too (26.3% against 26.3%; the delta method 17.0%).
+  MK itself is too curved for an expansion to second order in the parameters, even at SNR 40
+  (its relative SD 8.5%): the delta method fails for it, its SD and its bias, as it does for FA
+  near isotropy. Propagating through draws of the parameters instead costs no fits and agrees:
+  roadmap item 16 ("Outputs").
 - **Cost**: crlb with `secondorder` 3.5 ms for T2 (32 images), 13 ms for DTI (132), 15–19 ms for
   DKI (66), most of it the moments' quadrature; opt-in, outside the allocation-free kernel. A
   table of the five moments would make it cheaper (one dimension, A/σ, when the model is right;
@@ -6292,6 +6298,17 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      Hellmann–Feynman's; Hessians finite unless the eigenvalue in question is repeated. FA from the
      six elements as √(3/2)·‖D − MD·I‖/‖D‖ (Basser & Pierpaoli 1996; Ennis & Kindlmann 2006),
      checked equal to the eigenvalue forms to 7e-16.
+     **Still to do: propagation by draws, where the delta method fails** (found 2026-11-13, "The
+     Rician fit's second-order bias"). DKI's MK in white matter is too curved for the delta
+     method at any SNR measured: its SD 1.5 of the delta method's at SNR 20 and 1.1 at 40, its
+     noise bias 1.9 and 1.7 of the second-order one. Drawing the parameters from crlb's normal
+     distribution, N(θ̂ + b, C) with b the second-order bias, and computing g on each draw gives
+     montecarlo's mean and SD of MK (−16.4% and 26.3% against −16.2% and 26.3% at SNR 20), with
+     no fits: about 20,000 evaluations of g (DKI's `derived`, well under a second). As an option
+     of `propagate` and of crlb's derived quantities (e.g. `draws = 20_000`), reported beside
+     the delta method's so the difference shows where the expansion fails (MK, FA near
+     isotropy). Its limit: the parameters must be close to normal themselves, which held here
+     (DKI's 22 at SNR 20) and fails near a bound or at very low SNR (montecarlo then).
    - **Inputs: a fixed parameter that was measured** (a B1 map, a T1 for MTsat). The fit's
      sensitivity is leakage's dθ̂/dc. Its bias: crlb with the fit's fixed value at the map's (exact,
      already in EQUIP); its random part, L·Σ_c·Lᵀ added to the covariance (independent scans; to

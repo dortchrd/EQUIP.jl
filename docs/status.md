@@ -174,8 +174,11 @@ fit's second-order bias (2026-11-13, the owner: "do the cox snell bias"; branch 
 `crlb(m, θ; snr, likelihood = :rician, secondorder = true)`, Cox and Snell's, predicts the
 maximum-likelihood fit's remaining bias (T2 +0.78% at SNR 10, montecarlo +0.83 ± 0.10; T1IR
 +2.26%, +2.51 ± 0.12; MKT from SNR 20), so crlb tells before scanning whether maximum
-likelihood or least squares is less biased; DKI's MK is not predicted (design.md, "The Rician
-fit's second-order bias"). Found while answering the owner (2026-11-09): least squares on the
+likelihood or least squares is less biased. DKI's MK is not predicted: not the fit's bias but
+MK's own curvature, too strong for the delta method (its SD 1.5× the delta method's at SNR
+20); the parameters drawn from crlb's normal distribution give montecarlo's MK, with no fits:
+a roadmap item (item 16, propagation by draws). Design.md, "The Rician fit's second-order
+bias". Found while answering the owner (2026-11-09): least squares on the
 Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
 (asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
 2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data
