@@ -4761,6 +4761,18 @@ noise even with nothing fixed wrong, because the signal is curved in its paramet
   Every one within 1 standard error (|z| ≤ 0.8 for the DTI tensor and its four indices at SNR 50
   and 20); the Rician case's first order alone is 3.8 standard errors off. (The plan's FA
   figure, +1.37e-3 measured, was another run's; this one is the same protocol at 20,000 copies.)
+- **Why not identical, and how close it is** (the owner, 2026-11-13: "within one SE? why not
+  identical?"). Two reasons. Monte Carlo's mean is itself an estimate: at 40,000 copies its
+  standard error is 5% of T1's bias at SNR 100, and four seeds scattered from −0.4 to +2.4 SE;
+  a million copies still left ±1%. And the prediction is the σ² term of an expansion, without
+  the σ⁴ term. Antithetic pairs separate the two: d = (θ̂(μ+ε) + θ̂(μ−ε))/2 − θ̂(μ) has the
+  bias as its mean with the odd orders cancelled and an O(σ⁴) variance, so bias/σ² is measured
+  to ±0.4% at 200,000 pairs. Measured/predicted for T1MFA's T1: SNR 50 1.119, 100 1.027, 200
+  1.006, 400 1.000, 1000 0.997 (± 0.004 each). The coefficient is exact as σ → 0; the rest is
+  the next order, 12%, 2.7% and 0.6% at SNR 50, 100 and 200, falling about fourfold per
+  doubling of the SNR as a σ⁴ term does. Now the validation group's first test
+  (test/validation/secondorder.jl): the ratio 1 at SNR 1000 within 3 SE, the next order
+  showing at SNR 100 and falling 3–6× to SNR 200.
 - **Where**: `_noisebias` and `_derivednoisebias` (crlb.jl), with nested ForwardDiff duals on
   the model's signal, allocating, outside the allocation-free kernel; the third-derivative term
   only when the fit is not exact; parameters on a bound left out. `_SecondOrder`, a type with
