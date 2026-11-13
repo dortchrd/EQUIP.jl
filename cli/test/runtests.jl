@@ -351,6 +351,19 @@ end
         @test run("montecarlo", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--noise", "rician", "--n", "100",
                   "--seed", "1", "--starts", "model", "--out", tsv).code == 0
         @test length(table(tsv)) == 2 * 4
+        # uncertain inputs: a B1 map 5% high whose values have an SD of 0.03, crlb's and
+        # montecarlo's numbers (the same seed); the display names it
+        mfa = ("T1MFA", "--FA", "2,5,10,15,20,30", "--TR", "0.015", "--truth", "M0=1000,T1=1", "--B1", "1.05",
+               "--snr", "1000", "--uncertain", "B1=0.03")
+        mm, θm = T1MFA(FA = [2, 5, 10, 15, 20, 30], TR = 0.015), (M0 = 1000.0, T1 = 1.0, B1 = 1.0)
+        r = run("crlb", mfa..., "--out", tsv)
+        cu = crlb(mm, θm; snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,))
+        @test r.code == 0 && occursin("B1 ± 0.03", r.out) && parse(Float64, table(tsv)[2]["sd"]) == cu.sd.T1
+        r = run("montecarlo", mfa..., "--noise", "gaussian", "--n", "200", "--seed", "4", "--out", tsv)
+        mu = montecarlo(mm, θm; snr = 1000, B1 = 1.05, uncertain = (B1 = 0.03,), noise = :gaussian, n = 200, rng = Xoshiro(4))
+        @test r.code == 0 && parse(Float64, table(tsv)[2]["sd"]) == mu.sd.T1
+        @test occursin("`--uncertain B1`: `abc` is not a number", bad("crlb", mfa[1:end-1]..., "B1=abc"))
+        @test occursin("`--uncertain`: `T2` is not a parameter", bad("crlb", mfa[1:end-1]..., "T2=0.03"))
         # design: the search with its seed, as the Julia API's; the protocol written as flags
         cnf = path("design.cnf")
         r = run("design", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--acquisition", "TI=0.01..10,TD=0.01..10",

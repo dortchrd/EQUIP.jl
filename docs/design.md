@@ -4766,9 +4766,12 @@ draws, as they share the noise); crlb alongside adds the same.
 - **Not yet, refused with the reason**: with `likelihood = :rician`, `noise = :rician` or
   `simulate_with` (leakage covers least squares on the fitted model's data only); in a protocol
   design (the objective's allocation-free kernel would need leakage's slopes per protocol
-  tried); in `crlb!` with a cache alone (no scenario to make the leakage cache from); the
-  command line (`equip crlb --uncertain B1=0.03`: small, when wanted); inputs correlated with
-  each other (a full Σc).
+  tried); in `crlb!` with a cache alone (no scenario to make the leakage cache from); inputs
+  correlated with each other (a full Σc).
+- **The command line** (2026-11-12, the owner: "do the cli equip crlb --uncertain B1=0.03"):
+  `equip crlb` and `equip montecarlo` take `--uncertain NAME=SD,...`, as `--truth` and `--vary`
+  take NAME=value; numbers only (no ties, which `--truth`'s parser allows); the same numbers as
+  the Julia API's (tested, montecarlo with the same seed).
 
 ### SNR: S0/σ, and each image's own (2026-11-09)
 

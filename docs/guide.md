@@ -993,7 +993,9 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
 - `--save run.cnf` writes the command as a file of flags, one per line (FSL's style), the
   acquisition used included; `--config run.cnf` reads one, and flags after it win.
 - The truth for `crlb`, `montecarlo` and `design`: `--tissue` (several: one scenario each) and
-  `--truth NAME=value,...`; `--vary NAME=values` for true values swept or boxed. `--noise` is
+  `--truth NAME=value,...`; `--vary NAME=values` for true values swept or boxed; `--uncertain
+  NAME=SD,...` for a fixed value that was measured (`--B1 1.05 --uncertain B1=0.03`: a B1 map
+  5% high, its values with an SD of 0.03). `--noise` is
   always given for `montecarlo`. `design` takes its bounds as `NAME=lower..upper`, the scan time
   as `--readout` (SIR-FSE) or `--scantime "sum(TI .+ TD .+ 0.3)"`, Eq. 5's weights as
   `--weights PSR=1,R1f=0`; `--out` writes the protocol it finds as a config file.

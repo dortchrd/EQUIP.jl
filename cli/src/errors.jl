@@ -6,16 +6,19 @@
 #   equip crlb QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_GM,SIR_lesion --snr 100,200
 #   equip crlb T2Decay --TE 0.01:0.01:0.32 --truth S0=1000,T2=0.08 --sigma 10 --vary T2=0.04:0.02:0.12
 #   equip montecarlo QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I --snr 200 --noise rician --kmf 12.5
+#   equip crlb T1MFA --FA 2,5,10,15,20,30 --TR 0.015 --truth T1=1 --snr 1000 --B1 1.05 --uncertain B1=0.03
 #
 # The truth: `--tissue` (a preset, or several, comma-separated: one scenario each) and/or
 # `--truth NAME=value,...` (values changed from the tissue's, or from the model's own); the fit:
 # the parameters' flags, as for `equip fit` (no maps: one voxel); the noise: `--snr` (a list is a
 # sweep) or `--sigma` (one, or one per observation), `--averages`; `--vary NAME=values` (true
-# values; repeat for several parameters). The table goes to `--out` as TSV.
+# values; repeat for several parameters); `--uncertain NAME=SD,...` (a fixed value that was
+# measured, a B1 map: its measurement's SD, in the parameter's units). The table goes to `--out`
+# as TSV.
 # =================================================================================================
 
 const _ERROR_OPTIONS = ["model", "protocol", "tissue", "truth", "vary", "weights", "snr", "sigma",
-                        "averages", "out", "save", "help"]
+                        "averages", "uncertain", "out", "save", "help"]
 
 # `NAME=value,NAME=value` into a named tuple: numbers, or a parameter's name (a tie).
 function _assignments(s::AbstractString, what, params)
@@ -45,6 +48,23 @@ function _vary(a::Args, params)
         push!(axes, Symbol(k) => numbers(v, "vary $k"))
     end
     return (; axes...)
+end
+
+# `--uncertain NAME=SD,NAME=SD` into crlb's and montecarlo's `uncertain`: each a parameter the fit
+# holds at a measured value (`--B1 1.05`), with that measurement's SD, a number (not `--truth`'s
+# ties; EQUIP checks the rest: that the fit holds it at a number, that the SD is ≥ 0).
+function _uncertainflag(a::Args, params)
+    has(a, "uncertain") || return (;)
+    sds = Pair{Symbol,Float64}[]
+    for item in split(value(a, "uncertain"), ','; keepempty = false)
+        k, eq, v = _split_eq(strip(item))
+        eq || throw(ArgumentError("`--uncertain`: give NAME=SD, e.g. `--uncertain B1=0.03`; " *
+                                  "got `$item`"))
+        Symbol(k) in params || throw(ArgumentError("`--uncertain`: `$k` is not a parameter; the " *
+                                                   "parameters: $(join(params, ", "))"))
+        push!(sds, Symbol(k) => _number(v, "uncertain $k"))
+    end
+    return (; sds...)
 end
 
 # The noise level: --snr (one, or several: a sweep) or --sigma (one, or one per observation),
@@ -117,7 +137,8 @@ function _errors_command(cmd, words, extra, run; io::IO, err::IO)
         modelhelp(io, M, cmd)
         println(io, "\nThe truth: --tissue NAME (or several: NAME,NAME), --truth NAME=value,...; ",
                 "the noise: --snr or --sigma, --averages; --vary NAME=values (true values); ",
-                "--weights; --out table.tsv; --config FILE, --save FILE", extra.help)
+                "--uncertain NAME=SD (a fixed value that was measured, e.g. --B1 1.05 --uncertain ",
+                "B1=0.03: its SD); --weights; --out table.tsv; --config FILE, --save FILE", extra.help)
         return 0
     end
     _check_flags(a, M, [_ERROR_OPTIONS; extra.options], cmd)
@@ -150,8 +171,9 @@ cmd_crlb(words; io::IO = stdout, err::IO = stderr) =
                     _run_crlb; io, err)
 function _run_crlb(M, m, a, truths, several, roles, weights, lvl, vary)
     cov = Symbol(value(a, "cov", "sandwich"))
-    several || return crlb(m, truths; lvl..., cov, vary, weights, roles...)   # (vary: true values)
-    return crlb(m, scenarios(M, truths; vary, weights, roles...); lvl..., cov)
+    uncertain = _uncertainflag(a, paramnames(M))
+    several || return crlb(m, truths; lvl..., cov, vary, uncertain, weights, roles...)   # (vary: true values)
+    return crlb(m, scenarios(M, truths; vary, weights, roles...); lvl..., cov, uncertain)
 end
 
 cmd_montecarlo(words; io::IO = stdout, err::IO = stderr) =
@@ -169,8 +191,9 @@ function _run_montecarlo(M, m, a, truths, several, roles, weights, lvl, vary)
     rng = has(a, "seed") ? Xoshiro(round(Int, _number(value(a, "seed"), "seed"))) : Xoshiro()
     starts = Symbol(value(a, "starts", "truth"))
     precision = _precision(value(a, "precision", "Float64"))
+    uncertain = _uncertainflag(a, paramnames(M))
     several || return montecarlo(m, truths; lvl..., noise, averaging, n, rng, starts, precision,
-                                 vary, weights, roles...)
+                                 vary, uncertain, weights, roles...)
     return montecarlo(m, scenarios(M, truths; vary, weights, starts, roles...); lvl..., noise,
-                      averaging, n, rng, precision)
+                      averaging, n, rng, precision, uncertain)
 end
