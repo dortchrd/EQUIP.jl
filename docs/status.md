@@ -24,6 +24,13 @@ jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can 
 of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
 off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
 
+Merged into `main` (fast-forward, 2026-11-13, at the owner's request: "merge into main, then
+do the cox snell bias"): `rician` at bf79d5f, tier 2 steps 6 to 9 (the validation group, run
+nightly in CI; `propagate`; `secondorder`; uncertain inputs) and the values-by-name rule. Checked
+first: the full `Pkg.test` (EQUIP 2547), CI on the branch (all six jobs) and the validation job
+run by hand on it (63 tests, 1 m 55 s, with the precompile workload). `rician` carries on with the
+Rician fit's second-order bias (Cox and Snell; design.md item 16).
+
 Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
 its branch is safe to delete on GitHub.
 
