@@ -14,7 +14,8 @@
 # DKI in CSF is left out: its kurtosis has no information there, and the fit stops at its
 # iteration limit (roadmap: design.md item 20).
 #
-# Part of EQUIP's validation group, run apart (about two minutes):
+# Part of EQUIP's validation group, run apart (about four minutes, 90 s of it compiling DKI's
+# second-order crlb):
 #     julia -t auto --project=test test/runtests.jl rician_fits
 # =================================================================================================
 
