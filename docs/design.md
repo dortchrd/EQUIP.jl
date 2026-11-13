@@ -5930,7 +5930,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      against the Rician crlb); the likelihood against Gaussian least squares at high SNR (the
      same fits); the expected magnitude against a simulated mean.
 14. **A protocol design from a number of points** (after the prerelease and Rician-likelihood
-   fitting, decided 2026-11-03). `ProtocolDesign(m, scenarios; ...)` takes a protocol, a model
+   fitting, decided 2026-11-03; to add: uncertain inputs in the objective, for protocols robust
+   to a B1 map's error, item 16's "Uncertain inputs", case 4). `ProtocolDesign(m, scenarios; ...)` takes a protocol, a model
    with its acquisition, and uses it four ways: the number of points N (a type parameter: every
    protocol's varied fields are `SVector{N}`); the fields that are not varied (`magnitude =
    false`, a TR not searched), which every protocol evaluated keeps; a model to build the fits'
@@ -6037,7 +6038,28 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        low anisotropy, GM and CSF: FA behaves like a norm near isotropy, not smooth), near a
        bound, and at low SNR generally.
      - **Uncertain inputs**: L·Σ_c·Lᵀ added to the covariance (e.g. `uncertain = (B1 =
-       0.03,)`), measured above.
+       0.03,)`), measured above. **Built 2026-11-12** (tier 2 step 9: "Step 9, built and
+       measured"; `equip crlb --uncertain B1=0.03`). **Still to do** (the owner, 2026-11-13:
+       "just document these ... put on the roadmap"). Each of these stops today with an error
+       saying "not yet" and why, rather than returning a number that would be wrong:
+       1. **A Rician fit** (`likelihood = :rician`): its slope dθ̂/dc comes from the Rician
+          likelihood's derivatives, which leakage does not have (leakage is least squares'). With
+          item 20's Rician fits.
+       2. **Least squares on magnitude data at low SNR** (`noise = :rician`): the fit lands on the
+          floor-lifted Rician mean, and the slope should be taken there, not on the noise-free
+          signal (the same at high SNR, not at low).
+       3. **Data from another model** (`simulate_with`): the slope should be taken on the other
+          model's signal (a bi-exponential tissue fitted mono-exponentially), not the fitted
+          model's own.
+          (1–3 share one cause: leakage covers least squares on the fitted model's own signal.)
+       4. **Protocol design** (item 14): the search scores thousands of protocols with an
+          allocation-free crlb; uncertain inputs need leakage's slope for each one inside that
+          loop. The useful one of the six: protocols robust to a B1 map's error.
+       5. **`crlb!` on a ready-made cache**: plumbing only. A `CRLBCache` does not keep the
+          scenario the leakage cache is made from; `crlb(m, θ; uncertain = ...)` does the same,
+          sweeps included.
+       6. **Inputs whose errors are correlated** (a T1 map computed with the same B1 map): a
+          covariance between the inputs, not one SD each.
      - Not the same as the Rician floor, which shifts the data's mean and which crlb already
        includes under Rician noise (`riciannoise`, `ricianbound`; item 20). At low SNR both
        matter, and they add.
