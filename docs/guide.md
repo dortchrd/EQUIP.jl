@@ -1047,7 +1047,28 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
   Faster start-up (a system image, a resident service) is on the roadmap.
 - MATLAB files as `file.mat:NAME` wherever a file goes (the data, `--mask`, a map, `@file`
   values); the maps are then written to one `PREFIX_maps.mat`, or as NIfTI with
-  `--like ref.nii.gz`. MAT is loaded only by a command that names a `.mat` file (about 0.4 s).
+  `--like ref.nii.gz`. `--format nifti|mat|both` chooses for any data: `both` writes NIfTI data's
+  maps as NIfTI and as one `PREFIX_maps.mat` (what MATLAB's `load` reads without a toolbox). MAT
+  is loaded only by a command that reads or writes a `.mat` file (about 0.4 s).
+
+### From MATLAB
+
+`matlab/` holds MATLAB functions that run the command line for you, for people who do not use
+Julia (instructions from installing Julia on: [matlab/README.md](../matlab/README.md)).
+`equip_setup` installs and checks (once, and after each update); `equip_fit` fits and returns the
+maps as a struct, from NIfTI files or MATLAB arrays, with the command line's options as name-value
+pairs; `equip` runs any command as text:
+
+```matlab
+maps = equip_fit('QMTSIR', 'SIR.nii', 'mask', 'MASK.nii', ...
+                 'TI', [1007 10 278 10] / 1000, 'TD', [10 4174 2730 684] / 1000, 'kmf', 12.5);
+imagesc(maps.PSR(:, :, 10)); axis image; colorbar
+equip('fit QMTSIR --help')
+```
+
+They call Julia directly (not the bash script), found without the terminal's PATH, so they work
+when MATLAB is started from the Dock and on Windows; NIfTI data's maps are also written beside the
+data. Times in seconds (`equip_fit` stops when they look like milliseconds).
 
 ## How it works
 

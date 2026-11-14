@@ -5950,6 +5950,36 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `import`, and later calls cost only the fit, so a notebook stays fast all session.
      - MATLAB: running Julia inside MATLAB is fragile, so a server; data passed in files. qMRLab
        could call EQUIP as its fitting engine this way.
+       **First version built (2026-11-14, branch `matlab`; the owner: "a matlab function (wrapper)
+       for equip fit, along with instructions for a non julia user ... they will test it with
+       sir")**: MATLAB over the command line, a Julia process per call (a few seconds each,
+       nothing to keep running; the server stays the plan for many calls). matlab/: `equip_fit`
+       (the model, the data as NIfTI files or a MATLAB array, the command line's flags as
+       name-value pairs; returns the maps as a struct), `equip_setup` (finds Julia, checks ≥
+       1.11, `Pkg.resolve(); Pkg.instantiate(); using EQUIPCLI` with the progress shown, a test
+       fit of a simulated T2 decay through `equip_fit`, the startup.m line), `equip` (any command
+       as text), matlab/README.md (for a user without Julia: installing Julia, the ZIP, setup,
+       startup.m, the SIR fit, updating, troubleshooting). Decisions:
+       - Julia called directly, not through cli/bin/equip: MATLAB started from the Dock or the
+         Start menu has no PATH to Julia, and Windows has no bash. Found in order: `JULIA`,
+         MATLAB's PATH, juliaup's ~/.juliaup/bin, the usual install folders (/Applications/Julia-*
+         newest, Homebrew, /usr/local/bin; on Windows the Store's alias and
+         %LOCALAPPDATA%\Programs\Julia-*). On Linux LD_LIBRARY_PATH is unset for the call
+         (MATLAB puts its own libraries first).
+       - The maps back through a .mat file, `load` (no toolbox: `niftiread` needs the Image
+         Processing Toolbox): `equip fit` gained `--format nifti|mat|both`; `equip_fit` asks for
+         both with NIfTI data (the NIfTI maps stay beside the data, to view), mat with arrays. MAT
+         is loaded for `--format mat` too.
+       - Arrays go to Julia in one temporary .mat file (v7; v7.3 above 2 GB), the data as
+         `equip_data`, a mask or a map under its flag's name; removed afterwards (`onCleanup`).
+       - An argument with two or more non-singleton dimensions is a map, `mask` always, `sigma`
+         when not a number; a vector is a list of values. Times over 60 in TI, TD, TE, TR, TM, TS,
+         delta, Delta stop with "these look like milliseconds" (EQUIP's times are seconds).
+       Tested in GNU Octave 8.4 (installed here; MATLAB is not): `equip_setup` end to end; the
+       4-point SIR from NIfTI files (the command line's maps, PSR median 0.1738), arrays, the
+       millisecond guard, a wrong model's message, `equip('fit QMTSIR --help')`. Not tried:
+       MATLAB itself, macOS's and Windows's Julia locations, Windows's quoting and `C:` paths in
+       `file.mat:NAME`.
    - **Order**: workload coverage and the no-compile test; the command line with `--init`;
      Python; MATLAB.
    - **Faster start-up for the release's command line, later (decided 2026-11-01: a lean

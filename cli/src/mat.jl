@@ -12,6 +12,12 @@ _namesmat(w::AbstractString) = occursin(r"\.mat(:[A-Za-z][A-Za-z0-9_]*)?$"i, w)
 
 function _loadmat(words)
     any(_namesmat, words) || return nothing
+    return _requiremat()
+end
+
+# MAT loaded now (if not already): for a command that names a .mat file, or writes one
+# (`equip fit ... --format mat` for NIfTI data).
+function _requiremat()
     MRImages._matloaded() && return nothing
     try
         Base.require(_MAT)

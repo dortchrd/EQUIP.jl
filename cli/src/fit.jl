@@ -5,15 +5,18 @@
 #   equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf 12.5 --mask brain.nii.gz
 #   equip fit ADCDecay dwi.nii.gz --weights @nex.txt --out results/sub-01_
 #   equip fit DTI dwi.nii.gz --likelihood rician --sigma 50           magnitude data, σ known
+#   equip fit QMTSIR sir.nii --TI ... --TD ... --format both             NIfTI maps and one .mat
 #
 # The data are read (EQUIP's `readdata`), the model built from the flags and the files
 # (models.jl), the parameters' flags turned into `fit`'s keywords (args.jl), and the maps written
 # in the data's geometry with a sidecar recording how they were made (EQUIP's `writemaps`): NIfTI
-# for NIfTI data, one .mat file for MATLAB data (or NIfTI in another image's geometry: --like).
+# for NIfTI data, one .mat file for MATLAB data (or NIfTI in another image's geometry: --like);
+# `--format nifti|mat|both` chooses (MATLAB's `load` reads the .mat without a toolbox: the
+# MATLAB wrapper, matlab/equip_fit.m, asks for both).
 # =================================================================================================
 
 const _FIT_OPTIONS = ["model", "data", "protocol", "mask", "weights", "precision", "out",
-                      "like", "stderror", "save", "likelihood", "sigma", "method", "help"]
+                      "like", "stderror", "save", "likelihood", "sigma", "method", "format", "help"]
 
 function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
@@ -28,7 +31,8 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     if has(a, "help")
         modelhelp(io, M, "fit")
         println(io, "\nOptions: --mask FILE, --weights VALUES, --precision Float32, --out PREFIX, " *
-                    "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --config FILE, " *
+                    "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --format nifti, mat " *
+                    "or both (the maps as NIfTI, as one PREFIX_maps.mat, or both), --config FILE, " *
                     "--save FILE; for magnitude data at low SNR, --likelihood rician --sigma SD " *
                     "(the noise SD of each channel: a number, or a map as FILE.nii.gz or " *
                     "FILE.mat:NAME; not estimated) and --method ml (the default), mean or wmean")
@@ -52,6 +56,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     weights = has(a, "weights") ? numbers(value(a, "weights"), "weights") : nothing
     noise = _fitnoise(a, info)                   # (;), or the Rician fit's keywords
     like = has(a, "like") ? readimage(value(a, "like")) : nothing
+    format = _mapformat(a, info, like)
     prefix = value(a, "out", filestem(files[1]) * "_")
 
     # The command as a config file, before fitting: a record even if the fit is stopped.
@@ -78,15 +83,30 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         car["Sigma"] = value(a, "sigma")
         car["Method"] = String(noise.method)
     end
-    written = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like)
+    writeas(f) = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like,
+                           format = f)
+    written = format === :both ? [writeas(:nifti); writeas(:mat)] : writeas(format)
     show(io, MIME"text/plain"(), res)
-    if length(written) == 1 && MRImages._ismat(written[1])
-        println(io, "\n\nwrote the maps to ", basename(written[1]))
-    else
-        println(io, "\n\nwrote ", length(written), " maps: ", join(basename.(written), ", "))
-    end
+    nii = filter(!MRImages._ismat, written)
+    mat = filter(MRImages._ismat, written)
+    isempty(nii) || println(io, "\n\nwrote ", length(nii), " maps: ", join(basename.(nii), ", "))
+    isempty(mat) || println(io, isempty(nii) ? "\n\n" : "", "wrote the maps to ", basename(mat[1]))
     println(io, "in ", abspath(dirname(written[1])))
     return 0
+end
+
+# How the maps are written (`--format`): as writemaps chooses by default (NIfTI for NIfTI data or
+# with --like, one .mat for MATLAB data), or as asked. NIfTI maps need a NIfTI geometry: the
+# data's, or --like's. A .mat file needs MAT, loaded here when the command named no .mat file.
+function _mapformat(a, info, like)
+    has(a, "format") || return :auto
+    f = lowercase(value(a, "format"))
+    f in ("nifti", "mat", "both") || throw(ArgumentError("`--format`: nifti, mat or both, got `$f`"))
+    f in ("nifti", "both") && info.header === nothing && like === nothing &&
+        throw(ArgumentError("`--format $f`: NIfTI maps of MATLAB data need a geometry: give " *
+                            "--like REF.nii.gz"))
+    f in ("mat", "both") && _requiremat()
+    return Symbol(f)
 end
 
 # The noise model the fit assumes (EQUIP's `fit(m, data; likelihood, σ, method)`): least squares

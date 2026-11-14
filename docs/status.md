@@ -209,6 +209,11 @@ parameters, so the start is not the log-linear fit. Full runs on the branch: EQU
 - Still to do from tier 2 (design.md): DKI in CSF with the Rician fit (item 20: bounds on the
   kurtosis, or a convergence test for a flat likelihood); the second-order bias for `:wmean`.
 
+**MATLAB, for a first user's test** (2026-11-14, branch `matlab`; item 10): `equip_fit` over
+the command line, `equip_setup`, `equip`, matlab/README.md for a user without Julia; `equip fit
+--format nifti|mat|both`. Tested in Octave 8.4, not in MATLAB or on Windows (design.md, item 10,
+"First version built"). The first user tests it with SIR data.
+
 **3. Protocol design** (items 3, 14, 19)
 - A protocol from a number of points (item 14).
 - An objective on a derived quantity (`ProtocolDesign` for MK's SD, not W1111's).

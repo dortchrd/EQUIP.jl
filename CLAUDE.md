@@ -98,6 +98,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - cli/: the `equip` command (package EQUIPCLI, cli/bin/equip): a subcommand per part, and
   `equip info` (a file's header and sidecar); MAT loaded only when a command names a .mat file.
   DICOM is converted with dcm2niix, not read (docs/design.md)
+- matlab/: MATLAB functions over the command line, for users without Julia (`equip_fit`: maps as a
+  struct; `equip_setup`: install and check; `equip`: any command as text; private/: finding Julia
+  and calling it directly), and their user's instructions (matlab/README.md). Tested in GNU Octave
+  (`octave --no-gui --eval ...`; not MATLAB itself here)
 - README.md: the front page (short); docs/guide.md: the user's guide, every part in full (what
   the README held until 2026-11-08). A change users see goes in the guide, and in the README
   only if it changes the front page.

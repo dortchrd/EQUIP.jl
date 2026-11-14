@@ -268,6 +268,15 @@ end
         @test r.code == 0 && occursin("wrote 4 maps", r.out)
         @test rawmap(out("c_T2map.nii.gz")) == Float32.(fit(T2Decay(TE = te), Y).params.T2)
         @test MRI.samegeometry(readimage(out("c_T2map.nii.gz")), readimage(path("t2.nii.gz")))
+        # --format: NIfTI data's maps as one .mat too (what MATLAB's `load` reads without a
+        # toolbox: matlab/equip_fit.m), or only; the same numbers as the NIfTI maps
+        r = run("fit", "T2Decay", path("t2.nii.gz"), "--format", "both", "--out", out("d_"))
+        @test r.code == 0 && occursin("wrote 4 maps", r.out) && occursin("wrote the maps to d_maps.mat", r.out)
+        @test isequal(MRI.readmat(out("d_maps.mat"))["T2map"], rawmap(out("d_T2map.nii.gz")))
+        r = run("fit", "T2Decay", path("t2.nii.gz"), "--format", "mat", "--out", out("e_"))
+        @test r.code == 0 && isfile(out("e_maps.mat")) && !isfile(out("e_T2map.nii.gz"))
+        @test occursin("--like", bad("fit", "T2Decay", path("t2_4d.mat"), "--TE", join(te, ','), "--format", "nifti"))
+        @test occursin("`--format`", bad("fit", "T2Decay", path("t2.nii.gz"), "--format", "csv"))
         # mistakes
         @test occursin("name the one to read", bad("fit", "T2Decay", path("t2.mat"), "--TE", "0.01"))
         @test occursin("the data's images are 60", bad("fit", "T2Decay", path("t2.mat:S"),
