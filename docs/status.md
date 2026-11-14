@@ -24,6 +24,12 @@ jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can 
 of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
 off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
 
+Merged into `main` (fast-forward, 2026-11-14, at the owner's request: "yes merge into main"):
+`matlab` at 37d5759, the MATLAB functions over the command line (matlab/: `equip_fit`,
+`equip_setup`, `equip`, README.md for a user without Julia) and `equip fit --format`, for the
+first user's test with SIR data. Checked first: the command line's tests (160), the functions in
+GNU Octave 8.4 (not MATLAB, not Windows), CI on the branch (all six jobs).
+
 Merged into `main` (fast-forward, 2026-11-14, at the owner's request: "merge rician to main"):
 `rician` at 3dea513, the Rician fit's second-order bias (Cox and Snell, `secondorder = true`
 with `likelihood = :rician`). Checked first: the full `Pkg.test` (EQUIP 2569), CI on the branch
@@ -209,7 +215,7 @@ parameters, so the start is not the log-linear fit. Full runs on the branch: EQU
 - Still to do from tier 2 (design.md): DKI in CSF with the Rician fit (item 20: bounds on the
   kurtosis, or a convergence test for a flat likelihood); the second-order bias for `:wmean`.
 
-**MATLAB, for a first user's test** (2026-11-14, branch `matlab`; item 10): `equip_fit` over
+**MATLAB, for a first user's test** (2026-11-14, in `main`; item 10): `equip_fit` over
 the command line, `equip_setup`, `equip`, matlab/README.md for a user without Julia; `equip fit
 --format nifti|mat|both`. Tested in Octave 8.4, not in MATLAB or on Windows (design.md, item 10,
 "First version built"). The first user tests it with SIR data.
