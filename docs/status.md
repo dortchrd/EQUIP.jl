@@ -126,8 +126,10 @@ design.md, "The prerelease: what was done", has the measurements)
   1.11's `Pkg.test` forces (`fit!` allocates nothing on 1.11 as users run it; the checks are
   skipped when bounds checks are forced, `@test_noalloc`).
 
-**2. Bias from noise at low SNR** (items 13, 16, 20). Planned (2026-11-09), not built: design.md,
-"Tier 2, bias from noise at low SNR: the plan", ten steps, each with how it is judged. Decided
+**2. Bias from noise at low SNR** (items 13, 16, 20). Built (2026-11-09 to 14, in `main`) but
+step 3, estimating σ (on hold): design.md, "Tier 2, bias from noise at low SNR: the plan", ten
+steps, each with how it is judged; left from it, DKI in CSF (item 20), `:wmean`'s second-order
+bias, and propagation by draws (item 16). Decided
 (the owner, 2026-11-09): the keyword is `likelihood`; MP-PCA waits, with the other
 preprocessing (item 22); the diffusivity cap, 4e-3 mm²/s, in every fit ("cap everywhere").
 Done on branch `rician` (2026-11-09 to 12; merged into `main` 2026-11-12): step 0, the baseline (bench/rician_baseline.jl;
