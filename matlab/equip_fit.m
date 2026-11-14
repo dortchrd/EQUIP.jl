@@ -36,7 +36,11 @@ function [maps, info] = equip_fit(model, data, varargin)
 %          NaN where not fitted. Single precision.
 %   info   what was done: info.command (the command run), info.output (EQUIP's output),
 %          info.prefix, info.mapsfile (the maps as one .mat file; with the NIfTI maps beside it
-%          for a NIfTI input)
+%          for a NIfTI input), and info.sidecar, the maps' JSON record as a struct: the model,
+%          the acquisition (info.sidecar.Acquisition.TI), every parameter as the fit used it,
+%          the defaults too (info.sidecar.Parameters.Sm: Role 'fixed', Value 0.83;
+%          .Parameters.PSR: Role 'free', Start, Lower, Upper, [] for no bound), the data and
+%          mask files, the command and EQUIP's version
 %
 %   Example: the 4-point SIR, kmf fixed at 12.5 1/s (Dortch et al., Magn Reson Med 2018):
 %     maps = equip_fit('QMTSIR', 'SIR.nii', 'mask', 'MASK.nii', ...
@@ -159,8 +163,10 @@ if verbose, fprintf('%s\n', txt); end
 
 mapsfile = [out 'maps.mat'];
 maps = load(mapsfile);
+sidecar = jsondecode(fileread([out 'maps.json']));          % (R2016b; Octave 7)
 if arraydata && startsWith(out, tmp), mapsfile = ''; end   % deleted with the temporary folder
 info = struct('command', cmd, 'output', txt, 'prefix', out, 'mapsfile', mapsfile);
+info.sidecar = sidecar;           % (assigned apart: struct() would spread a struct array)
 end
 
 % -------------------------------------------------------------------------------------------------

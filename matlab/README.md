@@ -171,8 +171,12 @@ low there, as Dortch et al. 2018 describe.)
   The maps then come back only in MATLAB, unless you give `'out'`.
 - kmf estimated rather than fixed: `'kmf', 'free'` (for the 5-point or a longer scheme).
 - Standard-error maps too: `'stderror', true`.
-- The command and EQUIP's output: `[maps, info] = equip_fit(...)`, then `info.command` and
-  `info.output`.
+- How the maps were made: `[maps, info] = equip_fit(...)`, then `info.command` (the command
+  run), `info.output` (EQUIP's summary) and `info.sidecar`, the record EQUIP writes beside the
+  maps (`SIR_maps.json`), as a struct: the model, TI and TD (`info.sidecar.Acquisition`), the
+  data and mask files, EQUIP's version, and every parameter as the fit used it, the defaults
+  included: `info.sidecar.Parameters.Sm` is fixed at 0.83, `.R1m` tied to R1f, `.PSR` free
+  with its start and bounds.
 - All options: `help equip_fit`; a model's options and parameters: `equip('fit QMTSIR --help')`;
   every model: `equip('fit --help')`; what EQUIP reads from a file: `equip('info SIR.nii')`.
 

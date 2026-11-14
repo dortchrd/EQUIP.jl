@@ -94,6 +94,18 @@
     @test t2.meta["Map"] == "T2map" && t2.meta["Model"] == "T2Decay" &&
           t2.meta["Acquisition"]["TE"] ≈ te && t2.meta["Data"] == "t2.nii.gz"
     @test t2.meta["Fit"]["T2"] == "Free(start = 0.07)" && t2.meta["Fit"]["precision"] == "Float64"
+    # every parameter as the fit used it: the call's start for T2 with the model's bounds, and
+    # S0 as the model declares it (`parameters(T2Decay)`), given nothing
+    pr = t2.meta["Parameters"]
+    d = parameters(T2Decay)
+    @test pr["T2"] == Dict("Role" => "free", "Start" => 0.07, "Lower" => d.T2.lower, "Upper" => d.T2.upper)
+    @test pr["S0"]["Role"] == "free" && pr["S0"]["Start"] == String(d.S0.start)
+    # ... and the defaults the call did not name, for QMTSIR: kmf fixed (here given), R1m tied
+    # to R1f, Sm at its default; an unbounded upper bound as null
+    q = EQUIP._parameterroles(fit(QMTSIR(; SIR_4POINT...), ones(4); kmf = 12.5))
+    dq = parameters(QMTSIR)
+    @test q["kmf"] == Dict("Role" => "fixed", "Value" => 12.5) && q["R1m"] == Dict("Role" => "tied", "To" => "R1f")
+    @test q["Sm"] == Dict("Role" => "fixed", "Value" => dq.Sm.value) && q["M0f"]["Upper"] === nothing
     @test startswith(t2.meta["Software"], "EQUIP ")
     @test occursin("one voxel's", msg(() -> writemaps(path("x_"), fit(m, Y[1, 1, 1, :]), info)))
     @test occursin("the data were 6×5×2", msg(() -> writemaps(path("x_"), fit(m, Y[1:2, :, :, :]), info)))

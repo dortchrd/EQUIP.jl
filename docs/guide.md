@@ -985,7 +985,10 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map
 - `writemaps(prefix, res, info)`: one NIfTI file per map in the data's geometry, with BIDS
   names where they exist (`T1map`, `R1map`, `T2map`, `S0map`, ...), the status and SSE maps,
   and with `stderror = true` the standard errors; beside each a JSON sidecar recording how it
-  was made (the model, its acquisition, each parameter's role, the precision, EQUIP's version).
+  was made: the model, its acquisition, the fit's keywords as given (`"Fit"`), every parameter
+  as the fit used it, the model's defaults included (`"Parameters"`: `"Sm": {"Role": "fixed",
+  "Value": 0.83}`, `"R1m": {"Role": "tied", "To": "R1f"}`, `"PSR": {"Role": "free", "Start":
+  0.1, "Lower": 0, "Upper": 1}`, null for no bound), the precision, EQUIP's version.
 - (`readdata`, `readmap` and `writemaps` were `loaddata`, `loadmap` and `savemaps` until
   2026-11-12: one verb pair, read and write, for every file function.)
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);

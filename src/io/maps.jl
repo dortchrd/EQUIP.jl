@@ -29,9 +29,12 @@ are Float32, NaN outside the mask. Returns the files written.
 - `format = :mat` (the default for data from a MATLAB file; needs `using MAT`): one file,
   `prefix * "maps.mat"`, a variable per map in the data's own shape, and `prefix * "maps.json"`.
 
-The sidecar records how the maps were made: the model, its acquisition, the fit's settings
-(the parameters' roles, the precision, the weights), EQUIP's version; `sidecar`'s entries are
-added (and win: the command line adds the command and the data files).
+The sidecar records how the maps were made: the model, its acquisition, the fit's settings as
+given (`"Fit"`: the keywords, the precision, the weights), every parameter as the fit used it
+(`"Parameters"`, the model's defaults included: `"PSR": {"Role": "free", "Start": 0.1, "Lower":
+0, "Upper": 1}`, `"kmf": {"Role": "fixed", "Value": 12.5}`, `"R1m": {"Role": "tied", "To":
+"R1f"}`; null for no bound), EQUIP's version; `sidecar`'s entries are added (and win: the
+command line adds the command and the data files).
 """
 writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
           sidecar::AbstractDict = Dict{String,Any}(), like::Union{Nothing,MRImage} = nothing,
@@ -109,7 +112,36 @@ function _provenance(@nospecialize(res::FitResult))
                          v isa Real ? v : repr(v)
     end
     return Dict{String,Any}("Model" => string(nameof(typeof(m))), "Acquisition" => acq,
-                            "Fit" => fit, "Software" => "EQUIP $(pkgversion(EQUIP))")
+                            "Fit" => fit, "Parameters" => _parameterroles(res),
+                            "Software" => "EQUIP $(pkgversion(EQUIP))")
+end
+
+# Every parameter as the fit used it, for the sidecar's "Parameters": the model's own roles with
+# the call's keywords applied (`setup`'s step 2, `_apply_roles`), so that the defaults are
+# recorded too (QMTSIR's Sm = 0.83 and R1m tied to R1f), not only what was given ("Fit" holds
+# that). Each: free with its start and bounds (null where unbounded), fixed at a number, tied to
+# another parameter, or fixed to a map or to a function of the other parameters.
+function _parameterroles(@nospecialize(res::FitResult))
+    m = res.model
+    defaults = parameters(m)
+    given = (; (k => v for (k, v) in pairs(res.settings) if haskey(defaults, k))...)
+    roles = _apply_roles(m, defaults, given, n -> ArgumentError("`$n`"))
+    return Dict{String,Any}(String(n) => _roledict(r) for (n, r) in pairs(roles))
+end
+_bound(x) = x === nothing || !isfinite(x) ? nothing : x            # JSON has no Inf: null
+function _roledict(r::Free)
+    s = r.start
+    start = s isa Real ? s : s isa Symbol ? String(s) :           # a number; "scale", "data", ...
+            s isa BestOf ? "best of " * join(s.values, ", ") :
+            s isa AbstractArray ? "a map" : s === nothing ? nothing : repr(s)
+    return Dict{String,Any}("Role" => "free", "Start" => start, "Lower" => _bound(r.lower),
+                            "Upper" => _bound(r.upper))
+end
+function _roledict(r::Fixed)
+    v = r.value
+    v isa Symbol && return Dict{String,Any}("Role" => "tied", "To" => String(v))
+    return Dict{String,Any}("Role" => "fixed", "Value" => v isa Real ? v :
+                            v isa AbstractArray ? "a map" : "a function of the other parameters")
 end
 _jsonvalue(v::Union{Real,AbstractString,Symbol}) = v isa Symbol ? String(v) : v
 _jsonvalue(v::AbstractVector{<:Real}) = collect(v)

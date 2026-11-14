@@ -5980,6 +5980,18 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        millisecond guard, a wrong model's message, `equip('fit QMTSIR --help')`. Not tried:
        MATLAB itself, macOS's and Windows's Julia locations, Windows's quoting and `C:` paths in
        `file.mat:NAME`.
+       Then (2026-11-14, the owner: "does it include all the model fitting info in the json";
+       "yes do both"): the maps' sidecar had in `"Fit"` only the keywords given (the command
+       line's flags as typed), not the model's defaults (QMTSIR's Sm = 0.83, R1m tied to R1f,
+       the bounds and starts). `writemaps` now adds `"Parameters"`, every parameter as the fit
+       used it: the model's roles with the call's keywords applied (`setup`'s step 2,
+       `_apply_roles`), each free (Start, Lower, Upper; null for no bound, JSON having no Inf),
+       fixed (Value: a number, "a map", "a function of the other parameters") or tied (To);
+       `"Fit"` stays, what was asked. For every caller (Julia, the command line, MATLAB).
+       `equip_fit` returns the sidecar as `info.sidecar` (`jsondecode`: MATLAB R2016b, Octave
+       7), so `info.sidecar.Parameters.Sm.Value` reads 0.83. Tested: io.jl (T2Decay's from the
+       call and the model; QMTSIR's defaults, the tie, a null bound), Octave (the SIR fit's nine
+       parameters, an array fit's).
    - **Order**: workload coverage and the no-compile test; the command line with `--init`;
      Python; MATLAB.
    - **Faster start-up for the release's command line, later (decided 2026-11-01: a lean
