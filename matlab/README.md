@@ -164,6 +164,27 @@ FitResult: QMTSIR, 6×6×2 voxels
 (The simulated tissue's PSR is 0.2 and its kmf 5 1/s: fixing kmf at 12.5 makes PSR about 14%
 low there, as Dortch et al. 2018 describe.)
 
+and then every parameter of the model as the fit used it, so you can see the values you did not
+set (EQUIP's defaults for the model) without knowing them:
+
+```
+parameters as fitted (* given in this call; the others QMTSIR's defaults):
+    PSR      free    start 0.1      bounds 0 to 1
+    R1f      free    start 1        bounds 0.05 to 10
+    Sf       free    start -0.95    bounds -1.2 to 0
+    M0f      free    start scale    bounds 0 to Inf
+  * kmf      fixed   12.5
+    R1m      tied    to R1f
+    Sm       fixed   0.83
+    Mzf_td0  fixed   0
+    Mzm_td0  fixed   0
+```
+
+Here Sm = 0.83 (the macromolecular pool's inversion) and R1m = R1f are assumptions of the
+model: to change one, give it, e.g. `'Sm', 0.8`. The same list comes back as
+`info.parameters` (`[maps, info] = equip_fit(...)`; `struct2table(info.parameters)` shows it as
+a table), and it is saved beside the maps in `SIR_maps.json`.
+
 ## More
 
 - Your data already in MATLAB: give the array instead of the file name, `[x y z 4]`, and the
@@ -171,12 +192,10 @@ low there, as Dortch et al. 2018 describe.)
   The maps then come back only in MATLAB, unless you give `'out'`.
 - kmf estimated rather than fixed: `'kmf', 'free'` (for the 5-point or a longer scheme).
 - Standard-error maps too: `'stderror', true`.
-- How the maps were made: `[maps, info] = equip_fit(...)`, then `info.command` (the command
-  run), `info.output` (EQUIP's summary) and `info.sidecar`, the record EQUIP writes beside the
-  maps (`SIR_maps.json`), as a struct: the model, TI and TD (`info.sidecar.Acquisition`), the
-  data and mask files, EQUIP's version, and every parameter as the fit used it, the defaults
-  included: `info.sidecar.Parameters.Sm` is fixed at 0.83, `.R1m` tied to R1f, `.PSR` free
-  with its start and bounds.
+- How the maps were made: `[maps, info] = equip_fit(...)`, then `info.parameters` (above),
+  `info.command` (the command run), `info.output` (EQUIP's summary) and `info.sidecar`, the
+  whole record EQUIP writes beside the maps (`SIR_maps.json`) as a struct: the model, TI and TD
+  (`info.sidecar.Acquisition`), the data and mask files, EQUIP's version, the parameters.
 - All options: `help equip_fit`; a model's options and parameters: `equip('fit QMTSIR --help')`;
   every model: `equip('fit --help')`; what EQUIP reads from a file: `equip('info SIR.nii')`.
 

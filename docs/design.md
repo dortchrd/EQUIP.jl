@@ -5991,7 +5991,14 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `equip_fit` returns the sidecar as `info.sidecar` (`jsondecode`: MATLAB R2016b, Octave
        7), so `info.sidecar.Parameters.Sm.Value` reads 0.83. Tested: io.jl (T2Decay's from the
        call and the model; QMTSIR's defaults, the tie, a null bound), Octave (the SIR fit's nine
-       parameters, an array fit's).
+       parameters, an array fit's). And (the owner: "the user should know that if they dont
+       have full knowledge of the equip defaults"): `equip_fit` prints every parameter as
+       fitted after EQUIP's summary, those given in the call marked (from "Fit") and the others
+       the model's defaults, and returns them as `info.parameters` (a struct array: name, role,
+       value, start, lower, upper, given; Inf for no bound), in the model's order, which the
+       sidecar now records as "ParameterNames" (a JSON object keeps none). Showed on the way
+       that `'kmf', 'free,start=10'` leaves kmf unbounded: its default role, fixed, has no
+       bounds.
    - **Order**: workload coverage and the no-compile test; the command line with `--init`;
      Python; MATLAB.
    - **Faster start-up for the release's command line, later (decided 2026-11-01: a lean

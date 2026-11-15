@@ -28,13 +28,20 @@ function [maps, info] = equip_fit(model, data, varargin)
 %                   results/sub01_PSR.nii.gz, ... Default for a NIfTI file: beside it, its name
 %                   and '_' (SIR.nii: SIR_PSR.nii.gz, ...). For a MATLAB array: a temporary folder,
 %                   deleted afterwards (give 'out' to keep the files)
-%     'verbose'     true (default): print EQUIP's summary of the fit
+%     'verbose'     true (default): print EQUIP's summary of the fit, and every parameter as
+%                   fitted (those not given in the call at EQUIP's defaults for the model)
 %
 %   maps   a struct with one field per map, each the data's spatial size: the fitted parameters
 %          (QMTSIR: maps.PSR, maps.R1f, maps.Sf, maps.M0f), maps.status (0 not fitted: outside
 %          the mask; 1-3 converged; 4 out of iterations; 5 failed; 6 invalid data) and maps.SSE.
 %          NaN where not fitted. Single precision.
-%   info   what was done: info.command (the command run), info.output (EQUIP's output),
+%   info   what was done:
+%          info.parameters, every parameter of the model as the fit used it, one element each
+%          (struct2table(info.parameters) shows them as a table): name; role ('free', 'fixed'
+%          or 'tied'); value (a fixed parameter's value, a tied one's partner, 'a map' for a
+%          map); start, lower, upper (a free parameter's; Inf where unbounded); given (true if
+%          set in this call, false if at EQUIP's default for the model: check those);
+%          info.command (the command run), info.output (EQUIP's output),
 %          info.prefix, info.mapsfile (the maps as one .mat file; with the NIfTI maps beside it
 %          for a NIfTI input), and info.sidecar, the maps' JSON record as a struct: the model,
 %          the acquisition (info.sidecar.Acquisition.TI), every parameter as the fit used it,
@@ -159,14 +166,74 @@ txt = strtrim(txt);
 if status ~= 0
     error('equip:fit', 'equip fit stopped:\n%s\n\n(the command: %s)', txt, cmd);
 end
-if verbose, fprintf('%s\n', txt); end
-
 mapsfile = [out 'maps.mat'];
 maps = load(mapsfile);
 sidecar = jsondecode(fileread([out 'maps.json']));          % (R2016b; Octave 7)
+params = parameterlist(sidecar);
+if verbose
+    fprintf('%s\n\n', txt);
+    printparameters(params, sidecar.Model);
+end
 if arraydata && startsWith(out, tmp), mapsfile = ''; end   % deleted with the temporary folder
 info = struct('command', cmd, 'output', txt, 'prefix', out, 'mapsfile', mapsfile);
-info.sidecar = sidecar;           % (assigned apart: struct() would spread a struct array)
+info.parameters = params;         % (assigned apart: struct() would spread a struct array)
+info.sidecar = sidecar;
+end
+
+% Every parameter as the fit used it, from the maps' sidecar ("Parameters", in the model's order,
+% "ParameterNames"), as a struct array; `given` from "Fit", what the call set
+function p = parameterlist(sc)
+names = sc.ParameterNames;
+if ischar(names), names = {names}; end                     % (one name decodes as text)
+given = {};
+if isfield(sc, 'Fit') && isstruct(sc.Fit), given = fieldnames(sc.Fit); end
+p = struct('name', {}, 'role', {}, 'value', {}, 'start', {}, 'lower', {}, 'upper', {}, 'given', {});
+for k = 1:numel(names)
+    r = sc.Parameters.(names{k});
+    e = struct('name', names{k}, 'role', r.Role, 'value', [], 'start', [], 'lower', [], ...
+               'upper', [], 'given', any(strcmp(names{k}, given)));
+    switch r.Role
+        case 'free'
+            e.start = r.Start;
+            e.lower = bound(r.Lower, -Inf);
+            e.upper = bound(r.Upper, Inf);
+        case 'fixed'
+            e.value = r.Value;
+        case 'tied'
+            e.value = r.To;
+    end
+    p(end + 1) = e; %#ok<AGROW>
+end
+end
+
+function b = bound(x, none)
+b = x;
+if isempty(x), b = none; end                               % null in the JSON: no bound
+end
+
+% The parameters as a short table, the ones at EQUIP's defaults marked as such
+function printparameters(p, model)
+w = max(cellfun(@numel, {p.name}));
+fprintf('parameters as fitted (* given in this call; the others %s''s defaults):\n', model);
+for k = 1:numel(p)
+    mark = ' ';
+    if p(k).given, mark = '*'; end
+    switch p(k).role
+        case 'free'
+            what = sprintf('free    start %-8s bounds %s to %s', show(p(k).start), ...
+                           show(p(k).lower), show(p(k).upper));
+        case 'fixed'
+            what = sprintf('fixed   %s', show(p(k).value));
+        otherwise
+            what = sprintf('tied    to %s', show(p(k).value));
+    end
+    fprintf('  %s %-*s  %s\n', mark, w, p(k).name, what);
+end
+fprintf('\n');
+end
+
+function s = show(x)
+if ischar(x), s = x; else, s = num2str(x); end
 end
 
 % -------------------------------------------------------------------------------------------------

@@ -113,10 +113,12 @@ function _provenance(@nospecialize(res::FitResult))
     end
     return Dict{String,Any}("Model" => string(nameof(typeof(m))), "Acquisition" => acq,
                             "Fit" => fit, "Parameters" => _parameterroles(res),
+                            "ParameterNames" => [String(n) for n in keys(parameters(m))],
                             "Software" => "EQUIP $(pkgversion(EQUIP))")
 end
 
-# Every parameter as the fit used it, for the sidecar's "Parameters": the model's own roles with
+# Every parameter as the fit used it, for the sidecar's "Parameters" ("ParameterNames" holds
+# their order, the model's: a JSON object keeps none): the model's own roles with
 # the call's keywords applied (`setup`'s step 2, `_apply_roles`), so that the defaults are
 # recorded too (QMTSIR's Sm = 0.83 and R1m tied to R1f), not only what was given ("Fit" holds
 # that). Each: free with its start and bounds (null where unbounded), fixed at a number, tied to

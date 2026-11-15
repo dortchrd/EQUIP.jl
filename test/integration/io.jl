@@ -100,6 +100,7 @@
     d = parameters(T2Decay)
     @test pr["T2"] == Dict("Role" => "free", "Start" => 0.07, "Lower" => d.T2.lower, "Upper" => d.T2.upper)
     @test pr["S0"]["Role"] == "free" && pr["S0"]["Start"] == String(d.S0.start)
+    @test t2.meta["ParameterNames"] == ["S0", "T2"]                 # the model's order
     # ... and the defaults the call did not name, for QMTSIR: kmf fixed (here given), R1m tied
     # to R1f, Sm at its default; an unbounded upper bound as null
     q = EQUIP._parameterroles(fit(QMTSIR(; SIR_4POINT...), ones(4); kmf = 12.5))
