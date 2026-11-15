@@ -24,6 +24,15 @@ jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can 
 of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
 off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
 
+Merged into `main` (fast-forward, 2026-11-15, at the owner's request: "yes run it and merge
+into main"): `sidecar-roles`, the maps' sidecar recording every parameter as the fit used it
+("Parameters", "ParameterNames"; the model's defaults included), and `equip_fit` printing them and
+returning `info.parameters` and `info.sidecar`. Checked first: the full `Pkg.test` (EQUIP 2574),
+the command line's (160), Octave. CI could not run: GitHub refused to start its jobs ("recent
+account payments have failed or your spending limit needs to be increased": the month's Actions
+minutes for a private repository), so it waits for the billing; by CLAUDE.md's rule the change
+(writemaps, MATLAB) did not need CI first.
+
 Merged into `main` (fast-forward, 2026-11-14, at the owner's request: "yes merge into main"):
 `matlab` at 37d5759, the MATLAB functions over the command line (matlab/: `equip_fit`,
 `equip_setup`, `equip`, README.md for a user without Julia) and `equip fit --format`, for the
