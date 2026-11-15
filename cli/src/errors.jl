@@ -126,10 +126,10 @@ _table(r) = EQUIP._rows([(;)], [r])
 function _errors_command(cmd, words, extra, run; io::IO, err::IO)
     a = parseargs(words)
     pos = copy(a.positional)
-    model = has(a, "model") ? value(a, "model") :
-            isempty(pos) ? throw(ArgumentError("give the model: `equip $cmd MODEL ...` " *
-                                               "(the models: $(join(keys(MODELS), ", ")))")) :
-            popfirst!(pos)
+    what = cmd == "crlb" ? "a fit's bias, SD and RMSE, predicted (Cramér–Rao)" :
+           "a fit's bias, SD and RMSE, measured by simulating and fitting"
+    model = modelarg(a, pos, cmd, "MODEL [flags]: $what", io)
+    model === nothing && return 0                # `equip crlb --help`: printed
     isempty(pos) || throw(ArgumentError("`equip $cmd` takes no files (`$(pos[1])`): it judges a " *
         "protocol on a truth; give the truth with --tissue or --truth"))
     M = modeltype(model)

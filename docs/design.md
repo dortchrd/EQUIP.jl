@@ -5998,7 +5998,15 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        value, start, lower, upper, given; Inf for no bound), in the model's order, which the
        sidecar now records as "ParameterNames" (a JSON object keeps none). Showed on the way
        that `'kmf', 'free,start=10'` leaves kmf unbounded: its default role, fixed, has no
-       bounds.
+       bounds. The owner's first runs on a MacBook Air (2026-11-15): about 10 s a call,
+       the same every call (a Mac Studio was faster: start-up, the fit on fewer cores and the
+       maps' writing are all the machine's); `equip('fit --help')` failed (the command line
+       wanted a model even for help: now `equip fit --help`, `crlb`, `montecarlo` and `design`
+       list the models and point to `MODEL --help`, `modelarg` in cli/src/models.jl); and
+       "]0;Julia" was printed (a terminal title, most likely juliaup's launcher's): the output is
+       stripped of terminal control codes, and the binary the launcher starts is asked once a
+       session and called directly after that. Here (Linux, 4 cores) a call is 2.6–2.9 s, of
+       which 1.7 s is Julia's start-up and loading; the server (above) is what removes that.
    - **Order**: workload coverage and the no-compile test; the command line with `--init`;
      Python; MATLAB.
    - **Faster start-up for the release's command line, later (decided 2026-11-01: a lean

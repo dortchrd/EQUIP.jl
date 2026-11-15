@@ -172,6 +172,11 @@ end
         @test occursin("`--method`", bad("fit", "T2Decay", path("t2.nii.gz"), "--likelihood", "rician", "--sigma", "50", "--method", "mle"))
         @test occursin("`--likelihood`", bad("fit", "T2Decay", path("t2.nii.gz"), "--likelihood", "poisson"))
         # help and the model list
+        # a command's help without a model: the models, and how to see one's flags
+        r = run("fit", "--help")
+        @test r.code == 0 && occursin("QMTSIR", r.out) && occursin("equip fit MODEL --help", r.out)
+        @test run("crlb", "--help").code == 0 && run("design", "--help").code == 0
+        @test occursin("give the model", bad("fit"))
         r = run("fit", "QMTSIR", "--help")
         @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
         @test occursin("--likelihood rician --sigma", r.out)

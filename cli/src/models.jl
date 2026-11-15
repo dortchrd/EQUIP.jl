@@ -23,6 +23,26 @@ end
 paramnames(M) = keys(parameters(M))
 
 """
+    modelarg(a, pos, cmd, synopsis, io) -> the model's name, or nothing
+
+The command's model: `--model NAME`, or the first positional word (taken from `pos`). Without
+one, `--help` prints the command's own help (what it takes, the models, how to see one model's
+flags) and gives `nothing`, so that `equip fit --help` works as `equip fit QMTSIR --help` does;
+otherwise a mistake naming the models.
+"""
+function modelarg(a::Args, pos, cmd, synopsis, io::IO)
+    has(a, "model") && return value(a, "model")
+    isempty(pos) || return popfirst!(pos)
+    models = join(keys(MODELS), ", ")
+    if has(a, "help")
+        println(io, "equip $cmd $synopsis\n\nThe models: $models\n\nA model's flags (its " *
+                    "acquisition and parameters) and the options: equip $cmd MODEL --help")
+        return nothing
+    end
+    throw(ArgumentError("give the model: `equip $cmd $(split(synopsis, ':')[1])` (the models: $models)"))
+end
+
+"""
     buildmodel(M, a::Args, found; warn) -> model
 
 The model of type `M` with its acquisition from, in order of priority: the flags named after

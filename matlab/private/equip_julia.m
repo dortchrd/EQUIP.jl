@@ -9,7 +9,17 @@ function [julia, cli] = equip_julia()
 %     4. the usual install folders: /Applications/Julia-*.app (macOS), Homebrew, /usr/local/bin;
 %        on Windows the Microsoft Store's alias and %LOCALAPPDATA%\Programs\Julia-*
 %   The newest version is taken where several are installed side by side.
+%
+%   juliaup's `julia` is a launcher: it picks a version, then starts that version's own binary
+%   (and sets the terminal's title, which MATLAB would print). The binary it starts is asked once
+%   a MATLAB session and called directly after that (`clear functions` asks again).
 
+persistent found
+if ~isempty(found) && exist(found.julia, 'file')
+    julia = found.julia;
+    cli = found.cli;
+    return
+end
 here = fileparts(mfilename('fullpath'));            % EQUIP.jl/matlab/private
 cli = fullfile(fileparts(fileparts(here)), 'cli');  % EQUIP.jl/cli
 if ~exist(fullfile(cli, 'Project.toml'), 'file')
@@ -19,8 +29,12 @@ end
 
 julia = getenv('JULIA');
 if ~isempty(julia)
-    if exist(julia, 'file'), return; end
-    error('equip:nojulia', 'JULIA is set to %s, which does not exist', julia);
+    if ~exist(julia, 'file')
+        error('equip:nojulia', 'JULIA is set to %s, which does not exist', julia);
+    end
+    julia = binary(julia);
+    found = struct('julia', julia, 'cli', cli);
+    return
 end
 
 if ispc
@@ -38,7 +52,8 @@ else
 end
 for k = 1:numel(candidates)
     if ~isempty(candidates{k}) && exist(candidates{k}, 'file')
-        julia = candidates{k};
+        julia = binary(candidates{k});
+        found = struct('julia', julia, 'cli', cli);
         return
     end
 end
@@ -46,6 +61,20 @@ error('equip:nojulia', ['Julia was not found. Install it (https://julialang.org/
       'or, if it is installed, tell MATLAB where: setenv(''JULIA'', ''/path/to/julia'') ' ...
       '(in a terminal, `which julia` on macOS and Linux, `where julia` on Windows, shows ' ...
       'the path); put that line in startup.m to keep it']);
+end
+
+% The Julia binary that `julia` (perhaps juliaup's launcher) starts: its own answer, or `julia`
+% itself if it cannot say
+function b = binary(julia)
+b = julia;
+cmd = [equip_quote(julia) ' --startup-file=no -e ' ...
+       equip_quote('print(joinpath(Sys.BINDIR, Base.julia_exename()))')];
+if isunix && ~ismac, cmd = ['env -u LD_LIBRARY_PATH ' cmd]; end
+[s, out] = equip_system(cmd, false);
+lines = regexp(strtrim(out), '[\r\n]+', 'split');
+if s == 0 && ~isempty(lines) && exist(strtrim(lines{end}), 'file')
+    b = strtrim(lines{end});
+end
 end
 
 % The first line a successful `which`/`where` printed, as a one-element cell (or none)

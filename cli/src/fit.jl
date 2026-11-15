@@ -23,10 +23,8 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     # The model and the data: positional (`equip fit MODEL DATA...`) or flags (`--model`,
     # `--data a.nii,b.nii`, as a config file holds them).
     pos = copy(a.positional)
-    model = has(a, "model") ? value(a, "model") :
-            isempty(pos) ? throw(ArgumentError("give the model: `equip fit MODEL DATA...` " *
-                                               "(the models: $(join(keys(MODELS), ", ")))")) :
-            popfirst!(pos)
+    model = modelarg(a, pos, "fit", "MODEL DATA... [flags]: maps from data files", io)
+    model === nothing && return 0                # `equip fit --help`: printed
     M = modeltype(model)
     if has(a, "help")
         modelhelp(io, M, "fit")

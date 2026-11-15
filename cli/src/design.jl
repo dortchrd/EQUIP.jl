@@ -23,9 +23,8 @@ const _DESIGN_OPTIONS = ["model", "protocol", "tissue", "truth", "vary", "weight
 function cmd_design(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
     pos = copy(a.positional)
-    model = has(a, "model") ? value(a, "model") :
-            isempty(pos) ? throw(ArgumentError("give the model: `equip design MODEL ...`")) :
-            popfirst!(pos)
+    model = modelarg(a, pos, "design", "MODEL [flags]: a protocol optimized for a set of scenarios", io)
+    model === nothing && return 0                # `equip design --help`: printed
     isempty(pos) || throw(ArgumentError("`equip design` takes no files (`$(pos[1])`)"))
     M = modeltype(model)
     if has(a, "help")

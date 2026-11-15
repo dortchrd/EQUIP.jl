@@ -1,6 +1,7 @@
 function [status, out] = equip_system(cmd, echo)
 %EQUIP_SYSTEM  Run a shell command, its errors with its output; shown as it comes (echo = true,
-%   then nothing returned) or returned.
+%   then nothing returned) or returned, without the terminal's control codes (a window title,
+%   colors), which MATLAB would print as text.
 %
 %   On Windows the whole command goes in one more pair of double quotes: cmd.exe, which MATLAB's
 %   system uses there, strips the first and the last quote of a command line that starts with
@@ -19,5 +20,7 @@ if echo
     out = '';
 else
     [status, out] = system(cmd);
+    out = regexprep(out, '\x1b\][^\x07\x1b]*(\x07|\x1b\\)', '');   % a title: ESC ] ... BEL
+    out = regexprep(out, '\x1b\[[0-9;?]*[A-Za-z]', '');            % colors: ESC [ ... m
 end
 end
