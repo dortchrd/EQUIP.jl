@@ -123,11 +123,14 @@ end
 @testset "Directions per image: diffusionencoding, fiberdirection, g ⋅ n" begin
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     rng = MersenneTwister(5)
-    # direction sets: unit vectors with z ≥ 0, the same each time, evenly spread (second
-    # moment I/3, which averages order 2 exactly)
+    # direction sets: unit vectors with z ≥ 0, the same each time, evenly spread: the second
+    # moment near I/3. Not exactly: the repulsion's optimum is not a 2-design in general
+    # (residual 3e-3 for N = 20), and for N = 30, nearly one, the converged set moves with
+    # rounding: 1.6e-9 on Julia 1.13, 2.2e-6 on 1.11.9 with ForwardDiff 1.5 (which changes what
+    # is compiled, not directionset), 2e-9 to 1.1e-6 with the start moved by 1e-15 (2026-11-17)
     dirs = directionset(30)
     @test length(dirs) == 30 && all(g -> g[3] >= 0 && norm(g) ≈ 1, dirs) && dirs == directionset(30)
-    @test norm(sum(g * g' for g in dirs) / 30 - I / 3) < 1e-6
+    @test norm(sum(g * g' for g in dirs) / 30 - I / 3) < 1e-4
     @test length(directionset(1)) == 1
     G = reduce(hcat, [fill([0.0, 0.0, 0.0], 4); collect.(dirs); collect.(dirs)])   # 3×64, FSL: 0 0 0 at b = 0
     bv = [fill(0.0, 2); fill(5.0, 2); fill(1000.0, 30); fill(2500.0, 30)]
