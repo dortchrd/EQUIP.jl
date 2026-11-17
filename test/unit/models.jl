@@ -39,7 +39,7 @@ end
     mq = QMTSIR(; SIR_4POINT...)
     nobs(mq)
     @test_noalloc @allocated(nobs(mq)) == 0
-    @test occursin("different lengths, [2, 3]", sprint(showerror, try nobs(QMTSIR(TI = [0.01, 0.1], TD = [1.0, 2.0, 3.0])) catch e; e end))
+    @test occursin("TI has 2 values and TD has 3", sprint(showerror, try nobs(QMTSIR(TI = [0.01, 0.1], TD = [1.0, 2.0, 3.0])) catch e; e end))
     # ... and init converts the acquisition to plain vectors of the working precision
     c = init(QMTSIR(TI = 0.01:0.01:0.05, TD = 2); precision = Float32)
     @test c.model.TI isa Vector{Float32} && c.model.TD == fill(2.0f0, 5) && c.model.magnitude

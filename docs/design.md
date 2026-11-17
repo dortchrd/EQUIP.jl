@@ -315,6 +315,17 @@ of one of those names, and a keyword that is neither a parameter nor an option.
   entries: all bit-identical before and after. Speed: unchanged (bi-exponential bench case,
   alternating builds, three rounds: 1 thread 127–150 ms before, 128–130 after; 4 threads
   38.6–40.4 ms before, 37.1–39.4 after).
+- **Kept as they are (the owner, 2026-11-17, "keep 1 and 2 as is"), after the options were laid
+  out:** (1) a parameter fixed by default and freed (`kmf = Free()`) starts at its fixed value
+  with no bounds unless given (declared ranges per fixed default, `Fixed(12.5; lower = 0)`, were
+  proposed, with a table of ranges, and not taken; a start is not required: the fixed default is
+  the start, and the parameter table that `equip_fit` prints and the maps' sidecar show it, so a
+  user need not know the defaults). (2) A bare number fixes, whatever the parameter's default
+  role: `kmf = 15.0` changes a fixed value, and `PSR = 0.1` fixes a parameter that is free by
+  default (an error asking for `Fixed(0.1)` or `Free(start = 0.1)` when the role changes was
+  proposed and not taken). Done instead: the message when the acquisition's lengths differ names
+  them ("QMTSIR: TI has 3 values and TD has 2: give one value per image in each"), built only
+  when the check fails (`_badlengths`), so `nobs` costs what it did (0 bytes).
 
 ## Fitting pipeline
 

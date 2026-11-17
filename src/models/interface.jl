@@ -434,10 +434,18 @@ function nobs(m::MRIModel)
     i === nothing && throw(ArgumentError("$(nameof(typeof(m))) has no per-observation (vector) " *
                                          "fields; define `nobs` for it"))
     n = lens[i]
-    all(l -> l < 0 || l == n, lens) ||
-        throw(DimensionMismatch("$(nameof(typeof(m))): the per-observation fields have " *
-                                "different lengths, $(filter(>=(0), collect(lens)))"))
+    all(l -> l < 0 || l == n, lens) || _badlengths(m)
     return n
+end
+# The fields' lengths by name, when they differ: "QMTSIR: TI has 3 values and TD has 2: give one
+# value per image in each". Only when the check fails (a function of its own, not inlined), so
+# `nobs` stays as it was where it passes.
+@noinline function _badlengths(m)
+    lens = [(f, length(getfield(m, f))) for f in fieldnames(typeof(m)) if getfield(m, f) isa AbstractVector]
+    each = [string(f, " has ", n, n == 1 ? " value" : " values") for (f, n) in lens]
+    list = length(each) == 2 ? join(each, " and ") : join(each, ", ", " and ")
+    throw(DimensionMismatch("$(nameof(typeof(m))): $list: give one value per image in each " *
+                            "(the per-observation fields must have the same length)"))
 end
 # A per-observation field holds numbers, one per observation: every generic routine relies on
 # it (the lengths, the signal's number type, the conversion to the fit's precision). A vector of
