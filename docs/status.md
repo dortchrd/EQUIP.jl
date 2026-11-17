@@ -24,6 +24,13 @@ jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can 
 of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
 off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
 
+Merged into `main` (fast-forward, 2026-11-17, at the owner's request: "merge matlab-fixes into
+main once CI passes"): `matlab-fixes`, `equip fit|crlb|montecarlo|design --help` without a model,
+MATLAB's output without terminal codes and Julia's binary called directly; and a test made honest
+(directionset's second moment near I/3, 1e-4, not 1e-6: it failed on Julia 1.11.9 once
+ForwardDiff 1.5.0 changed what was compiled; the set moves with rounding at that level). CI on the
+branch, all six jobs. Billing fixed (2026-11-17): CI runs again.
+
 Merged into `main` (fast-forward, 2026-11-15, at the owner's request: "yes run it and merge
 into main"): `sidecar-roles`, the maps' sidecar recording every parameter as the fit used it
 ("Parameters", "ParameterNames"; the model's defaults included), and `equip_fit` printing them and
