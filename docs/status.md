@@ -1,18 +1,25 @@
-# Where we are (2026-11-08)
+# Where we are (2026-11-17)
 
 The map to read first when coming back: what is where, and what is left. The reasons and the
 measurements behind each item are in docs/design.md (roadmap items by number).
 
 ## Branches
 
-Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageable branches"):
+Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageable branches";
+again 2026-11-17, after deleting the finished ones: "kept rest"):
 
 | branch | what it is |
 |---|---|
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). |
+| `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
+
+**Deleted on GitHub by the owner, 2026-11-17**, each merged into `main` first (every commit is in
+`main`'s history, checked on the full history): `rician` (tier 2), `matlab` (the MATLAB
+functions), `sidecar-roles` (every parameter in the maps' sidecar), `matlab-fixes`. Work goes on
+`main`, or on a branch of its own for a prototype, deleted once merged. (This session's GitHub
+access cannot delete branches: the owner deletes them, `git push origin --delete NAME`.)
 
 Merged into `main` (fast-forward, 2026-11-12, at the owner's request: "yes, run the full tests
 and merge"): `rician`, 17 commits: tier 2 steps 0, 1, 2 and 4, 5 (the Rician fits, and crlb,
@@ -22,7 +29,8 @@ montecarlo and sweeps for them), the diffusivity, T1 and DTI/DKI-diagonal bounds
 `Pkg.test` (EQUIP 2497), the command line's (139), and CI on the merged commit, 1c38e11 (all six
 jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can carry the rest
 of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
-off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted.
+off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted. (It
+carried them, and was deleted on 2026-11-17, merged.)
 
 Merged into `main` (fast-forward, 2026-11-17, at the owner's request: "merge matlab-fixes into
 main once CI passes"): `matlab-fixes`, `equip fit|crlb|montecarlo|design --help` without a model,
