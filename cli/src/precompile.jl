@@ -17,7 +17,7 @@ const _EXAMPLES = (
     T2DecayOffset = ["--TE", "0.01:0.01:0.32"], R2DecayOffset = ["--TE", "0.01:0.01:0.32"],
     T2BiexpDecay = ["--TE", "0.01:0.01:0.32"], R2BiexpDecay = ["--TE", "0.01:0.01:0.32"],
     ADCDecay = ["--b", "0,500,1000,1500,2000,2500"], ADCKurtosis = ["--b", "0,500,1000,1500,2000,2500"],
-    QMTSIR = ["--protocol", "SIR_5POINT"])
+    QMTSIR = ["--protocol", "SIR_5POINT"], QMTSIRSimple = ["--protocol", "SIR_5POINT"])
 # True values for the workload's data (the fixed parameters take the model's defaults); typical
 # white-matter-like values.
 const _TRUTHS = (
@@ -30,7 +30,8 @@ const _TRUTHS = (
     T2BiexpDecay = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08),
     R2BiexpDecay = (S0 = 1.0, fshort = 0.2, R2short = 50.0, R2long = 12.5),
     ADCDecay = (S0 = 1.0, ADC = 8e-4), ADCKurtosis = (S0 = 1.0, ADC = 1e-3, K = 1.0),
-    QMTSIR = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0))
+    QMTSIR = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0),
+    QMTSIRSimple = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 
 # DTI and DKI's example: a b = 0 image and two shells of 15 directions (31 images, DKI's 22
 # parameters need two shells); white-matter-like D (eigenvalues 1.7, 0.4, 0.3 × 10⁻³ mm²/s along

@@ -80,6 +80,37 @@ end
     @test signal(m, merge(θ0, (Sf = 1.0, Sm = 1.0, Mzf_td0 = 1.0, Mzm_td0 = 1.0))) ≈ fill(1000.0, 5)
 end
 
+@testset "QMTSIRSimple: the one line against the matrix form, its limits and derivatives" begin
+    # The matrix form (Dortch et al. 2018, Eq. 1, test/setup.jl) with R1m = R1f and both pools
+    # saturated at the start of TD: random parameters, signed and magnitude
+    rng = MersenneTwister(9)
+    for _ in 1:200
+        θ = (PSR = 0.3 * rand(rng), R1f = 0.3 + 2 * rand(rng), Sf = -1.1 * rand(rng), M0f = 1000 * rand(rng),
+             kmf = 40 * rand(rng), Sm = rand(rng))
+        for mag in (false, true)
+            @test signal(QMTSIRSimple(TI = TI5, TD = TD5, magnitude = mag), θ) ≈
+                  sir_matrix(TI5, TD5; θ..., R1m = θ.R1f, magnitude = mag) rtol = 1e-10
+        end
+    end
+    m = QMTSIRSimple(TI = TI5, TD = TD5, magnitude = false)
+    θ = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)
+    # no exchange (kmf = 0, where QMTSIR's form divides by zero), no macromolecular pool, or both
+    # pools inverted alike: inversion recovery, Li et al. 2010 Eq. 1 written out
+    li = @. 1000 * (-0.95 * (1 - exp(-TD5)) * exp(-TI5) + 1 - exp(-TI5))
+    @test signal(m, merge(θ, (kmf = 0.0,))) ≈ li
+    @test signal(m, merge(θ, (PSR = 0.0,))) ≈ li
+    @test signal(m, merge(θ, (Sm = -0.95,))) ≈ li
+    # the fit's derivatives (dual numbers): QMTSIR's with its defaults, R1m tied to R1f in the
+    # values (`jacobian` follows θ's ties: with R1m = 1.0 the R1f column would hold R1m still)
+    q = QMTSIR(TI = TI5, TD = TD5, magnitude = false)
+    θq = merge(θ, (R1m = :R1f, Mzf_td0 = 0.0, Mzm_td0 = 0.0))
+    @test jacobian(m, θ) ≈ jacobian(q, θq) rtol = 1e-10
+    @test jacobian(m, θ; kmf = Free()) ≈ jacobian(q, θq; kmf = Free()) rtol = 1e-10
+    # one TD for every TI; the tissue presets and protocols are QMTSIR's
+    @test QMTSIRSimple(TI = [0.01, 0.1], TD = 2.5).TD == [2.5, 2.5]
+    @test nominal(QMTSIRSimple(; SIR_4POINT...), :SIR_WM_I) == (PSR = 0.2, R1f = 1.5, Sf = -1.0, M0f = 1.0, kmf = 5.0, Sm = 0.83)
+end
+
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin
     m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
     @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)

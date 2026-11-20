@@ -1,6 +1,10 @@
 # =================================================================================================
 # Selective inversion recovery (SIR), two-pool quantitative magnetization transfer (qMT)
 #
+#   QMTSIR         the general model: any R1m, any Mz at the start of TD (Li's closed form)
+#   QMTSIRSimple   its two default assumptions built in (R1m = R1f, both pools saturated at the
+#                  start of TD): the signal in one line
+#
 # References (the equation numbers in the comments below refer to these):
 #   Li et al., Magn Reson Med 2010;64:491-500      closed-form solution, Eqs. 2-6 (used here)
 #   Dortch et al., Magn Reson Med 2018;80:1824-1835 the same model in matrix form, Eq. 1
@@ -164,3 +168,104 @@ const SIR_16POINT = (TI = [round.(exp.(range(log(0.010), log(2.0); length = 15))
 # the same text (`@doc` with the docstring of SIR_5POINT), so `?SIR_4POINT` shows it too.
 @doc (@doc SIR_5POINT) SIR_4POINT
 @doc (@doc SIR_5POINT) SIR_16POINT
+
+
+"""
+    QMTSIRSimple(; TI, TD, magnitude = true)
+
+[`QMTSIR`](@ref) with its two default assumptions built in, so that the signal is one line:
+the macromolecular pool relaxes as the free pool does (R1m = R1f), and the readout leaves both
+pools saturated (Mz = 0 at the start of TD). Then, with three exponentials per observation,
+
+    S = M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}
+    E_i = e^(−R1f·TI),  E_d = e^(−R1f·TD),  E_k = e^(−k·TI)
+    k = kmf·(1 + PSR),  a = (Sf + PSR·Sm)/(1 + PSR),  b = PSR·(Sf − Sm)/(1 + PSR)  (a + b = Sf)
+
+This is inversion recovery with T1 = 1/R1f ([`T1IRTD`](@ref), Li et al. 2010 Eq. 1), except that
+the inversion efficiency is not constant: it is a + b·E_k, which during TI relaxes from Sf
+toward a, the pools' weighted mean, at the rate k = kfm + kmf; b is the part that exchange
+takes away. With PSR = 0, or Sf = Sm, it is inversion recovery. During TD both pools recover
+together, at R1f, so exchange plays no part there: the magnetization transfer is seen only
+through TI.
+
+The same signal as `QMTSIR` with its defaults, to rounding (checked against Dortch et al.'s
+matrix form), at half to two thirds of the cost per evaluation, and defined at kmf = 0
+(inversion recovery; `QMTSIR` divides by zero there). For data where those assumptions do not
+hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
+
+- acquisition: `TI` (s), one per observation; `TD` (s), one number for all observations or
+  one per observation; the SIR protocols apply (`QMTSIRSimple(; SIR_5POINT...)`)
+- option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
+- free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
+  efficiency, -1 = perfect inversion), `M0f`
+- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`),
+  `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse), as `QMTSIR`
+
+```julia
+m = QMTSIRSimple(; SIR_4POINT...)
+r = fit(m, data; mask)                                    # kmf fixed at 12.5
+r = fit(QMTSIRSimple(; SIR_5POINT...), data; mask, kmf = Free())     # kmf estimated
+```
+"""
+@kwdef struct QMTSIRSimple{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+    TI::A                               # inversion times (s)
+    TD::B                               # delays between readout and inversion (s)
+    magnitude::Bool = true
+end
+
+QMTSIRSimple(TI, TD::Real, magnitude) = QMTSIRSimple(TI, fill(TD, length(TI)), magnitude)
+
+# QMTSIR's parameters without R1m (= R1f) and the start values of TD (0), with the same roles.
+parameters(::Type{<:QMTSIRSimple}) = (
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),
+    kmf = Fixed(12.5),
+    Sm = Fixed(0.83),
+)
+
+# Where the one line comes from (Li et al. 2010, in its notation; derived 2026-11-20).
+#
+# 1. Li's Eq. 2 for each pool's departure from equilibrium, x = Mf/Mf∞ − 1 and y = Mm/Mm∞ − 1,
+#    with p = PSR (so kfm = p·kmf) and R1f = R1m = R1:
+#        dx/dt = −R1·x − kfm·(x − y),    dy/dt = −R1·y − kmf·(y − x)
+#    i.e. dz/dt = −(R1·I + K)·z, with K the exchange terms alone. R1·I commutes with K, so
+#    relaxation and exchange separate: K's eigenvalues are 0 and k = kfm + kmf = kmf·(1 + p),
+#    and Li's Eq. 4 rates become R1⁻ = R1 and R1⁺ = R1 + k (its square root is kfm + kmf).
+# 2. In the coordinates that separate them:
+#        u = (x + p·y)/(1 + p), the pools' weighted mean: exchange conserves it, u(t) = u₀·e^(−R1·t)
+#        d = x − y, their difference:                                       d(t) = d₀·e^(−(R1 + k)·t)
+#    and back, x = u + p/(1 + p)·d: Li's Eq. 3 with bf⁻ = u₀ and bf⁺ = p/(1 + p)·d₀.
+# 3. TD (Li's Eq. 5): both pools start saturated, x₀ = y₀ = −1, so d₀ = 0 and u₀ = −1: both
+#    recover as 1 − e^(−R1·TD), together, with no exchange.
+# 4. The inversion (Li's Eq. 6), with E_d = e^(−R1·TD): x₀ = Sf·(1 − E_d) − 1 and
+#    y₀ = Sm·(1 − E_d) − 1, so d₀ = (Sf − Sm)·(1 − E_d) and u₀ = (Sf + p·Sm)/(1 + p)·(1 − E_d) − 1.
+# 5. At TI, Mf/Mf∞ = 1 + u + p/(1 + p)·d. With a = (Sf + p·Sm)/(1 + p) and b = p·(Sf − Sm)/(1 + p),
+#    u = a·(1 − E_d) − 1 and p/(1 + p)·d = b·(1 − E_d), so Mf/Mf∞ = 1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]
+#    (E_i·E_k = e^(−(R1 + k)·TI), the fast rate, needs no exponential of its own). The factored
+#    form is the owner's (2026-11-20), as are a and b.
+#
+# Checked against the matrix form (Dortch et al. 2018, Eq. 1) and QMTSIR's closed form in
+# test/unit/models.jl. Measured 2026-11-20 (one signal, 4 and 16 points, plain and with the fit's
+# dual numbers): k, a and b computed once, before the loop, and each exponential once, as here,
+# about 0.55–0.7× QMTSIR's general form (4 points: 47 against 70 ns plain, 77 against 140 with
+# dual numbers); the same equation written out in one line, every exponential where it appears,
+# was up to 1.6× slower (the compiler does not merge the repeated e^(−R1f·TI) or move the
+# constants out). Other forms of the same arithmetic measured within the noise. `1 − E_d` is not
+# `-expm1(-R1f·TD)`: that keeps 1 − E_d's relative precision when R1f·TD is small, but the signal
+# adds it to terms of order 1, so its error is a rounding of M0f either way, and expm1 cost 5–15%
+# with dual numbers.
+function signal!(out, m::QMTSIRSimple, p)
+    (; TI, TD, magnitude) = m
+    (; PSR, R1f, Sf, M0f, kmf, Sm) = p
+    k = kmf * (1 + PSR)                     # kfm + kmf: the rate at which exchange evens out the pools
+    a = (Sf + PSR * Sm) / (1 + PSR)         # the pools' weighted mean inversion, where it relaxes to
+    b = PSR * (Sf - Sm) / (1 + PSR)         # the part that exchange takes away (a + b = Sf)
+    @inbounds for j in eachindex(out, TI, TD)
+        Ei, Ed, Ek = exp(-R1f * TI[j]), exp(-R1f * TD[j]), exp(-k * TI[j])
+        s = M0f * (1 + Ei * ((1 - Ed) * (a + b * Ek) - 1))
+        out[j] = magnitude ? abs(s) : s     # magnitude images lose the sign
+    end
+    return out
+end

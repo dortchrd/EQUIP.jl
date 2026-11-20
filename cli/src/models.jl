@@ -8,13 +8,14 @@
 # The built-in models, by name (a user's own model is used from Julia).
 const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay,
                   T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay, ADCDecay, ADCKurtosis,
-                  DTI, DKI, QMTSIR)
+                  DTI, DKI, QMTSIR, QMTSIRSimple)
 # The directional models: their acquisition is each image's b and gradient direction, read from
 # an FSL .bval and .bvec beside the data (as dcm2niix writes them), or given as flags.
 _directional(M) = (:gx, :gy, :gz) ⊆ fieldnames(M)
-# Named protocols (acquisitions), by name, and the model each is for.
-const PROTOCOLS = (; SIR_5POINT = (QMTSIR, SIR_5POINT), SIR_4POINT = (QMTSIR, SIR_4POINT),
-                     SIR_16POINT = (QMTSIR, SIR_16POINT))
+# Named protocols (acquisitions), by name, and the models each is for.
+const _SIR = (QMTSIR, QMTSIRSimple)
+const PROTOCOLS = (; SIR_5POINT = (_SIR, SIR_5POINT), SIR_4POINT = (_SIR, SIR_4POINT),
+                     SIR_16POINT = (_SIR, SIR_16POINT))
 
 function modeltype(name::AbstractString)
     haskey(MODELS, Symbol(name)) && return MODELS[Symbol(name)]
@@ -61,7 +62,7 @@ function buildmodel(M, a::Args, found; warn::IO = stderr)
         haskey(PROTOCOLS, p) || throw(ArgumentError("unknown protocol `$p`; the protocols: " *
                                                     "$(join(keys(PROTOCOLS), ", "))"))
         PM, acq = PROTOCOLS[p]
-        PM === M || throw(ArgumentError("protocol `$p` is for $(nameof(PM)), not $(nameof(M))"))
+        M in PM || throw(ArgumentError("protocol `$p` is for $(join(nameof.(PM), " or ")), not $(nameof(M))"))
         merge!(vals, Dict(pairs(acq)))
     end
     for k in fields                                           # 1. the flags
@@ -123,7 +124,7 @@ function modelhelp(io::IO, M, cmd)
         t = fieldtype(M, k) === Bool ? "true or false" : "numbers"
         println(io, "  --", rpad(k, 12), t)
     end
-    ps = [p for (p, (PM, _)) in pairs(PROTOCOLS) if PM === M]
+    ps = [p for (p, (PM, _)) in pairs(PROTOCOLS) if M in PM]
     isempty(ps) || println(io, "  --", rpad("protocol", 12), join(ps, " | "), " (named acquisitions)")
     println(io, "\nParameters (the model's defaults; change any):")
     for (n, r) in pairs(parameters(M))

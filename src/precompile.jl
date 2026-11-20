@@ -38,7 +38,8 @@ using PrecompileTools: @setup_workload, @compile_workload
              (R2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
              (ADCDecay(b = b), (S0 = 1000.0, ADC = 1e-3)),
              (ADCKurtosis(b = b), (S0 = 1000.0, ADC = 1e-3, K = 1.0)),
-             (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
+             (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)),
+             (QMTSIRSimple(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
     dirs = directionset(15)
     dwib = [0.0; fill(1000.0, 15); fill(2000.0, 15)]
     dwig = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(dirs); collect.(dirs)])   # 3 × 31, a .bvec

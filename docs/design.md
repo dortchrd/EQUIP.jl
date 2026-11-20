@@ -5657,6 +5657,57 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    (lineshape integrals, small matrix exponentials, steady states), so EQUIP's design (no
    allocation, static arrays, exact derivatives from dual numbers, threads) matters most; the exact
    models are where its speed may help most.
+   - **`QMTSIRSimple`, built (branch `qmtsir-simple`, 2026-11-20).** The owner, from a
+     derivation in Li et al. 2010's notation: "might call this simplesir or something and keep
+     both. this one assumes Mz = 0 at td = 0 and R1m = R1f and gives you a simple one line
+     expression".
+     - **The model.** With R1m = R1f, relaxation and exchange separate (R1·I commutes with the
+       exchange matrix): the pools' weighted mean relaxes at R1, their difference at
+       R1 + k, k = kfm + kmf = kmf·(1 + PSR); with both pools saturated at the start of TD,
+       they recover together over TD. So S = M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]},
+       E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), a = (Sf + PSR·Sm)/(1 + PSR),
+       b = PSR·(Sf − Sm)/(1 + PSR) (the factored form and a, b: the owner's): inversion
+       recovery whose inversion efficiency a + b·E_k relaxes from Sf toward a at rate k. Three
+       exponentials an observation, no square root. The derivation is in the code's comments
+       (src/models/qmt/qmt_sir.jl).
+     - **Decisions.** Both models kept: `QMTSIR` for R1m ≠ R1f and Mz left by the readout. The
+       name follows the convention (quantity, method, then the variant, as `T1IRTD`,
+       `T2DecayOffset`; the owner's "simplesir or something"). kmf stays the parameter, not
+       k = kmf·(1 + PSR) (the owner: "would prefer to just have kmf estimated since standard
+       parameters"; the conditioning check below agrees). The same roles as `QMTSIR` (kmf
+       fixed at 12.5, Sm 0.83), the same tissue presets and the SIR protocols, also on the
+       command line (`--protocol SIR_5POINT`). `1 − E_d` without `expm1`: its relative
+       precision for small R1f·TD does not reach the signal (added to terms of order 1), and
+       expm1 cost 5–15% with dual numbers.
+     - **Checked**: the signal against Dortch 2018's matrix form (200 random parameter sets,
+       signed and magnitude, 1e-10), the derivation's limits (kmf = 0, PSR = 0, Sm = Sf: Li's
+       Eq. 1), the Jacobian against `QMTSIR`'s with the tie (1e-15), and noisy fits giving
+       `QMTSIR`'s maps (test/unit/models.jl, test/integration/fitting.jl). Li 2010's Eq. 4 as
+       typeset in one copy of the manuscript lacks the square on (R1f − R1m + kfm − kmf) under
+       the root (the owner's note); EQUIP's code has it, and is tested against the matrix form
+       and a numerical solution.
+     - **Speed** (bench/qmtsir_simple/fits.jl): one signal (4 points) 47 ns against `QMTSIR`'s
+       70, 77 against 140 with the fit's dual numbers; whole fits (10,000 voxels with varied
+       truths, one thread) 0.73× at
+       4 points, kmf fixed, SNR 200, and 0.63–0.67× at 5 points with kmf estimated (SNR 200:
+       2.55 against 4.03 µs a voxel). The same maps: PSR to 1e-11 (4 points) and 1e-8 (5
+       points, SNR 200); at 5 points and SNR 50, 55 of 9990 voxels differ by more than 1e-4,
+       in flat valleys where rounding sends the two solvers to slightly different stops (sums
+       of squares within 2e-3 of Σy², mostly `QMTSIR`'s lower).
+     - **Conditioning, kmf against k** (bench/qmtsir_simple/conditioning.jl: Dortch 2018's
+       5-point scheme, kmf estimated, crlb at SNR 100; `cond`, unit-free): WM_I 139 against 129, WM_II 75.5 against 73.5, GM 77.3
+       against 76.9, lesion 114.9 against 115.0; cor(PSR, kmf) −0.91 against cor(PSR, k)
+       −0.88 in WM_I, smaller elsewhere. The largest correlation is elsewhere and unchanged:
+       M0f with Sf (0.88–0.95), M0f with R1f in the lesion (−0.86). Fits of the two
+       parameterizations (10,000 voxels): the same answer in 98–99.8% of voxels, 5% fewer
+       iterations with k, and slightly fewer voxels not best at SNR 100 and 200 (34 → 11,
+       14 → 1 of 10,000). Not worth leaving the standard parameter for.
+     - **Found on the way, in `QMTSIR` as on `main`: `kmf = Free()` has no lower bound**, so
+       a negative exchange rate is a valid answer: 5-point scheme, 10,000 voxels with varied
+       truths, 82 voxels end at kmf < 0 (down to −22 s⁻¹) reported converged at SNR 50, 24 at
+       SNR 100, 10 at SNR 200; with `kmf = Free(lower = 0)` none, the PSR error unchanged. To
+       decide with the owner: how a parameter fixed by default gets bounds when it is freed
+       (the model declaring them with the fixed value, or a documented `Free(lower = 0)`).
    - **Pulse models: the conditions behind the fixed parameters.** For SIR, Sf and Sm are what
      the inversion pulse does to each pool, so B1, B0 and T2m (the conditions a robust design
      varies) map to them: the free pool rotated segment by segment (B1 scaling the flip angle,

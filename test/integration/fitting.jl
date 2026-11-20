@@ -26,7 +26,7 @@
     @test maximum(abs.(r32.params.PSR[ok] .- r64.params.PSR[ok])) < 1e-3
 end
 
-@testset "QMTSIR: kmf fixed vs free, tie, per-voxel Sm map" begin
+@testset "QMTSIR: kmf fixed vs free, tie, per-voxel Sm map; QMTSIRSimple the same" begin
     m = QMTSIR(TI = TI5, TD = TD5)
     truth = (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 15.0, R1m = 1.0, Sm = 0.83,
              Mzf_td0 = 0.0, Mzm_td0 = 0.0)
@@ -56,6 +56,16 @@ end
     res = fit(m, Y; Sm = sm)
     @test res.status[7] == EQUIP.InvalidData && isnan(res.params.PSR[7])
     @test all(isconverged, res.status[setdiff(1:n, 7)])
+    # QMTSIRSimple is QMTSIR with its defaults built in: the same maps from noisy data, kmf
+    # fixed and estimated, to the solver's tolerance (the two signals agree to rounding)
+    ms = QMTSIRSimple(TI = TI5, TD = TD5)
+    Y = simulate(m, truth; n, snr = 100, noise = :gaussian, rng = MersenneTwister(6))
+    for kw in ((;), (kmf = Free(),))
+        a, b = fit(m, Y; kw...), fit(ms, Y; kw...)
+        @test all(isconverged, a.status) && all(isconverged, b.status)
+        @test b.params.PSR ≈ a.params.PSR rtol = 1e-4
+        @test b.params.R1f ≈ a.params.R1f rtol = 1e-4
+    end
 end
 
 @testset "fit on a dataset: 3-D data, mask, threads, invalid data, start maps" begin
