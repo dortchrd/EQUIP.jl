@@ -5162,7 +5162,8 @@ are not an order. The same list, with each tier's loose ends, is in docs/status.
    derived quantities for the other models (qMT's kfm = kmf·PSR, T1 from R1, SMT's D⊥).
 5. **Models**: stick–zeppelin, ball–stick and IVIM first (the owner, 2026-11-08; item 17), then
    MTR, MTsat, B1 and B0 maps (item 5), pulsed qMT (item 6), NODDI (item 7), free-water DTI,
-   DKI's constraints imposed (item 17).
+   DKI's constraints imposed (item 17). SAGE, R2* and R2 from spin- and gradient-echo data
+   (item 25; the owner, 2026-11-20: "put sage on model roadmap").
 6. **Starts, across all models** (the owner, 2026-11-08: "I want them to be tested and smart
    across all models, but let's build all models first"): plausible ranges per model; every
    model's start tested over them, both precisions, and safe failure outside them; the
@@ -7283,3 +7284,59 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        more sense to live in the fit folder?"): it was 280 of starts.jl's 361 lines, the two
        passes, the shared first pass and this check; starts.jl keeps `:data`, BestOf and the
        scale. Moved verbatim (the files' concatenation unchanged but for the new header).
+25. **SAGE: R2* and R2 from multi-echo spin- and gradient-echo data** (the owner, 2026-11-17 to
+   20, from Keeling et al., Magn Reson Imaging 2024;112:116: "we want to implement this"; on
+   the models priority, item 5's list; not built). Five echoes (two gradient echoes, two
+   asymmetric spin echoes, a spin echo; GESE-EPIK's ten too) give R2* and R2 at once, for
+   DSC perfusion (total and microvascular CBV), vessel size and OEF. Decided so far:
+   - **The signal, the paper's Eq. 1 written out** (the owner: close to the paper for reading),
+     with S0ᴵᴵ = S0/δ, each echo's type from its TE against the spin echo's, TESE:
+     TE < TESE/2 a gradient echo, S0·e^(−TE·R2*); TESE/2 < TE < TESE an asymmetric spin echo,
+     (S0/δ)·e^(−TESE(R2*−R2) − TE(2R2−R2*)); TE = TESE the spin echo, (S0/δ)·e^(−TESE·R2); TE >
+     TESE an asymmetric spin echo after it, (S0/δ)·e^(TESE(R2*−R2) − TE·R2*) (the two
+     asymmetric branches written alike, the owner's choice). One formula would do,
+     (S0/δᵃ)·e^(−R2·TE − (R2*−R2)·|TE − a·TESE|), a = 1 after the 180°; measured, the four
+     branches fit faster (1.53 µs a voxel against 1.71, one thread, 20,000 voxels, results equal
+     to 3e-14): each branch carries only its own terms through the dual numbers. The three
+     branches after the 180° meet at TESE, so `TE == TESE` is safe with times read from files.
+   - **The acquisition**: `TE`, each echo's time from the excitation, one per image, in their
+     order, and `TESE`, one number; `SAGE(TE = [8.8, 26, 55, 72, 88] / 1000, TESE = 0.088)`.
+   - **The parameters**: `S0` (start `:scale`), `delta` (δ = S0ᴵ/S0ᴵᴵ, the slice-profile
+     mismatch of the refocusing; start 1, 0.5 to 2), `R2s` (R2*; start 20 1/s, ≥ 0.4) and `R2`
+     (start 12.5, ≥ 0.4). `delta`, not `δ`: a parameter's name is also a map's file name, a JSON
+     key, a MATLAB field (ASCII only there) and a command-line flag; δ in the text. The paper's
+     two fits are one model: four parameters with δ free, three with δ fixed (a number, or the
+     map of a four-parameter fit of the baseline, as the paper does, `delta = deltamap`).
+   - **Starts: a fixed guess, no log-linear start** (the owner: "just give it a reasonable
+     guess"). Measured over the paper's grid (T2* 5–75 ms, T2 25–105 ms, T2* ≤ T2; SNR 200 and
+     20, Rician; δ 1 and 1.25; 1000 voxels a case): from T2* = 10 ms the guess converges in 100%
+     and gives the log-linear start's fits (0 voxels differing at SNR 200, 0–13 of 1000 at 20);
+     at T2* = 5 ms it converges in 91.8–100% against 100%, where both are far off (R2* −7 to
+     −76%, R2 to −97%: the 26 ms echo is under 1% of S0; the paper's own finding below 20 ms).
+     For the DSC peak, if needed: `BestOf` starts, or each time point from the baseline's maps.
+     The paper's exact LLSQ (Eq. 2, with ln δ) as a `datastart` would also give the LLSQ alone
+     (`maxiter = 0`) to compare with the full fit, as the paper does: optional.
+   - **Speed**: about 1.5 µs a voxel for the full nonlinear fit, so the paper's in vivo case
+     (41.8k voxels × 150 dynamics, 17.6 h of NLSQ in MATLAB) would take about 10 s on one
+     thread: the NLSQ need not be traded for the LLSQ. To measure on the built model.
+   - **Written by hand** for the built-in (as the other models: the struct, `parameters`,
+     `signal!` with `@inbounds for j in eachindex(out, TE)`); `@mrimodel` gives the same code
+     and speed, and served for the prototypes (scratch sage/).
+   - **Still to decide**: rates (R2*, R2), times (T2*, T2) or both (the other models have both
+     forms); R2* ≥ R2 not enforced, as in the paper (box bounds cannot; R2′ = R2* − R2 ≥ 0 as a
+     parameter could); DSC data from NIfTI: the layout (one file per echo with the dynamics, or
+     the echoes interleaved), and maps per time point (a 5-D array, x × y × z × time × echo,
+     already fits, with δ as a map per time point: checked).
+   - **Tests**: the signal against Eq. 1 written separately (done for the prototype: equal);
+     recovery from noise-free data; δ fixed at a number and at a map; an echo after the spin
+     echo against the |TE − TESE| form (done: equal); the paper's simulation in
+     test/validation/ (Figs. 1–2: TEs 8.8, 26, 50, 68, 88 ms, the grid above, SNR 200 and 20,
+     δ 1 and 1.25).
+   - **Across time, later** (the owner: "would be cool eventually to regularize across time"),
+     in order of effort: (1) warm starts, each time point from the previous one's estimates
+     (now: `Free(start = map)`); (2) S0 and δ from the baseline, two parameters per time point
+     (now: roles); (3) a penalty toward the neighbouring time point or the baseline, an extra
+     residual per parameter in each small fit (the machinery of priors, item 15; crlb could
+     show λ's trade of noise against temporal blur); (4) a model of the time course, R2*(t) and
+     R2(t) as baseline plus a bolus (gamma variate), all echoes and times in one fit of about 8
+     parameters; (5) denoising the series first (MP-PCA, item 22).
