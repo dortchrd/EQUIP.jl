@@ -955,6 +955,41 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
     On T2 decay and variable flip angle every method finds the same fits; on magnitude
     inversion recovery every method misses the best fit in ~1% of voxels (false minima around
     the null point), EQUIP no more often than the others.
+  - **Rerun, 2026-11-20** (the owner: "just want to make sure we are maintaining speed"), `main`
+    at 9124040, the script unchanged (1000 voxels a case, 3 runs, 4 threads, Julia 1.13.3, Xeon
+    2.1 GHz; packages resolved afresh: LsqFit 0.16, NonlinearSolve 4). µs per voxel (not best),
+    without bounds:
+
+    | method | t2 | t1mfa | t1ir | sir4_range | sir4_poorstart | sir16_kmf | sir16_kmf_snr50 | sir4_lowpsr | biexp | biexp_snr100 |
+    |---|---|---|---|---|---|---|---|---|---|---|
+    | EQUIP | 0.67* (0) | 0.61* (0) | 0.69* (9) | 1.32 (0) | 3.57 (26) | 4.15 (5) | 10.1 (20) | 3.24 (0) | 8.93 (180) | 16.2 (218) |
+    | LsqFit | 18.5 (0) | 21.4 (0) | 22.6 (8) | 22.0 (0) | 28.6 (2) | 45.4 (3) | 151 (30) | 24.0 (0) | 217 (133) | 426 (122) |
+    | NonlinearSolve LM | 1148 (0) | 1455 (0) | 2095 (7) | 245 (0) | 768 (9) | 3960 (4) | 6657 (36) | 240 (0) | 3285 (2) | 5133 (16) |
+    | NonlinearSolve TrustRegion | 9.4 (0) | 8.6 (0) | 7.2 (10) | 3.93 (0) | 14.1 (18) | 108 (59) | 164 (71) | 3.65 (0) | 51.3 (16) | 73.1 (38) |
+    | SimpleGaussNewton | 111 (0) | 116 (0) | 124 (10) | 3.17 (0) | 2.37 (138) | 308 (281) | 520 (430) | 3.09 (0) | 4428 (942) | 4529 (951) |
+    | SimpleTrustRegion | 237 (19) | 193 (0) | 192 (11) | 2.12 (0) | 9.31 (11) | 1644 (421) | 2135 (556) | 3.17 (1) | 3845 (999) | 4060 (995) |
+    | FastLevenbergMarquardt | 2.08 (0) | 1.23 (0) | 1.43 (10) | 1.84 (0) | 7.07 (33) | 13.8 (10) | 22.6 (24) | 1.70 (0) | 31.7 (118) | 75.6 (151) |
+
+    \* the first three cases from a second run with 20 runs instead of 3: in the full run
+    EQUIP's t2 read 4.99 µs, its three runs spread from 2.7 to 5.0 ms (the first measurement of
+    the run; with bounds, a moment later, 0.76); with 20 runs 0.67. Three runs are too few for
+    the cheapest case's median (the benchmark framework, item 21, is to compare minimums).
+    With the models' bounds (EQUIP, LsqFit, FastLevenbergMarquardt only): EQUIP 0.70 (0), 0.60
+    (0), 0.72 (9), 0.87 (0), 4.95 (26), 4.28 (3), 6.63 (11), 1.16 (0), 6.44 (4), 11.0 (4);
+    LsqFit 17.0–870 µs, missing 409 of 1000 on sir4_poorstart and 214 on sir4_lowpsr;
+    FastLevenbergMarquardt 1.3–28.5 µs, missing 211–357 on four cases.
+    - **Speed kept**: EQUIP's everyday cases as fast or faster than in the first runs (t2 0.79 →
+      0.67, t1mfa 0.74 → 0.61, t1ir 0.69 → 0.69; the bi-exponential at SNR 100 20.5 → 16.2,
+      the same 218 voxels not best); the SIR cases within ±15% (sir4_range 1.18 → 1.32,
+      sir4_poorstart 4.11 → 3.57, sir16_kmf 4.58 → 4.15, at SNR 50 9.78 → 10.1). The others
+      moved with their package versions and the machine (LsqFit 14.5 → 18.5 on t2, NonlinearSolve
+      LM 716 → 1148).
+    - **Where it stands**: EQUIP the fastest of the seven on every case but sir4_poorstart, where
+      SimpleGaussNewton is quicker (2.4 µs) by failing on 138 voxels; 25–35× faster than LsqFit
+      on the everyday models and 17–28× on SIR and the bi-exponential, 3–40× than NonlinearSolve's
+      TrustRegion, 200–1700× than its LevenbergMarquardt, 1.2–3.5× than FastLevenbergMarquardt.
+      With bounds it is also the most robust: 4 voxels not best of 1000 on the bi-exponential,
+      against LsqFit's 6–30 and FastLevenbergMarquardt's 243–282.
   - **Diagnosis of EQUIP's misses** (1000 voxels, one thread, settings only, no code change):
     - Biexponential without bounds: 202 voxels not best. 199 of them stopped on the step test
       (a stationary point: restarting there does not move it), at SSE ~2.1× the best, with the
