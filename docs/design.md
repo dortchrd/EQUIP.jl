@@ -5547,6 +5547,116 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      bi-exponential's T2long and kurtosis's ADC from BestOf; to decide with the owner, then the
      results checked unchanged where they should be (the refactoring rule: starts and fits of
      every model, both precisions).
+   - **Smart BestOf, prototyped and measured (branch `bestof-proto`, 2026-11-20; the owner:
+     "prototype smart bestof on a branch and re-measure")**. Built: points 1, 3 and 4 above;
+     point 2 as grids given per call (the defaults unchanged); point 5 not.
+     - **What it does.** `setup` takes `BestOf` on several parameters, every combination a
+       column of `candidates` (8 and 6 values: 48). `init` makes the dictionary
+       (src/fit/dictionary.jl) when nothing about the candidates depends on the voxel (no map
+       among the fixed values or the starts, no `:data` or `:loglinear` start): for each
+       candidate, the columns of the signal in its linear coefficients, times the weights, and
+       G = BᵀWB with its inverse. Per voxel: z = BᵀWy, c = G⁻¹z, the linear parameters from c
+       clamped to their bounds, the scale solved again given them and clamped, the SSE
+       y·Wy − 2c·z + cᵀGc; the lowest wins and LM starts there. Otherwise `_best_start` scores
+       per voxel as before (now over combinations, the scale alone solved).
+     - **Linear parameters found numerically** once per fit, at the first, middle and last
+       candidate, from the signal at scale 1 and 2 and the parameter at 0, 1 and 2: added
+       (S = a·s₀ + C·g: T2DecayOffset's C) or inside the scale's shape (S = a·(s₀ + f·g): the
+       bi-exponential's fshort, signed IR's Sf, and signed SIR's Sf, as M0f·Sf, which the
+       VarPro design checked by hand), then all of them
+       together checked at three other points (no product of two of them); else the scale
+       alone. Magnitude IR's Sf, kurtosis's K: not linear, found so. No declaration: the
+       VarPro design's `varpro = true` and `fromamplitudes` would replace the search if both
+       are adopted (the shape form is `fromamplitudes` with a₂ = a₁·f, generically).
+     - **Exact where it should be.** With the scale alone the arithmetic is `_score`'s (the
+       re-solved scale is z/G = (s·y)/(s·s) to the bit): magnitude T1IR's fits identical, bit
+       for bit, from the dictionary and per voxel (test/unit/starts_solver.jl). The defaults
+       of T1IR (per voxel, forced), T2Decay, T2BiexpDecay and QMTSIR give identical results on
+       `main` and the branch, 20,000 voxels each, at the same speed (within the run-to-run
+       spread, ±15% that day). Offset starts equal backslash on [e^(−TE/T2) 1], weighted too,
+       and a clamped offset gets the scale solved given it; noise-free bi-exponential data from
+       a grid point give that point back with S0 and fshort exact. No allocation per voxel,
+       either path, Float64 and Float32. The unit and integration groups pass (2593).
+     - **Cost of the start itself**, one voxel (prototypes/bestof/micro.jl, one thread):
+       T1IR's 30 candidates (9 TIs) 0.13 µs from the dictionary against 1.11 µs scored per
+       voxel (8.7×);
+       the bi-exponential's 8 × 8 with fshort solved (32 echoes) 1.29 µs against 15.9 µs (12×).
+       About 0.5 ns per multiply-add: one dot product per candidate and linear parameter.
+     - **The study again** (prototypes/bestof/study.jl, its output in study_results.md: as the
+       BestOf study above, 10,000 voxels a model with the truths varied, Gaussian noise, one
+       thread, best of 3; grids from the
+       acquisition: T2 from TE₁/2 to 2·TE_max and T1 from TI_min/5 to 5 s, both about 1.4×
+       apart; ADC from 0.1/b_max to 10/b_max capped at 4e-3; the bi-exponential's T2short
+       below √(TE₁·TE_max)/1.2 and T2long above it, disjoint; K 0 to 3 by 0.5). SNR 200,
+       µs per voxel, iterations, voxels not best (of 10,000):
+
+       | model | default start | µs, iterations, not best | smart BestOf | µs, iterations, not best |
+       |---|---|---|---|---|
+       | T2 | `:loglinear` | 1.68, 3.3, 0 | T2, 15 values | 1.32, 4.5, 0 |
+       | T2 + offset | fixed | 4.19, 10.1, 0 | T2, 15; C solved | 2.03, 4.9, 0 |
+       | bi-exponential | fixed | 15.75, 23.1, 149 | T2short × T2long, 8 × 8; fshort solved | 9.52, 14.0, 108 |
+       | ADC | fixed | 0.69, 5.5, 0 | ADC, 12 | 0.56, 4.1, 0 |
+       | kurtosis | fixed | 3.38, 15.1, 353 | ADC × K, 15 × 7 | 3.43, 10.0, 178 |
+       | T1IR | BestOf 30, per voxel (`main`) | 2.08, 4.9, 31 | the same 30, dictionary | 1.04, 4.9, 31 |
+       | T1SR | fixed | 0.71, 6.4, 0 | T1, 17 | 0.71, 4.6, 0 |
+       | T1MFA | fixed | 1.35, 7.3, 0 | T1, 15 | 1.15, 5.5, 0 |
+       | QMTSIR, 4-point | fixed | 1.90, 5.1, 0 | R1f, 8 | 1.70, 4.9, 0 |
+
+       At SNR 50 the same pattern: the bi-exponential 22.7 → 19.2 µs (misses 1026 → 1015),
+       kurtosis 3.97 → 3.43 (351 → 176), T1MFA 1.88 → 1.31 (5 → 0), T2 2.46 → 1.66;
+       QMTSIR's misses 28 → 33 (no gain; PSR × R1f, 6 × 8, 29).
+     - **The parts apart** (same candidates, the switches `_PROTO_DICTIONARY` and
+       `_PROTO_LINEAR`):
+       - The dictionary turns BestOf's saved iterations into speed for every model: T2 2.89 →
+         1.32 µs, T1IR 2.08 → 1.04, the bi-exponential's 8 × 8 27.0 → 11.2, kurtosis's 15 × 7
+         11.5 → 3.43, QMTSIR's 6 × 8 6.96 → 1.95, with the same fits. A product of two
+         parameters costs under a microsecond more than one parameter's values, not a multiple.
+       - Linear parameters solved help the ranking where they are coupled to the candidates:
+         the offset (iterations 7.1 → 4.9, 2.54 → 2.03 µs) and the bi-exponential's product
+         (misses at SNR 50 1302 → 1015, at SNR 200 123 → 108; 11.2 → 9.5 µs). Signed IR's Sf:
+         no gain (no misses either way), 0.95 → 1.22 µs (one more column).
+       - **Not as a start on its own at a poor point**: the bi-exponential's default starts
+         with fshort solved (a one-value BestOf) are slower, 15.75 → 20.17 µs (23 → 30
+         iterations): at the wrong T2s, the best fraction is a worse start than 0.2 (it lands
+         at a bound, 0 or 1). The offset's, solved at the default T2, helps (4.19 → 2.99 µs).
+         So linear parameters are solved in BestOf's ranking, not added to the default starts.
+       - Grids: T1IR with 19 values (1.4× apart) against the default 30 (1.24×): the same
+         speed from the dictionary, misses 31 → 18 at SNR 200 and 139 → 92 at SNR 50 (not
+         explained yet: the grids reach different basins in ambiguous voxels).
+     - **Against VoxelFit again** (bench/voxelfit/smart.jl, on the comparison's data: one
+       typical truth a model, 20,000 voxels, SNR 200, one thread, Float64; both packages timed
+       the same day, best of two runs of best of 3, because the machine was 15–30% faster for
+       both than on the comparison's day), µs per voxel:
+
+       | model | VoxelFit, its own starts | EQUIP default | EQUIP smart BestOf (as above) |
+       |---|---:|---:|---:|
+       | T2 | 1.22 | 1.75 | 1.08 |
+       | T2 + offset | 2.97 | 3.29 | 1.92 |
+       | bi-exponential | 7.10 | 12.66 | 7.50 |
+       | ADC | 0.36 | 0.69 | 0.46 |
+       | kurtosis | 1.83 | 1.52 | 1.73 |
+       | T1IR | 1.10 | 1.01 (the dictionary) | 1.07 (19 values) |
+       | T1SR | 0.75 | 0.55 | 0.63 |
+       | T1MFA | 0.80 | 1.11 | 0.94 |
+
+       With the faster of its two starts, EQUIP is faster in five models (0.65× to 0.92×),
+       equal for the bi-exponential (1.06×, with better fits: at SNR 50 its sum of squares is
+       below VoxelFit's in 637 voxels and above in 49; the default's 511 and 116), and slower
+       in ADC (1.28×) and T1MFA (1.18×), where its solver was already slower from the same
+       starts (1.13×, 1.24×: per-voxel generality). The starts no longer decide the speed.
+     - **To decide with the owner, if this is adopted**: which models get a BestOf default
+       (measured gains: T2DecayOffset 2×, the bi-exponential 1.65× and fewer misses, kurtosis
+       half the misses, T1MFA, ADCDecay and T2Decay 1.2–1.3×; T1IR keeps its 30 values, now 2×
+       faster; T1SR and QMTSIR unchanged), with grids as functions of the acquisition as
+       T1IR's is; and whether the per-voxel path also solves the linear parameters (today it
+       does not, so a fit with a map ranks differently from one without).
+     - **Open**: the data start as one more candidate (point 5); swapped duplicates when two
+       BestOf ranges overlap (`relabel` could fold them; the grids above are disjoint); memory,
+       K × N × M numbers (30³ candidates × 32 echoes × 2: 14 MB, fine; a warning above some
+       size); QMTSIR's 4-point scheme is exactly determined with kmf fixed (4 observations, 4
+       free parameters), so "not best" there counts different exact solutions, and the median
+       PSR error moves with the start (17.8% against 18.5% at SNR 50); the prototype switches
+       go before any merge.
    - **One fit from the best candidate, or several**: `BestOf(values; fits = k)`, default 1.
      Today `BestOf` evaluates the model at each value and runs one LM fit from the lowest SSE
      (N signals + 1 fit). That is enough for T1IR: at most 2 of 200 voxels failed, against 200

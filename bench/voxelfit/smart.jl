@@ -22,9 +22,9 @@ function smart(c)
         s = sqrt(minimum(x) * maximum(x))       # disjoint: T2short below, T2long above
         return (T2short = B(ratiogrid(minimum(x) / 2, s / 1.2)), T2long = B(ratiogrid(s, 2 * maximum(x))))
     end
-    adc = B(ratiogrid(0.1 / maximum(x), min(10 / maximum(x), 4e-3)))
-    c.name == "ADC" && return (ADC = adc,)
-    c.name == "kurtosis" && return (ADC = adc, K = B(0:0.5:3))
+    adc() = B(ratiogrid(0.1 / maximum(x), min(10 / maximum(x), 4e-3)))    # x: b-values
+    c.name == "ADC" && return (ADC = adc(),)
+    c.name == "kurtosis" && return (ADC = adc(), K = B(0:0.5:3))
     c.name in ("IR", "SR") && return (T1 = B(ratiogrid(minimum(filter(>(0), x)) / 5, 5.0)),)
     return (T1 = B(ratiogrid(0.05, 5.0)),)       # SPGR
 end
