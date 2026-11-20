@@ -6,7 +6,8 @@ measurements behind each item are in docs/design.md (roadmap items by number).
 ## Branches
 
 Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageable branches";
-again 2026-11-17, after deleting the finished ones: "kept rest"):
+again 2026-11-17, after deleting the finished ones: "kept rest"), and one prototype is open
+(`bestof-proto`, 2026-11-20):
 
 | branch | what it is |
 |---|---|
@@ -14,6 +15,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `qmtsir-simple` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete qmtsir-simple`). Still open from it: the kmf bound question (docs/design.md, item 6). |
+| `bestof-proto` | the smart BestOf prototype (2026-11-20, the owner: "prototype smart bestof on a branch and re-measure"): candidates' signals once per fit (a dictionary, src/fit/dictionary.jl), BestOf on several parameters (every combination), linear parameters (an offset, a fraction) solved in each candidate's score; measured in docs/design.md, item 4. Waits on the owner: whether to merge, and which defaults to change with it. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
 
 Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge into main once CI
