@@ -6346,6 +6346,34 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **First uses**: LsqFit as the reference solver in the benchmark comparison (item 2); models
      that cannot take dual numbers; models with many parameters (a backend may make the
      ordinary-array method below unnecessary).
+   - **The start alone, and the log-linear fit alone, as two more solvers of the same hook**
+     (the owner, 2026-11-20: "maybe add better way to say LM (maxiter = 0) to roadmap,
+     eventually want hooks for just loglinear and external package like lsqfit"). Today the
+     start alone is `solver = LM(maxiter = 0)`: it works (the tests use it, and the BestOf
+     and log-linear studies), but it says "Levenberg–Marquardt with no iterations" where the
+     user means "no fit", and each voxel's status comes back `MaxIter` (ran out of
+     iterations), which reads as a failure. Proposed, with the `solve_voxel` dispatch above:
+     - `solver = StartOnly()` (name to settle: `NoFit()`, `Start()`): every start option as
+       today (:scale, :data, :loglinear, BestOf with its dictionary), no solver after it; the
+       maps are the starting values, with the SSE there, and a status of their own
+       (`StartOnly`, counted apart from converged and failed in the summary). For comparisons
+       (the start against the fit, as the BestOf study does) and for previews.
+     - `solver = LogLinear()`: the weighted log-linear fit as the answer (scanner-style ADC and
+       T2 maps; VoxelFit's log-linear regressions), for the parameters ln S is linear in. It
+       is `StartOnly()` with `:loglinear` made the start of those parameters, so one
+       implementation serves both. Measured (scratch bestof/loglin.jl, T2Decay, 2026-11-20):
+       at SNR 200 it equals the full fit; at SNR 20 its T2 is biased −1.25% (the full fit
+       +0.18%) and its SD 1.08× crlb's (1.00×), for 1.23 µs per voxel against 2.27. Its bias
+       comes from E[ln y] ≠ ln S at low SNR, a known form, so crlb could predict it too: on the
+       roadmap with it, not first.
+     - **External packages** (`LsqFitLM()`, a SciML algorithm) through the same function, in
+       package extensions; each gets the voxel's start from EQUIP's start options first
+       (BestOf, the dictionary, data starts), so a comparison between solvers is a
+       comparison of solvers, not of starts (the VoxelFit comparison's lesson: the starts
+       decided the speed).
+     - The roles, starts, statistics (`stderror` from the solver's JᵀJ: for `StartOnly` at
+       the start, documented as such) and `FitResult` do not change; `solver` is recorded
+       in the provenance sidecar as now.
    - **To check**: bounds (LsqFit's Levenberg–Marquardt takes them; SciML's NonlinearSolve
      least-squares solvers mostly do not, as I recall, and Optimization.jl may serve there);
      mapping each backend's outcome to `FitStatus`; backends allocate and are slower, which is

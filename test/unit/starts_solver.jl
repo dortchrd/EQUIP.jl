@@ -120,18 +120,21 @@ end
     # dropped (since 2026-11-09: the 5 of 30 above it here); replaced by any other start, absent
     # when T1 is fixed
     s = setup(T1IR(TI = ti); T1 = Free(upper = Inf))
-    @test s.candindex == 3 && length(s.candidates) == 30
+    @test s.candindex == [3] && size(s.candidates) == (1, 30)
     @test s.candidates[1] ≈ 0.01 && s.candidates[end] ≈ 16
-    @test setup(T1IR(TI = ti)).candidates == filter(<=(5), s.candidates)
+    @test vec(setup(T1IR(TI = ti)).candidates) == filter(<=(5), vec(s.candidates))
     @test length(setup(T1IR(TI = ti)).candidates) == 25
-    @test setup(T1IR(TI = ti); T1 = Free(start = 2.0)).candindex == 0
-    @test setup(T1IR(TI = ti); T1 = 2.0).candindex == 0
-    @test setup(T2Decay(TE = [0.01, 0.02])).candindex == 0           # none by default
+    @test isempty(setup(T1IR(TI = ti); T1 = Free(start = 2.0)).candindex)
+    @test isempty(setup(T1IR(TI = ti); T1 = 2.0).candindex)
+    @test isempty(setup(T2Decay(TE = [0.01, 0.02])).candindex)      # none by default
     # values from the call; those outside the bounds are dropped, an error if none is left
     s = setup(T1IR(TI = ti); T1 = Free(start = BestOf([0.1, 0.5, 5.0]), upper = 3))
-    @test s.candidates == [0.1, 0.5] && s.start.T1 == 0.1           # middle value: placeholder
+    @test vec(s.candidates) == [0.1, 0.5] && s.start.T1 == 0.1      # middle value: placeholder
     @test_throws "no BestOf value within" setup(T1IR(TI = ti); T1 = Free(lower = 20, upper = Inf))
-    @test_throws "only one parameter" setup(T1IR(TI = ti); Sf = Free(start = BestOf([-1, -0.9])))
+    # several parameters: every combination, a column each, the first parameter fastest
+    s = setup(T1IR(TI = ti); Sf = Free(start = BestOf([-1, -0.9])), T1 = Free(start = BestOf([0.5, 1, 2])))
+    @test s.candindex == [2, 3] && s.candidates == [-1 -0.9 -1 -0.9 -1 -0.9; 0.5 0.5 1 1 2 2]
+    @test s.start.Sf == -1 && s.start.T1 == 1                       # each one's middle value
     m2 = T2Decay(TE = 0.01:0.01:0.32)
     r = fit(m2, signal(m2, (S0 = 1000.0, T2 = 0.04)); T2 = Free(start = BestOf([0.01, 0.04, 1.0])),
             solver = LM(maxiter = 0))
@@ -141,6 +144,66 @@ end
     @test_throws ArgumentError BestOf(Float64[])
     @test_throws ArgumentError BestOf([0.1, NaN])
     @test sprint(show, BestOf(1:10)) == "BestOf(10 values from 1.0 to 10.0)"
+end
+
+@testset "BestOf from a dictionary: candidates' signals once per fit, linear parameters solved" begin
+    # PROTOTYPE (bestof-proto). With no map and no data start, the candidates' signals are made
+    # once per fit (dictionary.jl). With the scale alone it is `_score`'s arithmetic: the same
+    # fits, bit for bit, as scoring per voxel, which a map forces (Sf starting from a map of
+    # -0.95, its default start, in every voxel).
+    ti = [0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2]
+    m = T1IR(TI = ti)
+    @test init(m).dict isa EQUIP.CandidateDictionary
+    @test init(m; Sf = Free(start = fill(-0.95, 3))).dict === nothing
+    θ = (M0 = fill(1000.0, 40), Sf = fill(-0.95, 40), T1 = range(0.05, 4.0; length = 40))
+    Y = simulate(m, θ; snr = 100, noise = :gaussian, rng = MersenneTwister(3))
+    a, b = fit(m, Y), fit(m, Y; Sf = Free(start = fill(-0.95, 40)))
+    @test a.params.T1 == b.params.T1
+    @test a.iterations == b.iterations
+    # Which parameters are linear, and how (`_linearparameters`, numerically): the signed IR's
+    # Sf inside the scale's shape, M0·(1 + (Sf - 1)·e^(-TI/T1)); magnitude IR's not (|S|); the
+    # offset added; kurtosis's K not at all
+    d = init(T1IR(TI = ti, magnitude = false)).dict
+    @test d.linear == [1, 2] && d.inshape == [true, true]
+    @test init(m).dict.linear == [1]
+    te = collect(0.01:0.01:0.32)
+    mo = T2DecayOffset(TE = te)
+    t2 = [0.01, 0.02, 0.04, 0.08, 0.16]
+    d = init(mo; T2 = Free(start = BestOf(t2))).dict
+    @test d.linear == [1, 3] && d.inshape == [true, false]
+    mk = ADCKurtosis(b = collect(0.0:250.0:3000.0))
+    @test init(mk; ADC = Free(start = BestOf([1e-3, 2e-3]))).dict.linear == [1]
+    # The start: S0 and C at the linear least squares for the winning T2, against backslash on
+    # [e^(-TE/T2) 1] (noisy data, the truth on the grid; LM not run)
+    y = signal(mo, (S0 = 1000.0, T2 = 0.04, C = 150.0)) .+ 2 .* randn(MersenneTwister(4), length(te))
+    r = fit(mo, y; T2 = Free(start = BestOf(t2)), solver = LM(maxiter = 0))
+    @test r.params.T2 == 0.04
+    @test [r.params.S0, r.params.C] ≈ [exp.(-te ./ 0.04) ones(length(te))] \ y rtol = 1e-10
+    # ... with weights: the weighted least squares
+    w = range(0.5, 2.0; length = length(te))
+    r = fit(mo, y; T2 = Free(start = BestOf(t2)), weights = w, solver = LM(maxiter = 0))
+    @test [r.params.S0, r.params.C] ≈ (sqrt.(w) .* [exp.(-te ./ 0.04) ones(length(te))]) \ (sqrt.(w) .* y) rtol = 1e-10
+    # ... and an offset outside its bounds clamped, the scale solved again given it
+    r = fit(mo, y; T2 = Free(start = BestOf(t2)), C = Free(upper = 100), solver = LM(maxiter = 0))
+    @test r.params.C == 100
+    @test r.params.S0 ≈ exp.(-te ./ 0.04) \ (y .- 100) rtol = 1e-10
+    # Two parameters from BestOf, every combination: the biexponential's (T2short, T2long), with
+    # S0 and fshort solved; noise-free data from a grid point give it back exactly
+    mb = T2BiexpDecay(TE = te)
+    truth = (S0 = 1000.0, fshort = 0.3, T2short = 0.02, T2long = 0.1)
+    kw = (T2short = Free(start = BestOf([0.005, 0.01, 0.02, 0.04])),
+          T2long = Free(start = BestOf([0.05, 0.1, 0.2, 0.4])))
+    r = fit(mb, signal(mb, truth); kw..., solver = LM(maxiter = 0))
+    @test r.params.T2short == 0.02 && r.params.T2long == 0.1
+    @test r.params.fshort ≈ 0.3 rtol = 1e-8
+    @test r.params.S0 ≈ 1000 rtol = 1e-8
+    # no allocation per voxel, in both precisions, from the dictionary and per voxel (a map)
+    for T in (Float64, Float32), roles in (kw, (kw..., fshort = Free(start = fill(0.2, 2))))
+        c = init(mb; roles..., precision = T)
+        y = signal(mb, truth)
+        fit!(c, y)
+        @test_noalloc fitallocs(c, y) == 0
+    end
 end
 
 @testset "The log-linear start, :loglinear, from the model's own signal" begin
@@ -206,7 +269,8 @@ end
     Yt = simulate(mt2, (S0 = 1000.0, T2 = 0.06); snr = 40, n = 20, noise = :rician, rng = MersenneTwister(5))
     for T in (Float64, Float32)
         c = init(mt2; precision = T)
-        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing)
+        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing,
+                            nothing)
         @test c.logpass !== nothing
         @test all(i -> EQUIP._fit_voxel(c, c.spec, Yt[i, :], i) === EQUIP._fit_voxel(c0, c0.spec, Yt[i, :], i), 1:20)
     end
