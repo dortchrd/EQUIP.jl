@@ -1089,6 +1089,55 @@ unregistered. `QuantitativeMRI` is taken (aTrotier/QuantitativeMRI.jl).
       350–450% for all of them. With 4 observations and 4 free parameters there can be more than
       one exact fit, and far starts find the wrong one: the scheme depends on sensible starts.
 
+### Compared with the one-shot version, VoxelFit 0.1 (2026-11-20)
+
+The owner: "how does the version of equip perform relative to the one-shot version branch",
+then "all eight models". `claude-oneshot` (bd6f278, 2026-10-14, about 1800 lines) against `main`
+(40a13c8), on the eight models both have (VoxelFit's MonoExp, MonoExpOffset, BiExp, ADC,
+Kurtosis, InversionRecovery, SaturationRecovery, SPGR; EQUIP's T2Decay, T2DecayOffset,
+T2BiexpDecay, ADCDecay, ADCKurtosis, T1IR, T1SR, T1MFA), each EQUIP model checked to give
+VoxelFit's equation at the same values (to 9e-16). The same data for both (EQUIP's simulate,
+20,000 voxels a case, Gaussian noise, SNR 50 and 200; SI units for both, VoxelFit's models
+taking any units); each package in its own process (they share a UUID). Typical truths: T2 80
+ms (32 echoes, 10–320 ms), the offset 5%, bi-exponential 20% at 20 ms and 80 ms, ADC 0.8e-3
+(b 0–1000), kurtosis 1 (b 0–3000), T1 1 s (IR 9 TIs to 5 s, SR 7 to 6.4 s, SPGR 2–30°, TR 15
+ms). Julia 1.13.3, 4 threads (Xeon 2.1 GHz); best of 3. Scratch scripts: cmp/ (cases.jl,
+gen.jl, vf.jl, eq.jl, compare.jl).
+
+- **The same answers, to the solver's tolerance.** From the same starts (VoxelFit's own guesses
+  given to both) the two agree to 1e-16 in seven models: EQUIP's solver is VoxelFit's at its
+  core. With each one's own starts, to a median of 1e-9 (the stopping tolerance), every model
+  but two, at both SNRs; bias and SD equal (T2 at SNR 50: −0.00% and 2.19% for both).
+- **Where they differ, EQUIP's fit is the better one.** The SPGR at SNR 50: 276 of 20,000
+  voxels differ; in 248, VoxelFit stopped early, "converged" at a sum of squares a median 77%
+  above EQUIP's; the other 28 are EQUIP's T1 cap (5 s; VoxelFit's ran to 12.7 s). The
+  bi-exponential at SNR 200: 395 differ, EQUIP's sum of squares lower in 394 (median 79%).
+  At SNR 50 VoxelFit's unbounded fits reach slightly lower sums (median 0.05%) by running off:
+  T2long above 2.5 s in 1007 voxels, its SD 2387% against EQUIP's 656%; EQUIP converges in
+  94.6% against 90.7%.
+- **Speed, from the same starts (the solvers): EQUIP as fast or faster** in five models, by
+  0.53× (kurtosis) to 0.94× (bi-exponential) of VoxelFit's time on one thread, and 0.54× to
+  1.0× on four (it scales better); slower in the three smallest, ADC 1.13×, SR 1.20×, SPGR
+  1.24× (per-voxel generality: roles, fixed values, SPGR's B1).
+- **Speed, each with its own starts (as a user gets them): VoxelFit faster in six models**, by
+  1.1× (T2, SPGR) to 2.0× (ADC, IR) on one thread, up to 2.5× (IR in Float32 on four threads);
+  EQUIP faster for kurtosis (0.73×) and SR (0.69×; its fixed start, T1 = 1 s, was this test's
+  truth, which flatters it). The difference is the starts. VoxelFit computes one from each
+  voxel's data (log-linear regressions, curve peeling for the bi-exponential, DESPOT1 for
+  SPGR, the null point for IR); EQUIP starts several models at fixed numbers, and takes twice
+  the iterations there (SNR 200, mean: T2 with offset 10.9 against 5.1, bi-exponential 19.6
+  against 9.6, ADC 6.0 against 3.0, kurtosis 5.1 against 3.1), and IR's `BestOf` (30 T1 values
+  scored per voxel) costs twice VoxelFit's null-point guess; T2's `:loglinear` 1.16×.
+- **Start-up**: VoxelFit loads in 0.35–0.4 s and compiles its first fit in 0.26–0.28 s; EQUIP
+  loads in 0.8 s (MRImages, JSON, the I/O layer) and its first fit takes 0.01 s (the precompile
+  workload): about the same to a first map (0.66 s and 0.81 s).
+- **What follows**: EQUIP's solver keeps VoxelFit's speed and is more robust; what costs it
+  speed is its default starts. Data starts like VoxelFit's (`datastart` hooks: the log-linear
+  regression for ADC, the quadratic for kurtosis, peeling for the bi-exponential, the offset
+  from the last echoes, the null point for IR before `BestOf`) would make EQUIP the faster in
+  every model measured: priority 6, "Starts, across all models" (item 4), with these numbers as
+  its baseline.
+
 ## Variable projection (VarPro): proposed design
 
 Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
