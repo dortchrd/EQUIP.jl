@@ -4,3 +4,6 @@ __pycache__/
 *.egg-info/
 LocalPreferences.toml
 examples/output/
+bench/voxelfit/data/
+bench/voxelfit/out/
+bench/voxelfit/oneshot/

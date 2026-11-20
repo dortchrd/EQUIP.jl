@@ -5466,6 +5466,52 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        10 × 10 is enough).
      - One parameter at a time (n₁ + n₂ candidates) is cheaper but can miss the right pair when
        the parameters are coupled (T2short, T2long). Not the default.
+   - **The BestOf study (2026-11-20; the owner: "lets design some smart bestof for models -
+     these are cheap and may help")**: per-call `BestOf` on one parameter against each model's
+     default start, no code changed. 10,000 voxels a model, the truth varied over a range
+     (log-uniform: T2 20–300 ms, ADC 0.2–3e-3, T1 0.3–4 s; bi-exponential T2short 8–30 ms,
+     T2long 60–150 ms, fshort 0.05–0.4; kurtosis 0.3–2; the offset 0–20%), SNR 50 and 200,
+     grids log-spaced over what the acquisition measures, one thread (scratch bestof/study.jl).
+     At SNR 200, µs per voxel, iterations, voxels not best (of 10,000; worse than the best of
+     the strategies, or not converged):
+
+     | model | default start | µs, iterations, not best | BestOf | µs, iterations, not best |
+     |---|---|---|---|---|
+     | bi-exponential | fixed | 20.6, 23.1, 148 | T2long, 8 values | 15.5, 16.0, 102 |
+     | kurtosis | fixed | 4.67, 15.1, 353 | ADC, 8 | 4.43, 12.0, 260 |
+     | T1IR | BestOf, 30 | 2.88, 4.9, 22 | 15 | 2.30, 5.0, 24 (SNR 50: 165 → 116) |
+     | T2 + offset | fixed | 4.54, 10.1, 0 | T2, 8 | 4.82, 7.6, 0 |
+     | ADC | fixed | 0.82, 5.5, 0 | 8 | 0.92, 4.3, 0 |
+     | T1SR | fixed | 1.01, 6.4, 0 | 8 | 1.15, 5.0, 0 |
+     | T1MFA | fixed | 1.55, 7.3, 0 | 8 | 1.92, 5.8, 0 (SNR 50: 3 → 0) |
+     | T2 | `:loglinear` | 2.36, 3.3, 0 | 8 | 3.26, 4.9, 0 |
+
+     BestOf always cuts the iterations (20–30%), but each candidate is a full signal per voxel
+     today: on the cheap models that eats the saving, and T2's `:loglinear` start is better. It
+     pays where fits are costly or hard: the bi-exponential (25% faster, a third fewer misses),
+     kurtosis (a quarter fewer misses), and IR with half the values (20% faster, as robust).
+     Proposed from it, "smart" BestOf, in order:
+     1. **Candidates scored without a signal per voxel** (the dictionary above, now measured to
+        be what decides): the candidate signals sₖ once per fit when they are the same in every
+        voxel, then per voxel SSE = y·y − (sₖ·y)²/(sₖ·sₖ), one dot product a candidate (ADC: 48
+        multiply-adds for 8 candidates, against 48 exponentials). The iteration savings then
+        become speed for every model. Per voxel as now where a fixed map (B1) or another
+        parameter's data start varies.
+     2. **Grids from the acquisition**, functions of the model as IR's is: time constants
+        log-spaced over what the sampling resolves (TE₁/2 to 2·TE_max; TI and TD likewise),
+        ADC by ADC·b_max from 0.05 to 4; neighbours about 1.4× apart (8–15 values).
+     3. **Several parameters at once**, affordable with 1: the bi-exponential's T2short ×
+        T2long on disjoint ranges (no swapped duplicates), kurtosis's ADC × K.
+     4. **Linear parameters solved in the score**, beyond the `:scale` one: the offset C and the
+        bi-exponential's two amplitudes (S0·f, S0·(1−f)), a 2×2 least squares a candidate, so a
+        candidate is not ranked by a wrong C or fraction (the ranking risk above); shared with
+        the VarPro design.
+     5. **The data start as one more candidate** (starts as candidates, below): the log-linear
+        estimate (ADC, SR), DESPOT1 (T1MFA), scored with the grid; the best wins.
+     Possible now without code (defaults in `parameters`): IR 30 → 15 values, the
+     bi-exponential's T2long and kurtosis's ADC from BestOf; to decide with the owner, then the
+     results checked unchanged where they should be (the refactoring rule: starts and fits of
+     every model, both precisions).
    - **One fit from the best candidate, or several**: `BestOf(values; fits = k)`, default 1.
      Today `BestOf` evaluates the model at each value and runs one LM fit from the lowest SSE
      (N signals + 1 fit). That is enough for T1IR: at most 2 of 200 voxels failed, against 200
