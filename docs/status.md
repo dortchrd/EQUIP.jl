@@ -14,8 +14,16 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `qmtsir-simple` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete qmtsir-simple`). |
-| `freed-bounds` | `Fixed(value; lower, upper)`: the bounds a fixed parameter gets when a fit frees it (QMTSIR's kmf ≥ 0, T1MFA's B1 ≥ 0, SMTFreeWater's Diso), the owner's choice 2026-11-21 (docs/design.md, item 6). Waits on the owner: the merge. |
+| `freed-bounds` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete freed-bounds`). |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
+
+Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge"): `freed-bounds`,
+`Fixed(value; lower, upper)`, the bounds a fixed parameter gets when a fit frees it: QMTSIR's and
+QMTSIREqualR1's kmf ≥ 0 (before, 10 to 82 voxels in 10,000 ended at a negative exchange rate with
+`kmf = Free()`), T1MFA's B1 ≥ 0, SMTFreeWater's Diso. Checked first: the full `Pkg.test` with the
+precompile workload (its two failures, the test's own `@mrimodel` copy of QMTSIR, then fixed), the
+command line's (167), the validation group (76), and CI on the branch's last commit, 0ca3ef4 (all
+six jobs).
 
 Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge into main once CI
 passes"): `qmtsir-simple`, `QMTSIREqualR1`, SIR with R1m = R1f and both pools saturated at the
