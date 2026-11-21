@@ -1248,6 +1248,41 @@ table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser th
   Exactly determined fits (N = P: SIR's 4-point with kmf fixed, the 5-point with it free) have no
   σ̂ (their SSE goes to 0): the present rules there, or σ given. To prototype and measure with
   this study: iterations, and the 99.9th percentile against the reference.
+- **The statistical stop, prototyped** (the owner: "let's try statistical stopping"; branch
+  `stopping-proto`, prototypes/stopping/): `LM(ctol = c)`, the test above added to the present
+  ones (defaults unchanged), at each accepted point; reported as `ConvergedG`. Its first version
+  measured the decrement over the parameters free to move, and so passed with a parameter held
+  on a bound: kurtosis from its default start can sit with K on its bound 3 and the others at
+  their best given it, an SSE 10⁴ times the minimum's, and 1 voxel in 1000 stopped there,
+  "converged", 600–900 of its own standard errors away (the default rules run on there and
+  report MaxIterations). Now not while any parameter is held on a bound; then kurtosis's largest
+  deviation is 0.0099 of its own SE at c = 0.01 (0.099 at 0.1), as promised. Same study, the
+  models with more observations than parameters, c = 0.01:
+
+  | model | µs a voxel, default → statistical (SNR 200; 50) | iterations (SNR 200) | 99.9th pct |Δ|/SD, SNR 200; 50 |
+  |---|---|---|---|
+  | QMTSIR, 16-point, kmf free | 8.04 → 6.30 (−22%); 12.5 → 8.6 (−32%) | 10.0 → 6.2 | 0.034; 0.16 |
+  | QMTSIR, 5-point, kmf fixed | 2.34 → 1.87 (−20%); 2.72 → 1.99 (−27%) | 6.0 → 3.1 | 0.024; 0.042 |
+  | T2, 32 echoes | 2.47 → 1.98 (−20%); 2.88 → 2.21 (−23%) | 3.3 → 1.1 | 0.023; 0.014 |
+  | T1IR | 2.91 → 2.70 (−7%); 3.03 → 2.68 (−12%) | 4.9 → 2.5 | 0.026; 0.023 |
+  | bi-exponential | 18.8 → 17.9 (−5%); 27.4 → 24.5 (−11%) | 23.2 → 18.5 | 1.5; 2.9 (the default's 1.0; 2.6) |
+  | kurtosis | 4.75 → 5.01 (+5%); 4.89 → 4.96 | 15.2 → 12.8 | 0.022; 0.026 |
+
+  - **Up to a third faster** where a fit takes several iterations to polish (SIR with many
+    points, the 5-point, T2), with the typical voxel moved by 1e-4 to 1e-3 SD and the worst in
+    1000 by 0.01–0.16 SD.
+  - **The tails stay where the defaults have them**: the bi-exponential's are voxels where the
+    reference, run to 500 iterations, reaches another minimum (the same voxels at c = 0.01 and
+    0.1, so not a stopping effect); kurtosis's are now 0.02 SD, against 17–69 SD with uniformly
+    looser tolerances, which can be as fast elsewhere (SIR 5-point: 1.68 µs) but are not safe.
+  - **Kurtosis gains nothing** (+5%, within the noise): its iterations go to the valleys, and the
+    extra Cholesky an iteration is a larger share of a cheap model.
+  - c = 0.1: a few percent faster again, but the worst voxels 0.1–2.6 SD away (SIR 16-point at
+    SNR 50); c = 0.01 is the choice if adopted.
+  - **To decide with the owner**: whether to make it the default (c = 0.01), which changes every
+    fit with N > P at the 1e-4–1e-2 SD level (not bit for bit); a status of its own
+    (`ConvergedS`?) rather than `ConvergedG`; and, for the exactly determined SIR schemes, a
+    stop from σ when it is known (the Rician fits have it).
 
 ### Geodesic acceleration, prototyped (2026-11-21): slower, not adopted
 
