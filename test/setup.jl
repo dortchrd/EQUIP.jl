@@ -102,13 +102,14 @@ end
 end
 
 # QMTSIR's equation, per observation (the built-in computes the rates once per voxel); the same
-# roles: kmf, Sm and the TD start values fixed, R1m tied to R1f by naming it.
+# roles: kmf (≥ 0 if freed, as `Fixed(...)` written in the macro), Sm and the TD start values
+# fixed, R1m tied to R1f by naming it.
 @mrimodel function MacroSIR(TI, TD, magnitude = true;
                             PSR = Free(start = 0.1, lower = 0, upper = 1),
                             R1f = Free(start = 1.0, lower = 0.05, upper = 10),
                             Sf = Free(start = -0.95, lower = -1.2, upper = 0),
                             M0f = Free(start = :scale, lower = 0),
-                            kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
+                            kmf = Fixed(12.5; lower = 0), R1m = R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
     kfm = kmf * PSR
     ΔR1 = sqrt((R1f - R1m + kfm - kmf)^2 + 4 * kfm * kmf)
     R1⁺ = (R1f + R1m + kfm + kmf + ΔR1) / 2
