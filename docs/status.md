@@ -13,8 +13,14 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `qmtsir-simple` | `QMTSIREqualR1` (2026-11-20): SIR with R1m = R1f and both pools saturated at the start of TD built in, the signal in one line; tests, guide, the command line; measured in docs/design.md, item 6. Checked: the full `Pkg.test` with the precompile workload (EQUIP 3002), the command line's (166), CI on the branch (2026-11-20). Waits on the owner: the merge, and the kmf bound question found with it. |
+| `qmtsir-simple` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete qmtsir-simple`). Still open from it: the kmf bound question (docs/design.md, item 6). |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
+
+Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge into main once CI
+passes"): `qmtsir-simple`, `QMTSIREqualR1`, SIR with R1m = R1f and both pools saturated at the
+start of TD, its signal in one line (named by the owner: "rename it QMTSIREqualR1"; the branch
+kept its name). Checked first: the full `Pkg.test` with the precompile workload (EQUIP 3002), the
+command line's (166), and CI on the branch's last commit, a26ffee (all six jobs).
 
 **Deleted on GitHub by the owner, 2026-11-17**, each merged into `main` first (every commit is in
 `main`'s history, checked on the full history): `rician` (tier 2), `matlab` (the MATLAB

@@ -5699,7 +5699,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        70, 77 against 140 with the fit's dual numbers; whole fits (10,000 voxels with varied
        truths, one thread) 0.73× at
        4 points, kmf fixed, SNR 200, and 0.63–0.67× at 5 points with kmf estimated (SNR 200:
-       2.55 against 4.03 µs a voxel). The same maps: PSR to 1e-11 (4 points) and 1e-8 (5
+       2.55 against 4.03 µs a voxel). Again on 2026-11-21, before the merge, three runs on one
+       thread: 4 points, kmf fixed, 0.73–0.78× at SNR 200 and 0.77–0.94× at SNR 50; 5 points,
+       kmf estimated, 0.63–0.73× at SNR 200 and 0.67–0.76× at SNR 50; four threads, 0.64–0.91×
+       (4 points, SNR 200: 0.41 against 0.55 µs a voxel). The signal is 1.5–1.8× faster, the
+       fit less, because the rest of a fit (the solver's steps, the start, the maps) does not
+       change. The same maps: PSR to 1e-11 (4 points) and 1e-8 (5
        points, SNR 200); at 5 points and SNR 50, 55 of 9990 voxels differ by more than 1e-4,
        in flat valleys where rounding sends the two solvers to slightly different stops (sums
        of squares within 2e-3 of Σy², mostly `QMTSIR`'s lower).
