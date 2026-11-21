@@ -15,6 +15,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `qmtsir-simple` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete qmtsir-simple`). |
 | `freed-bounds` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete freed-bounds`). |
+| `geodesic-proto` | geodesic acceleration (`LM(geodesic = true)`, 2026-11-21): measured slower in every model and not more robust; not adopted (docs/design.md, Performance notes). To delete, or to fold into `experiments`: the owner's choice. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
 
 Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge"): `freed-bounds`,

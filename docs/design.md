@@ -1249,6 +1249,40 @@ table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser th
   σ̂ (their SSE goes to 0): the present rules there, or σ given. To prototype and measure with
   this study: iterations, and the 99.9th percentile against the reference.
 
+### Geodesic acceleration, prototyped (2026-11-21): slower, not adopted
+
+The owner: "lsqfit has something like geodesic acceleration? Something we have?", then
+"prototype geodesic on a branch". Transtrum & Sethna's second-order correction (arXiv:1201.5885,
+2012; LsqFit's `avv!`): with f_vv the second derivative of the model along LM's step v, the
+acceleration a = −(JᵀWJ + μD)⁻¹JᵀW f_vv and the step v + a/2, accepted when 2‖a‖/‖v‖ ≤ α. Built
+on branch `geodesic-proto` (prototypes/geodesic/, with its README): `LM(geodesic = true)`, f_vv
+exact from nested dual numbers in one variable (checked against central differences), the
+Jacobian at the current point kept in a second dual buffer swapped on acceptance, nothing
+allocated; the defaults' path unchanged. 10,000 voxels with varied truths a model, SNR 50 and
+200, one thread:
+
+| model (SNR 200) | plain LM: µs, iterations, voxels not best | geodesic, α 0.75 (Transtrum's rejection) | geodesic, falling back to the plain step |
+|---|---|---|---|
+| bi-exponential | 18.8, 23.1, 157 | 42.4, 32.3, 155 | 38.1, 24.6, 208 |
+| kurtosis | 5.0, 15.4, 383 | 9.9, 18.5, 610 | 9.5, 16.8, 602 |
+| QMTSIR, 5-point, kmf free | 3.7, 8.7, 11 | 7.7, 11.9, 31 | 6.0, 8.7, 23 |
+| QMTSIR, 4-point | 1.7, 5.2, 0 | 3.4, 6.8, 3 | |
+| T2, 32 echoes | 2.4, 3.3, 0 | 3.9, 3.3, 0 | |
+| T1IR | 2.9, 4.9, 10 | 3.9, 4.8, 20 | |
+
+- Slower everywhere, 1.3–2.3×: the second derivative is about one more model evaluation an
+  iteration, and the iterations do not fall (with Transtrum's rejection they rise, the rejected
+  corrections counting as iterations; falling back to the plain step, about the same as LM's).
+- Not more robust either: more voxels short of the best fit in kurtosis (383 → 600) and the
+  bi-exponential's fall-back variant (157 → 208), fewer only in T1IR at SNR 50 (76 → 45). α from
+  0.5 to 2 changes little.
+- Why, as far as the measurements say: these fits are small (P ≤ 5) and start near their basin
+  (the starts' studies), and their iterations go to the damping finding its scale rather than to
+  crawling along a curved valley, where Transtrum's gains are reported (sums of many
+  exponentials, many parameters). A good start (BestOf, item 4) or the linear parameters solved
+  (VarPro) attack the same valleys at less cost.
+- Not adopted. The branch keeps the code, to delete or to fold into `experiments`.
+
 ## Variable projection (VarPro): proposed design
 
 Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
