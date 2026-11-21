@@ -93,6 +93,12 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
 - `ftol`: stop when the relative SSE decrease, actual and predicted, is below `ftol`.
 - `gtol`: stop when the scale-free gradient max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) is below `gtol`.
 - `damping`: the starting μ, relative to diag(JᵀJ).
+- `geodesic`: PROTOTYPE (branch geodesic-proto). `true` adds geodesic acceleration (Transtrum &
+  Sethna, arXiv:1201.5885, 2012) to each step: a second-order correction along the step, from
+  the model's second derivative along it, for fits in narrow curved valleys (sums of
+  exponentials). `alpha`: the largest accepted ratio 2‖a‖/‖v‖ of the correction to the step
+  (their 0.75); beyond it the step is rejected (`georeject = true`, theirs) or taken without
+  the correction (`false`).
 
 Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
 Float64, `1e-5, 1e-6, 1e-5` for Float32.
@@ -103,6 +109,9 @@ Base.@kwdef struct LM
     ftol::Union{Nothing,Float64} = nothing
     gtol::Union{Nothing,Float64} = nothing
     damping::Float64 = 1e-3
+    geodesic::Bool = false                          # PROTOTYPE: geodesic acceleration
+    alpha::Float64 = 0.75
+    georeject::Bool = true                          # a too large correction: reject the step (Transtrum), or take plain LM's
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -112,6 +121,9 @@ struct SolverOptions{T<:AbstractFloat}
     ftol::T
     gtol::T
     damping::T
+    geodesic::Bool
+    alpha::T
+    georeject::Bool
 end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
@@ -121,7 +133,8 @@ _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 function SolverOptions{T}(s::LM) where {T}
     dx, df, dg = _default_tols(T)
     return SolverOptions{T}(Int32(s.maxiter), T(something(s.xtol, dx)), T(something(s.ftol, df)),
-                            T(something(s.gtol, dg)), T(s.damping))
+                            T(something(s.gtol, dg)), T(s.damping), s.geodesic, T(s.alpha),
+                            s.georeject)
 end
 
 # Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).
@@ -214,6 +227,43 @@ fit is unweighted): Σwᵢrᵢ², JᵀWJ and JᵀWr.
         sse += w * r * r
     end
     return sse, A, g
+end
+
+# -------------------------------------------------------------------------------------------------
+# Geodesic acceleration (PROTOTYPE, branch geodesic-proto; Transtrum & Sethna, arXiv:1201.5885)
+#
+# LM's step v (the "velocity", h below) is the best step for the model linearized at θ. Along a
+# narrow curved valley the model is far from linear over the step, so LM takes many short ones.
+# The second-order correction: with f_vv = d²f(θ + t·v)/dt² at t = 0, the second derivative of
+# each output along v, the acceleration is a = −(JᵀWJ + μD)⁻¹ JᵀW f_vv, and the step v + a/2
+# (the path's second-order Taylor term). Accepted only when 2‖a‖/‖v‖ ≤ α in the scaled norm (the
+# correction small next to the step); otherwise the step is rejected as a bad one (more damping).
+#
+# f_vv exactly, with nested dual numbers in one variable t: θ + t·v with t carrying a first
+# derivative inside (GeoInner) and outside (GeoOuter), so each output comes back as
+# (f, f′ | f′, f″) and f″ = f_vv. One evaluation of the model in 4-number duals.
+# -------------------------------------------------------------------------------------------------
+
+struct GeoInner end
+struct GeoOuter end
+const _GeoDual{T} = Dual{GeoOuter,Dual{GeoInner,T,1},1}
+
+# θ + t·v as nested duals: value θⱼ, both first derivatives vⱼ, the second 0
+@inline _geoseed(θ::SVector{P,T}, v::SVector{P,T}) where {P,T} =
+    SVector(ntuple(j -> Dual{GeoOuter}(Dual{GeoInner}(θ[j], v[j]), Dual{GeoInner}(v[j], zero(T))), Val(P)))
+
+# JᵀW f_vv at θ, along v: f_vv from one nested-dual evaluation into `gbuf`, J from `bθ`, the dual
+# buffer that holds the model at θ (with its derivatives).
+@noinline function _geodesic_rhs(prob::VoxelProblem{F}, θ::SVector{P,T}, v::SVector{P,T}, bθ,
+                                 gbuf) where {F,P,T}
+    signal!(gbuf, prob.model, _params(Val(F), _geoseed(θ, v), prob.fixed))
+    b = zero(SVector{P,T})
+    @inbounds for i in eachindex(gbuf)
+        fvv = T(partials(partials(gbuf[i], 1), 1))
+        J = SVector{P,T}(partials(bθ[i]).values)
+        b += (_wt(prob.w, i, T) * fvv) * J
+    end
+    return b
 end
 
 # -------------------------------------------------------------------------------------------------
@@ -330,10 +380,14 @@ This method is for static arrays: `θ0`, `lower` and `upper` are `SVector{P,T}`,
 one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
 function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                opts::SolverOptions{T}, buf) where {P,T}
+                opts::SolverOptions{T}, buf, geo = nothing) where {P,T}
+    # Two dual buffers when accelerating: `bθ` keeps the model at θ (its Jacobian, for the
+    # acceleration), `bt` takes the trial point; swapped when a step is accepted. Without
+    # acceleration (`geo === nothing`, known when compiling) both are `buf`, as before.
+    bθ, bt = buf, (geo === nothing ? buf : geo.buf2)
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
-    sse, A, g = normal_equations(prob, θ, buf)
+    sse, A, g = normal_equations(prob, θ, bθ)
     if !(isfinite(sse) && _allfinite(g) && _allfinite(diag(A)))
         return SolverResult(θ, sse, Int32(0), Failed)
     end
@@ -360,6 +414,16 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             continue
         end
         h = _chol_solve(L, -(fm .* g))
+        if geo !== nothing                       # geodesic acceleration (above)
+            a = _chol_solve(L, -(fm .* _geodesic_rhs(prob, θ, h, bθ, geo.gbuf)))
+            if _allfinite(a) && 2 * sqrt(sum(d .* a .* a)) <= opts.alpha * sqrt(sum(d .* h .* h))
+                h = h + a / 2
+            elseif opts.georeject                # the correction is too large: a bad step
+                μ *= ν                           # (Transtrum's rule), or else plain LM's step
+                ν *= 2
+                continue
+            end
+        end
         θn = clamp.(θ + h, lo, hi)               # trial point, projected onto the bounds
         s = θn - θ
         if _step_small(s, θ, d, opts.xtol)
@@ -368,7 +432,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
         end
 
         # --- evaluate the trial point and compare actual vs predicted SSE decrease ------------
-        ssen, An, gn = normal_equations(prob, θn, buf)
+        ssen, An, gn = normal_equations(prob, θn, bt)
         pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
         actual = sse - ssen
         if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 &&
@@ -377,6 +441,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             ρ = actual / pred                    # ≈ 1 when the linear model is accurate
             fsmall = actual <= opts.ftol * sse && pred <= opts.ftol * sse
             θ, sse, A, g = θn, ssen, An, gn
+            bθ, bt = bt, bθ                      # bθ holds the model at the new θ
             d = max.(d, diag(A))
             μ = max(μ * max(T(1 / 3), 1 - (2ρ - 1)^3), eps(T))   # Nielsen's update: shrink μ
             ν = T(2)

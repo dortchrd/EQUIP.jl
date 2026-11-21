@@ -20,7 +20,7 @@ buffers. Make it with [`init`](@ref), use it with [`fit!`](@ref). Not thread-saf
 overwrites the buffers, so use one cache per task or thread (`fit` on a dataset does this for
 you).
 """
-struct FitCache{M,S<:FitSpec,T,B,K,L}
+struct FitCache{M,S<:FitSpec,T,B,K,L,G}
     model::M            # the model, its acquisition vectors converted to precision T
     spec::S
     opts::SolverOptions{T}
@@ -28,6 +28,7 @@ struct FitCache{M,S<:FitSpec,T,B,K,L}
     y::Vector{T}        # the current voxel's data
     settings::K         # the keywords of `init`, passed on to every FitResult
     logpass::L          # nothing, or the `:loglinear` start's first pass, the same in every voxel
+    geo::G              # nothing, or geodesic acceleration's buffers (PROTOTYPE: LM(geodesic = true))
 end
 
 function Base.show(io::IO, c::FitCache{M,S,T}) where {M,S,T}
@@ -88,9 +89,15 @@ CommonSolve.init(model::MRIModel, roles::NamedTuple; kwargs...) = init(model; ro
 # parameter, to allocate the dual-number buffer with the right type.
 _cache(model, spec::FitSpec{F,P,T}, opts, n, settings) where {F,P,T} =
     FitCache(model, spec, opts, Vector{Dual{FitTag,T,P}}(undef, n), Vector{T}(undef, n), settings,
-             _logpass(model, spec, n))
+             _logpass(model, spec, n), _geobuffers(opts, T, P, n))
+
+# The acceleration's buffers: the trial point's duals, and the nested duals of f_vv.
+_geobuffers(opts, ::Type{T}, P, n) where {T} = opts.geodesic ?
+    (buf2 = Vector{Dual{FitTag,T,P}}(undef, n), gbuf = Vector{_GeoDual{T}}(undef, n)) : nothing
+_copygeo(::Nothing) = nothing
+_copygeo(g) = (buf2 = similar(g.buf2), gbuf = similar(g.gbuf))
 
 # Same setup, fresh buffers: one copy per task (chunk of voxels) in a dataset fit. The log
 # start's first pass is read only, so the copies share it.
 _copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings,
-                                   c.logpass)
+                                   c.logpass, _copygeo(c.geo))

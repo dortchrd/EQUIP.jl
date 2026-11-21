@@ -179,7 +179,7 @@ function _rician_init(model::MRIModel, method, precision, solver, weights, param
     rmodel = method === :ml ? _RicianLikelihood(gauss.model) : _RicianMeanSignal(gauss.model)
     n = length(gauss.y)
     rician = FitCache(rmodel, spec, gauss.opts, similar(gauss.buf), Vector{T}(undef, n),
-                      gauss.settings, nothing)
+                      gauss.settings, nothing, nothing)
     settings = (; precision, solver, likelihood = :rician, method, params...)
     return RicianFitCache(gauss, rician, method, gauss.model, spec, gauss.y, Vector{T}(undef, n),
                           Vector{T}(undef, n), settings)

@@ -121,6 +121,6 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     end
     # 5. Run LM and attach the names: (PSR = θ₁, R1f = θ₂, ...). A model whose labels can swap
     #    picks the ones to report (see `relabel`; the default changes nothing).
-    r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf)
+    r = levmar(prob, θ0, spec.lower, spec.upper, c.opts, c.buf, c.geo)
     return _VoxelFit(relabel(c.model, NamedTuple{F}(Tuple(r.θ))), r.sse, r.iterations, r.status)
 end

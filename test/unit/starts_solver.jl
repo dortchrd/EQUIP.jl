@@ -47,6 +47,29 @@ end
     @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
 end
 
+@testset "geodesic acceleration (PROTOTYPE, geodesic-proto): f_vv, the same minimum, no allocation" begin
+    # f_vv, the second derivative of each output along v, from the nested duals, against central
+    # differences of the plain signal (an independent reference)
+    m = T2BiexpDecay(TE = collect(0.01:0.01:0.32))
+    F = (:S0, :fshort, :T2short, :T2long)
+    θ, v = SVector(1000.0, 0.25, 0.015, 0.09), SVector(-20.0, 0.03, 0.002, -0.01)
+    f(x) = signal(m, NamedTuple{F}(Tuple(x)))
+    h = 1e-3
+    fd = (f(θ .+ h .* v) .- 2 .* f(θ) .+ f(θ .- h .* v)) ./ h^2
+    g = Vector{EQUIP._GeoDual{Float64}}(undef, 32)
+    EQUIP.signal!(g, m, NamedTuple{F}(Tuple(EQUIP._geoseed(θ, v))))
+    @test [EQUIP.ForwardDiff.partials(EQUIP.ForwardDiff.partials(x, 1), 1) for x in g] ≈ fd rtol = 1e-6
+    # noise-free data: the truth, as plain LM finds it; in both precisions, nothing allocated
+    for (mm, truth) in CASES[[1, 6, 7, 17]], T in (Float64, Float32)   # T2, kurtosis, biexp, SIR
+        y = signal(mm, truth)
+        c = init(mm; precision = T, solver = LM(geodesic = true))
+        r = fit!(c, y)
+        @test isconverged(r.status)
+        @test all(isapprox(r.params[k], truth[k]; rtol = T == Float64 ? 1e-5 : 2e-2) for k in keys(r.params))
+        @test_noalloc fitallocs(c, y) == 0
+    end
+end
+
 @testset "T2Decay's start: the log-linear fit, on 1/T2" begin
     te = collect(0.01:0.01:0.32)
     m = T2Decay(TE = te)
@@ -206,7 +229,7 @@ end
     Yt = simulate(mt2, (S0 = 1000.0, T2 = 0.06); snr = 40, n = 20, noise = :rician, rng = MersenneTwister(5))
     for T in (Float64, Float32)
         c = init(mt2; precision = T)
-        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing)
+        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing, nothing)
         @test c.logpass !== nothing
         @test all(i -> EQUIP._fit_voxel(c, c.spec, Yt[i, :], i) === EQUIP._fit_voxel(c0, c0.spec, Yt[i, :], i), 1:20)
     end
