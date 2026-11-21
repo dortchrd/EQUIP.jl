@@ -325,10 +325,16 @@ end
 # gᵀA⁻¹g ≤ c²·SSE/(N − k). Unlike the step and SSE-decrease tests it uses the undamped step, so
 # a short damped step in a flat valley does not pass it; and it is the same in any units or
 # parameterization (the joint form of the gradient test, which takes each column alone). Never
-# passes with N ≤ k (no σ̂: an exactly determined fit) or a singular A.
+# passes with N ≤ k (no σ̂: an exactly determined fit) or a singular A, nor while any parameter
+# is held on a bound: a distance in standard errors means something only inside the box, and
+# there a fit can sit, the others at their best given the held one, far from the minimum
+# (kurtosis from its default start: K at its bound 3 with an SSE 10⁴ times the minimum's,
+# 1 voxel in 1000; with that test it stopped there "converged", where the default rules run on
+# and report MaxIterations, measured 2026-11-21).
 @inline function _decrement_small(A, g, movable, sse, nobs, c)
     T = typeof(sse)
     c > 0 || return false
+    all(movable) || return false                 # a parameter held on a bound: not this test
     k = count(movable)
     nobs > k || return false
     fm = map(b -> ifelse(b, one(T), zero(T)), movable)

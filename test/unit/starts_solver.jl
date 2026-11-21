@@ -52,7 +52,9 @@ end
     # errors (times σ̂²), and that bounds every parameter's own distance in its standard error:
     # stopped at ctol = c, each estimate is within about c·SE of the fully converged one (the
     # fit's own `stderror`, an independent calculation), and it takes fewer iterations
-    for (m, truth) in CASES[[1, 7, 9]]                     # T2, the bi-exponential, T1IR
+    # (T2 and T1IR. Not the bi-exponential: in 10 of its 198 voxels here the 500-iteration fit
+    # goes on to another minimum, the same voxels at c = 0.01 and 0.1, so not a stopping effect.)
+    for (m, truth) in CASES[[1, 9]]
         Y = simulate(m, map(x -> fill(x, 200), truth); snr = 100, noise = :gaussian, rng = MersenneTwister(4))
         tight = fit(m, Y; solver = LM(xtol = 1e-14, ftol = 1e-16, gtol = 1e-15, maxiter = 500))
         for c in (0.01, 0.1)
