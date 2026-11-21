@@ -246,36 +246,59 @@ _sse(r::FitResult, v) = _onevoxel(r) ? r.sse : r.sse[v]
 # -------------------------------------------------------------------------------------------------
 
 """
-    stoptolerances(m, data; c = 0.01, n = 1000, mask, rng, params...) -> NamedTuple
+    stoptolerances(m, data; c = 0.01, n = 1000, relative = false, mask, rng, params...) -> NamedTuple
 
-PROTOTYPE (branch stopping-proto). Per-parameter tolerances for `LM(atol = ...)`, from a sample
-of the data: `n` voxels drawn at random (within `mask`), fitted to full convergence (very tight
-tolerances) with the fit's own keywords `params...`. Each tolerance is `c` times the parameter's
-typical standard error: its median over the sample, with one noise SD pooled over the whole
-sample, σ̂² = ΣSSE / (n·(N − P)), so that no single voxel's few degrees of freedom (one, for
-SIR's 5-point scheme with kmf fixed) decide it. With as many free parameters as observations
-(an exactly determined fit: no residuals, no σ̂), `c` times the spread of the sample's estimates
-instead, which includes the tissue's own variation and so is looser.
+PROTOTYPE (branch stopping-proto). Per-parameter tolerances for `LM(atol = ...)` (or, with
+`relative = true`, `LM(rtol = ...)`), from a sample of the data: `n` voxels drawn at random
+(within `mask`), fitted to full convergence (very tight tolerances) with the fit's own keywords
+`params...`. Each tolerance is `c` times the parameter's typical standard error: its median over
+the sample, with one noise SD pooled over the whole sample, σ̂² = ΣSSE / (n·(N − P)) (see
+[`stopsigma`](@ref)), so that no single voxel's few degrees of freedom (one, for SIR's 5-point
+scheme with kmf fixed) decide it; with `relative = true`, `c` times the median of SE/|value|, a
+fraction of each voxel's own value. With as many free parameters as observations (an exactly
+determined fit: no residuals, no σ̂), `c` times the spread of the sample's estimates instead
+(over their median magnitude, relative), which includes the tissue's own variation and so is
+looser.
 
 ```julia
 tols = stoptolerances(m, data; mask, kmf = 12.5)       # e.g. (PSR = 2.1e-4, R1f = ..., ...)
 fit(m, data; mask, kmf = 12.5, solver = LM(atol = tols))
-fit(m, data; mask, kmf = 12.5, solver = LM(atol = (PSR = tols.PSR,)))   # PSR's alone
 ```
 """
-function stoptolerances(m::MRIModel, data::AbstractArray; c = 0.01, n = 1000, mask = nothing,
-                        rng = Xoshiro(1), params...)
+function stoptolerances(m::MRIModel, data::AbstractArray; c = 0.01, n = 1000, relative = false,
+                        mask = nothing, rng = Xoshiro(1), params...)
+    r, ok, F, dof = _stopsample(m, data, n, mask, rng, params)
+    if dof > 0
+        se = stderror(r; σ = _pooledσ(r, ok, dof))
+        relative && return NamedTuple{F}(map(k -> c * median(filter(isfinite, (se[k] ./ abs.(r.params[k]))[ok])), F))
+        return NamedTuple{F}(map(k -> c * median(filter(isfinite, se[k][ok])), F))
+    end
+    relative && return NamedTuple{F}(map(k -> c * std(r.params[k][ok]) / median(abs.(r.params[k][ok])), F))
+    return NamedTuple{F}(map(k -> c * std(r.params[k][ok]), F))
+end
+
+"""
+    stopsigma(m, data; n = 1000, mask, rng, params...) -> σ
+
+PROTOTYPE (branch stopping-proto). The noise SD pooled over a sample of the data,
+σ̂² = ΣSSE / (n·(N − P)), from `n` voxels fitted to full convergence: for `LM(setol = c, sigma = σ)`.
+An error for an exactly determined fit (N = P: no residuals); give σ from elsewhere then.
+"""
+function stopsigma(m::MRIModel, data::AbstractArray; n = 1000, mask = nothing, rng = Xoshiro(1), params...)
+    r, ok, F, dof = _stopsample(m, data, n, mask, rng, params)
+    dof > 0 || throw(ArgumentError("stopsigma: as many free parameters as observations, so no residuals " *
+                                   "to estimate the noise from; give σ from elsewhere"))
+    return _pooledσ(r, ok, dof)
+end
+
+# The sample: `n` voxels at random (within the mask), fitted to full convergence
+function _stopsample(m, data, n, mask, rng, params)
     Y = reshape(data, :, size(data, ndims(data)))            # voxels × observations
     idx = mask === nothing ? collect(axes(Y, 1)) : findall(!iszero, vec(mask))
     pick = length(idx) <= n ? idx : idx[Random.randperm(rng, length(idx))[1:n]]
     r = fit(m, Y[pick, :]; params..., solver = LM(maxiter = 500, xtol = 1e-14, ftol = 1e-16, gtol = 1e-15))
     ok = isconverged.(r.status)
     F = Tuple(k for k in keys(r.params) if haskey(parameters(m), k))   # the free parameters
-    dof = nobs(m) - length(F)
-    if dof > 0
-        σ = sqrt(sum(r.sse[ok]) / (count(ok) * dof))         # pooled over the sample
-        se = stderror(r; σ)
-        return NamedTuple{F}(map(k -> c * median(filter(isfinite, se[k][ok])), F))
-    end
-    return NamedTuple{F}(map(k -> c * std(r.params[k][ok]), F))
+    return r, ok, F, nobs(m) - length(F)
 end
+_pooledσ(r, ok, dof) = sqrt(sum(r.sse[ok]) / (count(ok) * dof))

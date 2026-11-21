@@ -94,6 +94,27 @@ end
     rt = fit(m, Y[1:1000, :])
     @test t.T2 ≈ 0.01 * median(stderror(rt; σ = 10.0).T2) rtol = 0.05
     @test keys(t) == (:S0, :T2) && all(>(0), values(t))
+    # ... relative: c times the median of SE/|value|; and the pooled σ itself, the simulation's
+    tr = stoptolerances(m, Y; c = 0.01, n = 1000, relative = true)
+    @test tr.T2 ≈ 0.01 * median(stderror(rt; σ = 10.0).T2 ./ rt.params.T2) rtol = 0.05
+    @test stopsigma(m, Y; n = 1000) ≈ 10 rtol = 0.05
+    @test_throws "no residuals" stopsigma(QMTSIR(; SIR_4POINT...), randn(10, 4))
+    # Tolerances as fractions of each voxel's values (rtol), or of its own standard errors with σ
+    # given (setol): each estimate within about that of the fully converged one
+    Y = simulate(m, map(x -> fill(x, 200), truth); snr = 100, noise = :gaussian, rng = MersenneTwister(4))
+    tight = fit(m, Y; solver = LM(xtol = 1e-14, ftol = 1e-16, gtol = 1e-15, maxiter = 500))
+    r = fit(m, Y; solver = LM(rtol = (S0 = 1e-4, T2 = 1e-4)))
+    @test all(k -> all(abs.(r.params[k] .- tight.params[k]) .<= 1.5e-4 .* abs.(tight.params[k])), (:S0, :T2))
+    r = fit(m, Y; solver = LM(setol = 0.01, sigma = 10.0))
+    se = stderror(tight; σ = 10.0)
+    @test all(k -> all(abs.(r.params[k] .- tight.params[k]) .<= 0.015 .* se[k]), (:S0, :T2))
+    @test sum(r.iterations) < sum(fit(m, Y).iterations)
+    @test_throws "one of atol, rtol and setol" init(m; solver = LM(atol = (T2 = 1e-5,), setol = 0.01))
+    @test_throws "`sigma`" init(m; solver = LM(setol = 0.01))
+    for s in (LM(rtol = (T2 = 1e-4,)), LM(setol = 0.01, sigma = 10.0))
+        c = init(m; solver = s); y = Y[1, :]; fit!(c, y)
+        @test_noalloc fitallocs(c, y) == 0
+    end
 end
 
 @testset "T2Decay's start: the log-linear fit, on 1/T2" begin

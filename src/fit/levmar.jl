@@ -103,6 +103,13 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
   the remaining change it predicts, is below 5e-4 in PSR (PSR right to 3 decimals). Parameters
   left out are not tested. Needs no σ, so it works for exactly determined fits. From a sample of
   voxels: [`stoptolerances`](@ref). Reported as `ConvergedG`.
+- `rtol`: PROTOTYPE. The same with each tolerance a fraction of the parameter's value in this
+  voxel: `LM(rtol = (T2 = 1e-4, ...))` stops when T2's predicted change is below 1e-4·|T2|.
+  Calibrated: `stoptolerances(...; relative = true)`.
+- `setol`, `sigma`: PROTOTYPE. The same with each tolerance a fraction of the parameter's own
+  standard error in this voxel, σ·√((JᵀWJ)⁻¹)ⱼⱼ, with σ the noise SD given (one for the whole
+  fit, e.g. pooled over a sample by [`stopsigma`](@ref)): `LM(setol = 0.01, sigma = 12.0)`.
+  Every parameter is tested.
 
 Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
 Float64, `1e-5, 1e-6, 1e-5` for Float32.
@@ -115,6 +122,9 @@ Base.@kwdef struct LM
     damping::Float64 = 1e-3
     ctol::Union{Nothing,Float64} = nothing          # PROTOTYPE: the statistical stop (nothing: off)
     atol::Union{Nothing,NamedTuple} = nothing       # PROTOTYPE: per-parameter tolerances, by name
+    rtol::Union{Nothing,NamedTuple} = nothing       # PROTOTYPE: ... as fractions of the values
+    setol::Union{Nothing,Float64} = nothing         # PROTOTYPE: ... as a fraction of each standard error
+    sigma::Union{Nothing,Float64} = nothing         #     with this noise SD
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -355,14 +365,31 @@ end
 # will change by less than atolⱼ if the fit runs on (∞ for a parameter not tested). Trusted only
 # where the quadratic model is: no parameter held on a bound (as the statistical stop), and the
 # last step's actual SSE decrease at least half the predicted one (ρ ≥ 0.5; not tested at the
-# start, before any step). `atol === nothing` (off) is known when compiling.
-@inline _gnstep_small(A, g, movable, ρ, ::Nothing) = false
-@inline function _gnstep_small(A, g, movable, ρ, atol)
+# start, before any step). `rule === nothing` (off) is known when compiling. The tolerances, by
+# rule: fixed numbers (`atol`), fractions of the values in this voxel (`rtol`), or a fraction of
+# each parameter's standard error in this voxel, cσ·√((A⁻¹)ⱼⱼ) (`setol`, σ given): (A⁻¹)ⱼⱼ from
+# the same Cholesky factor, one solve per parameter.
+struct _StopAbs{P,T}
+    tol::SVector{P,T}
+end
+struct _StopRel{P,T}
+    tol::SVector{P,T}
+end
+struct _StopSE{T}
+    cσ::T
+end
+@inline _stoptol(r::_StopAbs, L, θ) = r.tol
+@inline _stoptol(r::_StopRel, L, θ) = r.tol .* abs.(θ)
+@inline function _stoptol(r::_StopSE, L::SMatrix{P,P,T}, θ) where {P,T}
+    return SVector{P,T}(ntuple(j -> r.cσ * sqrt(_chol_solve(L, SVector{P,T}(ntuple(k -> T(k == j), Val(P))))[j]), Val(P)))
+end
+@inline _gnstep_small(A, g, θ, movable, ρ, ::Nothing) = false
+@inline function _gnstep_small(A, g, θ, movable, ρ, rule)
     T = eltype(g)
     (all(movable) && ρ >= T(0.5)) || return false
     L, ok = _cholesky(A)
     ok || return false
-    return all(abs.(_chol_solve(L, g)) .<= atol)
+    return all(abs.(_chol_solve(L, g)) .<= _stoptol(rule, L, θ))
 end
 
 # Step test in scaled units: ‖D^½ s‖ ≤ xtol (‖D^½ θ‖ + xtol).
@@ -385,7 +412,7 @@ This method is for static arrays: `θ0`, `lower` and `upper` are `SVector{P,T}`,
 one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
 function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                opts::SolverOptions{T}, buf, atol = nothing) where {P,T}
+                opts::SolverOptions{T}, buf, stop = nothing) where {P,T}
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)
@@ -444,7 +471,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
                 break
             elseif _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) ||
                    _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol) ||
-                   _gnstep_small(A, g, _movable(θ, g, lo, hi), ρ, atol)
+                   _gnstep_small(A, g, θ, _movable(θ, g, lo, hi), ρ, stop)
                 status = ConvergedG
                 break
             end

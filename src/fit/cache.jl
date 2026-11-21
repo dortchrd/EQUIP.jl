@@ -28,7 +28,7 @@ struct FitCache{M,S<:FitSpec,T,B,K,L,A}
     y::Vector{T}        # the current voxel's data
     settings::K         # the keywords of `init`, passed on to every FitResult
     logpass::L          # nothing, or the `:loglinear` start's first pass, the same in every voxel
-    atol::A             # nothing, or LM's per-parameter tolerances in the free parameters' order (PROTOTYPE)
+    stop::A             # nothing, or LM's per-parameter stopping rule (PROTOTYPE: atol, rtol or setol)
 end
 
 function Base.show(io::IO, c::FitCache{M,S,T}) where {M,S,T}
@@ -89,19 +89,30 @@ CommonSolve.init(model::MRIModel, roles::NamedTuple; kwargs...) = init(model; ro
 # parameter, to allocate the dual-number buffer with the right type.
 _cache(model, spec::FitSpec{F,P,T}, opts, n, settings) where {F,P,T} =
     FitCache(model, spec, opts, Vector{Dual{FitTag,T,P}}(undef, n), Vector{T}(undef, n), settings,
-             _logpass(model, spec, n), _atolvector(settings.solver.atol, spec))
+             _logpass(model, spec, n), _stoprule(settings.solver, spec))
 
-# LM's `atol`, by name, as one tolerance per free parameter (∞: not tested); a name that is not a
-# free parameter of this fit is an error.
-_atolvector(::Nothing, spec) = nothing
-function _atolvector(atol::NamedTuple, spec::FitSpec{F,P,T}) where {F,P,T}
-    for n in keys(atol)
-        n in F || throw(ArgumentError("LM(atol): `$n` is not a free parameter of this fit ($(join(F, ", ")))"))
+# LM's per-parameter stopping rule (PROTOTYPE): `atol` or `rtol` by name, one tolerance per free
+# parameter (∞: not tested; a name that is not a free parameter of this fit is an error), or
+# `setol` with `sigma`; at most one of them.
+function _stoprule(s::LM, spec::FitSpec{F,P,T}) where {F,P,T}
+    count(!isnothing, (s.atol, s.rtol, s.setol)) <= 1 ||
+        throw(ArgumentError("LM: give one of atol, rtol and setol"))
+    s.atol !== nothing && return _StopAbs(_tolvector(s.atol, :atol, spec))
+    s.rtol !== nothing && return _StopRel(_tolvector(s.rtol, :rtol, spec))
+    if s.setol !== nothing
+        s.sigma === nothing && throw(ArgumentError("LM(setol): give the noise SD too, `sigma` (e.g. stopsigma(m, data))"))
+        return _StopSE(T(s.setol * s.sigma))
     end
-    return SVector{P,T}(ntuple(j -> T(haskey(atol, F[j]) ? atol[F[j]] : Inf), Val(P)))
+    return nothing
+end
+function _tolvector(tol::NamedTuple, name, spec::FitSpec{F,P,T}) where {F,P,T}
+    for n in keys(tol)
+        n in F || throw(ArgumentError("LM($name): `$n` is not a free parameter of this fit ($(join(F, ", ")))"))
+    end
+    return SVector{P,T}(ntuple(j -> T(haskey(tol, F[j]) ? tol[F[j]] : Inf), Val(P)))
 end
 
 # Same setup, fresh buffers: one copy per task (chunk of voxels) in a dataset fit. The log
 # start's first pass is read only, so the copies share it.
 _copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings,
-                                   c.logpass, c.atol)
+                                   c.logpass, c.stop)
