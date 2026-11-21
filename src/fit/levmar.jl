@@ -93,6 +93,11 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
 - `ftol`: stop when the relative SSE decrease, actual and predicted, is below `ftol`.
 - `gtol`: stop when the scale-free gradient max_j |Jⱼᵀr| / (‖Jⱼ‖‖r‖) is below `gtol`.
 - `damping`: the starting μ, relative to diag(JᵀJ).
+- `ctol`: PROTOTYPE (branch stopping-proto). Stop also when the fit is within `ctol` standard
+  errors of the minimum: the Gauss–Newton decrement gᵀ(JᵀJ)⁻¹g, the SSE a full Gauss–Newton step
+  would still gain, below ctol²·σ̂², with σ̂² = SSE/(N − P). Off (`nothing`) by default; only
+  with more observations than free parameters (σ̂ is undefined otherwise). Reported as
+  `ConvergedG`.
 
 Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
 Float64, `1e-5, 1e-6, 1e-5` for Float32.
@@ -103,6 +108,7 @@ Base.@kwdef struct LM
     ftol::Union{Nothing,Float64} = nothing
     gtol::Union{Nothing,Float64} = nothing
     damping::Float64 = 1e-3
+    ctol::Union{Nothing,Float64} = nothing          # PROTOTYPE: the statistical stop (nothing: off)
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -112,6 +118,7 @@ struct SolverOptions{T<:AbstractFloat}
     ftol::T
     gtol::T
     damping::T
+    ctol::T                                         # 0: off
 end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
@@ -121,7 +128,7 @@ _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 function SolverOptions{T}(s::LM) where {T}
     dx, df, dg = _default_tols(T)
     return SolverOptions{T}(Int32(s.maxiter), T(something(s.xtol, dx)), T(something(s.ftol, df)),
-                            T(something(s.gtol, dg)), T(s.damping))
+                            T(something(s.gtol, dg)), T(s.damping), T(something(s.ctol, 0)))
 end
 
 # Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).
@@ -310,6 +317,27 @@ end
     return gmax <= gtol
 end
 
+# The statistical stop (PROTOTYPE, branch stopping-proto): within `c` standard errors of the
+# minimum. The Gauss–Newton decrement gᵀA⁻¹g (A = JᵀWJ, g = JᵀWr, over the movable parameters) is
+# the SSE a full Gauss–Newton step would still gain, the squared length of the residual's part in
+# the model's tangent space, ‖P_J r‖²; the remaining distance to the minimum in standard errors
+# is about its square root over σ̂, σ̂² = SSE/(N − k) with k movable parameters. So: stop when
+# gᵀA⁻¹g ≤ c²·SSE/(N − k). Unlike the step and SSE-decrease tests it uses the undamped step, so
+# a short damped step in a flat valley does not pass it; and it is the same in any units or
+# parameterization (the joint form of the gradient test, which takes each column alone). Never
+# passes with N ≤ k (no σ̂: an exactly determined fit) or a singular A.
+@inline function _decrement_small(A, g, movable, sse, nobs, c)
+    T = typeof(sse)
+    c > 0 || return false
+    k = count(movable)
+    nobs > k || return false
+    fm = map(b -> ifelse(b, one(T), zero(T)), movable)
+    L, ok = _cholesky((fm * fm') .* A + Diagonal(one(T) .- fm))
+    ok || return false
+    gm = fm .* g
+    return dot(gm, _chol_solve(L, gm)) <= c^2 * sse / (nobs - k)
+end
+
 # Step test in scaled units: ‖D^½ s‖ ≤ xtol (‖D^½ θ‖ + xtol).
 @inline function _step_small(s, θ, d, xtol)
     ds = sqrt(sum(d .* s .* s))
@@ -343,6 +371,10 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
     iter = Int32(0)
     status = MaxIterations
     _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) &&
+        return SolverResult(θ, sse, iter, ConvergedG)
+    # the observations that count (weight > 0), for the statistical stop's σ̂ (once per voxel)
+    nobs = prob.w === nothing ? length(prob.y) : count(>(0), prob.w)
+    _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol) &&
         return SolverResult(θ, sse, iter, ConvergedG)
 
     while iter < opts.maxiter
@@ -383,7 +415,8 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
             if fsmall
                 status = ConvergedF
                 break
-            elseif _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol)
+            elseif _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) ||
+                   _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol)
                 status = ConvergedG
                 break
             end

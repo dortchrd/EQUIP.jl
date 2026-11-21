@@ -47,6 +47,33 @@ end
     @test !EQUIP._lost_influence(A, [4.0 0.0; 0.0 0.0], [1.0, 0.0])
 end
 
+@testset "the statistical stop (PROTOTYPE, stopping-proto): within ctol standard errors" begin
+    # Near the minimum the Gauss–Newton decrement is the squared distance to it in standard
+    # errors (times σ̂²), and that bounds every parameter's own distance in its standard error:
+    # stopped at ctol = c, each estimate is within about c·SE of the fully converged one (the
+    # fit's own `stderror`, an independent calculation), and it takes fewer iterations
+    for (m, truth) in CASES[[1, 7, 9]]                     # T2, the bi-exponential, T1IR
+        Y = simulate(m, map(x -> fill(x, 200), truth); snr = 100, noise = :gaussian, rng = MersenneTwister(4))
+        tight = fit(m, Y; solver = LM(xtol = 1e-14, ftol = 1e-16, gtol = 1e-15, maxiter = 500))
+        for c in (0.01, 0.1)
+            r = fit(m, Y; solver = LM(ctol = c))
+            se = stderror(tight)
+            ok = isconverged.(r.status) .& isconverged.(tight.status)
+            @test count(ok) >= 190
+            @test all(k -> all(abs.(r.params[k] .- tight.params[k])[ok] .<= 1.5 * c .* se[k][ok]), keys(r.params))
+            @test sum(r.iterations) < sum(fit(m, Y).iterations)
+        end
+    end
+    # an exactly determined fit (4 observations, 4 free parameters) has no σ̂: unchanged
+    m4 = QMTSIR(; SIR_4POINT...)
+    y4 = signal(m4, nominal(m4, :SIR_WM_II)) .+ 0.003 .* randn(MersenneTwister(5), 4)
+    @test fit(m4, y4; solver = LM(ctol = 0.1)).params == fit(m4, y4).params
+    c = init(CASES[7][1]; solver = LM(ctol = 0.01))
+    y = signal(CASES[7]...)
+    fit!(c, y)
+    @test_noalloc fitallocs(c, y) == 0
+end
+
 @testset "T2Decay's start: the log-linear fit, on 1/T2" begin
     te = collect(0.01:0.01:0.32)
     m = T2Decay(TE = te)
