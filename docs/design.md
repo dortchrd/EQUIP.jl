@@ -7570,3 +7570,42 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      show λ's trade of noise against temporal blur); (4) a model of the time course, R2*(t) and
      R2(t) as baseline plus a bolus (gamma variate), all echoes and times in one fit of about 8
      parameters; (5) denoising the series first (MP-PCA, item 22).
+26. **Faster exponentials: a branch-free `exp` in the built-in models** (the owner, 2026-11-21:
+   "put branch-free exp on the roadmap", after the batching measurements in the Performance
+   notes, "Batching"). Most built-in signals are mostly exponentials, and Julia's `exp` does not
+   vectorize (its 256-entry table, read at each value's own index, and its checks for overflow,
+   underflow and NaN), so a signal loop runs one observation at a time.
+   - **What**: an internal `_exp` (Float64 and Float32) computing 2ⁿ·eʳ with the same steps for
+     every value (n = round(x/ln 2), r by a two-part ln 2, a polynomial for eʳ, 2ⁿ written into
+     the exponent's bits), so the compiler runs several observations per instruction; a method
+     for dual numbers (the value's `_exp` times the partials, nested duals by recursion, for
+     crlb's second derivatives); used in the built-in models' `signal!` loops in place of `exp`.
+     Users' models keep `exp` unless they choose `_exp` (exported, perhaps, once settled).
+   - **Measured** (bench/simd/, one thread, Xeon with AVX-512, the prototype without range
+     checks): 0.88 ns a value against `exp`'s 3.3–3.8 (3.8×), to 2.2e-16; QMTSIREqualR1's signal
+     1.6–1.9× faster with the fit's dual numbers and 2.6–4.3× plain; whole fits 0.94× (4-point
+     SIR: no gain), 1.06× (5-point), 1.39× (16-point), the maps to 3e-8. So it pays with many
+     observations (T2 decays of 32 echoes, DTI and DKI, the 16-point SIR) and in plain
+     evaluations (`simulate`, the dictionary of BestOf candidates), little in the 4- and 5-point
+     SIR fits, where the solver's own work is most of the time.
+   - **To do before it is used**: range handling without branches (`ifelse`, a select, which
+     vectorizes: x below about −708 gives 0, above about 709.8 gives Inf, NaN stays NaN; the
+     prototype returns garbage there, and fits do produce such arguments: T2 near its bound
+     1e-6 s at TE 0.3 s is x = −3·10⁵); Float32's version (twice the lanes); accuracy over the
+     whole range against `exp` (to an ulp or two); every model's results unchanged to rounding,
+     both precisions (the refactoring rule); speed over every model (bench/speed.jl) and on an
+     Apple machine (2 Float64 an instruction: less to gain than here).
+   - **Considered and not taken** (bench/simd/macros.jl, the 16-point SIR signal):
+     - LoopVectorization's `@turbo`: 5.3× plain, with its own vector exp, but it takes only
+       plain numbers: with dual numbers it falls back to an `@inbounds @fastmath` loop (0.74×,
+       slower), so fits gain nothing; and it is kept going through SciML's small grants, without
+       an active maintainer, so each Julia release is a risk for a dependency.
+     - `@simd` on the loop: 0.77× plain, 1.01× with dual numbers (`exp` keeps it scalar);
+       `@fastmath`: 0.84–0.90×, slower, and it relaxes IEEE rules (NaN and Inf handling).
+     - Already used where they pay: `@inbounds` (4–7% in a signal, up to 1.4× over whole fits),
+       `@inline` where measured (`_score`: 8%), and fits above 8 free parameters called as
+       functions (DKI).
+     - A tested library exp (SLEEFPirates, the vector exp behind LoopVectorization) instead of
+       our own 15 lines: possible; a dependency against code to test ourselves.
+   - Batching across voxels (W voxels in lockstep) stays out: the Performance notes,
+     "Batching", have the reasons.
