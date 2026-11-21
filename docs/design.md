@@ -1204,7 +1204,7 @@ as many in Float32). Measured on this machine (Xeon, AVX-512; bench/simd/, one t
   voxels), less than reading and writing the files or starting Julia from MATLAB. The places it
   would: models with many observations (T2 decays of 32 echoes, DTI and DKI, the 16-point SIR),
   costly models (exact qMT, item 6), and the many fits of Monte Carlo and design studies.
-- **Next, if speed is wanted**: the branch-free exp inside the built-in models (an internal
+- **Next, if speed is wanted** (roadmap item 26): the branch-free exp inside the built-in models (an internal
   `_exp` with its dual-number method; range checks added; Float32; measured over every model by
   bench/speed.jl, and on an Apple machine) before anything across voxels.
 
