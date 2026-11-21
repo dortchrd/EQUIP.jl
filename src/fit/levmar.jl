@@ -98,6 +98,11 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
   would still gain, below ctol²·σ̂², with σ̂² = SSE/(N − P). Off (`nothing`) by default; only
   with more observations than free parameters (σ̂ is undefined otherwise). Reported as
   `ConvergedG`.
+- `atol`: PROTOTYPE (branch stopping-proto). Per-parameter absolute tolerances, by name, in each
+  parameter's own units: `LM(atol = (PSR = 5e-4,))` stops when the undamped Gauss–Newton step,
+  the remaining change it predicts, is below 5e-4 in PSR (PSR right to 3 decimals). Parameters
+  left out are not tested. Needs no σ, so it works for exactly determined fits. From a sample of
+  voxels: [`stoptolerances`](@ref). Reported as `ConvergedG`.
 
 Tolerances left out depend on the precision: `xtol = 1e-8, ftol = 1e-12, gtol = 1e-10` for
 Float64, `1e-5, 1e-6, 1e-5` for Float32.
@@ -109,6 +114,7 @@ Base.@kwdef struct LM
     gtol::Union{Nothing,Float64} = nothing
     damping::Float64 = 1e-3
     ctol::Union{Nothing,Float64} = nothing          # PROTOTYPE: the statistical stop (nothing: off)
+    atol::Union{Nothing,NamedTuple} = nothing       # PROTOTYPE: per-parameter tolerances, by name
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -344,6 +350,21 @@ end
     return dot(gm, _chol_solve(L, gm)) <= c^2 * sse / (nobs - k)
 end
 
+# Per-parameter tolerances (PROTOTYPE, branch stopping-proto): near the minimum the undamped
+# Gauss–Newton step h = −A⁻¹g is the remaining distance to it, so |hⱼ| ≤ atolⱼ says parameter j
+# will change by less than atolⱼ if the fit runs on (∞ for a parameter not tested). Trusted only
+# where the quadratic model is: no parameter held on a bound (as the statistical stop), and the
+# last step's actual SSE decrease at least half the predicted one (ρ ≥ 0.5; not tested at the
+# start, before any step). `atol === nothing` (off) is known when compiling.
+@inline _gnstep_small(A, g, movable, ρ, ::Nothing) = false
+@inline function _gnstep_small(A, g, movable, ρ, atol)
+    T = eltype(g)
+    (all(movable) && ρ >= T(0.5)) || return false
+    L, ok = _cholesky(A)
+    ok || return false
+    return all(abs.(_chol_solve(L, g)) .<= atol)
+end
+
 # Step test in scaled units: ‖D^½ s‖ ≤ xtol (‖D^½ θ‖ + xtol).
 @inline function _step_small(s, θ, d, xtol)
     ds = sqrt(sum(d .* s .* s))
@@ -364,7 +385,7 @@ This method is for static arrays: `θ0`, `lower` and `upper` are `SVector{P,T}`,
 one `Dual{FitTag,T,P}` per observation. Does not allocate.
 """
 function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVector{P,T},
-                opts::SolverOptions{T}, buf) where {P,T}
+                opts::SolverOptions{T}, buf, atol = nothing) where {P,T}
     # --- start: project into the box and evaluate -----------------------------------------------
     θ = clamp.(θ0, lo, hi)
     sse, A, g = normal_equations(prob, θ, buf)
@@ -422,7 +443,8 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
                 status = ConvergedF
                 break
             elseif _gradient_small(A, g, _movable(θ, g, lo, hi), sse, opts.gtol) ||
-                   _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol)
+                   _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol) ||
+                   _gnstep_small(A, g, _movable(θ, g, lo, hi), ρ, atol)
                 status = ConvergedG
                 break
             end

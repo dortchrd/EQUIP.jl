@@ -73,6 +73,7 @@ export cond, cor, leakage, LeakageResult                                    # di
 export propagate, Propagation                                               # functions of the parameters
 export ProtocolDesign, design, DesignResult                                 # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
+export stoptolerances                                                       # PROTOTYPE (stopping-proto)
 export readdata, readmap, DataInfo, writemaps, writetable                  # data in, maps out
 export diffusionencoding                                                    # .bval + .bvec -> b, gx, gy, gz
 export MRImage, readimage, writeimage, readvalues, readbvec                 # (from MRImages)

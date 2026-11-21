@@ -240,3 +240,42 @@ function _statscache(r::FitResult)
 end
 _paramvalue(r::FitResult, n, v) = _onevoxel(r) ? r.params[n] : r.params[n][v]
 _sse(r::FitResult, v) = _onevoxel(r) ? r.sse : r.sse[v]
+
+# -------------------------------------------------------------------------------------------------
+# Stopping tolerances from a sample of the data (PROTOTYPE, branch stopping-proto)
+# -------------------------------------------------------------------------------------------------
+
+"""
+    stoptolerances(m, data; c = 0.01, n = 1000, mask, rng, params...) -> NamedTuple
+
+PROTOTYPE (branch stopping-proto). Per-parameter tolerances for `LM(atol = ...)`, from a sample
+of the data: `n` voxels drawn at random (within `mask`), fitted to full convergence (very tight
+tolerances) with the fit's own keywords `params...`. Each tolerance is `c` times the parameter's
+typical standard error: its median over the sample, with one noise SD pooled over the whole
+sample, σ̂² = ΣSSE / (n·(N − P)), so that no single voxel's few degrees of freedom (one, for
+SIR's 5-point scheme with kmf fixed) decide it. With as many free parameters as observations
+(an exactly determined fit: no residuals, no σ̂), `c` times the spread of the sample's estimates
+instead, which includes the tissue's own variation and so is looser.
+
+```julia
+tols = stoptolerances(m, data; mask, kmf = 12.5)       # e.g. (PSR = 2.1e-4, R1f = ..., ...)
+fit(m, data; mask, kmf = 12.5, solver = LM(atol = tols))
+fit(m, data; mask, kmf = 12.5, solver = LM(atol = (PSR = tols.PSR,)))   # PSR's alone
+```
+"""
+function stoptolerances(m::MRIModel, data::AbstractArray; c = 0.01, n = 1000, mask = nothing,
+                        rng = Xoshiro(1), params...)
+    Y = reshape(data, :, size(data, ndims(data)))            # voxels × observations
+    idx = mask === nothing ? collect(axes(Y, 1)) : findall(!iszero, vec(mask))
+    pick = length(idx) <= n ? idx : idx[Random.randperm(rng, length(idx))[1:n]]
+    r = fit(m, Y[pick, :]; params..., solver = LM(maxiter = 500, xtol = 1e-14, ftol = 1e-16, gtol = 1e-15))
+    ok = isconverged.(r.status)
+    F = Tuple(k for k in keys(r.params) if haskey(parameters(m), k))   # the free parameters
+    dof = nobs(m) - length(F)
+    if dof > 0
+        σ = sqrt(sum(r.sse[ok]) / (count(ok) * dof))         # pooled over the sample
+        se = stderror(r; σ)
+        return NamedTuple{F}(map(k -> c * median(filter(isfinite, se[k][ok])), F))
+    end
+    return NamedTuple{F}(map(k -> c * std(r.params[k][ok]), F))
+end

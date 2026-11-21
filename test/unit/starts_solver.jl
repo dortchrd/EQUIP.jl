@@ -74,6 +74,26 @@ end
     y = signal(CASES[7]...)
     fit!(c, y)
     @test_noalloc fitallocs(c, y) == 0
+    # Per-parameter tolerances (LM(atol)): each estimate within its tolerance of the fully
+    # converged one, in fewer iterations; a name that is not a free parameter is an error
+    m, truth = CASES[1]                                        # T2Decay
+    Y = simulate(m, map(x -> fill(x, 200), truth); snr = 100, noise = :gaussian, rng = MersenneTwister(4))
+    tight = fit(m, Y; solver = LM(xtol = 1e-14, ftol = 1e-16, gtol = 1e-15, maxiter = 500))
+    tol = (S0 = 0.05, T2 = 2e-5)
+    r = fit(m, Y; solver = LM(atol = tol))
+    @test all(k -> all(abs.(r.params[k] .- tight.params[k]) .<= 1.5 * tol[k]), keys(tol))
+    @test sum(r.iterations) < sum(fit(m, Y).iterations)
+    @test_throws "`kmf` is not a free parameter" init(m; solver = LM(atol = (kmf = 0.1,)))
+    c = init(m; solver = LM(atol = tol)); y = Y[1, :]; fit!(c, y)
+    @test_noalloc fitallocs(c, y) == 0
+    # stoptolerances: c times the median standard error, with σ pooled over the sample: the
+    # simulation's own σ (S0/SNR = 10) to a few percent, so the tolerances are those of the
+    # standard errors computed with the true σ
+    Y = simulate(m, map(x -> fill(x, 2000), truth); snr = 100, noise = :gaussian, rng = MersenneTwister(5))
+    t = stoptolerances(m, Y; c = 0.01, n = 1000)
+    rt = fit(m, Y[1:1000, :])
+    @test t.T2 ≈ 0.01 * median(stderror(rt; σ = 10.0).T2) rtol = 0.05
+    @test keys(t) == (:S0, :T2) && all(>(0), values(t))
 end
 
 @testset "T2Decay's start: the log-linear fit, on 1/T2" begin
@@ -235,7 +255,7 @@ end
     Yt = simulate(mt2, (S0 = 1000.0, T2 = 0.06); snr = 40, n = 20, noise = :rician, rng = MersenneTwister(5))
     for T in (Float64, Float32)
         c = init(mt2; precision = T)
-        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing)
+        c0 = EQUIP.FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings, nothing, nothing)
         @test c.logpass !== nothing
         @test all(i -> EQUIP._fit_voxel(c, c.spec, Yt[i, :], i) === EQUIP._fit_voxel(c0, c0.spec, Yt[i, :], i), 1:20)
     end

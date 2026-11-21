@@ -20,7 +20,7 @@ buffers. Make it with [`init`](@ref), use it with [`fit!`](@ref). Not thread-saf
 overwrites the buffers, so use one cache per task or thread (`fit` on a dataset does this for
 you).
 """
-struct FitCache{M,S<:FitSpec,T,B,K,L}
+struct FitCache{M,S<:FitSpec,T,B,K,L,A}
     model::M            # the model, its acquisition vectors converted to precision T
     spec::S
     opts::SolverOptions{T}
@@ -28,6 +28,7 @@ struct FitCache{M,S<:FitSpec,T,B,K,L}
     y::Vector{T}        # the current voxel's data
     settings::K         # the keywords of `init`, passed on to every FitResult
     logpass::L          # nothing, or the `:loglinear` start's first pass, the same in every voxel
+    atol::A             # nothing, or LM's per-parameter tolerances in the free parameters' order (PROTOTYPE)
 end
 
 function Base.show(io::IO, c::FitCache{M,S,T}) where {M,S,T}
@@ -88,9 +89,19 @@ CommonSolve.init(model::MRIModel, roles::NamedTuple; kwargs...) = init(model; ro
 # parameter, to allocate the dual-number buffer with the right type.
 _cache(model, spec::FitSpec{F,P,T}, opts, n, settings) where {F,P,T} =
     FitCache(model, spec, opts, Vector{Dual{FitTag,T,P}}(undef, n), Vector{T}(undef, n), settings,
-             _logpass(model, spec, n))
+             _logpass(model, spec, n), _atolvector(settings.solver.atol, spec))
+
+# LM's `atol`, by name, as one tolerance per free parameter (∞: not tested); a name that is not a
+# free parameter of this fit is an error.
+_atolvector(::Nothing, spec) = nothing
+function _atolvector(atol::NamedTuple, spec::FitSpec{F,P,T}) where {F,P,T}
+    for n in keys(atol)
+        n in F || throw(ArgumentError("LM(atol): `$n` is not a free parameter of this fit ($(join(F, ", ")))"))
+    end
+    return SVector{P,T}(ntuple(j -> T(haskey(atol, F[j]) ? atol[F[j]] : Inf), Val(P)))
+end
 
 # Same setup, fresh buffers: one copy per task (chunk of voxels) in a dataset fit. The log
 # start's first pass is read only, so the copies share it.
 _copycache(c::FitCache) = FitCache(c.model, c.spec, c.opts, similar(c.buf), similar(c.y), c.settings,
-                                   c.logpass)
+                                   c.logpass, c.atol)
