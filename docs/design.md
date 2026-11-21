@@ -6365,6 +6365,38 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      18 s and 46 s. To do: don't inline above some P (decided at compile time, from the type
      parameter), after measuring the small models' kernels with and without.
 12. **Later**: GPU, more models (Rician-likelihood fitting moved to item 13, a priority):
+   - **GPU fitting** (the owner, 2026-11-21: "what about GPU fitting"; not measured: no GPU in
+     the development container).
+     - **Why EQUIP suits it**: a voxel's fit is already what a GPU thread needs: fixed-size
+       arrays and dual numbers, no allocation, no shared state, each voxel independent. One
+       thread per voxel running the same `levmar`, through KernelAbstractions.jl (CUDA, Metal
+       on Apple machines, AMD, from one kernel), the GPU's warps doing in hardware the masking
+       that lockstep voxels would need on a CPU (Performance notes, "Batching"; a warp still
+       waits for its slowest voxel). The same idea in C++/CUDA: Gpufit (Przybylski et al., Sci
+       Rep 2017), small Levenberg–Marquardt fits by the million.
+     - **What it takes**: the model's acquisition vectors and the per-voxel maps as device
+       arrays (Adapt.jl); the voxel path free of error messages built at run time; the BestOf
+       dictionary in device memory; the maps back to the host. A backend through item 11's
+       `solve_voxel` hook, in a package extension (EQUIP depending on no GPU package).
+     - **Precision: Float32.** Apple's GPUs have no Float64, and consumer NVIDIA cards run it
+       at 1/32 to 1/64 of Float32's rate. Measured on the CPU (bench/simd/float32.jl,
+       QMTSIREqualR1, 10,000 voxels with varied truths): Float32 converges as often as Float64
+       (5-point, kmf free, SNR 50: 9999 against 9991 of 10,000), PSR differing by a median of
+       1e-6 of its statistical SD; in that hardest case 19 voxels differ by more than 0.1 SD
+       (different minima in ambiguous voxels, as QMTSIR and QMTSIREqualR1 do in Float64);
+       4-point: largest difference below 0.01 SD. And 8–20% faster on the CPU.
+     - **Costs**: Julia compiles a kernel on first use, per model and precision (seconds to
+       tens of seconds, and not cached as the CPU precompile workload is), which would dominate
+       a single MATLAB call; transferring data is cheap (a million voxels of 4 points in
+       Float32: 16 MB).
+     - **When it pays**: not for today's fits: QMTSIR's 4-point fit is 0.4 s per million voxels
+       on 4 CPU threads, less than Julia's start and the files. Where it would: many fits
+       (Monte Carlo and sweeps; SAGE's dynamic series, a fit per time point per voxel: tens of
+       millions, item 25), costly models (exact qMT, milliseconds a voxel, item 6), many
+       subjects at once.
+     - **First step, when one of those is real**: a prototype on the owner's Mac (Metal,
+       Float32) with one model (QMTSIREqualR1, then a costly one), measuring the kernel's time,
+       its compile time, and the whole call against the CPU's threads.
    - Gradient-echo decay with the through-slice sinc term for macroscopic field gradients,
      S0·exp(−TE/T2*)·|sinc(Δf·TE)| (Fernández-Seara & Wehrli, MRM 2000), as a separate model.
      Δf, the frequency spread across the slice (Hz), is fixed from a B0 field map or fitted
