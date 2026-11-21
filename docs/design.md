@@ -5657,8 +5657,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    (lineshape integrals, small matrix exponentials, steady states), so EQUIP's design (no
    allocation, static arrays, exact derivatives from dual numbers, threads) matters most; the exact
    models are where its speed may help most.
-   - **`QMTSIRSimple`, built (branch `qmtsir-simple`, 2026-11-20).** The owner, from a
-     derivation in Li et al. 2010's notation: "might call this simplesir or something and keep
+   - **`QMTSIREqualR1`, built (branch `qmtsir-simple`, 2026-11-20; named 2026-11-21).** The
+     owner, from a derivation in Li et al. 2010's notation: "might call this simplesir or something and keep
      both. this one assumes Mz = 0 at td = 0 and R1m = R1f and gives you a simple one line
      expression".
      - **The model.** With R1m = R1f, relaxation and exchange separate (R1·I commutes with the
@@ -5671,8 +5671,17 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        exponentials an observation, no square root. The derivation is in the code's comments
        (src/models/qmt/qmt_sir.jl).
      - **Decisions.** Both models kept: `QMTSIR` for R1m ≠ R1f and Mz left by the readout. The
-       name follows the convention (quantity, method, then the variant, as `T1IRTD`,
-       `T2DecayOffset`; the owner's "simplesir or something"). kmf stays the parameter, not
+       name (the owner, 2026-11-21: "rename it QMTSIREqualR1", after `QMTSIRSimple`: "not sure
+       i love"): quantity, method, then the variant, as `T1IRTD`, `T2DecayOffset`, naming the
+       assumption that makes it simple (the other, both pools saturated at the start of TD, is
+       what the FSE readout does and `QMTSIR`'s default too). Avoided: "Constrained" (Dortch
+       2018's name for the model with kmf fixed), "Simple", "Fast" or "Lite" (they describe
+       the code, not the physics, and "simple" reads as approximate; it is exact under its
+       assumptions). Considered and not taken: no new name, `QMTSIR` taking the one-line form
+       by itself when R1m === R1f and both start values are 0 (the dual numbers' identity: a
+       tie copies R1f's, derivatives included, while R1m fixed at an equal number does not),
+       every `QMTSIR` fit 1.5× faster; a separate model keeps the choice explicit, in scripts
+       and sidecars, and the one-line model readable on its own. kmf stays the parameter, not
        k = kmf·(1 + PSR) (the owner: "would prefer to just have kmf estimated since standard
        parameters"; the conditioning check below agrees). The same roles as `QMTSIR` (kmf
        fixed at 12.5, Sm 0.83), the same tissue presets and the SIR protocols, also on the
@@ -5686,7 +5695,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        typeset in one copy of the manuscript lacks the square on (R1f − R1m + kfm − kmf) under
        the root (the owner's note); EQUIP's code has it, and is tested against the matrix form
        and a numerical solution.
-     - **Speed** (bench/qmtsir_simple/fits.jl): one signal (4 points) 47 ns against `QMTSIR`'s
+     - **Speed** (bench/qmtsir_equalr1/fits.jl): one signal (4 points) 47 ns against `QMTSIR`'s
        70, 77 against 140 with the fit's dual numbers; whole fits (10,000 voxels with varied
        truths, one thread) 0.73× at
        4 points, kmf fixed, SNR 200, and 0.63–0.67× at 5 points with kmf estimated (SNR 200:
@@ -5694,7 +5703,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        points, SNR 200); at 5 points and SNR 50, 55 of 9990 voxels differ by more than 1e-4,
        in flat valleys where rounding sends the two solvers to slightly different stops (sums
        of squares within 2e-3 of Σy², mostly `QMTSIR`'s lower).
-     - **Conditioning, kmf against k** (bench/qmtsir_simple/conditioning.jl: Dortch 2018's
+     - **Conditioning, kmf against k** (bench/qmtsir_equalr1/conditioning.jl: Dortch 2018's
        5-point scheme, kmf estimated, crlb at SNR 100; `cond`, unit-free): WM_I 139 against 129, WM_II 75.5 against 73.5, GM 77.3
        against 76.9, lesion 114.9 against 115.0; cor(PSR, kmf) −0.91 against cor(PSR, k)
        −0.88 in WM_I, smaller elsewhere. The largest correlation is elsewhere and unchanged:

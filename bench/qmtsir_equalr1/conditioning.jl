@@ -1,4 +1,4 @@
-# QMTSIRSimple (docs/design.md, item 6): julia -t 1 --project=. bench/qmtsir_simple/conditioning.jl (about 2 minutes)
+# QMTSIREqualR1 (docs/design.md, item 6): julia -t 1 --project=. bench/qmtsir_equalr1/conditioning.jl (about 2 minutes)
 # Conditioning of SIR with kmf estimated: (PSR, kmf) against (PSR, k), k = kmf·(1 + PSR), the rate
 # in the signal. Dortch 2018's 5-point scheme. Same signal (QMTSIR's), two parameterizations.
 using EQUIP, Random, Statistics, Printf, LinearAlgebra

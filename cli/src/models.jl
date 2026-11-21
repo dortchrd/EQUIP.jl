@@ -8,12 +8,12 @@
 # The built-in models, by name (a user's own model is used from Julia).
 const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay,
                   T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay, ADCDecay, ADCKurtosis,
-                  DTI, DKI, QMTSIR, QMTSIRSimple)
+                  DTI, DKI, QMTSIR, QMTSIREqualR1)
 # The directional models: their acquisition is each image's b and gradient direction, read from
 # an FSL .bval and .bvec beside the data (as dcm2niix writes them), or given as flags.
 _directional(M) = (:gx, :gy, :gz) ⊆ fieldnames(M)
 # Named protocols (acquisitions), by name, and the models each is for.
-const _SIR = (QMTSIR, QMTSIRSimple)
+const _SIR = (QMTSIR, QMTSIREqualR1)
 const PROTOCOLS = (; SIR_5POINT = (_SIR, SIR_5POINT), SIR_4POINT = (_SIR, SIR_4POINT),
                      SIR_16POINT = (_SIR, SIR_16POINT))
 

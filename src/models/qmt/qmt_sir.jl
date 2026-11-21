@@ -1,9 +1,9 @@
 # =================================================================================================
 # Selective inversion recovery (SIR), two-pool quantitative magnetization transfer (qMT)
 #
-#   QMTSIR         the general model: any R1m, any Mz at the start of TD (Li's closed form)
-#   QMTSIRSimple   its two default assumptions built in (R1m = R1f, both pools saturated at the
-#                  start of TD): the signal in one line
+#   QMTSIR          the general model: any R1m, any Mz at the start of TD (Li's closed form)
+#   QMTSIREqualR1   its two default assumptions built in (R1m = R1f, both pools saturated at the
+#                   start of TD): the signal in one line
 #
 # References (the equation numbers in the comments below refer to these):
 #   Li et al., Magn Reson Med 2010;64:491-500      closed-form solution, Eqs. 2-6 (used here)
@@ -171,7 +171,7 @@ const SIR_16POINT = (TI = [round.(exp.(range(log(0.010), log(2.0); length = 15))
 
 
 """
-    QMTSIRSimple(; TI, TD, magnitude = true)
+    QMTSIREqualR1(; TI, TD, magnitude = true)
 
 [`QMTSIR`](@ref) with its two default assumptions built in, so that the signal is one line:
 the macromolecular pool relaxes as the free pool does (R1m = R1f), and the readout leaves both
@@ -194,7 +194,7 @@ matrix form), at half to two thirds of the cost per evaluation, and defined at k
 hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
 
 - acquisition: `TI` (s), one per observation; `TD` (s), one number for all observations or
-  one per observation; the SIR protocols apply (`QMTSIRSimple(; SIR_5POINT...)`)
+  one per observation; the SIR protocols apply (`QMTSIREqualR1(; SIR_5POINT...)`)
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
@@ -202,21 +202,21 @@ hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
   `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse), as `QMTSIR`
 
 ```julia
-m = QMTSIRSimple(; SIR_4POINT...)
+m = QMTSIREqualR1(; SIR_4POINT...)
 r = fit(m, data; mask)                                    # kmf fixed at 12.5
-r = fit(QMTSIRSimple(; SIR_5POINT...), data; mask, kmf = Free())     # kmf estimated
+r = fit(QMTSIREqualR1(; SIR_5POINT...), data; mask, kmf = Free())    # kmf estimated
 ```
 """
-@kwdef struct QMTSIRSimple{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+@kwdef struct QMTSIREqualR1{A<:AbstractVector,B<:AbstractVector} <: MRIModel
     TI::A                               # inversion times (s)
     TD::B                               # delays between readout and inversion (s)
     magnitude::Bool = true
 end
 
-QMTSIRSimple(TI, TD::Real, magnitude) = QMTSIRSimple(TI, fill(TD, length(TI)), magnitude)
+QMTSIREqualR1(TI, TD::Real, magnitude) = QMTSIREqualR1(TI, fill(TD, length(TI)), magnitude)
 
 # QMTSIR's parameters without R1m (= R1f) and the start values of TD (0), with the same roles.
-parameters(::Type{<:QMTSIRSimple}) = (
+parameters(::Type{<:QMTSIREqualR1}) = (
     PSR = Free(start = 0.1, lower = 0, upper = 1),
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
@@ -256,7 +256,7 @@ parameters(::Type{<:QMTSIRSimple}) = (
 # `-expm1(-R1f·TD)`: that keeps 1 − E_d's relative precision when R1f·TD is small, but the signal
 # adds it to terms of order 1, so its error is a rounding of M0f either way, and expm1 cost 5–15%
 # with dual numbers.
-function signal!(out, m::QMTSIRSimple, p)
+function signal!(out, m::QMTSIREqualR1, p)
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf, Sm) = p
     k = kmf * (1 + PSR)                     # kfm + kmf: the rate at which exchange evens out the pools

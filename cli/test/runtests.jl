@@ -150,9 +150,9 @@ end
         @test run("fit", "QMTSIR", path("sir.nii.gz"), "--TI", join(SIR_5POINT.TI, ','), "--TD", join(SIR_5POINT.TD, ','),
                   "--kmf", "free,start=10", "--out", out("h_")).code == 0
         @test rawmap(out("h_PSR.nii.gz")) == rawmap(out("g_PSR.nii.gz"))
-        # QMTSIRSimple takes the SIR protocols too (both models share them)
-        @test run("fit", "QMTSIRSimple", path("sir.nii.gz"), "--protocol", "SIR_5POINT", "--kmf", "free,start=10", "--out", out("q_")).code == 0
-        @test rawmap(out("q_PSR.nii.gz")) ≈ Float32.(fit(QMTSIRSimple(; SIR_5POINT...), readdata(path("sir.nii.gz"))[1]; kmf = Free(start = 10.0)).params.PSR)
+        # QMTSIREqualR1 takes the SIR protocols too (both models share them)
+        @test run("fit", "QMTSIREqualR1", path("sir.nii.gz"), "--protocol", "SIR_5POINT", "--kmf", "free,start=10", "--out", out("q_")).code == 0
+        @test rawmap(out("q_PSR.nii.gz")) ≈ Float32.(fit(QMTSIREqualR1(; SIR_5POINT...), readdata(path("sir.nii.gz"))[1]; kmf = Free(start = 10.0)).params.PSR)
         # magnitude data at low SNR: the Rician fit, σ a number or a map (each channel's noise SD:
         # S0/SNR = 1000/20), method ml by default or mean; recorded in the sidecar as typed
         Yr = simulate(m, (S0 = S0map, T2 = T2map); snr = 20, noise = :rician, rng = MersenneTwister(7))
@@ -189,7 +189,7 @@ end
         @test occursin("--S0, --T2", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))
         @test occursin("QMTSIR needs `TI`", bad("fit", "QMTSIR", path("t2.nii.gz")))
         @test occursin("has 5 observations", bad("fit", "QMTSIR", path("t2.nii.gz"), "--protocol", "SIR_5POINT"))
-        @test occursin("is for QMTSIR or QMTSIRSimple", bad("fit", "T2Decay", path("t2.nii.gz"), "--protocol", "SIR_5POINT"))
+        @test occursin("is for QMTSIR or QMTSIREqualR1", bad("fit", "T2Decay", path("t2.nii.gz"), "--protocol", "SIR_5POINT"))
         @test occursin("unknown model `T2decay`", bad("fit", "T2decay", path("t2.nii.gz")))
         @test occursin("`--TE`: `abc` is not a number", bad("fit", "T2Decay", path("t2.nii.gz"), "--TE", "abc"))
         @test occursin("a range is start:step:stop", bad("fit", "T2Decay", path("t2.nii.gz"), "--TE", "0.01:0.3"))
