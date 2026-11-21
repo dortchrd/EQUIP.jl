@@ -183,6 +183,7 @@ end
         r = run("fit", "QMTSIR", "--help")
         @test r.code == 0 && occursin("--kmf", r.out) && occursin("fixed at 12.5", r.out) && occursin("SIR_5POINT", r.out)
         @test occursin("--likelihood rician --sigma", r.out)
+        @test occursin("fixed at 12.5; bounds [0.0, Inf] when freed", r.out)      # kmf's, if estimated
         @test occursin("T2Decay", run("models").out) && occursin("equip fit MODEL DATA", run().out)
         # mistakes: a message naming what to do, exit code 1, nothing written
         @test occursin("`--kmf` is not a flag of `equip fit T2Decay`", bad("fit", "T2Decay", path("t2.nii.gz"), "--kmf", "3"))

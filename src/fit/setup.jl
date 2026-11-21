@@ -94,14 +94,16 @@ _keep(new, default) = new === nothing ? default : new
 # Over a default Free: the new start and bounds where given, the default's elsewhere.
 _override(d::Free, x::Free, name) = Free(start = _keep(x.start, d.start),
                                          lower = _keep(x.lower, d.lower), upper = _keep(x.upper, d.upper))
-# A parameter fixed by default, now estimated: it starts at its fixed value unless given a start;
-# no bounds unless given.
+# A parameter fixed by default, now estimated: it starts at its fixed value unless given a start,
+# with the bounds its `Fixed` declares for when it is freed (kmf ≥ 0) where the Free leaves them
+# out; none if it declares none.
 function _override(d::Fixed, x::Free, name)
-    x.start !== nothing && return x
-    d.value isa Real ||
+    x.start === nothing && !(d.value isa Real) &&
         throw(ArgumentError("`$name` is fixed by default to $(repr(d.value)); give it a start: $name = Free(start = ...)"))
-    return Free(start = d.value, lower = x.lower, upper = x.upper)
+    return _freed(d, x, x.start === nothing ? d.value : x.start)
 end
+_freed(d::Fixed, x::Free, start) = Free(start = start, lower = _keep(x.lower, d.lower),
+                                         upper = _keep(x.upper, d.upper))
 
 # `:scale` assumes the signal is proportional to the parameter (true for M0, not for T1), so only
 # the model can declare it. A fit can turn it off (M0 = Free(start = 1000.0)) but not move it.

@@ -145,4 +145,6 @@ function _describe(r::Free)
             r.start isa BestOf ? "the best of $(length(r.start.values)) values" : string(r.start)
     return "free, start $start, bounds [$(something(r.lower, -Inf)), $(something(r.upper, Inf))]"
 end
-_describe(r::Fixed) = r.value isa Symbol ? "fixed: tied to $(r.value)" : "fixed at $(r.value)"
+_describe(r::Fixed) = (r.value isa Symbol ? "fixed: tied to $(r.value)" : "fixed at $(r.value)") *
+    (r.lower === nothing && r.upper === nothing ? "" :
+     "; bounds [$(something(r.lower, -Inf)), $(something(r.upper, Inf))] when freed")

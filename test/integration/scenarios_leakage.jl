@@ -31,8 +31,9 @@
     @test Scenario(QMTSIR, θ1; R1m = :R1f).wrong == (R1m = (fit = 1.5, truth = 1.0),)
     @test isempty(Scenario(QMTSIR, merge(θ, (R1m = 1.5,)); R1m = :R1f).wrong)
     # freed: from its true value, or (starts = :model) where `fit` would start it
-    @test Scenario(QMTSIR, θ; kmf = Free()).roles.kmf == Free(start = 5.0)
-    @test Scenario(QMTSIR, θ; kmf = Free(), starts = :model).roles.kmf == Free(start = 12.5)
+    @test Scenario(QMTSIR, θ; kmf = Free()).roles.kmf == Free(start = 5.0, lower = 0)
+    @test Scenario(QMTSIR, θ; kmf = Free(), starts = :model).roles.kmf == Free(start = 12.5, lower = 0)
+    @test Scenario(QMTSIR, θ; kmf = Free(start = 8.0)).roles.kmf == Free(start = 8.0, lower = 0)
     @test Scenario(QMTSIR, θ; R1m = Free()).roles.R1m == Free(start = 1.5)
     @test occursin("give it a start", msg(() -> Scenario(QMTSIR, θ; R1m = Free(), starts = :model)))
     # starts = :model: the model's rules; a start or a bound given wins, the rest is kept

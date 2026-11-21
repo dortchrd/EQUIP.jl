@@ -43,7 +43,7 @@ default.
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
-- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`),
+- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`, ≥ 0),
   `R1m` tied to `R1f`, `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse),
   `Mzf_td0 = Mzm_td0 = 0`
 
@@ -71,7 +71,7 @@ parameters(::Type{<:QMTSIR}) = (
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
     M0f = Free(start = :scale, lower = 0),
-    kmf = Fixed(12.5),
+    kmf = Fixed(12.5; lower = 0),       # an exchange rate: ≥ 0 when estimated (kmf = Free())
     R1m = Fixed(:R1f),                  # tie: R1m equals R1f
     Sm = Fixed(0.83),
     Mzf_td0 = Fixed(0.0),               # each pool's Mz at the start of TD, as a fraction of its
@@ -198,7 +198,7 @@ hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
-- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`),
+- fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`, ≥ 0),
   `Sm = 0.83` (macromolecular saturation for a 1-ms inversion pulse), as `QMTSIR`
 
 ```julia
@@ -221,7 +221,7 @@ parameters(::Type{<:QMTSIREqualR1}) = (
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf = Free(start = -0.95, lower = -1.2, upper = 0),
     M0f = Free(start = :scale, lower = 0),
-    kmf = Fixed(12.5),
+    kmf = Fixed(12.5; lower = 0),       # ≥ 0 when estimated, as QMTSIR's
     Sm = Fixed(0.83),
 )
 

@@ -88,7 +88,7 @@ parameters(::Type{<:QMTSIR}) = (
     R1f = Free(start = 1.0, lower = 0.05, upper = 10),
     Sf  = Free(start = -0.95, lower = -1.2, upper = 0),
     M0f = Free(start = :scale, lower = 0),
-    kmf = Fixed(12.5),
+    kmf = Fixed(12.5; lower = 0),      # if freed (kmf = Free()): ≥ 0
     R1m = Fixed(:R1f),           # a tie: always equal to R1f
     Sm  = Fixed(0.83),
     Mzf_td0 = Fixed(0.0),        # Mz at the start of TD, as a fraction of equilibrium
@@ -129,6 +129,11 @@ parameters(::Type{<:QMTSIR}) = (
   parameters: `Fixed(:R1f)` (always equal to R1f) or a function such as
   `Fixed(p -> 0.8 * p.R1f)`. A tie can't refer to another tie. `defaults(m)` gives the fixed
   values as a named tuple, e.g. `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)`.
+  Optional `lower` and `upper`: the bounds it gets if a fit estimates it and gives none.
+  `kmf = Fixed(12.5; lower = 0)` makes `kmf = Free()` start at 12.5 and stay ≥ 0, an exchange
+  rate (without it, 10 to 80 voxels in 10,000 ended at a negative one, reported converged);
+  `Free(lower = -Inf)` removes it. QMTSIR's and QMTSIREqualR1's kmf, T1MFA's B1 (≥ 0) and
+  SMTFreeWater's Diso (0 to 4e-3 mm²/s) declare them.
 
 Any fit can change a role with a keyword named after the parameter, in `fit` and `init`. A
 value fixes the parameter; `Free(...)` estimates it, and whatever it leaves out (start, bounds)
@@ -140,7 +145,7 @@ the earlier fit's setting, and the start is the earlier estimate unless a new on
 fit(m, data; kmf = 15.0)                         # change a fixed value
 fit(m, data; Sm = sm_map)                        # a per-voxel map
 fit(m, data; PSR = 0.1)                          # fix a parameter that is free by default
-fit(m, data; kmf = Free())                       # estimate kmf (starts at 12.5, no bounds)
+fit(m, data; kmf = Free())                       # estimate kmf (starts at 12.5, kmf ≥ 0)
 fit(m, data; kmf = Free(lower = 1, upper = 50))  # ... within bounds
 fit(m, data; R1f = Free(start = r1_map))         # another start: a number or a map
 fit(m, data; R1f = Free(start = BestOf([0.5, 1.0, 2.0])))   # try three, start from the best
@@ -302,8 +307,8 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R1IRTD(TI = ..., TD = ..., magnitude = true)` | the same with R1 = 1/T1 | M0, Sf, R1 | Mz_td0 = 0 |
 | | `T1SR(TD = ...)` | saturation recovery: M0·(1 − exp(−TD/T1)) | M0, T1 | |
 | | `R1SR(TD = ...)` | the same with R1 = 1/T1 | M0, R1 | |
-| | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 |
-| | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 |
+| | `T1MFA(FA = ..., TR = ...)` | multiple flip angles (spoiled gradient echo), flip angle B1·FA (degrees); TR one number or one per FA | M0, T1 | B1 = 1 (≥ 0 when estimated) |
+| | `R1MFA(FA = ..., TR = ...)` | the same with R1 = 1/T1 | M0, R1 | B1 = 1 (≥ 0 when estimated) |
 | | `T2Decay(TE = ...)` | S0·exp(−TE/T2); also T2* (simple mono-exponential case); T2 at most 2.5 s (CSF's is about 2 s), so data that do not decay end on the bound, flagged by `onbound` | S0, T2 | |
 | | `R2Decay(TE = ...)` | S0·exp(−R2·TE); also R2*; the more robust form; R2 at least 0.4 s⁻¹ (T2 at most 2.5 s, as T2Decay) | S0, R2 | |
 | | `T2DecayOffset(TE = ...)` | S0·exp(−TE/T2) + C (C: a common approximation for the noise floor); T2 at most 2.5 s | S0, T2, C | |
@@ -315,10 +320,10 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted, the diagonal ones from 0 (a diffusivity is not negative) to 4e-3 mm²/s (as ADCDecay); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
 | | `DKI(b = ..., gx = ..., gy = ..., gz = ...)` | diffusion kurtosis (Jensen et al., MRM 2005) in DIPY's parameterization, V = MD²·W: S0·exp(−b·gᵀDg + b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6), every element from the two-pass WLS (`:loglinear`); D's diagonal from 0 to 4e-3 mm²/s, as DTI; derived: DTI's quantities and MK, AK, RK as DIPY's fit methods give them by default (Tabesh et al., MRM 2011, analytic), MKT (Hansen et al., MRM 2013), clipped to [−3/7, 10] | S0, D's six, V's fifteen | |
 | | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
-| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s |
+| | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s (0 to 4e-3 when estimated) |
 | | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
-| qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5, R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
-| | `QMTSIREqualR1(TI = ..., TD = ..., magnitude = true)` | `QMTSIR` with its two assumptions built in (R1m = R1f, both pools saturated at the start of TD), so the signal is one line: M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}, with E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), k = kmf·(1 + PSR), a = (Sf + PSR·Sm)/(1 + PSR), b = PSR·(Sf − Sm)/(1 + PSR). Inversion recovery whose inversion efficiency, a + b·E_k, relaxes during TI from Sf toward the pools' weighted mean a at the exchange rate k; TD carries no exchange. The same fits as `QMTSIR`'s defaults in 0.6–0.75 of the time; defined at kmf = 0; the SIR protocols apply | PSR, R1f, Sf, M0f | kmf = 12.5, Sm = 0.83 |
+| qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
+| | `QMTSIREqualR1(TI = ..., TD = ..., magnitude = true)` | `QMTSIR` with its two assumptions built in (R1m = R1f, both pools saturated at the start of TD), so the signal is one line: M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}, with E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), k = kmf·(1 + PSR), a = (Sf + PSR·Sm)/(1 + PSR), b = PSR·(Sf − Sm)/(1 + PSR). Inversion recovery whose inversion efficiency, a + b·E_k, relaxes during TI from Sf toward the pools' weighted mean a at the exchange rate k; TD carries no exchange. The same fits as `QMTSIR`'s defaults in 0.6–0.75 of the time; defined at kmf = 0; the SIR protocols apply | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), Sm = 0.83 |
 
 ## Writing a model
 
@@ -557,7 +562,7 @@ Four functions give a model's parameters in different forms:
 
 | Function | Gives | Example (QMTSIR) |
 |---|---|---|
-| `parameters(m)`, `parameters(M)`, `parameters(m; changes...)` | each parameter's role: free (start, bounds) or fixed; for a model or its type; with keywords, changed as a fit's keywords change them (pass the result whole: `fit(m, data, roles)`) | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5)` |
+| `parameters(m)`, `parameters(M)`, `parameters(m; changes...)` | each parameter's role: free (start, bounds) or fixed; for a model or its type; with keywords, changed as a fit's keywords change them (pass the result whole: `fit(m, data, roles)`) | `PSR = Free(start = 0.1, lower = 0.0, upper = 1.0), …, kmf = Fixed(12.5, lower = 0.0)` |
 | `defaults(m)` | the values of the fixed parameters alone | `(kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)` |
 | `nominal(m; changes...)`, `nominal(m, tissue; changes...)` (a model or its type) | every value, for simulation: from the model (starts, 1 for the scale, fixed values) or from a tissue (a preset or your own named tuple) | `nominal(m)`: `(PSR = 0.1, R1f = 1.0, …, kmf = 12.5, …)`; `nominal(m, :SIR_WM_II)`: `(PSR = 0.12, …, kmf = 10.0, …)` |
 | `resolve(m, p)`, `resolve(res)` | a complete set checked, ties turned into numbers; for a result, fitted and fixed values | `(…, R1f = 1.0, …, R1m = 1.0, …)` |

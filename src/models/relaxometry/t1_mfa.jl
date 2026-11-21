@@ -40,7 +40,7 @@ T1MFA(FA, TR::Real) = T1MFA(FA, fill(TR, length(FA)))
 parameters(::Type{<:T1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
     T1 = Free(start = 1.0, lower = _TMIN, upper = _T1MAX),
-    B1 = Fixed(1.0),
+    B1 = Fixed(1.0; lower = 0),        # a flip-angle scale: ≥ 0 when estimated
 )
 
 # The T1 form is the R1 form with R1 = 1/T1: convert, then R1MFA's signal (below; see builtin.jl
@@ -70,7 +70,7 @@ R1MFA(FA, TR::Real) = R1MFA(FA, fill(TR, length(FA)))    # one TR for every flip
 parameters(::Type{<:R1MFA}) = (
     M0 = Free(start = :scale, lower = 0),
     R1 = Free(start = 1.0, lower = _R1MIN),
-    B1 = Fixed(1.0),
+    B1 = Fixed(1.0; lower = 0),        # a flip-angle scale: ≥ 0 when estimated
 )
 
 function signal!(out, m::R1MFA, p)

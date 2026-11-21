@@ -192,7 +192,7 @@ parameters(::Type{<:SMTFreeWater}) = (
     vax = Free(start = 0.5, lower = 0, upper = 1),
     Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),   # mm²/s
     fiso = Free(start = 0.1, lower = 0, upper = 1),
-    Diso = Fixed(3.0e-3),                                    # mm²/s
+    Diso = Fixed(3.0e-3; lower = 0, upper = _DMAX),          # mm²/s; when estimated, as ADC's
 )
 
 function signal!(out, m::SMTFreeWater, p)

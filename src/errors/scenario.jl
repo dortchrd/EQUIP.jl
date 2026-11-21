@@ -159,9 +159,9 @@ function _scenario(M, own::NamedTuple, θ::NamedTuple, starts::Symbol, changes, 
                 "`$n` is not a parameter of $name; the parameters are $(join(keys(own), ", "))"))
         _hasmap(x) && throw(ArgumentError("`$n`: a scenario is one voxel: give numbers, not maps"))
         x isa Free && x.start === :scale && _check_scale(name, own, n)
-        r = if x isa Free && roles[n] isa Fixed
-            x.start !== nothing ? x :
-            starts === :truth ? Free(start = float(θt[n]), lower = x.lower, upper = x.upper) :
+        r = if x isa Free && roles[n] isa Fixed        # held by the model (own[n] is its Fixed)
+            x.start !== nothing ? _freed(own[n], x, x.start) :
+            starts === :truth ? _freed(own[n], x, float(θt[n])) :
             _override(own[n], x, n)
         else
             _role(roles[n], x, n)
@@ -247,7 +247,8 @@ function Base.show(io::IO, ::MIME"text/plain", s::Scenario)
     setting(r::Free) = r.start isa Function ? "from the protocol" : cell(r.start)
     setting(r::Fixed) = _istie(r.value) ? cell(r.value) * " (tie)" : cell(r.value)
     bounds(r::Free) = "[" * cell(something(r.lower, -Inf)) * ", " * cell(something(r.upper, Inf)) * "]"
-    bounds(r::Fixed) = ""
+    bounds(r::Fixed) = r.lower === nothing && r.upper === nothing ? "" :
+                       "freed: [" * cell(something(r.lower, -Inf)) * ", " * cell(something(r.upper, Inf)) * "]"
     print(io, "Scenario for ", nameof(s.model), ": a truth and the fit judged against it")
     print(io, "\nstarts: ", s.starts === :truth ? "the truth" :
           "the model's rules, as `fit` starts a real fit (montecarlo; crlb's noise-free fit " *

@@ -5751,12 +5751,22 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        parameterizations (10,000 voxels): the same answer in 98–99.8% of voxels, 5% fewer
        iterations with k, and slightly fewer voxels not best at SNR 100 and 200 (34 → 11,
        14 → 1 of 10,000). Not worth leaving the standard parameter for.
-     - **Found on the way, in `QMTSIR` as on `main`: `kmf = Free()` has no lower bound**, so
-       a negative exchange rate is a valid answer: 5-point scheme, 10,000 voxels with varied
+     - **Found on the way, in `QMTSIR` as on `main`: `kmf = Free()` had no lower bound**, so
+       a negative exchange rate was a valid answer: 5-point scheme, 10,000 voxels with varied
        truths, 82 voxels end at kmf < 0 (down to −22 s⁻¹) reported converged at SNR 50, 24 at
-       SNR 100, 10 at SNR 200; with `kmf = Free(lower = 0)` none, the PSR error unchanged. To
-       decide with the owner: how a parameter fixed by default gets bounds when it is freed
-       (the model declaring them with the fixed value, or a documented `Free(lower = 0)`).
+       SNR 100, 10 at SNR 200; with `kmf = Free(lower = 0)` none, the PSR error unchanged.
+       **Decided (the owner, 2026-11-21: "add optional bounds for free (eg for kmf greater than
+       0)"): `Fixed(value; lower, upper)`**, the bounds a parameter gets when a fit frees it and
+       leaves them out (branch `freed-bounds`). `kmf = Free()`, `Free(start = 10)`, the command
+       line's `--kmf free` and MATLAB's `'kmf', 'free'` then give kmf ≥ 0; `Free(lower = 1)` sets
+       another; `Free(lower = -Inf)` removes it; while fixed they do nothing (a fixed value is not
+       checked against them). Declared where the range is physical and the parameter starts from
+       its fixed number when freed: QMTSIR's and QMTSIREqualR1's kmf (≥ 0), T1MFA's and R1MFA's
+       B1 (≥ 0), SMTFreeWater's Diso (0 to 4e-3 mm²/s, the diffusivity cap). Not declared: Sm and
+       the Mz start values (no clear sign), R1m (a tie: freeing it needs a start anyway, given
+       with bounds). Scenarios free a parameter the same way. Shown in the model's table
+       ("freed: [0.0, Inf]") and in `equip fit QMTSIR --help`. A regression test: 200 voxels at
+       SNR 30 where 6 fits ended at kmf < 0 (test/integration/fitting.jl).
    - **Pulse models: the conditions behind the fixed parameters.** For SIR, Sf and Sm are what
      the inversion pulse does to each pool, so B1, B0 and T2m (the conditions a robust design
      varies) map to them: the free pool rotated segment by segment (B1 scaling the flip angle,

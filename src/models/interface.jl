@@ -190,7 +190,7 @@ function Free(args...; kwargs...)
 end
 
 """
-    Fixed(value)
+    Fixed(value; lower, upper)
 
 Role of a parameter that is not estimated. `value` is
 
@@ -200,15 +200,38 @@ Role of a parameter that is not estimated. `value` is
 - a tie given by a function of the other parameters: `Fixed(p -> 0.8 * p.R1f)`
 
 A tie may use free or fixed parameters (including per-voxel maps), but not another tie.
+
+`lower` and `upper`, optional, are the bounds the parameter gets when a fit estimates it
+(`kmf = Free()`) and leaves them out; while it is fixed they do nothing. In a model's
+[`parameters`](@ref), for a parameter with a physical range: QMTSIR's `kmf = Fixed(12.5;
+lower = 0)`, an exchange rate, so that `fit(m, data; kmf = Free())` cannot end at a negative
+one. In the fit, `Free(lower = ...)` sets another bound and `Free(lower = -Inf)` removes it.
 """
 struct Fixed{T}
     value::T
+    lower::Union{Nothing,Float64}      # the bounds when freed: nothing = none
+    upper::Union{Nothing,Float64}
+    # By keyword, as Free's: `Fixed(12.5)`, `Fixed(12.5; lower = 0)`. An inner constructor (the
+    # only way to make one), so the bounds are always Float64 or nothing and checked once here.
+    function Fixed(value::T; lower = nothing, upper = nothing) where {T}
+        tofloat(x) = x === nothing ? nothing : Float64(x)
+        lo, hi = tofloat(lower), tofloat(upper)
+        lo !== nothing && hi !== nothing && lo > hi &&
+            throw(ArgumentError("Fixed: lower ($lo) exceeds upper ($hi)"))
+        return new{T}(value, lo, hi)
+    end
 end
 # `Fixed{T}` is a *parametric* type: T is the type of `value`, so `Fixed(12.5)` is a
 # `Fixed{Float64}`, `Fixed(b1map)` a `Fixed{Matrix{Float64}}`, `Fixed(:R1f)` a `Fixed{Symbol}`
 # and `Fixed(p -> 0.8 * p.R1f)` a `Fixed{var"#1#2"}` (every anonymous function has its own type).
 # Keeping the exact type lets the compiler generate fast, specialized code for each case.
-Base.show(io::IO, f::Fixed) = print(io, "Fixed(", _showvalue(f.value), ")")   # e.g. Fixed(12.5), Fixed(:R1f)
+# Printed as written: Fixed(12.5), Fixed(:R1f), Fixed(12.5, lower = 0.0).
+function Base.show(io::IO, f::Fixed)
+    print(io, "Fixed(", _showvalue(f.value))
+    f.lower === nothing || print(io, ", lower = ", f.lower)
+    f.upper === nothing || print(io, ", upper = ", f.upper)
+    print(io, ")")
+end
 
 """
     parameters(m) -> NamedTuple
@@ -734,7 +757,8 @@ function _print_parameters(io::IO, roles::NamedTuple, vals::NamedTuple, label)
     setting(r::Fixed) = _istie(r.value) ? cell(r.value) * " (tie)" : cell(r.value)
     bounds(r::Free) = "[" * cell(something(r.lower, -Inf)) * ", " *
                       cell(something(r.upper, Inf)) * "]"
-    bounds(r::Fixed) = ""
+    bounds(r::Fixed) = r.lower === nothing && r.upper === nothing ? "" :
+                       "freed: [" * cell(something(r.lower, -Inf)) * ", " * cell(something(r.upper, Inf)) * "]"
     rows = [["name", "role", "start/value", "bounds", label]]
     for (n, r) in pairs(roles)
         v = vals[n]

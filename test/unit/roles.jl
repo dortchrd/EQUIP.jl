@@ -62,6 +62,8 @@ end
     @test repr(Fixed(12.5)) == "Fixed(12.5)"
     @test repr(Fixed(:R1f)) == "Fixed(:R1f)"
     @test repr(Fixed(p -> p.R1f)) == "Fixed(<function>)"
+    @test repr(Fixed(12.5; lower = 0)) == "Fixed(12.5, lower = 0.0)"
+    @test_throws "lower (2.0) exceeds upper (1.0)" Fixed(1.5; lower = 2, upper = 1)
     @test repr(Free(start = BestOf([0.3, 0.8]))) == "Free(start = BestOf([0.3, 0.8]))"
 end
 
@@ -100,11 +102,12 @@ end
     s = txt(QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5))
     @test startswith(s, "QMTSIR with 3 observations\n  TI = [0.01, 0.1, 1.0]\n" *
                         "  TD = 2.5, every observation\n  magnitude = true\nParameters:\n" *
-                        "  name     role   start/value  bounds        nominal(m)\n")
-    @test occursin("\n  PSR      free   0.1          [0.0, 1.0]    0.1\n", s)
-    @test occursin("\n  M0f      free   :scale       [0.0, Inf]    1.0\n", s)
-    @test occursin("\n  R1m      fixed  :R1f (tie)                 :R1f\n", s)
-    @test endswith(s, "\n  Mzm_td0  fixed  0.0                        0.0")   # nothing to give
+                        "  name     role   start/value  bounds             nominal(m)\n")
+    @test occursin("\n  PSR      free   0.1          [0.0, 1.0]         0.1\n", s)
+    @test occursin("\n  M0f      free   :scale       [0.0, Inf]         1.0\n", s)
+    @test occursin("\n  kmf      fixed  12.5         freed: [0.0, Inf]  12.5\n", s)   # its bounds if freed
+    @test occursin("\n  R1m      fixed  :R1f (tie)                      :R1f\n", s)
+    @test endswith(s, "\n  Mzm_td0  fixed  0.0                             0.0")   # nothing to give
     s = txt(T2Decay(TE = 0.01:0.01:0.32))
     @test occursin("\n  TE = 0.01:0.01:0.32\n", s) && occursin(r"\n  T2 +free +:loglinear .+ required\n", s)
     @test endswith(s, "\n`nominal(m)` needs a value for T2: `nominal(m; T2 = value)`")
@@ -161,12 +164,18 @@ end
     @test freenames(setup(m; PSR = 0.1)) == (:R1f, :Sf, :M0f)
     @test setup(m; kmf = 15.0).fixed.kmf == 15.0
     @test setup(m; kmf = Fixed(15.0)).fixed.kmf == 15.0
-    # Free() estimates a fixed parameter: its fixed value becomes the start, no bounds
+    # Free() estimates a fixed parameter: its fixed value becomes the start, and its bounds are
+    # the ones its Fixed declares for when it is freed (QMTSIR's kmf ≥ 0), or none
     s = setup(m; kmf = Free())
     @test freenames(s) == (:PSR, :R1f, :Sf, :M0f, :kmf) && s.start.kmf == 12.5
-    @test s.lower[end] == -Inf && s.upper[end] == Inf
+    @test s.lower[end] == 0 && s.upper[end] == Inf
     s = setup(m; kmf = Free(start = 20.0, lower = 5, upper = 50))   # with start and bounds
     @test s.lower[end] == 5 && s.upper[end] == 50 && s.start.kmf == 20
+    s = setup(m; kmf = Free(start = 20.0))                         # a start alone keeps the bound
+    @test s.lower[end] == 0 && s.start.kmf == 20
+    @test setup(m; kmf = Free(lower = -Inf)).lower[end] == -Inf     # removed
+    @test setup(m; Mzf_td0 = Free()).lower[end] == -Inf            # declares none: no bound
+    @test setup(m; kmf = 15.0).fixed.kmf == 15.0                   # the bounds only apply when freed
     # Free(...) over a free parameter keeps whatever it leaves out
     s = setup(m; Sf = Free(lower = -1.5))
     @test s.lower[3] == -1.5 && s.upper[3] == 0 && s.start.Sf == -0.95
@@ -210,7 +219,7 @@ end
     @test keys(roles) == keys(parameters(m))
     @test roles.kmf isa Fixed && roles.kmf.value == 10.0 && roles.Sm.value == 0.9
     @test roles.PSR == parameters(m).PSR && roles.R1m == parameters(m).R1m
-    @test parameters(m; kmf = Free()).kmf.start == 12.5             # freed: starts at its value
+    @test parameters(m; kmf = Free()).kmf == Free(start = 12.5, lower = 0)   # freed: its value, its bound
     @test parameters(m; R1f = Free(lower = 0.5)).R1f == Free(start = 1.0, lower = 0.5, upper = 10.0)
     @test parameters(T1IR(TI = [0.1, 0.5, 1.0, 2.0]); T1 = Free(start = 1.0)).T1.start == 1.0
     # a model with its own `parameters(m)` method: its roles, changed

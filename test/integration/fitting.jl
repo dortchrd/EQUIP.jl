@@ -56,6 +56,17 @@ end
     res = fit(m, Y; Sm = sm)
     @test res.status[7] == EQUIP.InvalidData && isnan(res.params.PSR[7])
     @test all(isconverged, res.status[setdiff(1:n, 7)])
+    # kmf estimated stays ≥ 0, the bound QMTSIR's Fixed declares for when it is freed. Before it
+    # (2026-11-21), `kmf = Free()` had none: in these 200 voxels (SNR 30) 6 fits ended at a
+    # negative exchange rate, reported converged; the same data with the bound removed show it
+    rng = MersenneTwister(1)
+    θv = (PSR = 0.05 .+ 0.2 .* rand(rng, 200), R1f = 0.6 .+ 1.2 .* rand(rng, 200), Sf = fill(-0.95, 200),
+          M0f = fill(1000.0, 200), kmf = 5 .+ 15 .* rand(rng, 200), Sm = fill(0.83, 200), Mzf_td0 = zeros(200),
+          Mzm_td0 = zeros(200))
+    Yv = simulate(m, merge(θv, (R1m = θv.R1f,)); snr = 30, noise = :gaussian, rng = MersenneTwister(2))
+    @test count(<(0), fit(m, Yv; kmf = Free(lower = -Inf)).params.kmf) > 0
+    rv = fit(m, Yv; kmf = Free())
+    @test all(>=(0), rv.params.kmf) && all(isconverged, rv.status)
     # QMTSIREqualR1 is QMTSIR with its defaults built in: the same maps from noisy data, kmf
     # fixed and estimated, to the solver's tolerance (the two signals agree to rounding)
     ms = QMTSIREqualR1(TI = TI5, TD = TD5)
