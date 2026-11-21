@@ -1283,6 +1283,58 @@ table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser th
     fit with N > P at the 1e-4–1e-2 SD level (not bit for bit); a status of its own
     (`ConvergedS`?) rather than `ConvergedG`; and, for the exactly determined SIR schemes, a
     stop from σ when it is known (the Rician fits have it).
+- **Per-parameter tolerances, and tolerances from a sample** (the owner: "I worry sd poorly
+  determined for 5 pt fit - low dof. I wonder if we could do a config on some voxels to set opt
+  thresholds per instance. Also, how does this apply across parameters? Is it the worst case.
+  What we want is something like PSR - we only care about to 3 decimals"; then "prototype both").
+  - **Why**: the statistical stop's σ̂ comes from each voxel's N − P residual degrees of freedom:
+    1 for SIR's 5-point scheme with kmf fixed (σ̂²/σ² a χ²₁: above 3.8 in 5% of voxels, the stop
+    2× looser there; below 0.004 in 5%, stricter), none for the 4-point (and the 5-point with kmf
+    free). And its distance is joint, a worst case over every parameter and combination
+    (|Δⱼ| ≤ d·SEⱼ), so nuisance parameters (M0f, Sf) must converge as tightly as PSR.
+  - **`LM(atol = (PSR = 5e-4, ...))`**: stop when the undamped Gauss–Newton step, the remaining
+    change it predicts, is below each listed parameter's tolerance, in its own units. No σ, so
+    exactly determined fits too. Trusted only where the quadratic model is: no parameter on a
+    bound, and the last step's actual SSE decrease at least half the predicted one.
+  - **`stoptolerances(m, data; c = 0.01, n = 1000)`**: fit a random sample to full convergence,
+    pool σ̂ over it (ΣSSE/(n·(N − P))), and return c × each parameter's median standard error;
+    with N = P (no residuals), c × the spread of the sample's estimates (looser: it includes the
+    tissue's own variation). It costs 3–26 ms for 1000 voxels (the first call compiles: about
+    0.5 s), under 1% of a dataset's fit.
+  - **Measured** (prototypes/stopping/per_parameter.jl; the same data, reference and yardstick as
+    the statistical stop's), the calibrated tolerances on every parameter, µs a voxel at SNR 200
+    and 50, the worst voxel in 1000 in SD, the largest PSR change against the reference:
+
+    | model | default → calibrated, SNR 200; 50 | iterations (SNR 200) | 99.9th pct | largest ΔPSR (its tolerance) |
+    |---|---|---|---|---|
+    | QMTSIR, 4-point (N = P) | 2.16 → 1.35 (−37%); 1.81 → 1.39 (−23%) | 5.1 → 2.5 | 0.03–0.05 | 5.6e-4 (5.7e-4) |
+    | QMTSIR, 5-point, kmf fixed | 2.21 → 1.65 (−25%); 2.70 → 1.76 (−35%) | 6.0 → 2.9 | 0.009–0.011 | 3.7e-4 (3.5e-4) |
+    | QMTSIR, 5-point, kmf free (N = P) | 3.56 → 3.09 (−13%); 5.73 → 5.51 (−4%) | 8.8 → 5.6 | 0.01 | 2.7e-3 (2.5e-3) |
+    | QMTSIR, 16-point, kmf free | 8.10 → 6.22 (−23%); 12.5 → 9.2 (−27%) | 10.0 → 6.2 | 0.01–0.02 | 1.7e-4 at SNR 200 (7.5e-5) |
+    | T2, 32 echoes | 2.43 → 1.96 (−19%); 2.93 → 2.19 (−25%) | 3.3 → 1.2 | 0.006 | |
+    | T1IR | 2.99 → 2.66 (−11%); 3.07 → 2.74 (−11%) | 4.9 → 2.5 | 0.003 | |
+    | bi-exponential | 19.2 → 17.4 (−10%); 26.7 → 25.5 (−4%) | 23.5 → 19.3 | the default's own | |
+    | kurtosis | no gain (4.71 → 5.09; 4.87 → 4.87) | 15.2 → 12.8 | 0.008 | |
+
+    - **As fast as the statistical stop or faster, with tails 2–4× smaller** (T2 0.006 against
+      0.012–0.022; T1IR 0.003 against 0.022–0.025, where the statistical stop gained nothing),
+      and it works for the exactly determined SIR schemes (the 4-point: −23% to −37%), which the
+      statistical stop does not reach. Each parameter ends within about its tolerance.
+    - **PSR alone at 5e-4 is not safe**: with M0f, Sf and R1f untested, the Gauss–Newton step's
+      prediction for PSR is not to be trusted while they are far off, and voxels stop with PSR
+      0.1–0.9 away (99.9th percentile 0.7–6.7 SD). PSR at 5e-4 with the others at their
+      calibrated tolerances is as safe as the calibrated set (PSR ends within 5e-4), and no
+      faster: the others decide when to stop. So "PSR to 3 decimals" means PSR's tolerance set,
+      the others kept.
+    - **One degenerate voxel** (16-point, SNR 50; prototypes/stopping/degenerate_voxel.jl): every
+      looser rule leaves PSR 0.95 from the reference. The reference and the defaults end at
+      PSR 1.0, its bound, with kmf 0.33 (PSR and kmf trading along a flat valley; the truth PSR
+      0.057, kmf 10.1); the calibrated stop ends after 3 iterations at PSR 0.054, its SSE 0.15σ²
+      above. The data do not determine PSR there; 1 voxel in 10,000.
+    - **If adopted**: `stoptolerances` run inside `fit` (`LM(atol = :sample)`?) on the dataset's
+      own voxels, the tolerances recorded in the maps' sidecar; a status of its own; the user's
+      tolerances by name merged over the calibrated ones. The statistical stop would then not be
+      needed: this one is faster, safer in its tails, and covers N = P.
 
 ### Geodesic acceleration, prototyped (2026-11-21): slower, not adopted
 
