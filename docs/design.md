@@ -1173,6 +1173,41 @@ gen.jl, vf.jl, eq.jl, compare.jl).
   every model measured: priority 6, "Starts, across all models" (item 4), with these numbers as
   its baseline.
 
+### Batching: several voxels, or several observations, per instruction (2026-11-21)
+
+The owner: "what about batch fitting a bunch of voxels together to speed things up". Threads
+already split the voxels between cores; batching would use each core's vector instructions too
+(several numbers per instruction: 4 Float64 with AVX2, 8 with AVX-512, 2 on Apple's cores, twice
+as many in Float32). Measured on this machine (Xeon, AVX-512; bench/simd/, one thread):
+
+- **Julia's `exp` does not vectorize** (its table lookup and special cases): 3.3–3.8 ns a value
+  even over 4096 independent values, no faster than a fit's signal already gets (QMTSIREqualR1,
+  16 points: 3.5 ns an exponential, its arithmetic included). Batching with it would gain nothing
+  on the signal.
+- **A branch-free exp** (2ⁿ·eʳ, r by a two-part ln 2, a degree-12 polynomial; bench/simd/bexp.jl,
+  no range checks): 0.88 ns a value, 3.8× faster, vectorized 4 wide, to 2.2e-16.
+- **Across a voxel's observations** (no change to the solver: the `signal!` loop runs several
+  observations per instruction, with the dual numbers' exp given as the value's exp times the
+  partials): one QMTSIREqualR1 signal 2.8–4.3× faster plain, 1.6–1.8× with the fit's dual
+  numbers, the values unchanged. Whole fits (10,000 voxels, SNR 200): 4 points 0.94× (no gain),
+  5 points 1.06×, 16 points 1.39×; maps to 3e-8. With few observations the solver's own work
+  (steps, the 4 × 4 system, the start, the maps) is most of a fit.
+- **Across voxels** (W voxels in lockstep, every operation on W at once: what GPUs do, at a
+  larger scale): not built. It is the only way to vectorize the solver's work too, so its
+  ceiling is higher (the SIMD width, on the whole fit), but every voxel's own damping, accepted
+  and rejected steps, bounds and convergence become masks; a batch runs until its slowest voxel
+  stops unless finished lanes are refilled (iterations vary 3–30 for the bi-exponential); and
+  every function a model calls needs a vector version, users' `@mrimodel` models included. A
+  second solver, through item 11's `solve_voxel` hook. On Apple's cores, 2 Float64 per
+  instruction: at most 2× even in principle.
+- **Whether it matters**: QMTSIR's 4-point fit is 0.41 µs a voxel on 4 threads (0.4 s per million
+  voxels), less than reading and writing the files or starting Julia from MATLAB. The places it
+  would: models with many observations (T2 decays of 32 echoes, DTI and DKI, the 16-point SIR),
+  costly models (exact qMT, item 6), and the many fits of Monte Carlo and design studies.
+- **Next, if speed is wanted**: the branch-free exp inside the built-in models (an internal
+  `_exp` with its dual-number method; range checks added; Float32; measured over every model by
+  bench/speed.jl, and on an Apple machine) before anything across voxels.
+
 ## Variable projection (VarPro): proposed design
 
 Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
