@@ -1208,6 +1208,47 @@ as many in Float32). Measured on this machine (Xeon, AVX-512; bench/simd/, one t
   `_exp` with its dual-number method; range checks added; Float32; measured over every model by
   bench/speed.jl, and on an Apple machine) before anything across voxels.
 
+### Stopping tolerances against the noise (2026-11-21)
+
+The owner: "I also wonder if we can optimize levmar stop criteria somehow. Maybe do a few sample
+fits. Learn something about variance relative to stopping criteria and adjust". Six models, the
+same data fitted with a very tight reference (xtol 1e-14, ftol 1e-16, gtol 1e-15, 500
+iterations), the defaults (1e-8, 1e-12, 1e-10) and five looser settings, each a factor of about
+10–100 apart; how far each moves the estimates from the reference, in units of the parameter's
+statistical SD (the spread of the reference's errors over the voxels), and what it saves.
+10,000 voxels with varied truths a model, SNR 50 and 200, one thread (bench/stopping/; the whole
+table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser than the defaults:
+
+| model | µs a voxel, default → looser (SNR 200) | iterations | median |Δ|/SD | 99.9th percentile |Δ|/SD, SNR 200; 50 |
+|---|---|---|---:|---|
+| QMTSIR, 4-point | 1.78 → 1.43 (−20%) | 5.1 → 4.1 | 1e-5 | 1.4e-3; 3.9e-4 |
+| QMTSIR, 5-point, kmf free | 3.66 → 3.17 (−13%) | 8.7 → 7.4 | 8e-6 | 5.1e-4; 3.7e-3 |
+| T2, 32 echoes | 2.39 → 2.05 (−14%) | 3.3 → 2.2 | 1e-4 | 5.9e-3; 1.8e-3 |
+| T1IR | 2.93 → 2.59 (−12%) | 5.0 → 3.6 | 3e-5 | 1.2e-3; 4.9e-4 |
+| bi-exponential | 19.3 → 17.2 (−11%) | 23.4 → 20.8 | 2e-5 | 3.1e-2; 2.1 (the default's: 1.9) |
+| kurtosis | 4.72 → 4.22 (−11%) | 15.2 → 13.3 | 1e-4 | **68; 17** (the default's: 3e-6; 1e-6) |
+
+- **The defaults are about a million times tighter than the noise needs** for the typical voxel:
+  the median voxel moves by 1e-8 SD between the reference and the defaults, and by 1e-5 to 1e-4
+  SD at 100–1000× looser tolerances.
+- **But loosening saves only 10–20%**: most iterations are spent reaching the basin, not
+  polishing within it (QMTSIR's 4-point still takes 2.6 iterations at 1e-2).
+- **And the tails decide**: in flat, curved valleys a step-size test fires far from the minimum,
+  because LM's damped step is short when the damping is large, not when the fit is close.
+  Kurtosis at (1e-5, 1e-8, 1e-6): 1 voxel in 1000 stops 17–68 SD away; even at (1e-6, 1e-10,
+  1e-8), 3.7 SD at SNR 50. The bi-exponential at SNR 50 already has such voxels at the defaults
+  (1.9 SD, its reference needing 64 iterations on average). So uniformly looser defaults are not
+  safe: not adopted.
+- **The statistical criterion, proposed (not built)**: stop when the Gauss–Newton decrement,
+  the SSE the undamped Gauss–Newton step would still gain, gᵀ(JᵀJ)⁻¹g, is below c²·σ̂² (the
+  remaining distance to the minimum, in standard errors, below c; c = 0.01 to 0.05), with
+  σ̂² = SSE/(N − P), or σ when it is given. Unlike the step test it measures distance in the
+  data's own metric, so a short damped step in a flat valley does not stop it, and it is the
+  same for every parameterization. It costs one P×P Cholesky an iteration (small for P ≤ 8).
+  Exactly determined fits (N = P: SIR's 4-point with kmf fixed, the 5-point with it free) have no
+  σ̂ (their SSE goes to 0): the present rules there, or σ given. To prototype and measure with
+  this study: iterations, and the 99.9th percentile against the reference.
+
 ## Variable projection (VarPro): proposed design
 
 Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
