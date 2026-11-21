@@ -1335,6 +1335,32 @@ table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser th
       own voxels, the tolerances recorded in the maps' sidecar; a status of its own; the user's
       tolerances by name merged over the calibrated ones. The statistical stop would then not be
       needed: this one is faster, safer in its tails, and covers N = P.
+  - **Scaled per voxel instead, two ways** (the owner: "maybe we bake atol as percent of
+    parameter's value instead of absolute to account for scaling"; then "prototype it";
+    prototypes/stopping/relative_se.jl, nine models with T2 + offset, whose C goes to 0):
+    `LM(rtol)`, each tolerance a fraction of the parameter's value in the voxel (calibrated:
+    c × the sample's median SE/|value|); and `LM(setol = c, sigma = σ)`, a fraction of the
+    voxel's own standard error σ·√((JᵀWJ)⁻¹)ⱼⱼ, every parameter tested, σ pooled over the sample
+    (`stopsigma`) or given (the simulation's own here, for the schemes with no residuals). At
+    c = 0.01, against the calibrated absolute tolerances:
+    - **The same iterations** in every model (the stops fire within a fraction of an iteration
+      of each other); the standard-error rule 5–20% slower (one triangular solve a parameter at
+      each accepted step), the relative one as fast as the absolute.
+    - **Larger tails, both**: the relative rule's worst voxels 1.5–3× the absolute rule's (SIR
+      4-point 0.03–0.07 SD against 0.03–0.05; 5-point, kmf free, 0.03–0.04 against 0.01; T1IR
+      0.005 against 0.003), and the standard-error rule's up to 10–60× (5-point, kmf free,
+      0.2–0.6 SD, PSR moving by up to 0.95; the bi-exponential 0.23–0.25; T1IR 0.03): it is
+      exact to its promise, within c of each voxel's own SE, but where a parameter is poorly
+      determined that SE is large, and the stop lets the fit go far in the population's terms,
+      which are what a map is judged by ("PSR to 3 decimals" is a precision in PSR's units).
+    - The offset near 0 did not hurt the relative rule (its tolerance shrinks with C, so those
+      voxels run on to the other rules).
+    - The pooled σ equals the true one to 0–9% (the bi-exponential at SNR 200 9% high: misfits
+      and other minima in the sample), and gives the same fits as σ given.
+    - **So the calibrated absolute tolerances stay the choice**: as fast, the smallest tails,
+      the simplest, and in the units the maps are read in. The scaling across voxels that the
+      relative rule addresses (T2 from 20 to 300 ms) did not show as a problem (T2's worst
+      voxels 0.006 SD absolute, 0.004–0.009 relative).
 
 ### Geodesic acceleration, prototyped (2026-11-21): slower, not adopted
 
