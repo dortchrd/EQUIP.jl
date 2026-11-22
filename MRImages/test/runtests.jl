@@ -10,10 +10,11 @@ tmp(name) = joinpath(DIR, name)
 
 # A NIfTI file written with NIfTI.jl directly: a chosen geometry, data type and scaling.
 function niftifile(name, raw; voxel_size = (2.0f0, 2.0f0, 3.0f0), slope = 1.0f0, inter = 0.0f0,
-                   orientation = Float32[2 0 0 -10; 0 2 0 -20; 0 0 3 5])
+                   orientation = Float32[2 0 0 -10; 0 2 0 -20; 0 0 3 5], time_step = 0.0f0,
+                   xyzt_units = UInt8(18))                 # NIfTI.jl's default: mm and ms
     p = tmp(name)
     NIfTI.niwrite(p, NIfTI.NIVolume(raw; voxel_size, scl_slope = slope, scl_inter = inter,
-                                    orientation))
+                                    orientation, time_step, xyzt_units))
     return p
 end
 
@@ -178,6 +179,23 @@ end
     @test Dict(headerinfo(q))["stored as"] == "Float32, no scaling"
     @test Dict(headerinfo(MRImage(rand(3, 4))))["geometry"] == "none (an array from a MATLAB file)"
     @test_throws ArgumentError headerinfo(tmp("none.nii"))
+    # Units the header leaves unknown (code 0, as MATLAB's niftiwrite and other tools leave them):
+    # `headerinfo` used to fail on an unknown time unit (NIfTI.jl's `time_step` indexes its table
+    # with it: an owner's SIR data, 2026-11-22, made `equip info` fail), and to show a 1-mm voxel
+    # as 0.001 mm (NIfTI.jl's `voxel_size` takes unknown for microns); unknown is taken as mm
+    u = niftifile("units0.nii", rand(Float32, 2, 2, 2, 3); voxel_size = (1.0f0, 1.0f0, 1.0f0),
+                  time_step = 2.5f0, xyzt_units = 0x00)
+    hu = Dict(headerinfo(u))
+    @test startswith(hu["voxel size"], "1×1×1 mm") && occursin("unknown", hu["voxel size"])
+    @test startswith(hu["time step"], "2.5 ") && occursin("unknown", hu["time step"])
+    @test voxelsize(readimage(u)) == (1.0, 1.0, 1.0)
+    # known units: the time step in seconds from s and from ms, a voxel size in µm in mm
+    s = niftifile("units_s.nii", rand(Float32, 2, 2, 2, 3); time_step = 2.5f0, xyzt_units = 0x0a)
+    @test Dict(headerinfo(s))["time step"] == "2.5 s (pixdim[5])"
+    ms = niftifile("units_ms.nii", rand(Float32, 2, 2, 2, 3); time_step = 2500.0f0)
+    @test Dict(headerinfo(ms))["time step"] == "2.5 s (pixdim[5])"
+    um = niftifile("units_um.nii", rand(Float32, 2, 2, 2); voxel_size = (500.0f0, 500.0f0, 1000.0f0), xyzt_units = 0x03)
+    @test voxelsize(readimage(um)) == (0.5, 0.5, 1.0)
 end
 
 @testset "MATLAB files need MAT" begin

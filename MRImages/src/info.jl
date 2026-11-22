@@ -81,16 +81,18 @@ function headerinfo(h::NIfTIHeader)
     nd = Int(h.dim[1])
     sz = ntuple(i -> Int(h.dim[i+1]), nd)
     A = Float64.(NIfTI.getaffine(h))
-    vs = NIfTI.voxel_size(h)
+    vs = _voxelsize(h)
     info = Pair{String,String}[
         "size" => join(sz, "×"),
-        "voxel size" => join(_short.(Float64.(vs)), "×") * " mm",
+        "voxel size" => join(_short.(vs), "×") * " mm" *
+                        (_spaceunit(h) == 0 ? "  (the header's units are unknown: taken as mm)" : ""),
         "axes" => join(_axcodes(A), ", ") * "  (the direction each index increases toward)",
         "affine" => join((join(_short.(A[i, :]), " ") for i in 1:3), "; "),
         "sform, qform" => _xform(h.sform_code) * ", " * _xform(h.qform_code),
         "stored as" => string(NIfTI.to_eltype(h.datatype)) * ", " * _scaling(h)]
     if nd >= 4 && h.pixdim[5] > 0
-        push!(info, "time step" => _short(NIfTI.time_step(h) / 1000) * " s (pixdim[5])")
+        push!(info, "time step" => _timeunit(h) == 0 ? _short(h.pixdim[5]) * " (pixdim[5]; the header's units are unknown)" :
+                                   _short(_timestep(h)) * " s (pixdim[5])")
     end
     h.intent_code != 0 && push!(info, "intent" => string(h.intent_code))
     d = _text(h.descrip)
@@ -98,6 +100,22 @@ function headerinfo(h::NIfTIHeader)
     push!(info, "format" => h isa NIfTI.NIfTI2Header ? "NIfTI-2" : "NIfTI-1")
     return info
 end
+
+# The header's units (NIfTI-1: xyzt_units, the spatial code in bits 0–2, the temporal in bits
+# 3–5). Written by hand rather than with NIfTI.jl's `voxel_size` and `time_step`: those take an
+# unknown spatial unit (code 0) for microns, showing a 1-mm voxel as 0.001 mm, and fail on an
+# unknown temporal one (an index 0 into their table), as in files that MATLAB's niftiwrite or
+# other tools leave without units (an owner's SIR data, 2026-11-22). Unknown spatial units are
+# taken as mm, as nibabel and FSL read them.
+_spaceunit(h) = Int(h.xyzt_units & 0x07)
+_timeunit(h) = Int(h.xyzt_units & 0x38)
+_spacescale(h) = (u = _spaceunit(h); u == 1 ? 1000.0 : u == 3 ? 0.001 : 1.0)      # metres, µm; mm or unknown
+function _voxelsize(h)
+    n = clamp(Int(h.dim[1]), 0, 3)
+    return ntuple(i -> Float64(h.pixdim[i+1]) * _spacescale(h), n)
+end
+# The time step in seconds (codes 8 s, 16 ms, 24 µs); NaN for a unit that is not a time (Hz, ...)
+_timestep(h) = (u = _timeunit(h); Float64(h.pixdim[5]) * (u == 8 ? 1.0 : u == 16 ? 1e-3 : u == 24 ? 1e-6 : NaN))
 
 _scaling(h) = (h.scl_slope == 0 || (h.scl_slope == 1 && h.scl_inter == 0)) ? "no scaling" :
     "value = $(_short(h.scl_slope)) × stored + $(_short(h.scl_inter))"
