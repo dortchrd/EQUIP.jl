@@ -1248,6 +1248,119 @@ table in tolerances_results.md). With (1e-5, 1e-8, 1e-6), 100–1000× looser th
   Exactly determined fits (N = P: SIR's 4-point with kmf fixed, the 5-point with it free) have no
   σ̂ (their SSE goes to 0): the present rules there, or σ given. To prototype and measure with
   this study: iterations, and the 99.9th percentile against the reference.
+- **The statistical stop, prototyped** (the owner: "let's try statistical stopping"; branch
+  `stopping-proto`, prototypes/stopping/): `LM(ctol = c)`, the test above added to the present
+  ones (defaults unchanged), at each accepted point; reported as `ConvergedG`. Its first version
+  measured the decrement over the parameters free to move, and so passed with a parameter held
+  on a bound: kurtosis from its default start can sit with K on its bound 3 and the others at
+  their best given it, an SSE 10⁴ times the minimum's, and 1 voxel in 1000 stopped there,
+  "converged", 600–900 of its own standard errors away (the default rules run on there and
+  report MaxIterations). Now not while any parameter is held on a bound; then kurtosis's largest
+  deviation is 0.0099 of its own SE at c = 0.01 (0.099 at 0.1), as promised. Same study, the
+  models with more observations than parameters, c = 0.01:
+
+  | model | µs a voxel, default → statistical (SNR 200; 50) | iterations (SNR 200) | 99.9th pct |Δ|/SD, SNR 200; 50 |
+  |---|---|---|---|
+  | QMTSIR, 16-point, kmf free | 8.04 → 6.30 (−22%); 12.5 → 8.6 (−32%) | 10.0 → 6.2 | 0.034; 0.16 |
+  | QMTSIR, 5-point, kmf fixed | 2.34 → 1.87 (−20%); 2.72 → 1.99 (−27%) | 6.0 → 3.1 | 0.024; 0.042 |
+  | T2, 32 echoes | 2.47 → 1.98 (−20%); 2.88 → 2.21 (−23%) | 3.3 → 1.1 | 0.023; 0.014 |
+  | T1IR | 2.91 → 2.70 (−7%); 3.03 → 2.68 (−12%) | 4.9 → 2.5 | 0.026; 0.023 |
+  | bi-exponential | 18.8 → 17.9 (−5%); 27.4 → 24.5 (−11%) | 23.2 → 18.5 | 1.5; 2.9 (the default's 1.0; 2.6) |
+  | kurtosis | 4.75 → 5.01 (+5%); 4.89 → 4.96 | 15.2 → 12.8 | 0.022; 0.026 |
+
+  - **Up to a third faster** where a fit takes several iterations to polish (SIR with many
+    points, the 5-point, T2), with the typical voxel moved by 1e-4 to 1e-3 SD and the worst in
+    1000 by 0.01–0.16 SD.
+  - **The tails stay where the defaults have them**: the bi-exponential's are voxels where the
+    reference, run to 500 iterations, reaches another minimum (the same voxels at c = 0.01 and
+    0.1, so not a stopping effect); kurtosis's are now 0.02 SD, against 17–69 SD with uniformly
+    looser tolerances, which can be as fast elsewhere (SIR 5-point: 1.68 µs) but are not safe.
+  - **Kurtosis gains nothing** (+5%, within the noise): its iterations go to the valleys, and the
+    extra Cholesky an iteration is a larger share of a cheap model.
+  - c = 0.1: a few percent faster again, but the worst voxels 0.1–2.6 SD away (SIR 16-point at
+    SNR 50); c = 0.01 is the choice if adopted.
+  - **To decide with the owner**: whether to make it the default (c = 0.01), which changes every
+    fit with N > P at the 1e-4–1e-2 SD level (not bit for bit); a status of its own
+    (`ConvergedS`?) rather than `ConvergedG`; and, for the exactly determined SIR schemes, a
+    stop from σ when it is known (the Rician fits have it).
+- **Per-parameter tolerances, and tolerances from a sample** (the owner: "I worry sd poorly
+  determined for 5 pt fit - low dof. I wonder if we could do a config on some voxels to set opt
+  thresholds per instance. Also, how does this apply across parameters? Is it the worst case.
+  What we want is something like PSR - we only care about to 3 decimals"; then "prototype both").
+  - **Why**: the statistical stop's σ̂ comes from each voxel's N − P residual degrees of freedom:
+    1 for SIR's 5-point scheme with kmf fixed (σ̂²/σ² a χ²₁: above 3.8 in 5% of voxels, the stop
+    2× looser there; below 0.004 in 5%, stricter), none for the 4-point (and the 5-point with kmf
+    free). And its distance is joint, a worst case over every parameter and combination
+    (|Δⱼ| ≤ d·SEⱼ), so nuisance parameters (M0f, Sf) must converge as tightly as PSR.
+  - **`LM(atol = (PSR = 5e-4, ...))`**: stop when the undamped Gauss–Newton step, the remaining
+    change it predicts, is below each listed parameter's tolerance, in its own units. No σ, so
+    exactly determined fits too. Trusted only where the quadratic model is: no parameter on a
+    bound, and the last step's actual SSE decrease at least half the predicted one.
+  - **`stoptolerances(m, data; c = 0.01, n = 1000)`**: fit a random sample to full convergence,
+    pool σ̂ over it (ΣSSE/(n·(N − P))), and return c × each parameter's median standard error;
+    with N = P (no residuals), c × the spread of the sample's estimates (looser: it includes the
+    tissue's own variation). It costs 3–26 ms for 1000 voxels (the first call compiles: about
+    0.5 s), under 1% of a dataset's fit.
+  - **Measured** (prototypes/stopping/per_parameter.jl; the same data, reference and yardstick as
+    the statistical stop's), the calibrated tolerances on every parameter, µs a voxel at SNR 200
+    and 50, the worst voxel in 1000 in SD, the largest PSR change against the reference:
+
+    | model | default → calibrated, SNR 200; 50 | iterations (SNR 200) | 99.9th pct | largest ΔPSR (its tolerance) |
+    |---|---|---|---|---|
+    | QMTSIR, 4-point (N = P) | 2.16 → 1.35 (−37%); 1.81 → 1.39 (−23%) | 5.1 → 2.5 | 0.03–0.05 | 5.6e-4 (5.7e-4) |
+    | QMTSIR, 5-point, kmf fixed | 2.21 → 1.65 (−25%); 2.70 → 1.76 (−35%) | 6.0 → 2.9 | 0.009–0.011 | 3.7e-4 (3.5e-4) |
+    | QMTSIR, 5-point, kmf free (N = P) | 3.56 → 3.09 (−13%); 5.73 → 5.51 (−4%) | 8.8 → 5.6 | 0.01 | 2.7e-3 (2.5e-3) |
+    | QMTSIR, 16-point, kmf free | 8.10 → 6.22 (−23%); 12.5 → 9.2 (−27%) | 10.0 → 6.2 | 0.01–0.02 | 1.7e-4 at SNR 200 (7.5e-5) |
+    | T2, 32 echoes | 2.43 → 1.96 (−19%); 2.93 → 2.19 (−25%) | 3.3 → 1.2 | 0.006 | |
+    | T1IR | 2.99 → 2.66 (−11%); 3.07 → 2.74 (−11%) | 4.9 → 2.5 | 0.003 | |
+    | bi-exponential | 19.2 → 17.4 (−10%); 26.7 → 25.5 (−4%) | 23.5 → 19.3 | the default's own | |
+    | kurtosis | no gain (4.71 → 5.09; 4.87 → 4.87) | 15.2 → 12.8 | 0.008 | |
+
+    - **As fast as the statistical stop or faster, with tails 2–4× smaller** (T2 0.006 against
+      0.012–0.022; T1IR 0.003 against 0.022–0.025, where the statistical stop gained nothing),
+      and it works for the exactly determined SIR schemes (the 4-point: −23% to −37%), which the
+      statistical stop does not reach. Each parameter ends within about its tolerance.
+    - **PSR alone at 5e-4 is not safe**: with M0f, Sf and R1f untested, the Gauss–Newton step's
+      prediction for PSR is not to be trusted while they are far off, and voxels stop with PSR
+      0.1–0.9 away (99.9th percentile 0.7–6.7 SD). PSR at 5e-4 with the others at their
+      calibrated tolerances is as safe as the calibrated set (PSR ends within 5e-4), and no
+      faster: the others decide when to stop. So "PSR to 3 decimals" means PSR's tolerance set,
+      the others kept.
+    - **One degenerate voxel** (16-point, SNR 50; prototypes/stopping/degenerate_voxel.jl): every
+      looser rule leaves PSR 0.95 from the reference. The reference and the defaults end at
+      PSR 1.0, its bound, with kmf 0.33 (PSR and kmf trading along a flat valley; the truth PSR
+      0.057, kmf 10.1); the calibrated stop ends after 3 iterations at PSR 0.054, its SSE 0.15σ²
+      above. The data do not determine PSR there; 1 voxel in 10,000.
+    - **If adopted**: `stoptolerances` run inside `fit` (`LM(atol = :sample)`?) on the dataset's
+      own voxels, the tolerances recorded in the maps' sidecar; a status of its own; the user's
+      tolerances by name merged over the calibrated ones. The statistical stop would then not be
+      needed: this one is faster, safer in its tails, and covers N = P.
+  - **Scaled per voxel instead, two ways** (the owner: "maybe we bake atol as percent of
+    parameter's value instead of absolute to account for scaling"; then "prototype it";
+    prototypes/stopping/relative_se.jl, nine models with T2 + offset, whose C goes to 0):
+    `LM(rtol)`, each tolerance a fraction of the parameter's value in the voxel (calibrated:
+    c × the sample's median SE/|value|); and `LM(setol = c, sigma = σ)`, a fraction of the
+    voxel's own standard error σ·√((JᵀWJ)⁻¹)ⱼⱼ, every parameter tested, σ pooled over the sample
+    (`stopsigma`) or given (the simulation's own here, for the schemes with no residuals). At
+    c = 0.01, against the calibrated absolute tolerances:
+    - **The same iterations** in every model (the stops fire within a fraction of an iteration
+      of each other); the standard-error rule 5–20% slower (one triangular solve a parameter at
+      each accepted step), the relative one as fast as the absolute.
+    - **Larger tails, both**: the relative rule's worst voxels 1.5–3× the absolute rule's (SIR
+      4-point 0.03–0.07 SD against 0.03–0.05; 5-point, kmf free, 0.03–0.04 against 0.01; T1IR
+      0.005 against 0.003), and the standard-error rule's up to 10–60× (5-point, kmf free,
+      0.2–0.6 SD, PSR moving by up to 0.95; the bi-exponential 0.23–0.25; T1IR 0.03): it is
+      exact to its promise, within c of each voxel's own SE, but where a parameter is poorly
+      determined that SE is large, and the stop lets the fit go far in the population's terms,
+      which are what a map is judged by ("PSR to 3 decimals" is a precision in PSR's units).
+    - The offset near 0 did not hurt the relative rule (its tolerance shrinks with C, so those
+      voxels run on to the other rules).
+    - The pooled σ equals the true one to 0–9% (the bi-exponential at SNR 200 9% high: misfits
+      and other minima in the sample), and gives the same fits as σ given.
+    - **So the calibrated absolute tolerances stay the choice**: as fast, the smallest tails,
+      the simplest, and in the units the maps are read in. The scaling across voxels that the
+      relative rule addresses (T2 from 20 to 300 ms) did not show as a problem (T2's worst
+      voxels 0.006 SD absolute, 0.004–0.009 relative).
 
 ### Geodesic acceleration, prototyped (2026-11-21): slower, not adopted
 
@@ -1282,6 +1395,61 @@ allocated; the defaults' path unchanged. 10,000 voxels with varied truths a mode
   exponentials, many parameters). A good start (BestOf, item 4) or the linear parameters solved
   (VarPro) attack the same valleys at less cost.
 - Not adopted. The branch keeps the code, to delete or to fold into `experiments`.
+
+### Voxels a poor mask lets in (2026-11-22)
+
+The owner: "what about max iters? ever hit that, for my macbook example, that took 10 sec lots
+of voxels in background and bone etc outside of brain - think those may be slower", "from poor
+mask". QMTSIR, the owner's 4-point protocol (TI 1007, 10, 278, 10 ms; TD 10, 4174, 2730, 684 ms),
+kmf 12.5, magnitude data with σ = 10 (bench/mask/):
+
+| voxels (10,000 a class, one thread) | µs a voxel | iterations | the 100-iteration cap | ending on a bound |
+|---|---:|---:|---:|---:|
+| white matter (M0f 1000, SNR 100) | 1.86 | 4.8 | 0% | 0% |
+| grey matter | 2.02 | 5.4 | 0% | 0% |
+| CSF-like (PSR 0, T1 4 s) | 6.22 | 18.3 | 0% | 51% |
+| weak signal (M0f 3σ) | 5.70 | 16.6 | 0% | 82% |
+| background (noise only) | 7.14 | 20.5 | 0% | 95% |
+
+- **The cap is not hit** (a 128×128×30 volume, half background: 106 of 491,520 voxels, 0.02%),
+  but what a poor mask lets in costs 3–4× a tissue voxel, and is reported converged though it
+  mostly ends on a bound, with meaningless values (`onbound` flags them; the maps show them).
+- **End to end, the fit is not what takes the time**: `equip fit` on that volume (4 threads,
+  this container), 4.1–4.7 s with every voxel in the mask, 3.6–4.0 s with the head's only, and
+  `equip fit QMTSIR --help`, which fits nothing, 1.9–3.1 s. So the background adds about 0.6 s
+  (15%) here, and Julia's start and loading EQUIP, with the files read and written, are most of
+  a call: on the owner's MacBook Air a call took about 10 s whatever it did (the open timing
+  question in status.md).
+- **On the owner's own data** (2026-11-22: 5 sagittal slices, 512×512, of a 4-point SIR scan,
+  and its mask; not kept in the repository): the mask held the whole head, 31% of each slice,
+  and no voxel of noise only (all above 10σ, σ = 26 from the background's median; its mean
+  square gave 290, tissue outside the mask), so the background was not the cost. But the scalp,
+  skull, face and neck were in it: there 23% of the fits ended with PSR at 0, 5% with R1f at its
+  floor (T1 20 s), 2% with Sf on a bound, and 10% fitted with SSE above 100σ² (no SIR curve
+  fits them; 4 points, 4 parameters); the brain's fits were clean. Those voxels took 12–23
+  iterations against about 5. End to end on this container (4 threads): `--help` 1.8–2.0 s, the
+  fit command 4.1–4.5 s; inside it, warm, reading 0.3 s, fitting 0.7 s, writing the six maps
+  gzipped 0.55 s (a map 0.28 s gzipped, 0.007 s uncompressed), and the first call in a process
+  compiles the reading and writing (1.7 and 4.1 s in a script). So a brain mask (BET on the
+  TI 10, TD 4174 ms image) and uncompressed or faster-compressed maps would cut it, after the
+  start-up. And `equip info` failed on the data file (units left unknown in its header):
+  fixed on branch `nifti-units` (MRImages read units by hand).
+  **The whole scan is 80 slices, not 5** (the owner): the 5 repeated 16 times (512×512×80, 4
+  volumes, Float64 as theirs, 640 MB; 6.5 million voxels in the mask), 4 threads, warm: reading
+  1.4–2.9 s, **fitting 9.3–10.2 s, writing the six maps gzipped 6.8–9.8 s**, against about 2 s
+  of start-up. So at full size the fit and the gzip are most of a call. Writing: about 1 s a
+  map (21 million Float32 values; zlib's own speed: compressing the bytes in one pass, 1.0 s);
+  level 1 only 20% faster; the six maps compressed in parallel 1.4× (4.6 s); uncompressed
+  0.13–0.27 s a map but 84 MB each. Fitting: the voxels that end on a bound or fit badly are
+  31% of the mask and 52% of the iterations (23.5 each against 9.6), so a brain mask would
+  halve the fit or better; `QMTSIREqualR1` gives the same maps on these data (PSR to 1.6e-6
+  over 408,591 voxels) at about 0.75× the time; the calibrated stopping tolerances (prototype)
+  about 0.75× again; the data stored as Float32 would halve the read.
+- **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
+  masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
+  their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
+  image's robust maximum; and, for the start-up, a resident Julia server or a precompiled system
+  image for the command line (item 10). A smaller `maxiter` would not: nothing reaches it.
 
 ## Variable projection (VarPro): proposed design
 
