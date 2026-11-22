@@ -1396,6 +1396,36 @@ allocated; the defaults' path unchanged. 10,000 voxels with varied truths a mode
   (VarPro) attack the same valleys at less cost.
 - Not adopted. The branch keeps the code, to delete or to fold into `experiments`.
 
+### Voxels a poor mask lets in (2026-11-22)
+
+The owner: "what about max iters? ever hit that, for my macbook example, that took 10 sec lots
+of voxels in background and bone etc outside of brain - think those may be slower", "from poor
+mask". QMTSIR, the owner's 4-point protocol (TI 1007, 10, 278, 10 ms; TD 10, 4174, 2730, 684 ms),
+kmf 12.5, magnitude data with σ = 10 (bench/mask/):
+
+| voxels (10,000 a class, one thread) | µs a voxel | iterations | the 100-iteration cap | ending on a bound |
+|---|---:|---:|---:|---:|
+| white matter (M0f 1000, SNR 100) | 1.86 | 4.8 | 0% | 0% |
+| grey matter | 2.02 | 5.4 | 0% | 0% |
+| CSF-like (PSR 0, T1 4 s) | 6.22 | 18.3 | 0% | 51% |
+| weak signal (M0f 3σ) | 5.70 | 16.6 | 0% | 82% |
+| background (noise only) | 7.14 | 20.5 | 0% | 95% |
+
+- **The cap is not hit** (a 128×128×30 volume, half background: 106 of 491,520 voxels, 0.02%),
+  but what a poor mask lets in costs 3–4× a tissue voxel, and is reported converged though it
+  mostly ends on a bound, with meaningless values (`onbound` flags them; the maps show them).
+- **End to end, the fit is not what takes the time**: `equip fit` on that volume (4 threads,
+  this container), 4.1–4.7 s with every voxel in the mask, 3.6–4.0 s with the head's only, and
+  `equip fit QMTSIR --help`, which fits nothing, 1.9–3.1 s. So the background adds about 0.6 s
+  (15%) here, and Julia's start and loading EQUIP, with the files read and written, are most of
+  a call: on the owner's MacBook Air a call took about 10 s whatever it did (the open timing
+  question in status.md).
+- **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
+  masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
+  their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
+  image's robust maximum; and, for the start-up, a resident Julia server or a precompiled system
+  image for the command line (item 10). A smaller `maxiter` would not: nothing reaches it.
+
 ## Variable projection (VarPro): proposed design
 
 Status: proposed, not implemented. Prototype on branch `varpro-proto` (`prototypes/varpro/`,
