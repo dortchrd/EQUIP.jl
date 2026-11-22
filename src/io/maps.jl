@@ -26,6 +26,8 @@ are Float32, NaN outside the mask. Returns the files written.
 - `format = :nifti` (the default for NIfTI data): one file per map, `prefix * "T2map.nii.gz"`,
   in the data's geometry (or in `like`'s, an [`MRImage`](@ref) of the same size: for data from
   a MATLAB file), each with a JSON sidecar.
+- `compress = false`: PROTOTYPE (stopping-proto). NIfTI maps uncompressed (`.nii`): about 0.2 s
+  a map of 21 million voxels, against about 1 s gzipped, but 4–5× the disk.
 - `format = :mat` (the default for data from a MATLAB file; needs `using MAT`): one file,
   `prefix * "maps.mat"`, a variable per map in the data's own shape, and `prefix * "maps.json"`.
 
@@ -36,16 +38,17 @@ given (`"Fit"`: the keywords, the precision, the weights), every parameter as th
 "R1f"}`; null for no bound), EQUIP's version; `sidecar`'s entries are added (and win: the
 command line adds the command and the data files).
 """
-writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
+writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; compress::Bool = true, stderror::Bool = false,
           sidecar::AbstractDict = Dict{String,Any}(), like::Union{Nothing,MRImage} = nothing,
           format::Symbol = :auto) =
-    _writemaps(String(prefix), res, info, stderror, Dict{String,Any}(sidecar), like, format)
+    _writemaps(String(prefix), res, info, stderror, Dict{String,Any}(sidecar), like, format, compress)
 
 # Compiled once for any FitResult (`@nospecialize`): a result's type records the fit's settings
 # (which keywords were given, a mask or not), so each combination would compile this again (0.55
 # s a command, measured); reading its fields dynamically costs microseconds.
 function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo, stderror::Bool,
-                    sidecar::Dict{String,Any}, like::Union{Nothing,MRImage}, format::Symbol)
+                    sidecar::Dict{String,Any}, like::Union{Nothing,MRImage}, format::Symbol,
+                    compress::Bool = true)
     _onevoxel(res) && throw(ArgumentError("writemaps writes a dataset fit's maps; this result " *
                                           "is one voxel's"))
     sz = size(res.status)
@@ -85,7 +88,7 @@ function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInf
     for (name, a) in maps
         img = MRImage(a, geometry; meta = merge(Dict{String,Any}("Map" => name), car),
                       descrip = "EQUIP " * name)
-        push!(files, writeimage(prefix * name * ".nii.gz", img))
+        push!(files, writeimage(prefix * name * (compress ? ".nii.gz" : ".nii"), img))
     end
     return files
 end

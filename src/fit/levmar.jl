@@ -59,6 +59,7 @@ Outcome of one voxel fit: `res.status` of a [`FitResult`](@ref) (a map of them f
 | 4    | `MaxIterations` | reached `maxiter` without converging                  |
 | 5    | `Failed`        | model or derivatives not finite at the starting point |
 | 6    | `InvalidData`   | data, a fixed-map value or a start value is NaN/Inf   |
+| 7    | `StalledOnBound`| PROTOTYPE: stopped on a bound, the SSE no longer improving (`LM(stall = true)`) |
 
 `FitStatus(code)` converts a code back to its name.
 """
@@ -70,6 +71,7 @@ Outcome of one voxel fit: `res.status` of a [`FitResult`](@ref) (a map of them f
     MaxIterations = 4
     Failed = 5
     InvalidData = 6
+    StalledOnBound = 7                  # PROTOTYPE (stopping-proto): LM(stall = true)
 end
 # `@enum` makes a type whose values are named constants; `::UInt8` stores them in one byte.
 
@@ -98,6 +100,11 @@ Settings of the Levenberg–Marquardt solver, for the `solver` keyword of [`fit`
   would still gain, below ctol²·σ̂², with σ̂² = SSE/(N − P). Off (`nothing`) by default; only
   with more observations than free parameters (σ̂ is undefined otherwise). Reported as
   `ConvergedG`.
+- `stall`: PROTOTYPE (branch stopping-proto). Stop a fit that has stalled on a bound: the set of
+  parameters held on bounds unchanged for `stallsteps` accepted steps (3) and the SSE lowered by
+  less than `stalltol` (0.1%) of itself over them. Status `StalledOnBound` (not converged). No
+  noise level and no tolerance per model: for the voxels a poor mask lets in (background,
+  scalp, bone), which end on bounds and crawl along them; fits inside the box are untouched.
 - `atol`: PROTOTYPE (branch stopping-proto). Per-parameter absolute tolerances, by name, in each
   parameter's own units: `LM(atol = (PSR = 5e-4,))` stops when the undamped Gauss–Newton step,
   the remaining change it predicts, is below 5e-4 in PSR (PSR right to 3 decimals). Parameters
@@ -125,6 +132,9 @@ Base.@kwdef struct LM
     rtol::Union{Nothing,NamedTuple} = nothing       # PROTOTYPE: ... as fractions of the values
     setol::Union{Nothing,Float64} = nothing         # PROTOTYPE: ... as a fraction of each standard error
     sigma::Union{Nothing,Float64} = nothing         #     with this noise SD
+    stall::Bool = false                             # PROTOTYPE: stop a fit stalled on a bound
+    stallsteps::Int = 3
+    stalltol::Float64 = 1e-3
 end
 
 # The solver's own copy of the settings, in the working precision T, with the defaults filled in.
@@ -135,6 +145,9 @@ struct SolverOptions{T<:AbstractFloat}
     gtol::T
     damping::T
     ctol::T                                         # 0: off
+    stall::Bool
+    stallsteps::Int32
+    stalltol::T
 end
 
 _default_tols(::Type{Float64}) = (1e-8, 1e-12, 1e-10)
@@ -144,7 +157,8 @@ _default_tols(::Type{Float32}) = (1f-5, 1f-6, 1f-5)
 function SolverOptions{T}(s::LM) where {T}
     dx, df, dg = _default_tols(T)
     return SolverOptions{T}(Int32(s.maxiter), T(something(s.xtol, dx)), T(something(s.ftol, df)),
-                            T(something(s.gtol, dg)), T(s.damping), T(something(s.ctol, 0)))
+                            T(something(s.gtol, dg)), T(s.damping), T(something(s.ctol, 0)),
+                            s.stall, Int32(s.stallsteps), T(s.stalltol))
 end
 
 # Internal result of `levmar` (the public one, `FitResult`, adds names, the model and settings).
@@ -392,6 +406,9 @@ end
     return all(abs.(_chol_solve(L, g)) .<= _stoptol(rule, L, θ))
 end
 
+# Which parameters sit on a bound (PROTOTYPE, the stall test)
+@inline _onbox(θ, lo, hi) = map((t, l, u) -> t <= l || t >= u, θ, lo, hi)
+
 # Step test in scaled units: ‖D^½ s‖ ≤ xtol (‖D^½ θ‖ + xtol).
 @inline function _step_small(s, θ, d, xtol)
     ds = sqrt(sum(d .* s .* s))
@@ -430,6 +447,11 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
     nobs = prob.w === nothing ? length(prob.y) : count(>(0), prob.w)
     _decrement_small(A, g, _movable(θ, g, lo, hi), sse, nobs, opts.ctol) &&
         return SolverResult(θ, sse, iter, ConvergedG)
+    # the stall test (PROTOTYPE): which parameters sit on a bound, for how many accepted steps
+    # unchanged, and the SSE when that set began
+    held = _onbox(θ, lo, hi)
+    nheld = Int32(0)
+    sseheld = sse
 
     while iter < opts.maxiter
         iter += Int32(1)
@@ -474,6 +496,18 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
                    _gnstep_small(A, g, θ, _movable(θ, g, lo, hi), ρ, stop)
                 status = ConvergedG
                 break
+            end
+            if opts.stall                        # stalled on a bound (PROTOTYPE, see LM)
+                h2 = _onbox(θ, lo, hi)
+                if any(h2) && h2 == held
+                    nheld += Int32(1)
+                else
+                    held, nheld, sseheld = h2, Int32(0), sse
+                end
+                if nheld >= opts.stallsteps && sseheld - sse <= opts.stalltol * sseheld
+                    status = StalledOnBound
+                    break
+                end
             end
         else
             # reject the step: keep θ, damp more (shorter, more gradient-like steps)

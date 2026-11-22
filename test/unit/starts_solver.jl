@@ -117,6 +117,27 @@ end
     end
 end
 
+@testset "the stall rule (PROTOTYPE, stopping-proto): stops on a bound, leaves the other fits alone" begin
+    # What a poor mask lets in: 200 tissue voxels and 200 of noise only (Rician, σ 1% of M0f).
+    # The rule fires only with a parameter on a bound (the stalled voxels are all there, and no
+    # tissue voxel stalls); a fit the full run leaves off the bounds is unchanged, to the bit;
+    # the stalled fits are within 1% of the full run's SSE (the rule's 1% over 3 steps; 0.02%
+    # seen), in fewer iterations
+    m = QMTSIREqualR1(; SIR_4POINT...)
+    t = map(x -> fill(x, 400), (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0, kmf = 12.5, Sm = 0.83))
+    Y = simulate(m, merge(t, (M0f = [ones(200); zeros(200)],)); σ = 0.01, noise = :rician, rng = MersenneTwister(6))
+    full = fit(m, Y); r = fit(m, Y; solver = LM(stall = true, stalltol = 0.01))
+    stalled = r.status .== EQUIP.StalledOnBound
+    onany(res) = (ob = onbound(res); [any(k -> ob[k][i], keys(ob)) for i in 1:400])
+    @test count(stalled) >= 10 && !any(stalled[1:200]) && all(onany(r)[stalled])
+    off = .!onany(full)
+    @test all(k -> r.params[k][off] == full.params[k][off], keys(r.params))
+    @test all(r.sse[stalled] .<= 1.01 .* full.sse[stalled])
+    @test sum(r.iterations) < sum(full.iterations)
+    c = init(m; solver = LM(stall = true)); y = Y[end, :]; fit!(c, y)
+    @test_noalloc fitallocs(c, y) == 0
+end
+
 @testset "T2Decay's start: the log-linear fit, on 1/T2" begin
     te = collect(0.01:0.01:0.32)
     m = T2Decay(TE = te)

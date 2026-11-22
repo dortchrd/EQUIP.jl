@@ -90,6 +90,9 @@
     @test all(isnan, t2.data[.!mask]) && maximum(abs.(t2.data[mask] .- T2map[mask])) < 0.01
     @test samegeometry(t2, readimage(path("t2.nii.gz")))
     @test t2.header.scl_slope == 1 && t2.header.scl_inter == 0
+    # compress = false: .nii, the same maps (gzip takes about 1 s per 21M-voxel map, docs/design.md)
+    plain = writemaps(path("plain/sub-01_"), res, info; compress = false)
+    @test basename(plain[2]) == "sub-01_T2map.nii" && isequal(readimage(plain[2]).data, t2.data)
     @test readimage(written[3]).data == Int.(res.status)
     @test t2.meta["Map"] == "T2map" && t2.meta["Model"] == "T2Decay" &&
           t2.meta["Acquisition"]["TE"] ≈ te && t2.meta["Data"] == "t2.nii.gz"

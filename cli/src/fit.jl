@@ -16,7 +16,7 @@
 # =================================================================================================
 
 const _FIT_OPTIONS = ["model", "data", "protocol", "mask", "weights", "precision", "out",
-                      "like", "stderror", "save", "likelihood", "sigma", "method", "format", "help"]
+                      "like", "stderror", "save", "likelihood", "sigma", "method", "format", "compress", "help"]
 
 function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
@@ -81,8 +81,9 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         car["Sigma"] = value(a, "sigma")
         car["Method"] = String(noise.method)
     end
+    compress = !has(a, "compress") || lowercase(value(a, "compress")) in ("yes", "true")   # PROTOTYPE: --compress no
     writeas(f) = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like,
-                           format = f)
+                           format = f, compress)
     written = format === :both ? [writeas(:nifti); writeas(:mat)] : writeas(format)
     show(io, MIME"text/plain"(), res)
     nii = filter(!MRImages._ismat, written)
