@@ -1434,6 +1434,17 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   TI 10, TD 4174 ms image) and uncompressed or faster-compressed maps would cut it, after the
   start-up. And `equip info` failed on the data file (units left unknown in its header):
   fixed on branch `nifti-units` (MRImages read units by hand).
+  **The whole scan is 80 slices, not 5** (the owner): the 5 repeated 16 times (512×512×80, 4
+  volumes, Float64 as theirs, 640 MB; 6.5 million voxels in the mask), 4 threads, warm: reading
+  1.4–2.9 s, **fitting 9.3–10.2 s, writing the six maps gzipped 6.8–9.8 s**, against about 2 s
+  of start-up. So at full size the fit and the gzip are most of a call. Writing: about 1 s a
+  map (21 million Float32 values; zlib's own speed: compressing the bytes in one pass, 1.0 s);
+  level 1 only 20% faster; the six maps compressed in parallel 1.4× (4.6 s); uncompressed
+  0.13–0.27 s a map but 84 MB each. Fitting: the voxels that end on a bound or fit badly are
+  31% of the mask and 52% of the iterations (23.5 each against 9.6), so a brain mask would
+  halve the fit or better; `QMTSIREqualR1` gives the same maps on these data (PSR to 1.6e-6
+  over 408,591 voxels) at about 0.75× the time; the calibrated stopping tolerances (prototype)
+  about 0.75× again; the data stored as Float32 would halve the read.
 - **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
   masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
   their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
