@@ -1492,6 +1492,19 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   well-inverted clean voxels (Sf < −0.8, 190,217 in the 5 slices) 73 change PSR by more than
   0.01. Worth knowing for the 4-point protocol whatever the start (a check for a second root,
   or a flag, could find these voxels; not built).
+- **Decided** (the owner, 2026-11-22: "I worry about making things so complicated they break
+  unexpectedly for very small benefit"; "the gzip thing, maybe make that default"; "gzip at the
+  end: for intermediate files always use .nii, esp. if looping in a hot loop"). Maps are written
+  uncompressed by default (`writemaps(...; compress = false)`, `equip fit --compress` and
+  `equip_fit(..., 'compress', true)` for `.nii.gz`; branch `nii-default`): the largest saving
+  here (7 s of 20), no risk. The stopping rules (statistical, calibrated, per voxel, the stall
+  rule) are not adopted: 6% and 9% on this scan, for options, a status and a calibration step
+  of their own. Nor uniformly looser tolerances (unsafe in kurtosis's valleys); the guide says
+  that SIR can take `LM(xtol = 1e-5, ftol = 1e-8, gtol = 1e-6)` (20% on the 4-point, its worst
+  voxel in 1000 0.001 SD away). The smart starts wait (item 4): about 25% off this fit and
+  better fits in the misfits, but 865 lines, and worth it only as a better default start for
+  several models. MATLAB keeps both outputs, NIfTI to view and one .mat to load: uncompressed,
+  the NIfTI half costs about 0.7 s at this size.
 - **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
   masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
   their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the

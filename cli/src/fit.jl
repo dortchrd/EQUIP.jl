@@ -16,7 +16,7 @@
 # =================================================================================================
 
 const _FIT_OPTIONS = ["model", "data", "protocol", "mask", "weights", "precision", "out",
-                      "like", "stderror", "save", "likelihood", "sigma", "method", "format", "help"]
+                      "like", "stderror", "compress", "save", "likelihood", "sigma", "method", "format", "help"]
 
 function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     a = parseargs(words)
@@ -30,7 +30,8 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         modelhelp(io, M, "fit")
         println(io, "\nOptions: --mask FILE, --weights VALUES, --precision Float32, --out PREFIX, " *
                     "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --format nifti, mat " *
-                    "or both (the maps as NIfTI, as one PREFIX_maps.mat, or both), --config FILE, " *
+                    "or both (the maps as NIfTI, as one PREFIX_maps.mat, or both), --compress (the " *
+                    "NIfTI maps gzipped, .nii.gz; else .nii), --config FILE, " *
                     "--save FILE; for magnitude data at low SNR, --likelihood rician --sigma SD " *
                     "(the noise SD of each channel: a number, or a map as FILE.nii.gz or " *
                     "FILE.mat:NAME; not estimated) and --method ml (the default), mean or wmean")
@@ -82,7 +83,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         car["Method"] = String(noise.method)
     end
     writeas(f) = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like,
-                           format = f)
+                           format = f, compress = has(a, "compress"))
     written = format === :both ? [writeas(:nifti); writeas(:mat)] : writeas(format)
     show(io, MIME"text/plain"(), res)
     nii = filter(!MRImages._ismat, written)

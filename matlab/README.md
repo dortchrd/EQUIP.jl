@@ -133,7 +133,8 @@ the mask, with kmf, the exchange rate, fixed at 12.5 1/s as the 4-point scheme a
 
 Voxels outside the mask are NaN.
 
-**On disk**, beside `SIR.nii`: each map as NIfTI (`SIR_PSR.nii.gz`, `SIR_R1f.nii.gz`, ...), to
+**On disk**, beside `SIR.nii`: each map as NIfTI (`SIR_PSR.nii`, `SIR_R1f.nii`, ...; uncompressed,
+fast to write: `'compress', true` gzips them, `.nii.gz`), to
 view in FSLeyes, ITK-SNAP or MRIcroGL, each with a `.json` file that records how it was made
 (the model, TI, TD, kmf, the command), and all of them in `SIR_maps.mat`. A new fit of the same
 file replaces them; to keep several, give each a name: `'out', 'results/run1_'`.

@@ -25,9 +25,10 @@ function [maps, info] = equip_fit(model, data, varargin)
 %     and any other option of equip fit (equip('fit QMTSIR --help') lists them).
 %   And two of this function:
 %     'out'         where the map files go, as a prefix: 'results/sub01_' writes
-%                   results/sub01_PSR.nii.gz, ... Default for a NIfTI file: beside it, its name
-%                   and '_' (SIR.nii: SIR_PSR.nii.gz, ...). For a MATLAB array: a temporary folder,
-%                   deleted afterwards (give 'out' to keep the files)
+%                   results/sub01_PSR.nii, ... Default for a NIfTI file: beside it, its name
+%                   and '_' (SIR.nii: SIR_PSR.nii, ...). For a MATLAB array: a temporary folder,
+%                   deleted afterwards (give 'out' to keep the files). The NIfTI maps are
+%                   uncompressed; 'compress', true gzips them (.nii.gz: smaller, slower to write)
 %     'verbose'     true (default): print EQUIP's summary of the fit, and every parameter as
 %                   fitted (those not given in the call at EQUIP's defaults for the model)
 %
@@ -115,8 +116,8 @@ for k = 1:2:numel(varargin)
     if (ischar(v) || isstring(v))
         flags = [flags, {['--' name], char(v)}];
     elseif islogical(v) && isscalar(v)
-        if strcmpi(name, 'stderror')
-            if v, flags = [flags, {'--stderror'}]; end
+        if any(strcmpi(name, {'stderror', 'compress'}))         % equip fit's flags without a value
+            if v, flags = [flags, {['--' lower(name)]}]; end
         else
             flags = [flags, {['--' name], lower(mat2str(v))}];
         end

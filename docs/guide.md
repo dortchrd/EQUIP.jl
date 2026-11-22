@@ -175,7 +175,13 @@ names:
   precision as it is fitted;
 - `solver`: the solver's settings, e.g. `solver = LM(maxiter = 50)`. `LM` takes `maxiter`
   (100), the tolerances `xtol`, `ftol`, `gtol` (defaults set by the precision) and the starting
-  `damping` (1e-3). Most fits need none of them;
+  `damping` (1e-3). Most fits need none of them. The default tolerances are far tighter than
+  the noise needs (a typical voxel moves by 1e-8 of its SD between them and a fit run to
+  convergence); looser ones save 10–20%, most iterations going to reaching the minimum, not
+  polishing it. For SIR, `LM(xtol = 1e-5, ftol = 1e-8, gtol = 1e-6)` is safe (4-point: 20%
+  faster, the worst voxel in 1000 moved by 0.001 SD), but not in general: in flat valleys a
+  loose step test stops far from the minimum (kurtosis: 17–68 SD in 1 voxel in 1000), so the
+  defaults stay tight (docs/design.md, "Stopping tolerances against the noise");
 - `weights`: one weight per observation, the same in every voxel: the fit minimizes
   ½Σwᵢ(gᵢ − yᵢ)² (a weight 0 leaves an observation out; only the ratios matter for the
   estimates). With noise that differs between observations, wᵢ = 1/σᵢ² is the efficient choice:
@@ -523,7 +529,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   ..., V1z = ...)`, from the six tensor elements (V1: the principal eigenvector, z ≥ 0). `p` holds every parameter, fitted and fixed; the rules are `signal!`'s (no
   allocation, generic in the number type, so their errors can come from the fit's). For a fit,
   `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
-  asked; `writemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
+  asked; `writemaps` writes them beside the parameters' maps (`FA.nii`, ...). The default,
   `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
   them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
   (docs/design.md, item 19).
@@ -973,7 +979,7 @@ DICOM headers' values in BIDS names and units.
 data, info = readdata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
 mask = readmap("brain.nii.gz", info) .> 0          # checked against the data's size and geometry
 res = fit(T2Decay(TE = info.found[:TE]), data; mask)
-writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map, status, SSE, ...
+writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii, S0map, status, SSE, ...
 ```
 
 - `readdata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
@@ -995,6 +1001,10 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map
   as the fit used it, the model's defaults included (`"Parameters"`: `"Sm": {"Role": "fixed",
   "Value": 0.83}`, `"R1m": {"Role": "tied", "To": "R1f"}`, `"PSR": {"Role": "free", "Start":
   0.1, "Lower": 0, "Upper": 1}`, null for no bound), the precision, EQUIP's version.
+  Uncompressed (`.nii`) unless `compress = true` (`.nii.gz`): gzip is slow, about 1 s a map at
+  512×512×80, 10 times the writing itself, so a whole-brain fit's maps took 8 s to write
+  gzipped and 0.7 s not. Keep intermediate files uncompressed, above all in a loop, and gzip at
+  the end if space matters (`gzip results/*.nii`; `pigz`, on several cores, is faster).
 - (`readdata`, `readmap` and `writemaps` were `loaddata`, `loadmap` and `savemaps` until
   2026-11-12: one verb pair, read and write, for every file function.)
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
@@ -1059,6 +1069,8 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
   `--like ref.nii.gz`. `--format nifti|mat|both` chooses for any data: `both` writes NIfTI data's
   maps as NIfTI and as one `PREFIX_maps.mat` (what MATLAB's `load` reads without a toolbox). MAT
   is loaded only by a command that reads or writes a `.mat` file (about 0.4 s).
+- NIfTI maps are written uncompressed (`.nii`, fast); `--compress` gzips them (`.nii.gz`, about
+  1 s more a map on a whole brain; or `gzip` them at the end).
 
 ### From MATLAB
 
