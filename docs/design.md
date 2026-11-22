@@ -1480,6 +1480,18 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   but a change. Undecided: whether the stall rule is worth having (it saves little where the
   misfits crawl, and the 1.2 s are mostly the tolerances); whether maps should be written
   uncompressed by default (84 MB a map at this size, against 7 s).
+- **With the smart starts too** (2026-11-22, branch `combined-proto`: `stopping-proto` and
+  `bestof-proto` merged; prototypes/stopping/combination_smart.jl): R1f from BestOf over 8 values
+  (0.3–3 s⁻¹) scored from the dictionary, the linear parameters solved, on top of the fastest
+  row above: iterations 10.9 to 7.8, the fit 7.7–8.5 s to 6.0–6.4 s (two runs), the whole call
+  about 8 s against 20–21 s now. PSR × R1f (6×8) is a little slower and no better. The starts
+  find a lower SSE (by more than σ²) in 6% of the mask, the misfits. But in about 1% of the clean
+  voxels PSR moves by up to 0.5 with SSE 0 both ways: 4 points, 4 parameters, and two exact fits
+  (e.g. PSR 0.275 and 0.108, the same R1f); the start picks one. The protocol's ambiguity, not
+  the start's error: they are poorly inverted voxels (Sf median −0.5: scalp, skull), and of the
+  well-inverted clean voxels (Sf < −0.8, 190,217 in the 5 slices) 73 change PSR by more than
+  0.01. Worth knowing for the 4-point protocol whatever the start (a check for a second root,
+  or a flag, could find these voxels; not built).
 - **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
   masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
   their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
