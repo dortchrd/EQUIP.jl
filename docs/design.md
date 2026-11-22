@@ -1420,6 +1420,20 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   (15%) here, and Julia's start and loading EQUIP, with the files read and written, are most of
   a call: on the owner's MacBook Air a call took about 10 s whatever it did (the open timing
   question in status.md).
+- **On the owner's own data** (2026-11-22: 5 sagittal slices, 512×512, of a 4-point SIR scan,
+  and its mask; not kept in the repository): the mask held the whole head, 31% of each slice,
+  and no voxel of noise only (all above 10σ, σ = 26 from the background's median; its mean
+  square gave 290, tissue outside the mask), so the background was not the cost. But the scalp,
+  skull, face and neck were in it: there 23% of the fits ended with PSR at 0, 5% with R1f at its
+  floor (T1 20 s), 2% with Sf on a bound, and 10% fitted with SSE above 100σ² (no SIR curve
+  fits them; 4 points, 4 parameters); the brain's fits were clean. Those voxels took 12–23
+  iterations against about 5. End to end on this container (4 threads): `--help` 1.8–2.0 s, the
+  fit command 4.1–4.5 s; inside it, warm, reading 0.3 s, fitting 0.7 s, writing the six maps
+  gzipped 0.55 s (a map 0.28 s gzipped, 0.007 s uncompressed), and the first call in a process
+  compiles the reading and writing (1.7 and 4.1 s in a script). So a brain mask (BET on the
+  TI 10, TD 4174 ms image) and uncompressed or faster-compressed maps would cut it, after the
+  start-up. And `equip info` failed on the data file (units left unknown in its header):
+  fixed on branch `nifti-units` (MRImages read units by hand).
 - **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
   masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
   their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
