@@ -1445,6 +1445,41 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   halve the fit or better; `QMTSIREqualR1` gives the same maps on these data (PSR to 1.6e-6
   over 408,591 voxels) at about 0.75× the time; the calibrated stopping tolerances (prototype)
   about 0.75× again; the data stored as Float32 would halve the read.
+- **Stopping early on a bound, and everything together** (2026-11-22, branch `stopping-proto`;
+  the owner: "I don't want to … over calibrate this for a single case", and σ often unknown:
+  Philips background suppression, 4 points for 4 parameters). A σ-free stall rule,
+  `LM(stall = true)`: a fit whose set of parameters on a bound has not changed for 3 accepted
+  steps while the SSE fell less than `stalltol` of itself over them stops, status
+  `StalledOnBound` (7, not converged). It catches less than hoped: the misfits here do not
+  stall, they crawl (Sf held at 0 while R1f drifts toward 0 and M0f grows, 2658 to 19577 over
+  30 iterations, the SSE falling about 1% every 10), so at 0.1% it stops 3.7% of the mask,
+  at 1% 4.7%. On the owner's scan at full size (prototypes/stopping/combination.jl, 4 threads,
+  warm; read, fit, write):
+
+  | | read s | fit s | write s | total s | iterations | in the clean voxels, largest \|ΔPSR\| |
+  |---|---:|---:|---:|---:|---:|---:|
+  | now: QMTSIR, default stopping, gzipped maps | 2.3 | 11.1 | 8.1 | 21.5 | 13.9 | – |
+  | QMTSIREqualR1 | 1.1 | 8.5 | 8.0 | 17.6 | 13.9 | 1.5e-14 |
+  | + calibrated absolute tolerances | 1.6 | 8.0 | 8.1 | 17.6 | 11.2 | 1.1e-3 |
+  | + the stall rule at 1% | 1.3 | 7.3 | 7.8 | 16.4 | 10.9 | 1.1e-3 |
+  | + uncompressed maps | 1.1 | 7.5 | 0.7 | **9.3** | 10.9 | 1.1e-3 |
+  | the same, relative tolerances for absolute | 1.1 | 8.1 | 0.7 | 9.9 | 10.9 | 1.3e-2 |
+  | the same, and R1f ≥ 0.2 s⁻¹ (T1 ≤ 5 s) | 1.0 | 6.8 | 0.7 | 8.6 | 9.6 | 1.0e-1 |
+
+  (Clean voxels: the baseline's fits with no parameter on a bound and SSE below 10σ², 69% of the
+  mask.) So 2.3× in all, most of it the gzip (7.4 s) and the model (2.6 s); the tolerances and the
+  stall rule 1.2 s between them. The relative tolerances are slower and less exact here; the R1f
+  floor moves real fits (PSR by 0.1), so not that. Across models (prototypes/stopping/
+  robustness.jl: nine models, SNR 50 and 200, and a poor mask, Rician, half tissue, a quarter
+  weak signal, a quarter noise, for four of them; 10,000 voxels each): the stall rule never fired
+  on a voxel the tight reference fit leaves off the bounds (0.00% in every row), it fired on
+  0–0.8% of tissue voxels (those on a bound) and on 9.9% (QMTSIR 4-point), 14% (kurtosis), 25%
+  (T1IR) and 0.9% (T2) of the poor masks, where T1IR's iterations went from 9.3 to 5.5 (−28% of
+  the time) and the others' 3–7%. The stalled fits moved by up to 8 SD (QMTSIR, poor mask; 16-point
+  with kmf free at SNR 50, 0.8% of voxels): fits on a bound, whose values mean little either way,
+  but a change. Undecided: whether the stall rule is worth having (it saves little where the
+  misfits crawl, and the 1.2 s are mostly the tolerances); whether maps should be written
+  uncompressed by default (84 MB a map at this size, against 7 s).
 - **What would help**: a tighter mask (the voxels, and the maps' meaningless values: item 22's
   masks); a threshold that leaves voxels with no signal unfitted (status `NotFitted`, or one of
   their own), e.g. the largest observation below k·σ when σ is known, or below a fraction of the
