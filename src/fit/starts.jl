@@ -7,7 +7,9 @@
 #   1. parameters starting at `:data`: the model's estimates from the data (`datastart`)   _data_start
 #   2. parameters starting at `:loglinear`: the weighted fit of ln y with ln S         _loglinear_start
 #      (in loglinear.jl, as the part of the start that needs most explaining)
-#   3. a parameter starting from `BestOf(values)`: the value that fits best              _best_start
+#   3. parameters starting from `BestOf(values)`: the values that fit best               _best_start
+#      (from a dictionary, the candidates' signals made once per fit,     _dictionary_start
+#      when they are the same in every voxel: dictionary.jl)
 #      or else the `:scale` parameter (M0, S0, ...) at its best value                     _scale_start
 #
 # Step 3 rests on one calculation, `_score`: the signal at a candidate starting point with the
@@ -48,14 +50,21 @@ end
 # The scale parameter `sc` at its best value, given the other starts.
 _scale_start(prob, θ0, sc, lo, hi, buf) = first(_score(prob, θ0, sc, lo, hi, buf))
 
-# The best of the BestOf values (see `BestOf`) for free parameter k: score each value (the scale
-# solved for each) and keep the lowest SSE. If none is usable (e.g. NaN signals), fall back to the
-# scale start from θ0, which holds the middle value.
+# The best of the BestOf values (see `BestOf`), for the free parameters `spec.candindex`: score
+# each combination (a column of `spec.candidates`; the scale solved for each) and keep the lowest
+# SSE. If none is usable (e.g. NaN signals), fall back to the scale start from θ0, which holds
+# the middle values. This evaluates the signal once per combination in every voxel; when the
+# candidates' signals are the same in every voxel, `_dictionary_start` (dictionary.jl) scores
+# them from signals computed once per fit instead.
 function _best_start(prob::VoxelProblem{F}, θ0::SVector{P,T}, spec, buf) where {F,P,T}
-    k, sc = spec.candindex, spec.scale
+    ks, sc, C = spec.candindex, spec.scale, spec.candidates
     best, bestsse = θ0, T(Inf)
-    for g in spec.candidates
-        θ, sse = _score(prob, Base.setindex(θ0, g, k), sc, spec.lower, spec.upper, buf)
+    for j in axes(C, 2)
+        θ = θ0
+        for q in eachindex(ks)                               # this combination's values
+            θ = Base.setindex(θ, @inbounds(C[q, j]), @inbounds(ks[q]))
+        end
+        θ, sse = _score(prob, θ, sc, spec.lower, spec.upper, buf)
         if sse < bestsse                                     # NaN never wins
             best, bestsse = θ, sse
         end

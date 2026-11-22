@@ -28,6 +28,7 @@ checkout), and the two packages run in separate processes: they share a package 
 | `iters.jl` | iterations per voxel, beside EQUIP's default starts |
 | `timetable.jl` | the timings as a table |
 | `first_vf.jl`, `first_eq.jl` | load time and first fit, in fresh processes |
+| `smart.jl` | branch `bestof-proto` only: EQUIP's smart BestOf starts on the same data, against VoxelFit's fits (sums of squares) and EQUIP's defaults (`julia -t 1 --project=../.. smart.jl`, after `run.sh`) |
 
 `data/`, `out/` and `oneshot/` are not committed. The results of 2026-11-20 are in
 docs/design.md, "Compared with the one-shot version, VoxelFit 0.1".

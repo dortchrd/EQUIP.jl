@@ -27,8 +27,10 @@ The resolved parameter roles of one fit (made by `setup`):
 - `start`: starting values of the free parameters (numbers or per-voxel maps), names `F`
 - `scale`: position in `F` of the `Free(start = :scale)` parameter, or 0 if there is none
 - `fixed`: the fixed parameters (numbers, per-voxel maps or ties), by name
-- `candidates`, `candindex`: the [`BestOf`](@ref) values to try for free parameter number
-  `candindex` (those within its bounds); `candindex = 0` means none
+- `candidates`, `candindex`: the [`BestOf`](@ref) values to try, for the free parameters
+  numbered `candindex` (those within their bounds): one row per parameter, one column per
+  combination (every combination when several parameters start from `BestOf`); `candindex`
+  empty means none
 - `fromdata`: for each free parameter, whether it starts at `:data` (the model's
   [`datastart`](@ref))
 - `fromlog`: for each free parameter, whether it starts at `:loglinear` (the weighted fit of
@@ -48,8 +50,8 @@ struct FitSpec{F,P,T,S,X,W}
     start::S        # NamedTuple with names F (a :scale parameter holds 1 here)
     scale::Int      # which free parameter starts at the least-squares scale (0 = none)
     fixed::X        # NamedTuple with the fixed parameters' names
-    candidates::Vector{T}       # BestOf values to try for one free parameter (empty = none)
-    candindex::Int              # which free parameter they are for (0 = none)
+    candidates::Matrix{T}       # BestOf values to try: a row per parameter, a column per combination
+    candindex::Vector{Int}      # which free parameters they are for (empty = none)
     fromdata::NTuple{P,Bool}    # true for free parameters that start at :data
     fromlog::NTuple{P,Bool}     # true for free parameters that start at :loglinear
     reciprocal::NTuple{P,Bool}  # true for :loglinear time constants: the log fit runs on 1/θ
@@ -201,12 +203,11 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     #    `:scale`: at most one, the model's own (checked in step 2).
     count(n -> start(n) === :scale, F) <= 1 || throw(ArgumentError("only one parameter can start as :scale"))
     scale = something(findfirst(n -> start(n) === :scale, F), 0)    # findfirst gives `nothing` if none
-    #    `BestOf`: one parameter for now; its values within the bounds.
-    best = findall(n -> start(n) isa BestOf, F)
-    length(best) <= 1 || throw(ArgumentError("only one parameter can start from BestOf for now " *
-        "(several, trying every combination, are on the roadmap): $(join(F[best], ", "))"))
-    candindex = isempty(best) ? 0 : only(best)
-    candidates = candindex == 0 ? T[] : _candidates(F[candindex], start(F[candindex]), lower[candindex], upper[candindex], T)
+    #    `BestOf`: each such parameter's values within its bounds, and with several parameters
+    #    every combination of them (the cost multiplies: 8 × 8 values are 64 candidates).
+    candindex = findall(n -> start(n) isa BestOf, F)
+    values = [_candidates(F[k], start(F[k]), lower[k], upper[k], T) for k in candindex]
+    candidates = _combinations(values, T)
     #    `:data`: the model's `datastart` must estimate it. It is asked once here, on placeholder
     #    data (ones), to see which parameters it covers.
     fromdata = map(n -> start(n) === :data, F)
@@ -227,7 +228,8 @@ function _spec(model::MRIModel, roles::NamedTuple, ::Type{T}, weights = nothing)
     #    used if no value can be scored.
     startvalue(n) = start(n) === :scale || start(n) === :data ? one(T) :
                     start(n) === :loglinear ? zero(T) :
-                    start(n) isa BestOf ? sort(candidates)[cld(length(candidates), 2)] : _value(start(n), T)
+                    start(n) isa BestOf ? _middle(values[findfirst(k -> F[k] === n, candindex)]) :
+                    _value(start(n), T)
     starts = NamedTuple{F}(map(startvalue, F))
     #    `:loglinear` fits ln S, so the signal where it starts (those parameters at 0, the rest at
     #    their starts and fixed values, the first voxel's of any map) must be positive and finite
@@ -290,3 +292,17 @@ function _candidates(name, b::BestOf, lo, hi, ::Type{T}) where {T}
     isempty(c) && throw(ArgumentError("`$name`: no BestOf value within its bounds [$lo, $hi]"))
     return c
 end
+
+# Every combination of the BestOf parameters' values, one column each (the first parameter's
+# values varying fastest): two parameters with 8 and 6 values give a 2 × 48 matrix. None: 0 × 0.
+function _combinations(values::Vector{Vector{T}}, ::Type{T}) where {T}
+    isempty(values) && return Matrix{T}(undef, 0, 0)
+    c = Matrix{T}(undef, length(values), prod(length, values))
+    for (j, combination) in enumerate(Iterators.product(values...))
+        c[:, j] .= combination              # a tuple of values, one per parameter
+    end
+    return c
+end
+
+# The middle one of a parameter's BestOf values: where it starts if no value can be scored.
+_middle(v) = sort(v)[cld(length(v), 2)]

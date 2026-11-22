@@ -109,13 +109,16 @@ function _fit_voxel(c::FitCache, spec::FitSpec{F,P,T}, y, v) where {F,P,T}
     prob = VoxelProblem{F}(c.model, c.y, fixed, spec.weights)
     # 4. Starting point from the data (starts.jl, loglinear.jl): parameters starting at `:data` from the model's
     #    estimates (`datastart`); those starting at `:loglinear` from the weighted fit of ln y with
-    #    ln S; then a `BestOf` parameter at its best value, or else the `:scale` parameter at the
-    #    value that best matches the data's scale.
+    #    ln S; then the `BestOf` parameters at their best values (from the fit's dictionary of
+    #    candidate signals when it has one, dictionary.jl), or else the `:scale` parameter at the
+    #    value that best matches the data's scale. (`c.dict === nothing` is known from the type
+    #    when compiling: no branch is left in the code.)
     θ0 = _data_start(prob, θ0, spec)
     θ0 = P > _FIT_INLINE_MAXP ? (@noinline _loglinear_start(prob, θ0, spec, c.buf, c.logpass)) :
                                 _loglinear_start(prob, θ0, spec, c.buf, c.logpass)
-    if spec.candindex > 0
-        θ0 = _best_start(prob, θ0, spec, c.buf)
+    if !isempty(spec.candindex)
+        θ0 = c.dict === nothing ? _best_start(prob, θ0, spec, c.buf) :
+                                  _dictionary_start(c.dict, prob, θ0, spec, c.buf)
     elseif spec.scale > 0
         θ0 = _scale_start(prob, θ0, spec.scale, spec.lower, spec.upper, c.buf)
     end

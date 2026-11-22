@@ -129,15 +129,23 @@ end
     BestOf(values)
 
 A start for a [`Free`](@ref) parameter: try each value and start from the one that fits best. In
-every voxel the fit evaluates the signal at each value (the other parameters at their starts, a
+every voxel the fit scores the signal at each value (the other parameters at their starts, a
 `:scale` parameter at its least-squares value for each) and runs one fit from the value with the
 lowest sum of squared residuals. For fits that can end in a wrong local minimum from a single
 start, such as magnitude inversion recovery. Values outside the parameter's bounds are dropped.
-One parameter per fit can start from `BestOf` (several, trying every combination, are planned).
+
+Several parameters can start from `BestOf`: every combination of their values is scored (8 and
+6 values: 48 candidates). Where the candidates are the same in every voxel (no map among the
+fixed values or the starts, no `:data` or `:loglinear` start), their signals are computed once
+per fit, and other parameters the signal is linear in (an offset, a fraction inside the scale's
+shape, found numerically) are solved in each candidate's score too, so a candidate is not ranked
+with them at their starts. (Prototype, branch bestof-proto.)
 
 ```julia
 parameters(::Type{<:T1IR}) = (..., T1 = Free(start = m -> BestOf(_t1grid(m.TI)), lower = _TMIN))
 fit(m, data; T1 = Free(start = BestOf(logrange(0.05, 5, 50))))                  # other values
+fit(m, data; T2short = Free(start = BestOf([0.005, 0.01, 0.02, 0.04])),       # every pair
+             T2long = Free(start = BestOf([0.06, 0.12, 0.25, 0.5])))
 ```
 
 The values are a list, not a map: `Free(start = [0.3, 0.8, 1.5])` would be a map, one start per
