@@ -6291,6 +6291,26 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          coefficients once per voxel and the stick's once per shell, then about a dozen terms an
          image (estimated 10–20× on the signal), its coefficients by quadrature rather than the
          toolbox's closed forms, which cancel at small κ and b.
+       - **The three options, measured** (the owner: "check the 3 options"; bench/noddi/options.jl,
+         each a model of its own with NODDI's parameters; 63 images at b = 1000 and 2500; the
+         dataset fit 1000 voxels at SNR 30, 4 threads):
+
+         | option | largest relative error of the signal | one signal | dataset fit |
+         |---|---|---:|---:|
+         | built-in: 16 nodes, I0 and I1 | 2e-8 (b ≤ 5900); 3e-8 at b ≤ 10000, D∥ to 3e-3 | 35 µs | 155 µs/voxel |
+         | 1. I0 alone | the same | 23 µs | 139 (1.1×) |
+         | 2. 12 nodes | 5e-6 (b ≤ 5000); 1.4e-5 at 10000; 9e-4 at 20000 | 17 µs | 121 (1.3×) |
+         | 3. the series, l ≤ 30, tabulated | 1e-7 (b ≤ 5000); 7e-4 at 7500; **0.87 at 10000** | 11 µs | 68 (2.3×) |
+
+         - I0 alone helps only evaluations without derivatives (`simulate`): on dual numbers the
+           derivative of e^(−x)·I0 needs I1, so a fit computes both anyway.
+         - The series is the fastest but its truncation must grow with b·D∥: l ≤ 30 is accurate to
+           b = 5000 at D∥ = 1.7e-3 and wrong by 87% at 10000; l ≤ 40 gives 6e-9 at 7500 and 3e-5 at
+           10000, for about 30% more time. So it would need its order chosen from the protocol's
+           largest b (and D∥'s upper bound, 4e-3 when freed) and a check, where the quadrature is
+           accurate at any b to 20000 with no choice to make. (The first version allocated 61 kB a
+           signal, 5× slower: a variable reassigned and captured by a closure is boxed.)
+         - The fits agree with the built-in's to 1e-8 (ODI, vic) for 2 and 3.
        - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
