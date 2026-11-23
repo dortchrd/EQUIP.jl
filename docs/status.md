@@ -13,14 +13,6 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `qmtsir-simple` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete qmtsir-simple`). |
-| `freed-bounds` | merged into `main` (2026-11-21, below): nothing in it that `main` does not have; to delete (`git push origin --delete freed-bounds`). |
-| `geodesic-proto` | archived in `experiments` (2026-11-23, 4b47226: its parent; experiments' README says what it tried and how to get it back): to delete (`git push origin --delete geodesic-proto`). |
-| `stopping-proto` | archived in `experiments` (2026-11-23, 4b47226: its parent; experiments' README says what it tried and how to get it back): to delete (`git push origin --delete stopping-proto`). |
-| `combined-proto` | archived in `experiments` (2026-11-23, 4b47226: its parent; experiments' README says what it tried and how to get it back): to delete (`git push origin --delete combined-proto`). |
-| `nii-default` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nii-default`). |
-| `nifti-units` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nifti-units`). |
-| `models-proto` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete models-proto`). |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
 Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
@@ -54,6 +46,12 @@ passes"): `qmtsir-simple`, `QMTSIREqualR1`, SIR with R1m = R1f and both pools sa
 start of TD, its signal in one line (named by the owner: "rename it QMTSIREqualR1"; the branch
 kept its name). Checked first: the full `Pkg.test` with the precompile workload (EQUIP 3002), the
 command line's (166), and CI on the branch's last commit, a26ffee (all six jobs).
+
+**Deleted on GitHub by the owner, 2026-11-23**, each first merged into `main` or archived in
+`experiments` (checked commit by commit): `models-proto`, `nii-default`, `nifti-units`,
+`qmtsir-simple`, `freed-bounds` (in `main`); `stopping-proto`, `geodesic-proto`, `combined-proto`
+(in `experiments`, 4b47226). Kept: `main`, `lean`, `claude-oneshot` (the owner: "keep lean and
+oneshot"), `bestof-proto` (on hold), `experiments`.
 
 **Deleted on GitHub by the owner, 2026-11-17**, each merged into `main` first (every commit is in
 `main`'s history, checked on the full history): `rician` (tier 2), `matlab` (the MATLAB
