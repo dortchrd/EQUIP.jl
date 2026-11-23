@@ -20,8 +20,17 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `combined-proto` | `stopping-proto` and `bestof-proto` merged, to measure them together (2026-11-22): on the owner's scan at full size, QMTSIREqualR1, calibrated tolerances, the stall rule, uncompressed maps and BestOf R1f from the dictionary, about 8 s against 20–21 s now (docs/design.md, "Voxels a poor mask lets in"). For measuring only; each part is adopted, or not, from its own branch. |
 | `nii-default` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nii-default`). |
 | `nifti-units` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nifti-units`). |
-| `models-proto` | `StickZeppelin`, `BallStick`, `IVIM` and `NODDI` built (2026-11-23, the owner: "let's add some models", "add noddi as well"): the fiber's direction from the voxel's own tensor, reported with z ≥ 0; IVIM from the segmented fit; NODDI's dispersed sticks by their Jacobi series to b·D∥ = 12.75 and quadrature above (a whole brain in 12–15 s on 4 threads); `fibers.jl` renamed `multicompartment.jl`. The full suite (3143), the command line's (180) and CI on the last code commit pass (docs/design.md, items 7 and 17). Waits on the owner's merge, and on testing with the owner's data on their computer. |
+| `models-proto` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete models-proto`). |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
+
+Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
+`models-proto`, four built-in diffusion models: `StickZeppelin` and `BallStick` (multi-compartment,
+src/models/diffusion/multicompartment.jl: the direction from the voxel's own tensor, reported with
+z ≥ 0), `NODDI` (Watson-dispersed sticks and zeppelin with a ball; the sticks by their Jacobi series
+to b·D∥ = 12.75 and quadrature above; a whole brain in 12–15 s on 4 threads) and `IVIM` (the
+segmented start), in the command line and both precompile workloads. Checked first: the full
+`Pkg.test` (3143), the command line's (180), and CI on the last code commit, 51d0ed8 (all six jobs).
+Not yet tried on the owner's data.
 
 Merged into `main` (2026-11-23, at the owner's request: "merge both into main"): `nii-default`
 (a fast-forward), maps gzipped as the data are (`.nii` maps for `.nii` data, `.nii.gz` for
