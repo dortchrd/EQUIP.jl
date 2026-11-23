@@ -6311,6 +6311,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            accurate at any b to 20000 with no choice to make. (The first version allocated 61 kB a
            signal, 5× slower: a variable reassigned and captured by a closure is boxed.)
          - The fits agree with the built-in's to 1e-8 (ODI, vic) for 2 and 3.
+         - **A whole brain** (the owner: "how long for whole brain 128 x 128 x 60, say 30 percent
+           within mask"): 294,912 voxels, tissue varied (vic 0.3–0.8, ODI 0.05–0.7, viso 0–0.3,
+           10% CSF-like), SNR 30, 4 threads, the built-in: 48.5 s with 63 images (b 1000, 2500),
+           66.3 s with Zhang 2012's 99 (9 b = 0, 30 at 700, 60 at 2000); 9–10 iterations, 99.9%
+           converged. So about 40–50 s with 12 nodes, 20–30 s with the series.
        - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
