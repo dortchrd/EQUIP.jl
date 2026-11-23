@@ -5634,7 +5634,11 @@ are not an order. The same list, with each tier's loose ends, is in docs/status.
 7. **Nerve SMT, when the lab sends its values**: the protocol evaluator and the search (steps 3
    and 4), with the spherical mean's pipeline errors restored (item 18).
 
-Recorded, not ranked: safe stopping tolerances learned per model (the owner, 2026-11-23:
+Recorded, not ranked: DKI's (and DTI's) Jacobian written out (the owner, 2026-11-23: "put it
+on the roadmap for later"): ln S is linear in every parameter but S0, so a row of the Jacobian is
+the signal times a row the acquisition fixes, made once; about 1.5× on DKI's fit, 1.3× on DTI's
+(estimated; Performance notes, "A written-out Jacobian"), the sums perhaps as one matrix
+product; safe stopping tolerances learned per model (the owner, 2026-11-23:
 "is there a way for a model to learn its safe tolerances from data?"; later): looser defaults
 per model from the simulation study (SIR's (1e-5, 1e-8, 1e-6), kurtosis's tight), or opt-in,
 the loosest of a few standard settings that keeps a sample of the data's voxels within 0.01 SD
