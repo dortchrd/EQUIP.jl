@@ -239,7 +239,7 @@ end
         rk = fit(DKI(; acq...), data)
         @test rawmap(out("b_MK.nii.gz")) ≈ Float32.(derived(rk).MK)
         @test rawmap(out("b_V1111.nii.gz")) ≈ Float32.(rk.params.V1111)
-        # the one-fiber models from the same files: the same maps as the Julia API's fit, D⊥ too
+        # the multi-compartment models from the same files: the same maps as the Julia API's fit, D⊥ too
         r = run("fit", "StickZeppelin", path("dti.nii.gz"), "--out", out("c_"))
         @test r.code == 0 && isempty(r.err)
         rz = fit(StickZeppelin(; acq...), data)

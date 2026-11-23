@@ -13,7 +13,7 @@
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the
 # compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n`
 # (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is built in
-# (`StickZeppelin`, src/models/diffusion/fibers.jl, since 2026-11-23), written by hand for that
+# (`StickZeppelin`, src/models/diffusion/multicompartment.jl, since 2026-11-23), written by hand for that
 # reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
 # computed for every image and its fit takes about twice as long (both are timed at the end).
 # DTI is built in (src/models/diffusion/dti.jl), written out the same way. A stick and

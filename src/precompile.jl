@@ -78,7 +78,7 @@ using PrecompileTools: @setup_workload, @compile_workload
         res = fit(m, permutedims(hcat(y, 0.9 .* y)))
         derived(res)
         show(IOBuffer(), MIME"text/plain"(), res)
-        # the one-fiber models (added 2026-11-23), on the same acquisition, the fiber along x
+        # the multi-compartment models (added 2026-11-23), on the same acquisition, the fiber along x
         for (M, θ) in ((StickZeppelin, (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = π / 2, phi = 0.0)),
                        (BallStick, (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = π / 2, phi = 0.0)))
             m = M(; diffusionencoding(dwib, dwig)...)

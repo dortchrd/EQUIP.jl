@@ -1,5 +1,9 @@
 # =================================================================================================
-# One fiber direction, every image (no spherical mean): StickZeppelin and BallStick
+# Multi-compartment models along one direction, every image (no spherical mean): StickZeppelin
+# and BallStick. "Multi-compartment": compartments added together, each a fraction of the water
+# (Panagiotaki et al., NeuroImage 2012, whose taxonomy names them by their compartments); the
+# compartments are EQUIP's (compartments.jl). The direction is the stick's, a fiber bundle's
+# orientation in the papers ("fibre orientation", Behrens et al. 2003): a voxel's, not a tract.
 #
 #   StickZeppelin   S = S0·[vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, D⊥, ξ)],
 #                   D⊥ = (1 − vax)·Dax (the tortuosity limit)

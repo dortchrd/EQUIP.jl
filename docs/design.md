@@ -7114,7 +7114,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **Stick–zeppelin, ball–stick and IVIM, first among the models** (the owner, 2026-11-08:
      "want IVIM, ball stick, and stick zeppelin as well"; tier 5 of the priorities, in this
      order). **Built 2026-11-23** (the owner: "let's add some models"; branch `models-proto`):
-     `StickZeppelin`, `BallStick` (src/models/diffusion/fibers.jl) and `IVIM`
+     `StickZeppelin`, `BallStick` (src/models/diffusion/multicompartment.jl) and `IVIM`
      (src/models/diffusion/ivim.jl), as planned below, with these choices:
      - **The angles `theta` and `phi`, unbounded** (ASCII names: they are flags and map files),
        reported in the upper hemisphere by `relabel` (θ in [0, π/2], φ in (−π, π], from

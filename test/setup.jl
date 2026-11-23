@@ -194,7 +194,7 @@ const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 const TI6 = [0.03, 0.1, 0.3, 0.6, 1.2, 2.4]
 const TD6 = [0.5, 3.0, 1.0, 0.2, 2.0, 0.05]
 
-# A diffusion scheme for the one-fiber models: b = 0 and two shells of 30 directions
+# A diffusion scheme for the multi-compartment models: b = 0 and two shells of 30 directions
 const DWI_ACQ = let g = directionset(30)
     diffusionencoding([0.0; fill(1000.0, 30); fill(2500.0, 30)], reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(g); collect.(g)]))
 end
