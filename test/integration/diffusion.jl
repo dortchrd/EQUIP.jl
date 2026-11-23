@@ -240,6 +240,66 @@ end
     @test_noalloc fitallocs(c, y) == 0
 end
 
+@testset "NODDI: Watson-dispersed sticks and zeppelin, a ball (Zhang 2012)" begin
+    rng = MersenneTwister(14)
+    acq = DWI_ACQ; bv = acq.b
+    m = NODDI(; acq...)
+    # the dispersed stick against a 2-D quadrature over the sphere in μ's frame (u = μ·n, the
+    # azimuth ψ about μ; Gauss–Legendre in u, the trapezoid rule in ψ, which is exact to rounding
+    # for a periodic integrand): the 1-D form's 16 nodes within 1e-7 (2e-8 measured)
+    function reference(β, t, κ)
+        x, w = gausslegendre01(600)
+        num = den = 0.0
+        for (xi, wi) in zip(x, w), u in (xi, -xi)
+            W = exp(κ * (u^2 - 1))
+            num += wi * W * sum(exp(-β * (t * u + sqrt(1 - t^2) * sqrt(1 - u^2) * cos(2π * k / 200))^2) for k in 0:199) / 200
+            den += wi * W
+        end
+        return num / den
+    end
+    for κ in (0.0, 2.0, 64.0), β in (1.7, 4.25), t in (0.1, 0.8)
+        @test EQUIP._watsonstick(β, t, κ) / EQUIP._watsonnorm(κ) ≈ reference(β, t, κ) rtol = 1e-7
+    end
+    # τ = ⟨(μ·n)²⟩, the series below κ = 1 and Dawson's above, against quadrature (both sides of 1)
+    x, w = gausslegendre01(4000)
+    for κ in (0.0, 0.5, 1.0 - 1e-9, 1.0 + 1e-9, 20.0)
+        @test EQUIP._watsoncos2(κ) ≈ sum(w .* x .^ 2 .* exp.(κ .* (x .^ 2 .- 1))) / sum(w .* exp.(κ .* (x .^ 2 .- 1))) rtol = 1e-12
+    end
+    # ODI = 1 (κ = 0, isotropic): the sticks' spherical mean, √π·erf(√(bD∥))/(2√(bD∥)), and the
+    # zeppelin's tensor averaged to isotropic, D⊥ + (D∥ − D⊥)/3 (NODDI averages the tensor, not
+    # the signal: Zhang 2012, Eq. 5)
+    t1 = (S0 = 1000.0, vic = 0.5, viso = 0.2, ODI = 1.0, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)
+    Dp = 0.5 * 1.7e-3
+    sp = stick.(bv, 1.7e-3, Ref(powder))
+    iso1 = @. 1000 * (0.8 * (0.5 * sp + 0.5 * exp(-bv * (Dp + (1.7e-3 - Dp) / 3))) + 0.2 * exp(-bv * 3e-3))
+    @test signal(m, t1) ≈ iso1 rtol = 1e-7
+    # ODI → 0 (κ → ∞): the stick, zeppelin and ball without dispersion; the difference falls as 1/κ
+    n = SVector(fiberdirection(0.7, 0.3))
+    ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
+    nodisp = @. 1000 * (0.8 * (0.5 * exp(-bv * 1.7e-3 * ξ^2) + 0.5 * zeppelin(bv, 1.7e-3, Dp, ξ)) + 0.2 * exp(-bv * 3e-3))
+    gap(κ) = maximum(abs.(signal(m, merge(t1, (ODI = 2 / π * atan(1 / κ),))) .- nodisp))
+    @test 1.8 < gap(16) / gap(32) < 2.2 && 1.8 < gap(32) / gap(64) < 2.2
+    # fitted at SNR 100 (Rician), white-matter-like, orientations random: every voxel converged,
+    # vic and ODI unbiased (to 4 standard errors of the mean) with crlb's spread (within 20%),
+    # the orientation within a degree; kappa derived
+    nv = 300
+    dirs = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]
+    tw = (S0 = 1000.0, vic = 0.6, viso = 0.05, ODI = 0.15, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)
+    truth = merge(map(x -> fill(x, nv), tw), (theta = acos.(getindex.(dirs, 3)), phi = atan.(getindex.(dirs, 2), getindex.(dirs, 1))))
+    Y = simulate(m, truth; snr = 100, noise = :rician, rng)
+    r = fit(m, Y)
+    c = crlb(m, tw; snr = 100)
+    @test all(isconverged, r.status)
+    @test median(acosd.(clamp.(abs.(dot.(SVector.(fiberdirection.(r.params.theta, r.params.phi)), dirs)), 0, 1))) < 1
+    for k in (:vic, :ODI)
+        @test abs(mean(r.params[k]) - tw[k]) < 4 * std(r.params[k]) / sqrt(nv)
+        @test std(r.params[k]) ≈ c.sd[k] rtol = 0.2
+    end
+    @test derived(r).kappa ≈ @. 1 / tan(π * r.params.ODI / 2)
+    cc = init(m); y = signal(m, tw); fit!(cc, y)
+    @test_noalloc fitallocs(cc, y) == 0
+end
+
 @testset "IVIM: Le Bihan's two compartments, from the segmented fit" begin
     rng = MersenneTwister(13)
     b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]

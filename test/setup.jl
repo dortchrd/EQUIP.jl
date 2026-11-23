@@ -224,6 +224,7 @@ const CASES = [
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
     (StickZeppelin(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)),
     (BallStick(; DWI_ACQ...), (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)),
+    (NODDI(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)),
 ]
 
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix

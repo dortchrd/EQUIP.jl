@@ -40,7 +40,8 @@ using CommonSolve: init
 import StatsAPI: fit, fit!, nobs, fitted, residuals   # owner of these names (StatsBase, GLM, ...)
 import StatsAPI: informationmatrix, vcov, stderror    # crlb and montecarlo results; fits
 import StatsAPI: dof, dof_residual, rss, loglikelihood, aic, aicc, bic   # fit statistics
-using SpecialFunctions: erf, erfi, besselix   # spherical means (erfi: D⊥ > D∥); Rician noise: the
+using SpecialFunctions: erf, erfi, besselix, dawson   # spherical means (erfi: D⊥ > D∥); NODDI's Watson
+                                              # mean (dawson); Rician noise: the
                                               # reference its Bessel series are fitted to (loaded by ForwardDiff anyway)
 import MRImages                            # data files: NIfTI with BIDS sidecars, MATLAB (MAT)
 using MRImages: MRImage, readimage, writeimage, readvalues, readbvec, samegeometry, filestem,
@@ -62,7 +63,7 @@ export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS  # diffusion models
-export StickZeppelin, BallStick, IVIM
+export StickZeppelin, BallStick, NODDI, IVIM
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation

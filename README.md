@@ -90,7 +90,7 @@ equip fit QMTSIR --help                        # a model's flags
 
 Relaxometry (inversion and saturation recovery, variable flip angle, mono- and bi-exponential
 T2, with offsets), diffusion (ADC, kurtosis, DTI, DKI with MK, AK, RK and MKT as DIPY's,
-stick–zeppelin and ball–stick along each voxel's fiber, IVIM, the spherical mean technique with
+stick–zeppelin and ball–stick along each voxel's fiber, NODDI, IVIM, the spherical mean technique with
 free water and compartment T2s) and qMT (selective inversion
 recovery), each in the time-constant and the rate form where both exist: the
 [guide's table](docs/guide.md#built-in-models). Your own model: one equation with
@@ -139,8 +139,8 @@ In order of priority (agreed 2026-11-08; docs/design.md has each item):
 4. **Derived quantities, finished**: standard-error maps (`FA_SE`), `compare` for derived
    quantities, an angular error for the principal direction, derived quantities for the
    other models.
-5. **Models**: stick–zeppelin, ball–stick and IVIM (built, 2026-11-23); then MTR, MTsat, B1 and B0 maps,
-   pulsed qMT (Yarnykh, Ramani), NODDI, free-water DTI, DKI with its constraints imposed.
+5. **Models**: stick–zeppelin, ball–stick, IVIM and NODDI (built, 2026-11-23); then MTR, MTsat, B1 and B0 maps,
+   pulsed qMT (Yarnykh, Ramani), free-water DTI, DKI with its constraints imposed.
 6. **Starts, tested across all models**: plausible ranges per model, every start tested over
    them, a dictionary start (`BestOf` over several parameters, the signals made once per fit),
    and an example `datastart`.

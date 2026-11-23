@@ -6256,6 +6256,31 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - The volume fractions are nearly linear, so variable projection applies in part
        (tortuosity ties the extra-neurite signal to the intra-neurite fraction); AMICO's
        linearization (Daducci et al., NeuroImage 2015) is the dictionary idea of item 4.
+     - **Built 2026-11-23** (the owner: "add noddi as well"; branch `models-proto`,
+       src/models/diffusion/noddi.jl): `NODDI(b, gx, gy, gz)`, the toolbox's model, D∥ = 1.7e-3
+       and Diso = 3.0e-3 mm²/s fixed (`Dpar`, `Diso`), free `S0`, `vic` (NDI, the toolbox's
+       ficvf), `viso` (fiso), `ODI` (fitted directly, 0.01 to 1: κ = cot(π·ODI/2), at most 64,
+       the toolbox's bound), `theta`, `phi` (from the voxel's tensor, as StickZeppelin's;
+       reported with z ≥ 0); derived `kappa`. The Watson integrals:
+       - the dispersed zeppelin by the averaged tensor, τ = ⟨(μ·n)²⟩ = 1/(2√κ·F(√κ)) − 1/(2κ)
+         (Dawson's F, which SpecialFunctions differentiates on dual numbers; below κ = 1 from
+         the power series, where the closed form cancels), checked against quadrature to 1e-12;
+       - the dispersed stick by a 1-D integral: ∫ exp(nᵀMn) dn with M = κμμᵀ − βggᵀ of rank two,
+         its azimuth done exactly (2π·I0), Gauss–Legendre in the third axis, numerator and
+         normalization on the same nodes, I0 scaled from the Rician code's Chebyshev series (exact
+         derivatives on duals). 16 nodes: 2e-8 relative over κ ≤ 64, b·D∥ ≤ 10 and every angle
+         (12: 6e-6; 24 agree with a 2-D quadrature over the sphere to 1e-14). Not the toolbox's
+         spherical-harmonic series: one integral, exact limits, no cancelling terms;
+       - tested: against the 2-D quadrature; ODI = 1, the sticks' spherical mean and the
+         zeppelin's isotropic average; ODI → 0, the stick, zeppelin and ball without dispersion,
+         the gap halving as κ doubles; fits at SNR 100 against crlb.
+       - Measured (1000 voxels, 63 images on two shells, 4 threads): every voxel converged in
+         6–12 iterations; at SNR 100 the SDs of vic, viso and ODI equal crlb's (0.0123 against
+         0.0124 for vic in white matter), the orientation 0.4° (white matter) and 2.6° (grey,
+         ODI 0.45) from the truth; at SNR 30, viso on its bound 0 in 6–13% of voxels. 124–195 µs
+         a voxel (about a minute for a brain's 500,000 voxels on 4 threads); the toolbox's grid
+         search for starts is not needed here (constant starts and the tensor's direction). Not
+         done: BestOf over ODI × vic, VarPro over the fractions, AMICO's dictionary, D∥ free.
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained

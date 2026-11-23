@@ -247,6 +247,8 @@ end
         @test rawmap(out("c_Dperp.nii.gz")) ≈ Float32.(derived(rz).Dperp)
         @test run("fit", "BallStick", path("dti.nii.gz"), "--out", out("d_")).code == 0
         @test rawmap(out("d_f.nii.gz")) ≈ Float32.(fit(BallStick(; acq...), data).params.f)
+        @test run("fit", "NODDI", path("dti.nii.gz"), "--out", out("n_")).code == 0
+        @test rawmap(out("n_ODI.nii.gz")) ≈ Float32.(fit(NODDI(; acq...), data).params.ODI)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
         @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&
