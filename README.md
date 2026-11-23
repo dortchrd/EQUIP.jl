@@ -90,7 +90,7 @@ equip fit QMTSIR --help                        # a model's flags
 
 Relaxometry (inversion and saturation recovery, variable flip angle, mono- and bi-exponential
 T2, with offsets), diffusion (ADC, kurtosis, DTI, DKI with MK, AK, RK and MKT as DIPY's,
-stick–zeppelin and ball–stick along each voxel's fiber, NODDI, IVIM, the spherical mean technique with
+stick–zeppelin and ball–stick along each voxel's fiber, NODDI and Bingham–NODDI, IVIM, the spherical mean technique with
 free water and compartment T2s) and qMT (selective inversion
 recovery), each in the time-constant and the rate form where both exist: the
 [guide's table](docs/guide.md#built-in-models). Your own model: one equation with

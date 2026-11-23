@@ -78,7 +78,8 @@ end
         for (M, truth) in ((DTI, _DTI_TRUTH), (DKI, _DKI_TRUTH),
                            (StickZeppelin, (S0 = 1.0, vax = 0.6, Dax = 1.9e-3, theta = π / 2, phi = 0.0)),
                            (BallStick, (S0 = 1.0, f = 0.5, d = 1.2e-3, theta = π / 2, phi = 0.0)),
-                           (NODDI, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = π / 2, phi = 0.0)))
+                           (NODDI, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = π / 2, phi = 0.0)),
+                           (BinghamNODDI, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = π / 2, phi = 0.0, psi = 0.5)))
             _writedwi(dwi, M, truth)
             equip(["fit", String(nameof(M)), dwi, "--out", joinpath(dir, "$(nameof(M))_")]; io = quiet, err = quiet)
         end

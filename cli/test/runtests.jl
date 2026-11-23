@@ -249,6 +249,8 @@ end
         @test rawmap(out("d_f.nii.gz")) ≈ Float32.(fit(BallStick(; acq...), data).params.f)
         @test run("fit", "NODDI", path("dti.nii.gz"), "--out", out("n_")).code == 0
         @test rawmap(out("n_ODI.nii.gz")) ≈ Float32.(fit(NODDI(; acq...), data).params.ODI)
+        @test run("fit", "BinghamNODDI", path("dti.nii.gz"), "--out", out("bn_")).code == 0
+        @test rawmap(out("bn_betafraction.nii.gz")) ≈ Float32.(fit(BinghamNODDI(; acq...), data).params.betafraction)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
         @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&

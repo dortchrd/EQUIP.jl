@@ -151,6 +151,14 @@ relabel(::BallStick, θ) = _upperdirection(θ)
 # left out. Where the tensor cannot be fitted (too few directions, all of y ≤ 0, the placeholder
 # data `setup` asks with), the x axis: (θ, φ) = (π/2, 0).
 function _tensordirection(m, y)
+    U = _tensorvectors(m, y)
+    T = eltype(y)
+    U === nothing && return (theta = T(π) / 2, phi = zero(T))
+    n = _upperhemisphere(U[:, 3])                          # the largest eigenvalue's vector
+    return (theta = acos(clamp(n[3], -one(T), one(T))), phi = atan(n[2], n[1]))
+end
+# The voxel's log-linear tensor's eigenvectors (columns, eigenvalues ascending), or nothing
+function _tensorvectors(m, y)
     (; b, gx, gy, gz) = m
     T = eltype(y)
     A = zero(SMatrix{7,7,T})
@@ -164,13 +172,12 @@ function _tensordirection(m, y)
         r += (w * log(y[j])) * row
     end
     L, ok = _cholesky(A)
-    ok || return (theta = T(π) / 2, phi = zero(T))
+    ok || return nothing
     c = _chol_solve(L, r)
     D = SMatrix{3,3,T}(c[2], c[5], c[6], c[5], c[3], c[7], c[6], c[7], c[4])
-    all(isfinite, D) || return (theta = T(π) / 2, phi = zero(T))
+    all(isfinite, D) || return nothing
     _, U = _symeigen(D)
-    n = _upperhemisphere(U[:, 3])                          # the largest eigenvalue's vector
-    return (theta = acos(clamp(n[3], -one(T), one(T))), phi = atan(n[2], n[1]))
+    return U
 end
 
 # After the fit: the same fiber as the direction in the upper hemisphere (n and −n give the same

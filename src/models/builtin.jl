@@ -104,5 +104,6 @@ include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherica
 include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
 include("diffusion/multicompartment.jl") # StickZeppelin, BallStick: compartments along a direction, every image
 include("diffusion/noddi.jl")           # NODDI: sticks and a zeppelin dispersed (Watson), a ball
+include("diffusion/bingham_noddi.jl")   # BinghamNODDI: the same dispersed by a Bingham distribution
 include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

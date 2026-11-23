@@ -6358,7 +6358,35 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
          quadratic form is then of rank three, its eigenvalues per image (a 3×3 symmetric
-         eigenproblem) and the same Bessel integral along one eigenvector. Not built.
+         eigenproblem) and the same Bessel integral along one eigenvector. **Built 2026-11-23**
+         (the owner: "yes, build it on a branch"; branch `bingham-proto`,
+         src/models/diffusion/bingham_noddi.jl), as `BinghamNODDI`:
+         - **The parameterization is dmipy's** (its `SD2Bingham`, read in its source: B ∝
+           exp(κ(μ·n)² + β(μβ·n)²), κ = cot(π·ODI/2), β = betafraction·κ, the fan at ψ about μ):
+           Tariq 2016 itself could not be read from this container (its publisher and repository
+           hosts refused), so the derived indices are written from what is certain: `ODIfan` =
+           (2/π)·arctan(1/(κ − β)), the dispersion within the fan's plane (ODI is the dispersion
+           across it), and `DA` = (2/π)·arctan(β/(κ − β)), with Tariq's stated limits (0 for
+           Watson, 1 at β = κ). **To check against Tariq's Eqs.** (ODI_P, ODI_S, ODI_tot, DA): the
+           owner.
+         - **The dispersed stick**: the rank-three form's integral, from its smallest eigenvalue
+           (the cubic's trigonometric solution; its derivative by perturbation, u3ᵀ·dM·u3, the
+           eigenvector from the rows' cross products) and M's invariants (tr, c2), with I0 by
+           its series in q² where q = 0 (ODI = 1), so the derivatives stay finite. The full 3×3
+           eigen-decomposition cost 814 ns an image, the eigenvalues alone 228; this, with the
+           integral, 40 µs a signal (63 images), NODDI's quadrature's cost.
+         - **The dispersed zeppelin** by the averaged tensor, as NODDI's (Zhang 2012), its three
+           moments from the normalization's integral (I0 and I1); dmipy instead convolves the
+           zeppelin's signal with the distribution, a different (not the toolbox's) model.
+         - Tested: β = 0 against NODDI (6e-15); the stick and the moments against a 2-D quadrature
+           over the sphere (1e-8, 2e-9); ψ + π and the flip of μ; the Jacobian against central
+           differences, also where eigenvalues meet (β = 0 with μ along a gradient, β = κ, ODI =
+           1), within 1e-8; fits at SNR 100 (300 voxels, fanning, the fiber and the fan at
+           random) within crlb's SD (vic 0.0126 against 0.0127, betafraction 0.0193 against
+           0.0193 in 2000 voxels), the fan to 3° (median).
+         - **A whole brain** (bench/noddi/bingham_brain.jl: 294,912 voxels, fanning varied, SNR
+           30, 4 threads): 85.5 s, 12.4 iterations, 99.5% converged; NODDI on the same data 15.1 s.
+           Faster would need the Bingham's spherical-harmonic series (m ≠ 0 terms; not built).
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
