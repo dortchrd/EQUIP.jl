@@ -28,7 +28,8 @@ Merged into `main` (2026-11-23, at the owner's request: "merge both into main"):
 MRImages reading headers whose units are unknown (taken as mm, as FSL and ITK do; `equip info`
 had failed on the owner's SIR data). Checked first: CI on each branch's last commit (all six
 jobs), and each branch's tests locally (the full `Pkg.test`, 3013, and the command line's, 170;
-MRImages', 109). The two touch different files; the merged tree's tests run after the push.
+MRImages', 109); and the merged tree, after the push: the full `Pkg.test` (3015), the command
+line's (170), MRImages' (109).
 
 Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge"): `freed-bounds`,
 `Fixed(value; lower, upper)`, the bounds a fixed parameter gets when a fit frees it: QMTSIR's and
