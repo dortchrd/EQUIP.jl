@@ -6,7 +6,11 @@
 # Two compartments of one voxel: blood moving in randomly oriented capillaries, a pseudo-
 # diffusion with D* about ten times D or more, and tissue water, diffusing with D. At b above a
 # few hundred s/mm² the perfusion term has decayed, so the signal is (1 − f)·S0·exp(−b·D) there;
-# f is the perfusion fraction. No direction: the b-values only, as ADCDecay.
+# f is the perfusion fraction. No direction: the b-values only, as ADCDecay, and D and D* are
+# numbers, not tensors. The data are one image per b-value, the directions at each b combined:
+# the scanner's trace-weighted image (Siemens' TRACEW: the geometric mean of three orthogonal
+# directions, which for Gaussian diffusion is exp(−b·MD)), as IVIM is usually fitted. A tensor
+# with a perfusion term (IVIM-DTI, in kidney and muscle studies) is not this model.
 #
 # Poorly conditioned at usual SNR (D* very uncertain and correlated with f), which crlb and
 # montecarlo show for a protocol before it is scanned; b-values for IVIM are designed in Lemke
@@ -36,6 +40,8 @@ pseudo-diffusion and tissue water's diffusion,
 - acquisition: `b` (s/mm²), the b-values, several below 200 s/mm² (where the perfusion term
   decays) and several above. `bsplit` (s/mm², 200): where the start's segmented fit (below)
   divides them
+- data: one image per b-value, the directions combined (the scanner's trace-weighted images);
+  D and D* are numbers, not tensors
 - free by default: `S0`; `f`, the perfusion fraction (0 to 1); `Dstar`, the pseudo-diffusion
   coefficient D* (mm²/s, 0 to 0.2); `D`, the tissue's diffusivity (mm²/s, 0 to 4e-3). The
   faster component is reported as D* (`relabel`)
