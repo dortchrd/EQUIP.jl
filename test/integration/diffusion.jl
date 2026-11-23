@@ -246,7 +246,8 @@ end
     m = NODDI(; acq...)
     # the dispersed stick against a 2-D quadrature over the sphere in μ's frame (u = μ·n, the
     # azimuth ψ about μ; Gauss–Legendre in u, the trapezoid rule in ψ, which is exact to rounding
-    # for a periodic integrand): the 1-D form's 16 nodes within 1e-7 (2e-8 measured)
+    # for a periodic integrand): the 1-D form's 16 nodes (the signal's above the series' range)
+    # within 1e-7 (2e-8 measured)
     function reference(β, t, κ)
         x, w = gausslegendre01(600)
         num = den = 0.0
@@ -260,6 +261,26 @@ end
     for κ in (0.0, 2.0, 64.0), β in (1.7, 4.25), t in (0.1, 0.8)
         @test EQUIP._watsonstick(β, t, κ) / EQUIP._watsonnorm(κ) ≈ reference(β, t, κ) rtol = 1e-7
     end
+    # ... and what the signal uses: the series (Jacobi, l ≤ 40) to b·D∥ = 12.75, the quadrature
+    # above. With vic = 1 and viso = 0 the signal is S0·A_ic: against the 2-D quadrature at every
+    # image, on a scheme of ten shells, the highest above the series' range (b 10000: b·D∥ = 17),
+    # interleaved, so that the shells' coefficients are found again (eight kept, the rest made each
+    # time); within 1e-7 (2e-8 measured)
+    gs = directionset(6)
+    bh = repeat([500.0, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000], 6)
+    Gh = reduce(hcat, [collect(gs[i]) for i in repeat(1:6; inner = 10)])
+    mh = NODDI(; diffusionencoding(bh, Gh)...)
+    for (κ, th) in ((0.5, 0.3), (12.0, 1.1), (64.0, 0.6))
+        ph = (S0 = 1.0, vic = 1.0, viso = 0.0, ODI = 2 / π * atan(1 / κ), theta = th, phi = 0.4, Dpar = 1.7e-3, Diso = 3.0e-3)
+        μh = SVector(fiberdirection(th, 0.4))
+        refh = [reference(bh[j] * 1.7e-3, dot(SVector(gs[(j - 1) ÷ 10 + 1]), μh), κ) for j in eachindex(bh)]
+        @test signal(mh, ph) ≈ refh rtol = 1e-7
+    end
+    # the images' order does not change their signals (the shells' coefficients kept by b)
+    perm = randperm(MersenneTwister(1), length(bh))
+    mp = NODDI(; diffusionencoding(bh[perm], Gh[:, perm])...)
+    pp = (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)
+    @test signal(mp, pp) == signal(mh, pp)[perm]
     # τ = ⟨(μ·n)²⟩, the series below κ = 1 and Dawson's above, against quadrature (both sides of 1)
     x, w = gausslegendre01(4000)
     for κ in (0.0, 0.5, 1.0 - 1e-9, 1.0 + 1e-9, 20.0)

@@ -6347,6 +6347,13 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
              reaching the minimum); BestOf over ODI (6 values) 45 µs, slower; ODI from the
              tensor's FA (a map from noise-free signals) 38 µs, the same. And the constant starts
              found the best minimum most often (30 voxels of 20,000 not at it, against 53–182).
+         - **Built in** (2026-11-23, the owner: "yes, build it in with the fallback"): the Jacobi
+           series to b·D∥ = 12.75 (l ≤ 40: 6e-9 there, 1e-13 to 8.5), the quadrature above it,
+           per image; the shells' coefficients kept by b (eight; a ninth is made each time).
+           Tested against the 2-D quadrature over the sphere on ten interleaved shells to b =
+           10000 (within 1e-7), and for the images' order. One signal 3.8 µs (35 before), no
+           allocation; the whole brain (294,912 voxels, 4 threads) **12.4 s with 63 images, 14.9
+           s with Zhang's 99** (47.9 and 63.4 before), 9–10 iterations, 99.9% converged.
        - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the

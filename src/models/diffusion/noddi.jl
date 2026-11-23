@@ -34,9 +34,20 @@
 # against a two-dimensional quadrature over the sphere (the tests), and at κ = 0 against the
 # stick's spherical mean, √π·erf(√β)/(2√β).
 #
-# The NODDI toolbox computes A_ic from a spherical-harmonic series of the Watson distribution
-# (Zhang 2012, appendix); DIPY and dmipy fit the same model. The quadrature is chosen here for
-# being checkable: one integral, exact limits, no series whose terms cancel.
+# That quadrature is exact enough at any b (2e-8 to b = 10000, D∥ to 3e-3) but costs 16 Bessel
+# functions an image, 85% of a fit. So the signal uses it only above b·D∥ = 12.75 (b = 7500 at
+# 1.7e-3), and below it the Funk–Hecke series of the two axially symmetric functions (the route
+# of the NODDI toolbox, Zhang 2012's appendix):
+#   A_ic(t) = Σₗ (2l + 1)/2 · kₗ(β) · wₗ(κ)/w₀(κ) · Pₗ(t),  l even ≤ 40
+#   wₗ(κ) = ∫₋₁¹ e^(κ(u² − 1))·Pₗ(u) du      the Watson's Legendre coefficients, once per voxel
+#   kₗ(β) = ∫₋₁¹ e^(−βv²)·Pₗ(v) du           the stick's, once per shell (up to eight kept)
+# both by Gauss–Legendre with the Legendre values at the nodes tabulated once (the Watson's in
+# u = 1 − s², which puts the nodes where it peaks), not by the closed forms, which cancel at small κ
+# and β. The even series is summed in z = 2t² − 1: P₂ₙ(t) = Pₙ^(0,−1/2)(z), Jacobi polynomials,
+# so Clenshaw's recurrence sums it in 20 steps. Its error grows with b·D∥ (the stick sharpens):
+# 1e-13 to b·D∥ = 8.5, 6e-9 to 12.75, 3e-5 at 17 (measured against the quadrature, κ to 64), so
+# 12.75 is where it hands over. 3.7 µs a signal against the quadrature's 35 (63 images), 3.8× on
+# fits (docs/design.md, item 7: bench/noddi/).
 # =================================================================================================
 
 """
@@ -61,7 +72,10 @@ tortuosity limit) spread over orientations about μ(θ, φ) by a Watson distribu
   zeppelin's parallel one); `Diso` = 3.0e-3 mm²/s, the ball's (Zhang 2012's in vivo values)
 - derived: `kappa`, the Watson concentration κ = 1/tan(π·ODI/2)
 
-The orientation starts from the voxel's diffusion tensor, as [`StickZeppelin`](@ref)'s.
+The orientation starts from the voxel's diffusion tensor, as [`StickZeppelin`](@ref)'s. The
+dispersed sticks are computed from their Legendre series up to b·D∥ = 12.75 (b = 7500 s/mm² at
+D∥ = 1.7e-3) and by quadrature above: about 4 µs a signal at 63 images, a brain's 300,000 voxels
+in 12–15 s on 4 threads.
 
 ```julia
 res = fit(NODDI(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
@@ -94,12 +108,40 @@ function signal!(out, m::NODDI, p)
     κ = _kappa(ODI)
     μ = fiberdirection(theta, phi)                      # once per voxel
     τ = _watsoncos2(κ)                                  # ⟨(μ·n)²⟩
-    den = _watsonnorm(κ)                                # the stick integral at b = 0
     Dperp = (1 - vic) * Dpar                            # the tortuosity limit
+    w0 = _tablesum(_WATSON_TAB, _WATSON_U, u -> exp(κ * (u^2 - 1)))
+    w = w0 / w0[1]                                      # wₗ/w₀ (a new name: a variable reassigned
+                                                        #  and captured by a closure is boxed)
+    # the shells' series coefficients, up to eight kept (a ninth is computed each time it occurs)
+    C = typeof(first(w) * Dpar)
+    shells = MVector{8,eltype(b)}(undef)
+    coeffs = MVector{8,SVector{_NODDI_NL,C}}(undef)
+    nshells = 0
+    den, hasden = zero(κ), false                        # the quadrature's normalization, if needed
     @inbounds for j in eachindex(out, b, gx, gy, gz)
         t = (gx[j], gy[j], gz[j]) ⋅ μ
         β = b[j] * Dpar
-        Aic = iszero(b[j]) ? one(β) : _watsonstick(β, t, κ) / den
+        if iszero(b[j])
+            Aic = one(t * w[1])
+        elseif β <= _NODDI_βMAX
+            i = 0
+            for s in 1:nshells
+                shells[s] == b[j] && (i = s; break)
+            end
+            if i == 0
+                c = _shellcoeffs(β, w, C)
+                if nshells < 8
+                    nshells += 1
+                    shells[nshells], coeffs[nshells] = b[j], c
+                end
+            else
+                c = coeffs[i]
+            end
+            Aic = _jacobisum(c, 2t^2 - 1)
+        else
+            hasden || ((den, hasden) = (_watsonnorm(κ), true))
+            Aic = _watsonstick(β, t, κ) / den
+        end
         gDg = Dperp + (Dpar - Dperp) * (τ * t^2 + (1 - τ) * (1 - t^2) / 2)
         Aec = exp(-b[j] * gDg)
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
@@ -161,6 +203,70 @@ function _gausslegendre01(n)
 end
 const _WATSON_Z, _WATSON_W = _gausslegendre01(16)
 
+# --- The dispersed stick by its series (the header) ------------------------------------------------
+const _NODDI_L = 40                                     # even l to 40
+const _NODDI_NL = _NODDI_L ÷ 2 + 1                      # 21 coefficients
+const _NODDI_βMAX = 12.75                               # b·D∥ up to which the series is used
+
+# P₀, P₂, …, P₄₀ at the nodes x, times the weights w (a column per node), by the recurrence
+function _evenlegendretable(x, w)
+    tab = zeros(_NODDI_NL, length(x))
+    for k in eachindex(x)
+        u = x[k]
+        p0, p1 = 1.0, u
+        tab[1, k] = w[k]
+        for l in 2:_NODDI_L
+            p0, p1 = p1, ((2l - 1) * u * p1 - (l - 1) * p0) / l
+            iseven(l) && (tab[l ÷ 2 + 1, k] = w[k] * p1)
+        end
+    end
+    return tab
+end
+# wₗ by 64 nodes in s, u = 1 − s² (du = 2s ds; the even integrand on [0, 1], its factor 2 divides
+# out of wₗ/w₀); kₗ by 40 on [0, 1], times 2 for [−1, 1]
+const _WATSON_S, _WATSON_SW = _gausslegendre01(64)
+const _WATSON_U = map(s -> 1 - s^2, _WATSON_S)
+const _WATSON_TAB = _evenlegendretable(_WATSON_U, map((s, w) -> 2s * w, _WATSON_S, _WATSON_SW))
+const _STICK_V, _STICK_VW = _gausslegendre01(40)
+const _STICK_TAB = _evenlegendretable(_STICK_V, map(w -> 2w, _STICK_VW))
+
+# Σₖ tab[:, k]·f(x[k]): the coefficients for every even l at once (a stack array, no allocation)
+@inline function _tablesum(tab, x, f)
+    c = zero(MVector{_NODDI_NL,typeof(f(first(x)))})
+    @inbounds for k in eachindex(x)
+        e = f(x[k])
+        for l in 1:_NODDI_NL
+            c[l] += tab[l, k] * e
+        end
+    end
+    return SVector(c)
+end
+# a shell's series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀, in the number type C
+@inline function _shellcoeffs(β, w, C)
+    k = _tablesum(_STICK_TAB, _STICK_V, v -> exp(-β * v^2))
+    return SVector{_NODDI_NL,C}(ntuple(i -> (4(i - 1) + 1) / 2 * k[i] * w[i], Val(_NODDI_NL)))
+end
+# Jacobi Pₙ^(0,−1/2): Pₙ = (Aₙz + Bₙ)·Pₙ₋₁ − Cₙ·Pₙ₋₂ (the standard recurrence at a = 0, b = −1/2)
+_jacobiD(n) = 2n * (n - 0.5) * (2n - 2.5)
+const _JA = ntuple(n -> (2n - 1.5) * (2n - 0.5) * (2n - 2.5) / _jacobiD(n), _NODDI_NL + 1)
+const _JB = ntuple(n -> -0.25 * (2n - 1.5) / _jacobiD(n), _NODDI_NL + 1)
+const _JC = ntuple(n -> 2 * (n - 1) * (n - 1.5) * (2n - 0.5) / _jacobiD(n), _NODDI_NL + 1)
+# Σₙ cₙ·Pₙ(z), n = 0 … 20, by Clenshaw's recurrence
+@inline function _jacobisum(c, z)
+    b1 = zero(z * c[1]); b2 = b1
+    @inbounds for k in (_NODDI_NL - 1):-1:1
+        b1, b2 = c[k+1] + (_JA[k+1] * z + _JB[k+1]) * b1 - _JC[k+2] * b2, b1
+    end
+    return c[1] + (_JA[1] * z + _JB[1]) * b1 - _JC[2] * b2
+end
+# the series at one (β, t, κ), as the signal sums it (for the tests)
+function _watsonseries(β, t, κ)
+    w0 = _tablesum(_WATSON_TAB, _WATSON_U, u -> exp(κ * (u^2 - 1)))
+    w = w0 / w0[1]
+    return _jacobisum(_shellcoeffs(β, w, typeof(first(w) * β)), 2t^2 - 1)
+end
+
+# --- The dispersed stick by quadrature (above the series' range; the tests' reference) -------------
 # ∫₀¹ e^(r·(T/2 + q) − κ)·[e^(−rq)·I0(rq)] dz, r = 1 − z²: the stick's integral (the header) up to
 # the factor 2π·e^κ, which the normalization divides out
 @inline function _watsonstick(β, t, κ)
