@@ -119,11 +119,12 @@ affine(img::MRImage) = Float64.(NIfTI.getaffine(_geometry(img, "affine")))
 """
     voxelsize(img) -> NTuple{3,Float64}
 
-The voxel size in mm (from the NIfTI header's `pixdim`, in its units).
+The voxel size in mm (from the NIfTI header's `pixdim`, in its units; units the header leaves
+unknown are taken as mm, as nibabel and FSL do).
 """
 function voxelsize(img::MRImage)
-    v = NIfTI.voxel_size(_geometry(img, "voxel size"))
-    return ntuple(i -> i <= length(v) ? Float64(v[i]) : 1.0, 3)
+    v = _voxelsize(_geometry(img, "voxel size"))        # info.jl: unknown units taken as mm
+    return ntuple(i -> i <= length(v) ? v[i] : 1.0, 3)
 end
 
 """
