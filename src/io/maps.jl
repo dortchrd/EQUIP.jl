@@ -3,7 +3,7 @@
 # saying how it was made (the model, its acquisition, the fit's settings, EQUIP's version)
 #
 #   writemaps(prefix, res, info)    one NIfTI file per map (BIDS names where they exist;
-#                                   uncompressed, .nii, unless asked), or for data from a MATLAB
+#                                   gzipped or not as the data were), or for data from a MATLAB
 #                                   file, one .mat file of all the maps
 # =================================================================================================
 
@@ -15,7 +15,7 @@ _mapname(p::Symbol) = haskey(_MAPNAMES, p) ? _MAPNAMES[p] : String(p)
 
 """
     writemaps(prefix, res, info; stderror = false, sidecar = Dict(), like = nothing,
-              format = :auto, compress = false) -> Vector{String}
+              format = :auto, compress = nothing) -> Vector{String}
 
 Write a dataset fit's maps (`res` from `fit(m, data)`, `info` from [`readdata`](@ref)): each
 free parameter (BIDS names where they exist: `T1map`, `R1map`, `T2map`, `S0map`, ...; else the
@@ -24,12 +24,13 @@ parameter's name), the quantities the model derives from them ([`derived`](@ref)
 and its SSE, and with `stderror = true` each parameter's standard error (`T2map_SE`). Values
 are Float32, NaN outside the mask. Returns the files written.
 
-- `format = :nifti` (the default for NIfTI data): one file per map, `prefix * "T2map.nii"`,
+- `format = :nifti` (the default for NIfTI data): one file per map, `prefix * "T2map.nii.gz"`,
   in the data's geometry (or in `like`'s, an [`MRImage`](@ref) of the same size: for data from
-  a MATLAB file), each with a JSON sidecar. Uncompressed: gzip costs about 1 s a map of 21
-  million voxels (512×512×80), 10 times the writing itself. `compress = true` writes `.nii.gz`;
-  or gzip the maps once at the end (`gzip *.nii`, `pigz` on several cores), and keep
-  intermediate files uncompressed, above all in a loop.
+  a MATLAB file), each with a JSON sidecar. Gzipped as the data were (`.nii.gz` for `.nii.gz`
+  data, `.nii` for `.nii`; for MATLAB data, as `like`'s file); `compress = true` or `false`
+  chooses. gzip costs about 1 s a map of 21 million voxels (512×512×80), 10 times the writing
+  itself: keep intermediate files uncompressed, above all in a loop, and gzip at the end
+  (`gzip *.nii`, `pigz` on several cores).
 - `format = :mat` (the default for data from a MATLAB file; needs `using MAT`): one file,
   `prefix * "maps.mat"`, a variable per map in the data's own shape, and `prefix * "maps.json"`.
 
@@ -42,7 +43,7 @@ command line adds the command and the data files).
 """
 writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool = false,
           sidecar::AbstractDict = Dict{String,Any}(), like::Union{Nothing,MRImage} = nothing,
-          format::Symbol = :auto, compress::Bool = false) =
+          format::Symbol = :auto, compress::Union{Nothing,Bool} = nothing) =
     _writemaps(String(prefix), res, info, stderror, Dict{String,Any}(sidecar), like, format, compress)
 
 # Compiled once for any FitResult (`@nospecialize`): a result's type records the fit's settings
@@ -50,7 +51,7 @@ writemaps(prefix::AbstractString, res::FitResult, info::DataInfo; stderror::Bool
 # s a command, measured); reading its fields dynamically costs microseconds.
 function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInfo, stderror::Bool,
                     sidecar::Dict{String,Any}, like::Union{Nothing,MRImage}, format::Symbol,
-                    compress::Bool)
+                    compress::Union{Nothing,Bool})
     _onevoxel(res) && throw(ArgumentError("writemaps writes a dataset fit's maps; this result " *
                                           "is one voxel's"))
     sz = size(res.status)
@@ -85,6 +86,10 @@ function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInf
     if like !== nothing
         size(like)[1:3] == info.spatial || throw(DimensionMismatch("`like` is " *
             "$(join(size(like), "×")); the maps are $(join(info.spatial, "×"))"))
+    end
+    if compress === nothing                  # as the data's file (MATLAB data's: `like`'s)
+        src = info.header === nothing && like !== nothing ? like.path : first(info.files)
+        compress = endswith(lowercase(src), ".gz")
     end
     files = String[]
     for (name, a) in maps

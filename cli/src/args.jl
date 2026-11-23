@@ -7,7 +7,7 @@
 # (`--Sf -0.95`) is a value, never mistaken for a flag. `--name=value` works too.
 # =================================================================================================
 
-const _BOOLEAN = ("help", "stderror", "compress")   # flags without a value
+const _BOOLEAN = ("help", "stderror")         # flags without a value
 
 """
     Args

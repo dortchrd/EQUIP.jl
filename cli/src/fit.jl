@@ -30,8 +30,8 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         modelhelp(io, M, "fit")
         println(io, "\nOptions: --mask FILE, --weights VALUES, --precision Float32, --out PREFIX, " *
                     "--stderror, --like REF.nii.gz (NIfTI maps for MATLAB data), --format nifti, mat " *
-                    "or both (the maps as NIfTI, as one PREFIX_maps.mat, or both), --compress (the " *
-                    "NIfTI maps gzipped, .nii.gz; else .nii), --config FILE, " *
+                    "or both (the maps as NIfTI, as one PREFIX_maps.mat, or both), --compress yes or no " *
+                    "(the NIfTI maps gzipped or not; default: as the data), --config FILE, " *
                     "--save FILE; for magnitude data at low SNR, --likelihood rician --sigma SD " *
                     "(the noise SD of each channel: a number, or a map as FILE.nii.gz or " *
                     "FILE.mat:NAME; not estimated) and --method ml (the default), mean or wmean")
@@ -56,6 +56,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     noise = _fitnoise(a, info)                   # (;), or the Rician fit's keywords
     like = has(a, "like") ? readimage(value(a, "like")) : nothing
     format = _mapformat(a, info, like)
+    compress = _compress(a)
     prefix = value(a, "out", filestem(files[1]) * "_")
 
     # The command as a config file, before fitting: a record even if the fit is stopped.
@@ -83,7 +84,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
         car["Method"] = String(noise.method)
     end
     writeas(f) = writemaps(prefix, res, info; stderror = has(a, "stderror"), sidecar = car, like,
-                           format = f, compress = has(a, "compress"))
+                           format = f, compress)
     written = format === :both ? [writeas(:nifti); writeas(:mat)] : writeas(format)
     show(io, MIME"text/plain"(), res)
     nii = filter(!MRImages._ismat, written)
@@ -92,6 +93,16 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
     isempty(mat) || println(io, isempty(nii) ? "\n\n" : "", "wrote the maps to ", basename(mat[1]))
     println(io, "in ", abspath(dirname(written[1])))
     return 0
+end
+
+# Whether the NIfTI maps are gzipped (`--compress yes|no`; true and false too, as equip_fit
+# passes a MATLAB logical): nothing, as the data's file.
+function _compress(a)
+    has(a, "compress") || return nothing
+    v = lowercase(value(a, "compress"))
+    v in ("yes", "true") && return true
+    v in ("no", "false") && return false
+    throw(ArgumentError("`--compress`: yes or no, got `$v`"))
 end
 
 # How the maps are written (`--format`): as writemaps chooses by default (NIfTI for NIfTI data or

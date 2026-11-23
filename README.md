@@ -61,7 +61,7 @@ using EQUIP
 data, info = readdata("sub-01_MESE.nii.gz")              # TE from the BIDS sidecar
 mask = readmap("brain.nii.gz", info) .> 0                # checked against the data's geometry
 res = fit(T2Decay(TE = info.found[:TE]), data; mask)    # threads; maps of T2 and S0
-writemaps("results/sub-01_", res, info; stderror = true)  # T2map.nii, ..., with sidecars
+writemaps("results/sub-01_", res, info; stderror = true)  # T2map.nii.gz, ..., with sidecars
 
 # Predict: SIR qMT (Dortch et al., MRM 2018), the fit assuming kmf = 12.5 in white matter
 m = QMTSIR(; SIR_4POINT...)

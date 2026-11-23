@@ -1494,10 +1494,12 @@ kmf 12.5, magnitude data with σ = 10 (bench/mask/):
   or a flag, could find these voxels; not built).
 - **Decided** (the owner, 2026-11-22: "I worry about making things so complicated they break
   unexpectedly for very small benefit"; "the gzip thing, maybe make that default"; "gzip at the
-  end: for intermediate files always use .nii, esp. if looping in a hot loop"). Maps are written
-  uncompressed by default (`writemaps(...; compress = false)`, `equip fit --compress` and
-  `equip_fit(..., 'compress', true)` for `.nii.gz`; branch `nii-default`): the largest saving
-  here (7 s of 20), no risk. The stopping rules (statistical, calibrated, per voxel, the stall
+  end: for intermediate files always use .nii, esp. if looping in a hot loop"; and 2026-11-23:
+  "if user provides nii.gz they will expect that back"). Maps are gzipped as the data are:
+  `.nii` maps for `.nii` data (the owner's scan), `.nii.gz` for `.nii.gz`, chosen with
+  `writemaps(...; compress = true/false)`, `equip fit --compress yes/no`, `equip_fit(...,
+  'compress', true/false)` (branch `nii-default`). For `.nii` data the largest saving here (7 s
+  of 20), no risk; the guide says to keep intermediate files uncompressed. The stopping rules (statistical, calibrated, per voxel, the stall
   rule) are not adopted: 6% and 9% on this scan, for options, a status and a calibration step
   of their own. Nor uniformly looser tolerances (unsafe in kurtosis's valleys); the guide says
   that SIR can take `LM(xtol = 1e-5, ftol = 1e-8, gtol = 1e-6)` (20% on the 4-point, its worst
@@ -5590,11 +5592,19 @@ are not an order. The same list, with each tier's loose ends, is in docs/status.
    across all models, but let's build all models first"): plausible ranges per model; every
    model's start tested over them, both precisions, and safe failure outside them; the
    dictionary start (`BestOf` over several parameters, the signals made once per fit); an
-   example `datastart`. Item 4.
+   example `datastart`. Item 4. The dictionary start is prototyped and measured (branch
+   `bestof-proto`; on the owner's scan about 25% off the fit, Performance notes, "Voxels a poor
+   mask lets in"); later (the owner, 2026-11-23), with this item.
 7. **Nerve SMT, when the lab sends its values**: the protocol evaluator and the search (steps 3
    and 4), with the spherical mean's pipeline errors restored (item 18).
 
-Recorded, not ranked: DKI's RTK, KFA, Kmax and DIPY's numerical MK, AK, RK (item 19); Bayesian
+Recorded, not ranked: safe stopping tolerances learned per model (the owner, 2026-11-23:
+"is there a way for a model to learn its safe tolerances from data?"; later): looser defaults
+per model from the simulation study (SIR's (1e-5, 1e-8, 1e-6), kurtosis's tight), or opt-in,
+the loosest of a few standard settings that keeps a sample of the data's voxels within 0.01 SD
+of a tight fit (a sample of n with none outside bounds the rate near 3/n; σ is the hard part
+with N = P), returned as a plain `LM(xtol, ftol, gtol)` and recorded in the sidecar (Performance
+notes, "Stopping tolerances against the noise"); DKI's RTK, KFA, Kmax and DIPY's numerical MK, AK, RK (item 19); Bayesian
 estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12); the other start
 changes (ADCKurtosis and T2DecayOffset on `:loglinear`, the second pass from the linear
 prediction, `BestOf(fits = k)`, neighbours; item 4); the B-matrix, `rotinv` and Watson views,

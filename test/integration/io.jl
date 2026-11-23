@@ -81,19 +81,23 @@
     res = fit(T2Decay(TE = info.found[:TE]), data; mask, T2 = Free(start = 0.07))
     written = writemaps(path("out/sub-01_"), res, info; stderror = true,
                         sidecar = Dict("Data" => "t2.nii.gz"))
-    @test basename.(written) == ["sub-01_S0map.nii", "sub-01_T2map.nii",
-                                 "sub-01_status.nii", "sub-01_SSE.nii",
-                                 "sub-01_S0map_SE.nii", "sub-01_T2map_SE.nii"]
+    @test basename.(written) == ["sub-01_S0map.nii.gz", "sub-01_T2map.nii.gz",
+                                 "sub-01_status.nii.gz", "sub-01_SSE.nii.gz",
+                                 "sub-01_S0map_SE.nii.gz", "sub-01_T2map_SE.nii.gz"]
     t2 = readimage(written[2])
     @test size(t2) == (6, 5, 2) && eltype(NIfTI.niread(written[2]).raw) == Float32
     @test isequal(t2.data, Float64.(Float32.(res.params.T2)))
     @test all(isnan, t2.data[.!mask]) && maximum(abs.(t2.data[mask] .- T2map[mask])) < 0.01
     @test samegeometry(t2, readimage(path("t2.nii.gz")))
     @test t2.header.scl_slope == 1 && t2.header.scl_inter == 0
-    # compress = true: gzipped (.nii.gz), the same maps and sidecar
-    gz = writemaps(path("gz/sub-01_"), res, info; compress = true)
-    @test basename(gz[2]) == "sub-01_T2map.nii.gz" && isequal(readimage(gz[2]).data, t2.data) &&
-          readimage(gz[2]).meta["Map"] == "T2map"
+    # gzipped as the data were (t2.nii.gz: .nii.gz maps, above); .nii data give .nii maps, and
+    # `compress` chooses either way: the same maps
+    writeimage(path("t2plain.nii"), readimage(path("t2.nii.gz")))
+    dp, ip = readdata(path("t2plain.nii"))
+    @test basename(writemaps(path("plain/sub-01_"), res, ip)[2]) == "sub-01_T2map.nii"
+    nogz = writemaps(path("nogz/sub-01_"), res, info; compress = false)
+    @test basename(nogz[2]) == "sub-01_T2map.nii" && isequal(readimage(nogz[2]).data, t2.data)
+    @test basename(writemaps(path("gz/sub-01_"), res, ip; compress = true)[2]) == "sub-01_T2map.nii.gz"
     @test readimage(written[3]).data == Int.(res.status)
     @test t2.meta["Map"] == "T2map" && t2.meta["Model"] == "T2Decay" &&
           t2.meta["Acquisition"]["TE"] ≈ te && t2.meta["Data"] == "t2.nii.gz"
@@ -127,11 +131,11 @@
     dtd, dti_info = readdata(path("dti.nii.gz"))
     rdt = fit(DTI(; (k => dti_info.found[k] for k in (:b, :gx, :gy, :gz))...), dtd)
     wd = writemaps(path("dti/sub-01_"), rdt, dti_info)
-    @test basename.(wd) == ["sub-01_S0map.nii", "sub-01_Dxx.nii", "sub-01_Dyy.nii",
-                            "sub-01_Dzz.nii", "sub-01_Dxy.nii", "sub-01_Dxz.nii", "sub-01_Dyz.nii",
-                            "sub-01_MD.nii", "sub-01_FA.nii", "sub-01_AD.nii", "sub-01_RD.nii",
-                            "sub-01_V1x.nii", "sub-01_V1y.nii", "sub-01_V1z.nii",
-                            "sub-01_status.nii", "sub-01_SSE.nii"]
+    @test basename.(wd) == ["sub-01_S0map.nii.gz", "sub-01_Dxx.nii.gz", "sub-01_Dyy.nii.gz",
+                            "sub-01_Dzz.nii.gz", "sub-01_Dxy.nii.gz", "sub-01_Dxz.nii.gz", "sub-01_Dyz.nii.gz",
+                            "sub-01_MD.nii.gz", "sub-01_FA.nii.gz", "sub-01_AD.nii.gz", "sub-01_RD.nii.gz",
+                            "sub-01_V1x.nii.gz", "sub-01_V1y.nii.gz", "sub-01_V1z.nii.gz",
+                            "sub-01_status.nii.gz", "sub-01_SSE.nii.gz"]
     fa = readimage(wd[9])
     @test isequal(fa.data, Float64.(Float32.(derived(rdt).FA))) && fa.meta["Map"] == "FA"
 

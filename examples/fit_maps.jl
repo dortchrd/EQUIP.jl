@@ -11,7 +11,7 @@
 #   2. readdata: the 4-D file and its sidecar (TE from EchoTime)
 #   3. fit: T2Decay, a mask
 #   4. the fit's own statistics: standard errors, voxels that ended on a bound (`onbound`)
-#   5. writemaps: T2map.nii, S0map, status, SSE, the standard errors; each with a JSON sidecar
+#   5. writemaps: T2map.nii.gz, S0map, status, SSE, the standard errors; each with a JSON sidecar
 #
 # Run from the repository folder (about 20 s, most of it compiling):
 #   julia -t auto --project=. examples/fit_maps.jl

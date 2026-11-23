@@ -529,7 +529,7 @@ m = StretchedDecay(TE = 0.01:0.01:0.32)  # @kwdef gives the keyword constructor
   ..., V1z = ...)`, from the six tensor elements (V1: the principal eigenvector, z ≥ 0). `p` holds every parameter, fitted and fixed; the rules are `signal!`'s (no
   allocation, generic in the number type, so their errors can come from the fit's). For a fit,
   `derived(res)` gives them, maps for a dataset (NaN where a voxel was not fitted), computed when
-  asked; `writemaps` writes them beside the parameters' maps (`FA.nii`, ...). The default,
+  asked; `writemaps` writes them beside the parameters' maps (`FA.nii.gz`, ...). The default,
   `nothing`, means none. DKI's are its tensor's and MK, AK, RK, MKT. crlb and montecarlo report
   them after the parameters (`c.sd.FA`, below); their standard-error maps are on the roadmap
   (docs/design.md, item 19).
@@ -979,7 +979,7 @@ DICOM headers' values in BIDS names and units.
 data, info = readdata("sub-01_MESE.nii.gz")         # 4-D, observations last; TE from the sidecar
 mask = readmap("brain.nii.gz", info) .> 0          # checked against the data's size and geometry
 res = fit(T2Decay(TE = info.found[:TE]), data; mask)
-writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii, S0map, status, SSE, ...
+writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map, status, SSE, ...
 ```
 
 - `readdata(paths)`: one 4-D NIfTI file, or one file per observation (stacked in the order
@@ -1001,10 +1001,11 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii, S0map, s
   as the fit used it, the model's defaults included (`"Parameters"`: `"Sm": {"Role": "fixed",
   "Value": 0.83}`, `"R1m": {"Role": "tied", "To": "R1f"}`, `"PSR": {"Role": "free", "Start":
   0.1, "Lower": 0, "Upper": 1}`, null for no bound), the precision, EQUIP's version.
-  Uncompressed (`.nii`) unless `compress = true` (`.nii.gz`): gzip is slow, about 1 s a map at
-  512×512×80, 10 times the writing itself, so a whole-brain fit's maps took 8 s to write
-  gzipped and 0.7 s not. Keep intermediate files uncompressed, above all in a loop, and gzip at
-  the end if space matters (`gzip results/*.nii`; `pigz`, on several cores, is faster).
+  Gzipped as the data were: `.nii.gz` maps for `.nii.gz` data, `.nii` for `.nii`; `compress =
+  true` or `false` chooses. gzip is slow, about 1 s a map at 512×512×80, 10 times the writing
+  itself: a whole-brain fit's six maps took 8 s to write gzipped and 0.7 s not. Keep
+  intermediate files uncompressed, above all in a loop, and gzip at the end if space matters
+  (`gzip results/*.nii`; `pigz`, on several cores, is faster).
 - (`readdata`, `readmap` and `writemaps` were `loaddata`, `loadmap` and `savemaps` until
   2026-11-12: one verb pair, read and write, for every file function.)
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
@@ -1069,8 +1070,9 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
   `--like ref.nii.gz`. `--format nifti|mat|both` chooses for any data: `both` writes NIfTI data's
   maps as NIfTI and as one `PREFIX_maps.mat` (what MATLAB's `load` reads without a toolbox). MAT
   is loaded only by a command that reads or writes a `.mat` file (about 0.4 s).
-- NIfTI maps are written uncompressed (`.nii`, fast); `--compress` gzips them (`.nii.gz`, about
-  1 s more a map on a whole brain; or `gzip` them at the end).
+- NIfTI maps are gzipped as the data are (`.nii.gz` maps for `.nii.gz` data); `--compress yes`
+  or `no` chooses. Uncompressed is much faster to write on a whole brain (about 1 s a map less):
+  `--compress no` for intermediate results, and `gzip` at the end.
 
 ### From MATLAB
 
