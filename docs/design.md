@@ -1208,6 +1208,42 @@ as many in Float32). Measured on this machine (Xeon, AVX-512; bench/simd/, one t
   `_exp` with its dual-number method; range checks added; Float32; measured over every model by
   bench/speed.jl, and on an Apple machine) before anything across voxels.
 
+### A written-out Jacobian (2026-11-23): little for SIR, perhaps DKI
+
+The owner: "would analytic jacobian help any of these models in particular, then new faster
+sir". Every solver step evaluates the signal on dual numbers and sums JᵀJ and Jᵀr from it
+(`normal_equations`); a written-out Jacobian replaces the dual numbers only. bench/jacobian/,
+one thread, 10,000 voxels at SNR 100:
+
+| model | µs a voxel | share of the fit in `normal_equations` | one call, duals | the sums alone |
+|---|---:|---:|---:|---:|
+| QMTSIREqualR1, 4-point | 2.2 | 45% | 111 ns | 9 ns |
+| QMTSIREqualR1, 16-point, kmf free | 8.2 | 69% | | |
+| QMTSIR, 4-point | 1.9 | 54% | | |
+| T2, 32 echoes | 2.3 | 34% | 188 ns | 33 ns |
+| bi-exponential, 32 echoes | 21 | 76% | 535 ns | 60 ns |
+| kurtosis, 13 b | 4.1 | 55% | 151 ns | 21 ns |
+| T1IR, 9 TI | 2.6 | 20% (its BestOf start is most of it) | | |
+| DTI, 61 images | 10 | 45% | 1.4 µs | 0.45 µs |
+| DKI, 61 images | 104 | 58% | 14 µs | 4.7 µs |
+
+- **QMTSIREqualR1, written out** (bench/jacobian/sir_analytic.jl, the closed-form derivatives
+  of its one-line signal, the magnitude's sign included): the same fits (PSR to 1e-15 with kmf
+  fixed, 1e-7 free; the same iterations in 99.9–100% of voxels), **6–13% faster** (4-point
+  1.43 → 1.34 µs, 5-point with kmf free 3.72 → 3.31, 16-point 3.52 → 3.21, with kmf free 8.10 →
+  7.33). One call 105 → 90 ns (4-point), 418 → 354 (16-point): dual numbers cost little here,
+  because the exponentials, three per observation, are computed once either way and are about
+  half the call (42 and 173 ns alone). Not worth a second copy of the signal to keep in step
+  with the first. For SIR the lever is the exponential itself (the branch-free exp, item 26:
+  16-point fits 1.39× faster, 4-point none), and with few points the solver's own work.
+- **DKI is the candidate**: 104 µs a voxel, 58% of it in a call whose dual numbers carry 22
+  partials through every term, while its ln S is linear in all of its parameters but S0 (the
+  tensor elements, D and V = MD²·W), so the Jacobian's row is the signal times a row fixed by
+  the acquisition, made once. The call would fall toward the sums (14 → about 5 µs), the fit
+  about 1.5× faster (estimated, not built). DTI the same, smaller (about 1.3×); and for both the
+  sums themselves (a 22×22 outer product per image) could be done as one matrix product. The
+  bi-exponential perhaps 1.2× (estimated).
+
 ### Stopping tolerances against the noise (2026-11-21)
 
 The owner: "I also wonder if we can optimize levmar stop criteria somehow. Maybe do a few sample
