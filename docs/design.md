@@ -6315,7 +6315,24 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            within mask"): 294,912 voxels, tissue varied (vic 0.3–0.8, ODI 0.05–0.7, viso 0–0.3,
            10% CSF-like), SNR 30, 4 threads, the built-in: 48.5 s with 63 images (b 1000, 2500),
            66.3 s with Zhang 2012's 99 (9 b = 0, 30 at 700, 60 at 2000); 9–10 iterations, 99.9%
-           converged. So about 40–50 s with 12 nodes, 20–30 s with the series.
+           converged. Every version (bench/noddi/brain.jl, the same voxels):
+
+           | version | 63 images | 99 images (Zhang 2012) |
+           |---|---:|---:|
+           | built-in: 16 nodes | 47.9 s | 63.4 s |
+           | 1. I0 alone | 46.5 s | 61.7 s |
+           | 2. 12 nodes | 36.2 s | 47.4 s |
+           | 3. the series, l ≤ 30, tabulated | 21.1 s | 27.9 s |
+
+           Reported elsewhere (other hardware and data, so orders of magnitude only): the NODDI
+           toolbox about 1.5 s a voxel on one core (Tariq et al.'s NODDI-SH paper, arXiv
+           1708.08999: 2,970 voxels), so about 120 core-hours for these 294,912 voxels, and about
+           230 hours a subject on HCP data (ISMRM 2016, 1079); dmipy 0.14 s a voxel with 8
+           workers (its NODDI example), about 11 hours; AMICO, the linearized fit, under 10
+           minutes a brain (as cited); MDT on a GPU about 40 s for its 81-volume example (ISMRM
+           2017, 1739). The toolbox fits the Rician likelihood from a grid search, EQUIP here
+           least squares from constant starts: not the same fit, but the toolbox is about 2000
+           times slower a core.
        - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
