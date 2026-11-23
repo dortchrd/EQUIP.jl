@@ -6281,6 +6281,21 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          a voxel (about a minute for a brain's 500,000 voxels on 4 threads); the toolbox's grid
          search for starts is not needed here (constant starts and the tensor's direction). Not
          done: BestOf over ODI × vic, VarPro over the fractions, AMICO's dictionary, D∥ free.
+       - **Where its time goes** (the owner, 2026-11-23: "why is noddi so slow"; one thread, 63
+         images): one signal 37 µs against StickZeppelin's 0.67 (56×); one voxel's fit 374 µs
+         (6 iterations) against 14.6. The dispersed stick's 16 nodes per image are 1008 values
+         of exp (4.6 ns) and of the scaled Bessel functions (`_i01e`, 28 ns: I0 and I1 together,
+         two Chebyshev series, where only I0 is needed): the Bessel function is 85% of it. Ways
+         to cut it: I0 alone (about 2×), 12 nodes (6e-6, 0.75×), or the toolbox's route, the
+         Funk–Hecke series A_ic(t) = Σₗ (2l + 1)·wₗ(κ)·kₗ(β)·Pₗ(t)/(2w₀), the Watson's Legendre
+         coefficients once per voxel and the stick's once per shell, then about a dozen terms an
+         image (estimated 10–20× on the signal), its coefficients by quadrature rather than the
+         toolbox's closed forms, which cancel at small κ and b.
+       - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
+         two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
+         dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
+         quadratic form is then of rank three, its eigenvalues per image (a 3×3 symmetric
+         eigenproblem) and the same Bessel integral along one eigenvector. Not built.
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
