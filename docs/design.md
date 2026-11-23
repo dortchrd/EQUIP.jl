@@ -6333,6 +6333,20 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            2017, 1739). The toolbox fits the Rician likelihood from a grid search, EQUIP here
            least squares from constant starts: not the same fit, but the toolbox is about 2000
            times slower a core.
+         - **Two further speed-ups, evaluated** (the owner: "evaluate those"; bench/noddi/further.jl,
+           20,000 voxels of the same mix, 63 images, SNR 30, 4 threads):
+           - **The series summed in z = 2t² − 1**: Legendre's even polynomials are Jacobi
+             polynomials, P₂ₙ(t) = Pₙ^(0,−1/2)(2t² − 1), so the even series is a Jacobi series of
+             half the length, summed by Clenshaw's recurrence (15 steps of one multiplication by
+             z, against the Legendre recurrence's 30 of two). One signal 3.7 µs (the Legendre
+             recurrence 9–11, the built-in 35), the same values (6e-9 from the built-in); fits
+             **39 µs a voxel against the built-in's 150 (3.8×)**, the Legendre form's 70: about
+             12 s for the 294,912-voxel brain. Its range is the series': l ≤ 30 to b·D∥ ≈ 8.5.
+           - **Better starts gain nothing**: from the truth itself, 9.3 iterations against 9.9
+             from the constant starts (the iterations go to converging in the noise, not to
+             reaching the minimum); BestOf over ODI (6 values) 45 µs, slower; ODI from the
+             tensor's FA (a map from noise-free signals) 38 µs, the same. And the constant starts
+             found the best minimum most often (30 voxels of 20,000 not at it, against 53–182).
        - **Bingham–NODDI** (Tariq et al., NeuroImage 2016): dispersion fanning more in one plane,
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the

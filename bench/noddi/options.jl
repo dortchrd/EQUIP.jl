@@ -206,6 +206,7 @@ acq = diffusionencoding([fill(0.0, 3); fill(1000.0, 30); fill(2500.0, 30)], redu
 acq3k = diffusionencoding([fill(0.0, 3); fill(3000.0, 30); fill(5000.0, 30)], reduce(hcat, [fill([0.0, 0.0, 0.0], 3); collect.(g); collect.(g)]))
 base = (S0 = 1.0, vic = 0.6, viso = 0.1, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3e-3)
 models = [("built-in (16 nodes, I0 and I1)", NODDI), ("1. I0 alone", NODDI_I0), ("2. 12 nodes", NODDI_12), ("3. series, l ≤ $LMAX", NODDI_SH), ("3b. series, l ≤ $LMAX, tabulated", NODDI_SHFAST)]
+if abspath(PROGRAM_FILE) == @__FILE__            # the table, when run itself (not included)
 println("| option | largest relative error (b ≤ 2500; ≤ 5000) | one signal, plain | one voxel's fit (1 thread) | dataset fit, 1000 voxels, SNR 30, $(Threads.nthreads()) threads | largest |ΔODI|, |Δvic| against the built-in |")
 println("|---|---|---:|---:|---:|---|")
 rng = MersenneTwister(1)
@@ -233,4 +234,5 @@ for (label, M) in models
     @printf("| %s | %.1e; %.1e | %.1f µs | %.0f µs | %.0f µs/voxel | %.1e, %.1e |\n", label, errs[1], errs[2], 1e-3ts, 1e-3tf, 1e6td / nv,
             maximum(abs.(r.params.ODI .- ref.params.ODI)), maximum(abs.(r.params.vic .- ref.params.vic)))
     flush(stdout)
+end
 end

@@ -2,7 +2,7 @@
 # 128×128×60 at 30%, 294,912 voxels, tissue varied (vic 0.3–0.8, ODI 0.05–0.7, viso 0–0.3; 10%
 # CSF-like, viso 0.9), orientations random, Rician SNR 30, two protocols; the fit only (no files).
 #   LMAX=30 julia -t 4 --project=. bench/noddi/brain.jl
-include(joinpath(@__DIR__, "options.jl"))           # the versions (its own table runs first)
+include(joinpath(@__DIR__, "options.jl"))           # the versions
 N = round(Int, 128 * 128 * 60 * 0.3)
 println("\n| version | protocol | fit, s | µs a voxel | iterations | converged |")
 println("|---|---|---:|---:|---:|---:|")
