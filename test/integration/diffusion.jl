@@ -162,9 +162,10 @@ end
     @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5
     tdot(g, n) = @allocated g ⋅ n
     @test (tdot((1.0, 2.0, 3.0), n); tdot((1.0, 2.0, 3.0), n) == 0)
-    # a directional model on it: its signal is the stick and zeppelin written out, no allocation
-    m = DirStickZeppelin(; acq...)
-    θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, θ = 0.7, φ = 0.3)
+    # a directional model on it (the built-in StickZeppelin): its signal is the stick and
+    # zeppelin written out, no allocation
+    m = StickZeppelin(; acq...)
+    θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
     ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
     Dp = 0.4 * 1.9e-3
     @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * ξ^2) +
@@ -175,14 +176,100 @@ end
     # fitted in both precisions, from the true direction's neighborhood
     Y = simulate(m, θ; snr = 100, n = 200, noise = :gaussian, rng)
     for T in (Float64, Float32)
-        r = fit(m, Y; precision = T, θ = Free(start = 0.6), φ = Free(start = 0.2))
+        r = fit(m, Y; precision = T, theta = Free(start = 0.6), phi = Free(start = 0.2))
         @test eltype(r.params.vax) == T && count(isconverged, r.status) == 200
-        @test abs(mean(r.params.vax) - 0.6) < 0.01 && abs(mean(r.params.θ) - 0.7) < 0.01
+        @test abs(mean(r.params.vax) - 0.6) < 0.01 && abs(mean(r.params.theta) - 0.7) < 0.01
     end
     # one 3-vector per image is refused where every fit and signal starts, naming the remedy
     mv = DirVectors(b = bv, g = [SVector(c...) for c in eachcol(G)])
     for f in (() -> signal(mv, (S0 = 1.0,)), () -> fit(mv, Y), () -> nobs(mv))
         @test occursin("the field `g` holds", msg(f)) && occursin("diffusionencoding", msg(f))
+    end
+end
+
+@testset "StickZeppelin and BallStick: one fiber, started from the voxel's tensor, reported with z ≥ 0" begin
+    rng = MersenneTwister(12)
+    acq = DWI_ACQ; bv = acq.b
+    msz, mbs = StickZeppelin(; acq...), BallStick(; acq...)
+    tsz = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
+    tbs = (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)
+    # BallStick against Behrens et al. (MRM 2003), written out: one diffusivity, isotropic and
+    # along the fiber (StickZeppelin's signal is checked written out in the test set above)
+    n = SVector(fiberdirection(0.7, 0.3))
+    ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
+    @test signal(mbs, tbs) ≈ (@. 1000 * (0.5 * exp(-bv * 1.2e-3) + 0.5 * exp(-bv * 1.2e-3 * ξ^2))) rtol = 1e-12
+    # n and −n are one fiber, and the angles repeat: the same signal; `relabel` reports the
+    # upper hemisphere (θ in [0, π/2], φ in (−π, π]), so the signal is unchanged by it
+    for (m, t) in ((msz, tsz), (mbs, tbs))
+        s = signal(m, t)
+        @test signal(m, merge(t, (theta = π - 0.7, phi = 0.3 + π))) ≈ s rtol = 1e-12
+        @test signal(m, merge(t, (theta = 0.7 + 2π, phi = 0.3 - 2π))) ≈ s rtol = 1e-12
+        r = relabel(m, merge(t, (theta = π - 0.7, phi = 0.3 - π)))
+        @test r.theta ≈ 0.7 && r.phi ≈ 0.3 && isapprox(signal(m, r), s; rtol = 1e-12)
+    end
+    # the direction's start, the principal eigenvector of the voxel's log-linear tensor: on
+    # noise-free data along any direction (θ, φ every 15° and 30°), within 0.1° of the fiber's
+    # (the tensor is not these models, and 30 directions are not isotropic: 0.0996° measured)
+    err = Float64[]
+    for th in range(0, π, length = 13), ph in range(-π, π, length = 13), (m, t) in ((msz, tsz), (mbs, tbs))
+        d = datastart(m, signal(m, merge(t, (theta = th, phi = ph))), NamedTuple())
+        push!(err, acosd(clamp(abs(dot(SVector(fiberdirection(d.theta, d.phi)), SVector(fiberdirection(th, ph)))), 0, 1)))
+    end
+    @test maximum(err) < 0.15
+    # ... and where no tensor can be fitted (no positive data), the x axis, finite
+    @test datastart(msz, zeros(length(bv)), NamedTuple()) == (theta = π / 2, phi = 0.0)
+    # fitted from the default starts at SNR 50 (Rician), fibers in random directions: every voxel
+    # converged, the direction within a degree, in the upper hemisphere, the fractions unbiased
+    # (to 4 standard errors of the mean); D⊥ derived as (1 − vax)·Dax
+    nv = 500
+    dirs = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]
+    θt, φt = acos.(getindex.(dirs, 3)), atan.(getindex.(dirs, 2), getindex.(dirs, 1))
+    angle(r, i) = acosd(clamp(abs(dot(SVector(fiberdirection(r.params.theta[i], r.params.phi[i])), dirs[i])), 0, 1))
+    for (m, t, q) in ((msz, tsz, :vax), (mbs, tbs, :f))
+        Y = simulate(m, merge(map(x -> fill(x, nv), t), (theta = θt, phi = φt)); snr = 50, noise = :rician, rng)
+        r = fit(m, Y)
+        @test all(isconverged, r.status) && median(angle.(Ref(r), 1:nv)) < 1
+        @test all(0 .<= r.params.theta .<= π / 2) && all(-π .<= r.params.phi .<= π)
+        @test abs(mean(r.params[q]) - t[q]) < 4 * std(r.params[q]) / sqrt(nv)
+        m isa StickZeppelin && @test derived(r).Dperp ≈ (1 .- r.params.vax) .* r.params.Dax
+        # the direction fixed instead, as maps (from a DTI fit, say): not fitted, not relabelled
+        rf = fit(m, Y; theta = θt, phi = φt)
+        @test !haskey(rf.params, :theta) && abs(mean(rf.params[q]) - t[q]) < 4 * std(rf.params[q]) / sqrt(nv)
+    end
+    c = init(msz); y = signal(msz, tsz); fit!(c, y)
+    @test_noalloc fitallocs(c, y) == 0
+end
+
+@testset "IVIM: Le Bihan's two compartments, from the segmented fit" begin
+    rng = MersenneTwister(13)
+    b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]
+    m = IVIM(; b)
+    t = (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)
+    @test signal(m, t) ≈ (@. 1000 * (0.1 * exp(-b * 0.02) + 0.9 * exp(-b * 1.0e-3))) rtol = 1e-12
+    # the components swap: the same signal; `relabel` reports the faster as D*
+    sw = (f = 0.9, Dstar = 1.0e-3, D = 0.02)
+    @test signal(m, merge(t, sw)) ≈ signal(m, t) rtol = 1e-12
+    r = relabel(m, sw)
+    @test r.f ≈ 0.1 && r.Dstar == 0.02 && r.D == 1.0e-3 && relabel(m, r) == r
+    # the segmented start, noise-free: D from b ≥ 200 is biased only by what is left of the
+    # perfusion term there (f·e^(−200·D*): 0.2% of S0 here), so D and f within 1% and 3%, D*
+    # within 10%; with D* slower the term lasts past the split and the start is rougher (f 0.30
+    # starts at 0.22: the method's own limit, which the fit then corrects)
+    d = datastart(m, signal(m, t), NamedTuple())
+    @test isapprox(d.D, t.D; rtol = 0.01) && isapprox(d.f, t.f; rtol = 0.03) && isapprox(d.Dstar, t.Dstar; rtol = 0.1)
+    # where the data do not support a step: typical values, finite (one b above the split)
+    @test datastart(IVIM(b = [0.0, 50, 100, 300]), ones(4), NamedTuple()) == (f = 0.1, D = 1.0e-3, Dstar = 1.0e-2)
+    # at SNR 200, every voxel converged, with the spread crlb predicts (within 20%) and the bias
+    # its second-order term predicts (to 4 standard errors of the mean): IVIM is curved enough
+    # that f is 0.75% high even here (0.71–0.78% measured over three seeds of 4000 voxels)
+    nv = 1000
+    Y = simulate(m, map(x -> fill(x, nv), t); snr = 200, noise = :gaussian, rng)
+    res = fit(m, Y)
+    c = crlb(m, t; snr = 200, secondorder = true)
+    @test all(isconverged, res.status) && all(res.params.Dstar .>= res.params.D)
+    for k in (:f, :D)
+        @test abs(mean(res.params[k]) - t[k] - c.bias[k]) < 4 * std(res.params[k]) / sqrt(nv)
+        @test std(res.params[k]) ≈ c.sd[k] rtol = 0.2
     end
 end
 

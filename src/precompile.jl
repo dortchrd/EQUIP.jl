@@ -38,6 +38,7 @@ using PrecompileTools: @setup_workload, @compile_workload
              (R2BiexpDecay(TE = te), (S0 = 1000.0, fshort = 0.15, R2short = 50.0, R2long = 12.5)),
              (ADCDecay(b = b), (S0 = 1000.0, ADC = 1e-3)),
              (ADCKurtosis(b = b), (S0 = 1000.0, ADC = 1e-3, K = 1.0)),
+             (IVIM(b = [0.0, 10, 20, 50, 100, 200, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1e-3)),
              (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)),
              (QMTSIREqualR1(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
     dirs = directionset(15)
@@ -77,6 +78,15 @@ using PrecompileTools: @setup_workload, @compile_workload
         res = fit(m, permutedims(hcat(y, 0.9 .* y)))
         derived(res)
         show(IOBuffer(), MIME"text/plain"(), res)
+        # the one-fiber models (added 2026-11-23), on the same acquisition, the fiber along x
+        for (M, θ) in ((StickZeppelin, (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = π / 2, phi = 0.0)),
+                       (BallStick, (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = π / 2, phi = 0.0)))
+            m = M(; diffusionencoding(dwib, dwig)...)
+            y = signal(m, θ)
+            fit(m, y)
+            res = fit(m, permutedims(hcat(y, 0.9 .* y)))
+            derived(res)
+        end
 
         # crlb, montecarlo and a protocol design (added 2026-11-08), as the README calls them:
         # the SIR schemes with the fit assuming kmf (Dortch 2018), T2 decay at an SNR. Each

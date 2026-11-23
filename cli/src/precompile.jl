@@ -17,6 +17,7 @@ const _EXAMPLES = (
     T2DecayOffset = ["--TE", "0.01:0.01:0.32"], R2DecayOffset = ["--TE", "0.01:0.01:0.32"],
     T2BiexpDecay = ["--TE", "0.01:0.01:0.32"], R2BiexpDecay = ["--TE", "0.01:0.01:0.32"],
     ADCDecay = ["--b", "0,500,1000,1500,2000,2500"], ADCKurtosis = ["--b", "0,500,1000,1500,2000,2500"],
+    IVIM = ["--b", "0,10,20,50,100,200,400,600,800"],
     QMTSIR = ["--protocol", "SIR_5POINT"], QMTSIREqualR1 = ["--protocol", "SIR_5POINT"])
 # True values for the workload's data (the fixed parameters take the model's defaults); typical
 # white-matter-like values.
@@ -30,6 +31,7 @@ const _TRUTHS = (
     T2BiexpDecay = (S0 = 1.0, fshort = 0.2, T2short = 0.02, T2long = 0.08),
     R2BiexpDecay = (S0 = 1.0, fshort = 0.2, R2short = 50.0, R2long = 12.5),
     ADCDecay = (S0 = 1.0, ADC = 8e-4), ADCKurtosis = (S0 = 1.0, ADC = 1e-3, K = 1.0),
+    IVIM = (S0 = 1.0, f = 0.1, Dstar = 0.02, D = 1e-3),
     QMTSIR = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0),
     QMTSIREqualR1 = (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1.0))
 
@@ -73,7 +75,9 @@ end
         # DTI and DKI, the way they are called: the gradient directions from the FSL .bval and
         # .bvec beside the data (dcm2niix's), and their derived maps (MD, FA, ..., MK, ...)
         dwi = joinpath(dir, "dwi.nii.gz")
-        for (M, truth) in ((DTI, _DTI_TRUTH), (DKI, _DKI_TRUTH))
+        for (M, truth) in ((DTI, _DTI_TRUTH), (DKI, _DKI_TRUTH),
+                           (StickZeppelin, (S0 = 1.0, vax = 0.6, Dax = 1.9e-3, theta = π / 2, phi = 0.0)),
+                           (BallStick, (S0 = 1.0, f = 0.5, d = 1.2e-3, theta = π / 2, phi = 0.0)))
             _writedwi(dwi, M, truth)
             equip(["fit", String(nameof(M)), dwi, "--out", joinpath(dir, "$(nameof(M))_")]; io = quiet, err = quiet)
         end

@@ -239,11 +239,27 @@ end
         rk = fit(DKI(; acq...), data)
         @test rawmap(out("b_MK.nii.gz")) ≈ Float32.(derived(rk).MK)
         @test rawmap(out("b_V1111.nii.gz")) ≈ Float32.(rk.params.V1111)
+        # the one-fiber models from the same files: the same maps as the Julia API's fit, D⊥ too
+        r = run("fit", "StickZeppelin", path("dti.nii.gz"), "--out", out("c_"))
+        @test r.code == 0 && isempty(r.err)
+        rz = fit(StickZeppelin(; acq...), data)
+        @test rawmap(out("c_vax.nii.gz")) ≈ Float32.(rz.params.vax) && rawmap(out("c_theta.nii.gz")) ≈ Float32.(rz.params.theta)
+        @test rawmap(out("c_Dperp.nii.gz")) ≈ Float32.(derived(rz).Dperp)
+        @test run("fit", "BallStick", path("dti.nii.gz"), "--out", out("d_")).code == 0
+        @test rawmap(out("d_f.nii.gz")) ≈ Float32.(fit(BallStick(; acq...), data).params.f)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
         @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&
               occursin("the log-linear fit to the data", r.out)
         @test occursin("DTI", run("models").out) && occursin("DKI", run("models").out)
+        @test occursin("from the data", run("fit", "StickZeppelin", "--help").out)
+        # IVIM: b from --b (or the .bval beside the data); its segmented start
+        bi = [0.0, 10, 20, 50, 100, 200, 400, 600, 800]
+        Yi = simulate(IVIM(b = bi), map(x -> fill(x, 3, 2, 1), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1e-3));
+                      snr = 200, noise = :gaussian, rng = MersenneTwister(10))
+        niwrite(path("ivim.nii.gz"), NIVolume(Float32.(Yi); geometry...))
+        @test run("fit", "IVIM", path("ivim.nii.gz"), "--b", join(bi, ','), "--out", out("e_")).code == 0
+        @test rawmap(out("e_Dstar.nii.gz")) ≈ Float32.(fit(IVIM(b = bi), readdata(path("ivim.nii.gz"))[1]).params.Dstar)
         # no .bvec beside the data: a message saying where the directions come from
         cp(path("dti.nii.gz"), path("nobvec.nii.gz"); force = true)
         cp(path("dti.bval"), path("nobvec.bval"); force = true)

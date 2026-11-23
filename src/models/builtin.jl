@@ -102,4 +102,6 @@ include("diffusion/dti.jl")             # DTI: the diffusion tensor, one image p
 include("diffusion/dki.jl")             # DKI: diffusion kurtosis (V = MD²·W), MK, AK, RK as DIPY's
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
 include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
+include("diffusion/fibers.jl")          # StickZeppelin, BallStick: one fiber direction, every image
+include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

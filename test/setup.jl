@@ -137,27 +137,6 @@ end
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
     S0 * exp(-TE / T2)
 
-# A directional model written by hand (examples/directional_models.jl): one fiber n(θ, φ), the
-# compartments' view for one gradient direction, the acquisition b, gx, gy, gz (from diffusionencoding)
-Base.@kwdef struct DirStickZeppelin{A,X,Y,Z} <: MRIModel
-    b::A
-    gx::X
-    gy::Y
-    gz::Z
-end
-EQUIP.parameters(::Type{<:DirStickZeppelin}) = (S0 = Free(start = :scale, lower = 0),
-    vax = Free(start = 0.5, lower = 0, upper = 1), Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
-    θ = Free(start = 0.5, lower = 0, upper = π), φ = Free(start = 0.0, lower = -π, upper = π))
-function EQUIP.signal!(out, m::DirStickZeppelin, p)
-    (; b, gx, gy, gz) = m
-    (; S0, vax, Dax, θ, φ) = p
-    n = fiberdirection(θ, φ)
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ n
-        out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, (1 - vax) * Dax, ξ))
-    end
-    return out
-end
 # The same acquisition given as one 3-vector per image: refused, with what to write instead
 Base.@kwdef struct DirVectors{A,G} <: MRIModel
     b::A
@@ -215,6 +194,11 @@ const TD5 = [3.270, 4.489, 1.652, 2.922, 0.010]
 const TI6 = [0.03, 0.1, 0.3, 0.6, 1.2, 2.4]
 const TD6 = [0.5, 3.0, 1.0, 0.2, 2.0, 0.05]
 
+# A diffusion scheme for the one-fiber models: b = 0 and two shells of 30 directions
+const DWI_ACQ = let g = directionset(30)
+    diffusionencoding([0.0; fill(1000.0, 30); fill(2500.0, 30)], reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(g); collect.(g)]))
+end
+
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
     (T2Decay(TE = collect(0.01:0.01:0.32)), (S0 = 1000.0, T2 = 0.08)),
@@ -237,6 +221,9 @@ const CASES = [
      (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
     (QMTSIREqualR1(TI = TI5, TD = TD5), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)),
+    (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
+    (StickZeppelin(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)),
+    (BallStick(; DWI_ACQ...), (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)),
 ]
 
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix

@@ -20,6 +20,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `combined-proto` | `stopping-proto` and `bestof-proto` merged, to measure them together (2026-11-22): on the owner's scan at full size, QMTSIREqualR1, calibrated tolerances, the stall rule, uncompressed maps and BestOf R1f from the dictionary, about 8 s against 20–21 s now (docs/design.md, "Voxels a poor mask lets in"). For measuring only; each part is adopted, or not, from its own branch. |
 | `nii-default` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nii-default`). |
 | `nifti-units` | merged into `main` (2026-11-23, below): nothing in it that `main` does not have; to delete (`git push origin --delete nifti-units`). |
+| `models-proto` | `StickZeppelin`, `BallStick` and `IVIM` built (2026-11-23, the owner: "let's add some models"; tier 5's first three): the fiber's direction from the voxel's own tensor, reported with z ≥ 0; IVIM from the segmented fit (faster and more often at the best minimum than constant or BestOf starts); in the command line and both precompile workloads (docs/design.md, item 17). Waits on CI (precompile workload, the command line) and the owner's merge. |
 | `experiments` | the four prototypes never merged, in one commit (bc996fe) whose four parents are their last commits, so every commit of each is kept. Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c step-proto experiments^2`). The only branch with commits not in `main` (12, checked 2026-11-17). |
 
 Merged into `main` (2026-11-23, at the owner's request: "merge both into main"): `nii-default`
@@ -289,7 +290,7 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
 
 **5. Models** (items 5, 6, 7, 17)
 - First, in this order (the owner): stick–zeppelin (examples/directional_models.jl has it by
-  hand), ball–stick (one stick; N sticks later), IVIM (the segmented fit as its `datastart`).
+  hand), ball–stick (one stick; N sticks later), IVIM (the segmented fit as its `datastart`). Built 2026-11-23 (branch `models-proto`).
   The two directional ones start from DTI's principal direction.
 - Then: MTR, MTsat, B1 and B0 maps (item 5); pulsed qMT (item 6); NODDI (item 7); free-water
   DTI; DKI's constraints (K ≥ 0 in every direction) imposed, not only checked.

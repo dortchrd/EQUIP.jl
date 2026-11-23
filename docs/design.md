@@ -7113,7 +7113,39 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      (12.8 µs per voxel; with `@mrimodel` 23.1: "Directions per image", built 2026-11-06).
    - **Stick–zeppelin, ball–stick and IVIM, first among the models** (the owner, 2026-11-08:
      "want IVIM, ball stick, and stick zeppelin as well"; tier 5 of the priorities, in this
-     order). Not built.
+     order). **Built 2026-11-23** (the owner: "let's add some models"; branch `models-proto`):
+     `StickZeppelin`, `BallStick` (src/models/diffusion/fibers.jl) and `IVIM`
+     (src/models/diffusion/ivim.jl), as planned below, with these choices:
+     - **The angles `theta` and `phi`, unbounded** (ASCII names: they are flags and map files),
+       reported in the upper hemisphere by `relabel` (θ in [0, π/2], φ in (−π, π], from
+       n = fiberdirection(θ, φ) flipped to z ≥ 0 as DTI's V1): the signal depends on ξ² only, so a
+       bound would stop a fit where the signal does not (the sketch's [0, π] stopped fibers near z).
+     - **The direction's start** (`datastart`, `_tensordirection`): the voxel's log-linear tensor,
+       weighted by y², its principal eigenvector (7×7 normal equations, static, no allocation).
+       Noise-free, within 0.0996° of the fiber in every direction on 2 × 30 directions (the
+       tensor is not these models); at SNR 50 the fit's direction median 0.27° (stick–zeppelin)
+       and 0.45° (ball–stick), the start's the same: DTI's direction is already as good as the
+       data allow, and the fit keeps it. 2000 voxels, 132 images, 4 threads: 11.1 and 7.9 µs a
+       voxel, every voxel converged in about 5 iterations, vax and f unbiased.
+     - **D⊥ hard-wired to the tortuosity limit**, as SMT's (a separate model if it should be
+       freed); derived `Dperp`. Ball–stick's diffusivity `d`, Behrens' name.
+     - **IVIM's start, the segmented fit, measured** (bench/models/ivim_starts.jl; 10,000
+       voxels, f 0.05–0.3, D* 0.005–0.05, D 0.5–2e-3, 13 b-values to 800, one thread):
+
+       | SNR | start | µs/voxel | iterations | voxels not at the best minimum |
+       |---:|---|---:|---:|---:|
+       | 50 | segmented (the default) | 6.18 | 15.1 | 98 |
+       | 50 | constant (f 0.1, D* 0.02, D 1e-3) | 6.38 | 16.5 | 144 |
+       | 50 | BestOf D*, 8 values | 7.49 | 16.6 | 217 |
+       | 200 | segmented | 3.94 | 9.2 | 0 |
+       | 200 | constant | 4.57 | 11.3 | 85 |
+       | 200 | BestOf D* | 5.67 | 11.4 | 55 |
+
+       Every start converged in every voxel; the errors' medians are the same (f 17%, D 8% at
+       SNR 50). D*'s upper bound 0.2 mm²/s, so that a perfusion term the b-values do not resolve
+       cannot run off; `bsplit` (200 s/mm²) a field of the model. At SNR 200, f is 0.75% high on
+       average: IVIM's own curvature, which crlb's second-order bias predicts (0.71–0.78%
+       measured over three seeds of 4000 voxels): the test checks against it.
      - **Stick–zeppelin**: the example's code moved into src/, with the relabel and a start for
        the direction (below), tests and a derived D⊥.
      - **Ball–stick** (Behrens et al., Magn Reson Med 2003): S0·[(1 − f)·iso(b, d) + f·stick(b,

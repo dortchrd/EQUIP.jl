@@ -12,10 +12,11 @@
 # passed to any directional model as keywords. The cosine between gradient and fiber, ξ = g·n, is
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the
 # compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n`
-# (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is written by
-# hand for that reason: written with `@mrimodel`, whose body runs once per image, its sines and
-# cosines are computed for every image and its fit takes about twice as long (both are timed at
-# the end). DTI is built in (src/models/diffusion/dti.jl), written out the same way. A stick and
+# (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is built in
+# (`StickZeppelin`, src/models/diffusion/fibers.jl, since 2026-11-23), written by hand for that
+# reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
+# computed for every image and its fit takes about twice as long (both are timed at the end).
+# DTI is built in (src/models/diffusion/dti.jl), written out the same way. A stick and
 # a zeppelin are tensors (D = D∥·nnᵀ; D = D⊥·I + (D∥ − D⊥)·nnᵀ): checked below.
 #
 # Run from the repository folder (about 30 s):
@@ -33,40 +34,16 @@ bvec = reduce(hcat, [fill(SVector(0.0, 0.0, 0.0), 4); g; g])   # 3×132, as a .b
 acq = diffusionencoding(bval, bvec)                         # (b, gx, gy, gz), checked;
                                                             # from files: diffusionencoding("dwi.bval", "dwi.bvec")
 
-# --- 1. stick + zeppelin along one fiber direction n(θ, φ), written by hand ------------------------
-@kwdef struct StickZeppelin{A,X,Y,Z} <: MRIModel
-    b::A                     # b-values (s/mm²), one per image
-    gx::X                    # gradient direction of each image: x, y and z components
-    gy::Y
-    gz::Z
-end
-parameters(::Type{<:StickZeppelin}) = (
-    S0  = Free(start = :scale, lower = 0),
-    vax = Free(start = 0.5, lower = 0, upper = 1),
-    Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),                 # mm²/s
-    θ   = Free(start = 0.5, lower = 0, upper = π),                         # the fiber's polar angle
-    φ   = Free(start = 0.0, lower = -π, upper = π),                        # and azimuth
-)
-function signal!(out, m::StickZeppelin, p)
-    (; b, gx, gy, gz) = m
-    (; S0, vax, Dax, θ, φ) = p
-    n = fiberdirection(θ, φ)                                         # once per voxel
-    Dperp = (1 - vax) * Dax                                          # tortuosity
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        g = (gx[j], gy[j], gz[j])                                    # image j's gradient direction
-        ξ = g ⋅ n                                                    # the cosine, gradient to fiber
-        out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
-    end
-    return out
-end
+# --- 1. stick + zeppelin along one fiber direction n(θ, φ): EQUIP's `StickZeppelin` --------------
+# S0·[vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, (1 − vax)·Dax, ξ)], ξ = g ⋅ n(theta, phi),
+# n computed once per voxel in its `signal!` (`EQUIP.signal!(out, ::StickZeppelin, p)`).
 
 # the same model with the macro: the body is one image's signal, so n is computed for every image
 @mrimodel function StickZeppelinMacro(b, gx, gy, gz; S0 = Free(start = :scale, lower = 0),
                                       vax = Free(start = 0.5, lower = 0, upper = 1),
-                                      Dax = Free(start = 2.0e-3, lower = 0, upper = 3.0e-3),
-                                      θ = Free(start = 0.5, lower = 0, upper = π),
-                                      φ = Free(start = 0.0, lower = -π, upper = π))
-    ξ = (gx, gy, gz) ⋅ fiberdirection(θ, φ)                         # the cosine, gradient to fiber
+                                      Dax = Free(start = 2.0e-3, lower = 0, upper = 4.0e-3),
+                                      theta = Free(start = 0.5), phi = Free(start = 0.0))
+    ξ = (gx, gy, gz) ⋅ fiberdirection(theta, phi)                   # the cosine, gradient to fiber
     Dperp = (1 - vax) * Dax                                          # tortuosity
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, Dperp, ξ))
 end
@@ -88,7 +65,7 @@ println("zeppelin as a tensor: ", zeppelin(2500.0, 2e-3, 0.8e-3, ξ5) ≈ exp(-2
 nv = 300
 ns = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]; ns = [x[3] < 0 ? -x : x for x in ns]
 θt, φt = acos.(getindex.(ns, 3)), atan.(getindex.(ns, 2), getindex.(ns, 1))
-truth = (S0 = fill(1000.0, nv), vax = fill(0.6, nv), Dax = fill(1.9e-3, nv), θ = θt, φ = φt)
+truth = (S0 = fill(1000.0, nv), vax = fill(0.6, nv), Dax = fill(1.9e-3, nv), theta = θt, phi = φt)
 Y = simulate(m, truth; σ = 10.0, noise = :gaussian, rng)          # SNR 100 at b = 0
 
 # --- fit DTI on b ≤ 1000, take its principal direction ---------------------------------------------
@@ -106,16 +83,20 @@ angerr(θ1, φ1, i) = acosd(clamp(abs(dot(SVector(sin(θ1) * cos(φ1), sin(θ1) 
 @printf("DTI (b ≤ 1000): FA %.2f, its direction %.1f° from the fibers (median)\n", median(fa), median(angerr.(θd, φd, 1:nv)))
 
 # --- stick + zeppelin: orientation fixed at DTI's, or fitted from it -------------------------------
-rf = fit(m, Y; θ = θd, φ = φd)                                       # orientation fixed (maps)
-rs = fit(m, Y; θ = Free(start = θd), φ = Free(start = φd))           # fitted, from DTI's
+rf = fit(m, Y; theta = θd, phi = φd)                                 # orientation fixed (maps)
+rs = fit(m, Y; theta = Free(start = θd), phi = Free(start = φd))     # fitted, from DTI's
+rd0 = fit(m, Y)                                                      # fitted, from the default start:
+                                                                     # each voxel's own tensor, all shells
 @printf("stick+zeppelin, orientation fixed at DTI's:  vax %.3f ± %.3f, Dax %.3e (truth 0.6, 1.9e-3)\n",
         mean(rf.params.vax), std(rf.params.vax), mean(rf.params.Dax))
 @printf("stick+zeppelin, orientation fitted from it: vax %.3f ± %.3f, Dax %.3e; direction %.2f° from the fibers\n",
-        mean(rs.params.vax), std(rs.params.vax), mean(rs.params.Dax), median(angerr.(rs.params.θ, rs.params.φ, 1:nv)))
+        mean(rs.params.vax), std(rs.params.vax), mean(rs.params.Dax), median(angerr.(rs.params.theta, rs.params.phi, 1:nv)))
+@printf("stick+zeppelin, from its default start:     vax %.3f ± %.3f; direction %.2f° from the fibers\n",
+        mean(rd0.params.vax), std(rd0.params.vax), median(angerr.(rd0.params.theta, rd0.params.phi, 1:nv)))
 mm = StickZeppelinMacro(; acq...)
-rm = fit(mm, Y; θ = Free(start = θd), φ = Free(start = φd))
+rm = fit(mm, Y; theta = Free(start = θd), phi = Free(start = φd))
 println("the macro's version gives the same fits: ", maximum(abs.(rm.params.vax .- rs.params.vax)) < 1e-8)
-t = minimum(@elapsed(fit(m, Y; θ = Free(start = θd), φ = Free(start = φd))) for _ in 1:5) / nv * 1e6
-tm = minimum(@elapsed(fit(mm, Y; θ = Free(start = θd), φ = Free(start = φd))) for _ in 1:5) / nv * 1e6
+t = minimum(@elapsed(fit(m, Y; theta = Free(start = θd), phi = Free(start = φd))) for _ in 1:5) / nv * 1e6
+tm = minimum(@elapsed(fit(mm, Y; theta = Free(start = θd), phi = Free(start = φd))) for _ in 1:5) / nv * 1e6
 @printf("fit time, µs per voxel (5 parameters, 132 images, %d threads): by hand %.1f, with the macro %.1f\n",
         Threads.nthreads(), t, tm)
