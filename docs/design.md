@@ -7967,7 +7967,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      parameters; (5) denoising the series first (MP-PCA, item 22).
 26. **Faster exponentials: a branch-free `exp` in the built-in models** (the owner, 2026-11-21:
    "put branch-free exp on the roadmap", after the batching measurements in the Performance
-   notes, "Batching"). Most built-in signals are mostly exponentials, and Julia's `exp` does not
+   notes, "Batching"; 2026-11-23: "put the fast exp on the roadmap for later"). Later. Most built-in signals are mostly exponentials, and Julia's `exp` does not
    vectorize (its 256-entry table, read at each value's own index, and its checks for overflow,
    underflow and NaN), so a signal loop runs one observation at a time.
    - **What**: an internal `_exp` (Float64 and Float32) computing 2ⁿ·eʳ with the same steps for
@@ -8001,6 +8001,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `@inline` where measured (`_score`: 8%), and fits above 8 free parameters called as
        functions (DKI).
      - A tested library exp (SLEEFPirates, the vector exp behind LoopVectorization) instead of
-       our own 15 lines: possible; a dependency against code to test ourselves.
+       our own 15 lines: possible; a dependency against code to test ourselves. Others looked
+       at (2026-11-23, the owner: "is there one of these already out there"): SIMDMathFunctions.jl
+       (SLEEFPirates' functions for SIMD.jl vectors), IntelVectorMath.jl (MKL; Intel and AMD
+       only), AppleAccelerate.jl (vForce; Macs only); LoopVectorization deprecated for Julia ≥
+       1.11 in its README. Each takes plain numbers, so the dual-number rule is ours either way;
+       none measured against the prototype.
    - Batching across voxels (W voxels in lockstep) stays out: the Performance notes,
      "Batching", have the reasons.

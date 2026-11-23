@@ -324,7 +324,8 @@ first")
 - Bayesian estimation (15); VarPro, log coordinates, solver backends, GPU (11, 12).
 - Later (the owner, 2026-11-23): DKI's and DTI's Jacobian written out (about 1.5× and 1.3×,
   estimated; not worth it for SIR, 6–13% measured); safe stopping tolerances learned per model;
-  the dictionary starts (`bestof-proto`, with tier 6).
+  the dictionary starts (`bestof-proto`, with tier 6); the branch-free `exp` (item 26: 1.39× on
+  16-point SIR fits, none on the 4-point).
 - The other start changes: ADCKurtosis and T2DecayOffset on `:loglinear` (the owner: the offset
   not now), the second pass from the linear prediction, `BestOf(fits = k)`, neighbours as a
   second pass (item 4). R2Decay and ADCDecay keep their constant starts (measured:
