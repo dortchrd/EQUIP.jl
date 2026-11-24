@@ -8,8 +8,8 @@
 # The built-in models, by name (a user's own model is used from Julia).
 const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay,
                   T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay, ADCDecay, ADCKurtosis,
-                  DTI, DKI, StickZeppelin, BallStick, NODDI, NODDISignal, BinghamNODDI,
-                  BinghamNODDISignal, IVIM, QMTSIR, QMTSIREqualR1)
+                  DTI, DKI, StickZeppelin, BallStick, NODDI, NODDIConvolved, BinghamNODDI,
+                  BinghamNODDIConvolved, IVIM, QMTSIR, QMTSIREqualR1)
 # The directional models: their acquisition is each image's b and gradient direction, read from
 # an FSL .bval and .bvec beside the data (as dcm2niix writes them), or given as flags.
 _directional(M) = (:gx, :gy, :gz) ⊆ fieldnames(M)

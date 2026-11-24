@@ -251,8 +251,8 @@ end
         @test rawmap(out("n_ODI.nii.gz")) ≈ Float32.(fit(NODDI(; acq...), data).params.ODI)
         @test run("fit", "BinghamNODDI", path("dti.nii.gz"), "--out", out("bn_")).code == 0
         @test rawmap(out("bn_betafraction.nii.gz")) ≈ Float32.(fit(BinghamNODDI(; acq...), data).params.betafraction)
-        @test run("fit", "NODDISignal", path("dti.nii.gz"), "--out", out("ns_")).code == 0
-        @test rawmap(out("ns_vic.nii.gz")) ≈ Float32.(fit(NODDISignal(; acq...), data).params.vic)
+        @test run("fit", "NODDIConvolved", path("dti.nii.gz"), "--out", out("ns_")).code == 0
+        @test rawmap(out("ns_vic.nii.gz")) ≈ Float32.(fit(NODDIConvolved(; acq...), data).params.vic)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
         @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&

@@ -90,7 +90,7 @@ datastart(m::NODDI, y, p) = _tensordirection(m, y)
 relabel(::NODDI, θ) = _upperdirection(θ)
 
 """
-    NODDISignal(; b, gx, gy, gz)
+    NODDIConvolved(; b, gx, gy, gz)
 
 [`NODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Watson distribution,
 as the sticks' is, in place of Zhang's averaged tensor:
@@ -105,15 +105,15 @@ each extra-neurite water molecule samples many orientations within the diffusion
 differ by 2–4% at b = 2500, which the residuals cannot show, and shift white matter's vic and ODI
 by about 1.5–2 SDs at SNR 100 (docs/design.md, item 7): a choice to make, and to report.
 """
-@kwdef struct NODDISignal{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct NODDIConvolved{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
     b::A
     gx::X
     gy::Y
     gz::Z
 end
-parameters(::Type{<:NODDISignal}) = parameters(NODDI)
+parameters(::Type{<:NODDIConvolved}) = parameters(NODDI)
 
-function signal!(out, m::NODDISignal, p)
+function signal!(out, m::NODDIConvolved, p)
     (; b, gx, gy, gz) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)
@@ -129,9 +129,9 @@ function signal!(out, m::NODDISignal, p)
     return out
 end
 
-derived(::NODDISignal, p) = (kappa = _kappa(p.ODI),)
-datastart(m::NODDISignal, y, p) = _tensordirection(m, y)
-relabel(::NODDISignal, θ) = _upperdirection(θ)
+derived(::NODDIConvolved, p) = (kappa = _kappa(p.ODI),)
+datastart(m::NODDIConvolved, y, p) = _tensordirection(m, y)
+relabel(::NODDIConvolved, θ) = _upperdirection(θ)
 
 # κ from ODI = (2/π)·arctan(1/κ): κ = cot(π·ODI/2), 0 at ODI = 1
 @inline _kappa(ODI) = cot(oftype(float(ODI), π) * ODI / 2)

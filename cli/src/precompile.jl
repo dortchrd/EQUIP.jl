@@ -80,8 +80,8 @@ end
                            (BallStick, (S0 = 1.0, f = 0.5, d = 1.2e-3, theta = π / 2, phi = 0.0)),
                            (NODDI, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = π / 2, phi = 0.0)),
                            (BinghamNODDI, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = π / 2, phi = 0.0, psi = 0.5)),
-                           (NODDISignal, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = π / 2, phi = 0.0)),
-                           (BinghamNODDISignal, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = π / 2, phi = 0.0, psi = 0.5)))
+                           (NODDIConvolved, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = π / 2, phi = 0.0)),
+                           (BinghamNODDIConvolved, (S0 = 1.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = π / 2, phi = 0.0, psi = 0.5)))
             _writedwi(dwi, M, truth)
             equip(["fit", String(nameof(M)), dwi, "--out", joinpath(dir, "$(nameof(M))_")]; io = quiet, err = quiet)
         end

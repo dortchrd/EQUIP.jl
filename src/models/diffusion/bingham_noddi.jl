@@ -46,22 +46,22 @@ The orientations start from the voxel's diffusion tensor: μ its principal eigen
 end
 
 """
-    BinghamNODDISignal(; b, gx, gy, gz)
+    BinghamNODDIConvolved(; b, gx, gy, gz)
 
 [`BinghamNODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Bingham
 distribution, `zeppelin(b, D∥, D⊥, B(g))`, as the sticks' is, in place of the averaged tensor:
-the Bingham counterpart of [`NODDISignal`](@ref) (its reasons there). The same parameters, starts
+the Bingham counterpart of [`NODDIConvolved`](@ref) (its reasons there). The same parameters, starts
 and derived quantities as BinghamNODDI's. Two quadratures an image (the sticks' and the
 zeppelin's), so about twice BinghamNODDI's time.
 """
-@kwdef struct BinghamNODDISignal{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct BinghamNODDIConvolved{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
     b::A
     gx::X
     gy::Y
     gz::Z
 end
 # the methods they share: the parameters, derived quantities, start and labels
-const _BinghamNODDIs = Union{BinghamNODDI,BinghamNODDISignal}
+const _BinghamNODDIs = Union{BinghamNODDI,BinghamNODDIConvolved}
 
 parameters(::Type{<:_BinghamNODDIs}) = (
     S0 = Free(start = :scale, lower = 0),
@@ -122,7 +122,7 @@ function relabel(::_BinghamNODDIs, θ)
     return merge(θ, (theta = t, phi = f, psi = mod(atan(μβ ⋅ eφ, μβ ⋅ eθ), oftype(t, π))))
 end
 
-function signal!(out, m::BinghamNODDISignal, p)
+function signal!(out, m::BinghamNODDIConvolved, p)
     (; b, gx, gy, gz) = m
     (; S0, vic, viso, ODI, betafraction, theta, phi, psi, Dpar, Diso) = p
     κ = _kappa(ODI)

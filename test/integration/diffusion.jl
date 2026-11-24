@@ -319,11 +319,11 @@ end
     @test derived(r).kappa ≈ @. 1 / tan(π * r.params.ODI / 2)
     cc = init(m); y = signal(m, tw); fit!(cc, y)
     @test_noalloc fitallocs(cc, y) == 0
-    # NODDISignal: the zeppelin's signal averaged, as the sticks' is. At ODI = 1 both
+    # NODDIConvolved: the zeppelin's signal averaged, as the sticks' is. At ODI = 1 both
     # compartments' spherical means, powder's closed forms (erf); at every image at least NODDI's
     # tensor-averaged signal (Jensen: ⟨e^(−bD)⟩ ≥ e^(−b⟨D⟩)), equal at b = 0; fitted at SNR 100
     # within crlb's spread, its own fit allocation-free
-    msg = NODDISignal(; acq...)
+    msg = NODDIConvolved(; acq...)
     zp = zeppelin.(bv, 1.7e-3, Dp, Ref(powder))
     @test signal(msg, t1) ≈ (@. 1000 * (0.8 * (0.5 * sp + 0.5 * zp) + 0.2 * exp(-bv * 3e-3))) rtol = 1e-7
     ss, st = signal(msg, tw), signal(m, tw)
@@ -418,10 +418,10 @@ end
     @test d.DA ≈ @. 2 / π * atan(d.beta / (d.kappa - d.beta))
     cc = init(m); y = signal(m, tb); fit!(cc, y)
     @test_noalloc fitallocs(cc, y) == 0
-    # BinghamNODDISignal: the zeppelin's signal averaged over B; at β = 0 NODDISignal's, at
+    # BinghamNODDIConvolved: the zeppelin's signal averaged over B; at β = 0 NODDIConvolved's, at
     # every image at least the tensor-averaged BinghamNODDI's (Jensen); allocation-free
-    mbs = BinghamNODDISignal(; acq...)
-    @test signal(mbs, merge(tb, (betafraction = 0.0,))) ≈ signal(NODDISignal(; acq...), tw) rtol = 1e-7
+    mbs = BinghamNODDIConvolved(; acq...)
+    @test signal(mbs, merge(tb, (betafraction = 0.0,))) ≈ signal(NODDIConvolved(; acq...), tw) rtol = 1e-7
     @test all(signal(mbs, tb) .>= signal(m, tb) .- 1e-9)
     cs = init(mbs); fit!(cs, y)
     @test isconverged(fit!(cs, y))

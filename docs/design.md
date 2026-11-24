@@ -6435,13 +6435,13 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          So the data do not choose; the choice should be explicit. Built: the views average the
          signal; NODDI keeps Zhang's tensor, written as `watsontensor`, for agreement with the
          toolbox and the literature. And, beside them (the owner: "yes, add both variants"),
-         `NODDISignal` and `BinghamNODDISignal`, the zeppelin's signal averaged
+         `NODDIConvolved` and `BinghamNODDIConvolved` (first `NODDISignal`; renamed, the owner: "not sure I love signal": the distribution convolved with both compartments' signals, the Standard Model's and dmipy's word), the zeppelin's signal averaged
          (`zeppelin(b, D∥, D⊥, w(ξ))`, `B(g)`): the same parameters, starts and derived
          quantities. `watson(w, b, D)` keeps the series for the zeppelin's excess D∥ − D⊥ = vic·D∥
-         from the same distribution (one Legendre table per voxel, two shell sets): NODDISignal
+         from the same distribution (one Legendre table per voxel, two shell sets): NODDIConvolved
          7.0 µs a signal (NODDI 3.8), no allocation. Tested: at ODI = 1 powder's closed forms for
          both compartments; at every image at least the tensor-averaged signal (Jensen), equal at
-         b = 0; BinghamNODDISignal at β = 0 equal to NODDISignal; fits against crlb.
+         b = 0; BinghamNODDIConvolved at β = 0 equal to NODDIConvolved; fits against crlb.
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained

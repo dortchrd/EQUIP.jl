@@ -3,31 +3,10 @@
 # signal (dmipy; the Standard Model's convolution). How far the signals differ, and what fitting
 # one to data made by the other does to vic, ODI and viso (SNR 100, 2000 voxels, 4 threads).
 using EQUIP, Random, Statistics, Printf, LinearAlgebra, StaticArrays
-import EQUIP: parameters, signal!, datastart, relabel, _kappa, _tensordirection, _upperdirection
-@kwdef struct NODDISignal{A,X,Y,Z} <: MRIModel
-    b::A; gx::X; gy::Y; gz::Z
-end
-parameters(::Type{<:NODDISignal}) = parameters(NODDI)
-datastart(m::NODDISignal, y, p) = _tensordirection(m, y)
-relabel(::NODDISignal, θ) = _upperdirection(θ)
-function signal!(out, m::NODDISignal, p)
-    (; b, gx, gy, gz) = m
-    (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
-    μ = fiberdirection(theta, phi); κ = _kappa(ODI)
-    Dperp = (1 - vic) * Dpar
-    w = watson(κ, b, Dpar)                       # the sticks' shells
-    wz = watson(κ, b, Dpar - Dperp)              # the zeppelin's excess, D∥ − D⊥ = vic·D∥
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ μ
-        Aic = stick(b[j], Dpar, w(ξ))
-        Aec = exp(-b[j] * Dperp) * stick(b[j], Dpar - Dperp, wz(ξ))     # = zeppelin(b, D∥, D⊥, w(ξ))
-        out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
-    end
-    return out
-end
+# the signal-averaged one is built in: NODDIConvolved (first written here, as NODDISignal)
 g = directionset(30)
 acq = diffusionencoding([fill(0.0, 3); fill(1000.0, 30); fill(2500.0, 30)], reduce(hcat, [fill([0.0, 0.0, 0.0], 3); collect.(g); collect.(g)]))
-mt, ms = NODDI(; acq...), NODDISignal(; acq...)
+mt, ms = NODDI(; acq...), NODDIConvolved(; acq...)
 println("the extra-neurite signal alone (vic 0.5, viso 0), largest difference over the 63 images, relative to the signal:")
 for odi in (0.05, 0.15, 0.3, 0.5, 0.8)
     p = (S0 = 1.0, vic = 0.5, viso = 0.0, ODI = odi, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3e-3)
