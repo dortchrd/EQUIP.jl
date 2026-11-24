@@ -6442,6 +6442,15 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          7.0 µs a signal (NODDI 3.8), no allocation. Tested: at ODI = 1 powder's closed forms for
          both compartments; at every image at least the tensor-averaged signal (Jensen), equal at
          b = 0; BinghamNODDIConvolved at β = 0 equal to NODDIConvolved; fits against crlb.
+         The four on a whole brain (bench/noddi/four_brain.jl: 294,912 voxels, fanning varied,
+         the data made by BinghamNODDIConvolved, Rician SNR 30, 63 images, 4 threads):
+
+         | model | the zeppelin | one signal | whole brain | iterations | converged |
+         |---|---|---:|---:|---:|---:|
+         | NODDI | tensor averaged (Zhang) | 3.8 µs | 16.3 s | 12.6 | 99.8% |
+         | NODDIConvolved | signal averaged | 6.5 µs | 37.5 s | 14.6 | 98.7% |
+         | BinghamNODDI | tensor averaged | 44.1 µs | 89.1 s | 12.4 | 99.5% |
+         | BinghamNODDIConvolved | signal averaged | 110.6 µs | 177.0 s | 12.7 | 99.9% |
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
