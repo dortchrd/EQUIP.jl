@@ -316,15 +316,17 @@ stick(1000.0, 1.7e-3, watson(0.0)(0.8))  # = stick(1000.0, 1.7e-3, powder): κ =
 function watson end
 
 # The distribution: κ, wₗ/w₀ (l even to 40), τ = ⟨(μ·n)²⟩, and the shells kept (b-values `bs`, the
-# series coefficients `cs`, at diffusivity `D`; `n` of them, none for `watson(κ)`)
+# series coefficients `cs`, at diffusivity `D`; `n` of them, none for `watson(κ)`). The shells in
+# stack arrays (MVector): as immutable tuples, eight shells of 21 coefficients of nested dual
+# numbers (crlb's second derivatives) are a 66 kB value that the compiler took minutes over
 struct Watson{T,R,S,B,C}
     κ::T
     w::SVector{_WATSON_NL,R}          # (R may be wider than T: Float64 nodes in a Float32 fit)
     τ::T
     D::S
     n::Int
-    bs::NTuple{8,B}
-    cs::NTuple{8,SVector{_WATSON_NL,C}}
+    bs::MVector{8,B}
+    cs::MVector{8,SVector{_WATSON_NL,C}}
 end
 # A view: the distribution, and the cosine between the gradient and its axis
 struct WatsonView{W<:Watson,X}
@@ -341,17 +343,15 @@ end
 
 @inline function watson(κ)
     w = _watsoncoeffs(κ)
-    return Watson(κ, w, _watsoncos2(κ), nothing, 0, ntuple(_ -> 0.0, Val(8)), ntuple(_ -> zero(w), Val(8)))
+    return Watson(κ, w, _watsoncos2(κ), nothing, 0, MVector{8,Float64}(undef), MVector{8,SVector{_WATSON_NL,eltype(w)}}(undef))
 end
 @inline watson(κ, b::AbstractVector, D) = _watsonshells(κ, _watsoncoeffs(κ), _watsoncos2(κ), b, D)
 # the same distribution, its series kept for another D (a dispersed zeppelin's excess D∥ − D⊥)
 @inline watson(w::Watson, b::AbstractVector, D) = _watsonshells(w.κ, w.w, w.τ, b, D)
 @inline function _watsonshells(κ, w, τ, b, D)
     C = typeof(first(w) * D)
-    # the shells as tuples, each new one set in place (Base.setindex: a new tuple, on the stack; an
-    # MVector converted to a tuple at the end was put on the heap, 80 bytes a voxel)
-    bs = ntuple(_ -> zero(eltype(b)), Val(8))
-    cs = ntuple(_ -> zero(SVector{_WATSON_NL,C}), Val(8))
+    bs = MVector{8,eltype(b)}(undef)
+    cs = MVector{8,SVector{_WATSON_NL,C}}(undef)
     n = 0
     @inbounds for bj in b
         n == 8 && break
@@ -362,8 +362,7 @@ end
         end
         seen && continue
         n += 1
-        bs = Base.setindex(bs, bj, n)
-        cs = Base.setindex(cs, _shellcoeffs(bj * D, w, C), n)
+        bs[n], cs[n] = bj, _shellcoeffs(bj * D, w, C)
     end
     return Watson(κ, w, τ, D, n, bs, cs)
 end

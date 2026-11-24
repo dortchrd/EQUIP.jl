@@ -6401,9 +6401,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            Bingham–NODDI's a tensor of three eigenvalues, `binghamtensor`, written as
            exp(−b·gᵀDg) (no tensor compartment). The approximation is now visible where it is
            made; `zeppelin(b, D∥, D⊥, w(ξ))` is dmipy's dispersed zeppelin.
-         - **Speed kept**: `watson(κ, b, D)` keeps the stick's series per shell (eight, built as
-           tuples: an MVector converted to a tuple went to the heap, 80 bytes a voxel); a view
-           per image is then a lookup and a 20-step sum.
+         - **Speed kept**: `watson(κ, b, D)` keeps the stick's series per shell (eight, in stack
+           arrays, MVectors, inside the distribution); a view per image is then a lookup and a
+           20-step sum. Two dead ends on the way: an MVector converted to a tuple at the end went
+           to the heap (80 bytes a voxel); and the shells as immutable tuples (Base.setindex),
+           which for crlb's nested dual numbers are a 66 kB value, made the compiler take minutes
+           (the diffusion tests 43 minutes against 2.5; NODDI's first crlb did not finish in 10).
          - **Results unchanged**: NODDI's and Bingham–NODDI's signals equal the code before to
            2e-16 (ten interleaved shells to b = 10000, 16 and 18 parameter sets); NODDI's fits to
            2e-15 (Float64) and 6e-5 (Float32, its rounding); Bingham–NODDI's (fanning, β = κ)
