@@ -47,12 +47,12 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, the optional hooks `datastart`, `relabel`, `derived` and `fromderived`, its reverse for `nominal`); src/models/diffusion/compartments.jl: the diffusion
   compartments exported by EQUIP for writing models (`iso`, `stick`, `zeppelin`, with the view
-  `powder` or a cosine ξ);
+  `powder` or a cosine ξ); src/models/diffusion/dispersion.jl: their dispersed views, `watson(κ)` and `bingham(κ, β, μ, μβ)` (the signal averaged over a distribution of directions), `watsontensor`, `binghamtensor`, and the Watson and Bingham integrals NODDI uses;
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
-  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: `NODDI` (the Watson integrals by quadrature); ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged); bingham_noddi.jl: `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), both written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
   evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl and loglinear.jl (`:loglinear`)

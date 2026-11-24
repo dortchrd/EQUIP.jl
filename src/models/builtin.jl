@@ -96,6 +96,8 @@ include("relaxometry/t2_decay.jl")      # T2Decay, R2Decay and their offset vers
 include("relaxometry/t2_biexp_decay.jl")  # T2BiexpDecay, R2BiexpDecay: two T2 components
 include("diffusion/compartments.jl")    # the compartments: iso, stick, zeppelin and their view
                                         # powder (exported), for the diffusion models below
+include("diffusion/dispersion.jl")      # their dispersed views: watson, bingham (signal averaged over
+                                        # a distribution of directions); NODDI's integrals
 include("diffusion/adc_decay.jl")       # ADCDecay
 include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, one direction
 include("diffusion/dti.jl")             # DTI: the diffusion tensor, one image per gradient direction
@@ -104,5 +106,6 @@ include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherica
 include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
 include("diffusion/multicompartment.jl") # StickZeppelin, BallStick: compartments along a direction, every image
 include("diffusion/noddi.jl")           # NODDI: sticks and a zeppelin dispersed (Watson), a ball
+include("diffusion/bingham_noddi.jl")   # BinghamNODDI: the same dispersed by a Bingham distribution
 include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

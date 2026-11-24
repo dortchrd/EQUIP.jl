@@ -6363,7 +6363,106 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          two concentrations κ1 ≥ κ2 and the fan's angle ψ (ODI_P, ODI_S, the total ODI and the
          dispersion anisotropy DA); Watson is κ1 = κ2. The 1-D integral here extends to it: the
          quadratic form is then of rank three, its eigenvalues per image (a 3×3 symmetric
-         eigenproblem) and the same Bessel integral along one eigenvector. Not built.
+         eigenproblem) and the same Bessel integral along one eigenvector. **Built 2026-11-23**
+         (the owner: "yes, build it on a branch"; branch `bingham-proto`,
+         src/models/diffusion/bingham_noddi.jl), as `BinghamNODDI`:
+         - **The parameterization is Tariq's, as dmipy writes it** (its `SD2Bingham`: B ∝
+           exp(κ(μ·n)² + β(μβ·n)²), κ = cot(π·ODI/2), β = betafraction·κ, the fan at ψ about μ;
+           Tariq 2016, Eq. 10, κ = κ1 − κ3, β = κ2 − κ3, μβ their primary dispersion orientation
+           μ2). The derived indices are Tariq's (checked 2026-11-24 in the paper, which the owner
+           uploaded; the container could not reach it): `ODIP` = (2/π)·arctan(1/(κ − β)) (Eq. 17),
+           `ODItot` = (2/π)·arctan(√(1/((κ − β)κ))) (Eqs. 19–20), `DAB` = (2/π)·arctan(β/(κ − β))
+           (Eq. 21), `DAT` = (τ2 − τ3)/τ1 from the orientation tensor's eigenvalues (Eq. 22, the
+           distribution's moments); ODI_S (Eq. 18) is the fitted ODI, (2/π)·arctan(1/κ): the
+           paper prints κ − β in Eq. 18, a misprint, since its text (ODI_S unchanged as β grows)
+           and its Table 1 have 1/κ. The test compares all five with Table 1's seven (κ, β), to
+           its two decimals: equal (DAT's agreement is also an independent check of the moments
+           behind the extra-neurite tensor). Written with atan(y, x), so defined, with finite
+           derivatives, at β = κ and κ = 0. The paper's fit also matches EQUIP's: d∥ = 1.7e-3
+           and d_iso = 3e-3 fixed, κ and β at most 64, the extra-neurite tensor averaged (its Eq.
+           5), the intra-neurite signal the ratio of the Bingham normalizers (its Eq. 12).
+         - **The dispersed stick**: the rank-three form's integral, from its smallest eigenvalue
+           (the cubic's trigonometric solution; its derivative by perturbation, u3ᵀ·dM·u3, the
+           eigenvector from the rows' cross products) and M's invariants (tr, c2), with I0 by
+           its series in q² where q = 0 (ODI = 1), so the derivatives stay finite. The full 3×3
+           eigen-decomposition cost 814 ns an image, the eigenvalues alone 228; this, with the
+           integral, 40 µs a signal (63 images), NODDI's quadrature's cost.
+         - **The dispersed zeppelin** by the averaged tensor, as NODDI's (Zhang 2012), its three
+           moments from the normalization's integral (I0 and I1); dmipy instead convolves the
+           zeppelin's signal with the distribution, a different (not the toolbox's) model.
+         - Tested: β = 0 against NODDI (6e-15); the stick and the moments against a 2-D quadrature
+           over the sphere (1e-8, 2e-9); ψ + π and the flip of μ; the Jacobian against central
+           differences, also where eigenvalues meet (β = 0 with μ along a gradient, β = κ, ODI =
+           1), within 1e-8; fits at SNR 100 (300 voxels, fanning, the fiber and the fan at
+           random) within crlb's SD (vic 0.0126 against 0.0127, betafraction 0.0193 against
+           0.0193 in 2000 voxels), the fan to 3° (median).
+         - **A whole brain** (bench/noddi/bingham_brain.jl: 294,912 voxels, fanning varied, SNR
+           30, 4 threads): 85.5 s, 12.4 iterations, 99.5% converged; NODDI on the same data 15.1 s.
+           Faster would need the Bingham's spherical-harmonic series (m ≠ 0 terms; not built).
+       - **The dispersed views** (2026-11-24, the owner: "we have these compartments and we can take
+         view or powder; would be nice to also do a distribution of views here, for consistency";
+         src/models/diffusion/dispersion.jl, exported): `watson(κ)` and `bingham(κ, β, μ, μβ)`,
+         distributions made once per voxel, and their views `w(ξ)` and `B(g)`, which `stick` and
+         `zeppelin` take as they take `powder` and a cosine: the signal averaged over the
+         distribution. One family: a direction is Watson at κ → ∞, powder Watson at κ = 0,
+         Watson Bingham at β = 0 (the tests check each limit, and the zeppelin's view against a
+         quadrature). Decisions:
+         - **A view averages the signal**, as powder does; so NODDI's extra-neurite space, which
+           averages the zeppelin's tensor (Zhang 2012, Eq. 5), is not `zeppelin(…, w(ξ))` but a
+           zeppelin with averaged diffusivities, `zeppelin(b, watsontensor(D∥, D⊥, w)..., ξ)`;
+           Bingham–NODDI's a tensor of three eigenvalues, `binghamtensor`, written as
+           exp(−b·gᵀDg) (no tensor compartment). The approximation is now visible where it is
+           made; `zeppelin(b, D∥, D⊥, w(ξ))` is dmipy's dispersed zeppelin.
+         - **Speed kept**: `watson(κ, b, D)` keeps the stick's series per shell (eight, in stack
+           arrays, MVectors, inside the distribution); a view per image is then a lookup and a
+           20-step sum. Two dead ends on the way: an MVector converted to a tuple at the end went
+           to the heap (80 bytes a voxel); and the shells as immutable tuples (Base.setindex),
+           which for crlb's nested dual numbers are a 66 kB value, made the compiler take minutes
+           (the diffusion tests 43 minutes against 2.5; NODDI's first crlb did not finish in 10).
+         - **Results unchanged**: NODDI's and Bingham–NODDI's signals equal the code before to
+           2e-16 (ten interleaved shells to b = 10000, 16 and 18 parameter sets); NODDI's fits to
+           2e-15 (Float64) and 6e-5 (Float32, its rounding); Bingham–NODDI's (fanning, β = κ)
+           to 2e-8 in the fractions (Float64), and in Float32 the same voxels' angles moved as
+           Float32 moves them before (the girdle's in-plane orientation undetermined). Speed: one
+           NODDI signal 3.8 µs (3.7 before), Bingham–NODDI's 44.0 (43.6); fits within noise.
+         - In an `@mrimodel` model, whose body runs per image, the distribution is made per
+           image: correct, slower.
+       - **Which averaging for the zeppelin** (the owner, 2026-11-24: "which is better, more
+         founded, dmipy or the averaged tensor; it seems odd to do different forms of averaging
+         for sticks and zeppelins"). The voxel's signal is the sum of its parts' signals (two
+         voxels of differently oriented fibers, joined, give the mean of their signals), so
+         averaging the signal is the general rule, and the one EQUIP's other models already
+         follow: the powder view, SMT (Kaden 2016), the Standard Model's convolution of the whole
+         kernel (Novikov et al., NeuroImage 2019). Averaging the tensor (Zhang 2012) is its
+         limit when each extra-neurite water molecule samples many orientations within the
+         diffusion time (orientation changing on scales shorter than the diffusion length, about
+         10–15 µm), a fast-exchange, effective-medium limit; dispersion on larger scales (fanning
+         fascicles) is the signal average. By Jensen's inequality the signal average is the
+         larger at every b > 0, by (b²/2)·Var(gᵀD(n)g) to second order. Measured
+         (bench/noddi/averaging.jl; 63 images at b 1000 and 2500, vic 0.5): the two
+         extra-neurite signals differ by 0.5–1.4% at b = 1000 and 2–3.9% at b = 2500 (largest
+         at ODI 0.15). Fitting one to data made by the other (SNR 100, 2000 voxels): the
+         residuals cannot tell them apart (SSE 1.00× the matched fit's), and the estimates move
+         by +0.018 in vic and +0.005 in ODI in white matter (1.5 and 1.8 SDs), 0.4 SD in grey.
+         So the data do not choose; the choice should be explicit. Built: the views average the
+         signal; NODDI keeps Zhang's tensor, written as `watsontensor`, for agreement with the
+         toolbox and the literature. And, beside them (the owner: "yes, add both variants"),
+         `NODDIConvolved` and `BinghamNODDIConvolved` (first `NODDISignal`; renamed, the owner: "not sure I love signal": the distribution convolved with both compartments' signals, the Standard Model's and dmipy's word), the zeppelin's signal averaged
+         (`zeppelin(b, D∥, D⊥, w(ξ))`, `B(g)`): the same parameters, starts and derived
+         quantities. `watson(w, b, D)` keeps the series for the zeppelin's excess D∥ − D⊥ = vic·D∥
+         from the same distribution (one Legendre table per voxel, two shell sets): NODDIConvolved
+         7.0 µs a signal (NODDI 3.8), no allocation. Tested: at ODI = 1 powder's closed forms for
+         both compartments; at every image at least the tensor-averaged signal (Jensen), equal at
+         b = 0; BinghamNODDIConvolved at β = 0 equal to NODDIConvolved; fits against crlb.
+         The four on a whole brain (bench/noddi/four_brain.jl: 294,912 voxels, fanning varied,
+         the data made by BinghamNODDIConvolved, Rician SNR 30, 63 images, 4 threads):
+
+         | model | the zeppelin | one signal | whole brain | iterations | converged |
+         |---|---|---:|---:|---:|---:|
+         | NODDI | tensor averaged (Zhang) | 3.8 µs | 16.3 s | 12.6 | 99.8% |
+         | NODDIConvolved | signal averaged | 6.5 µs | 37.5 s | 14.6 | 98.7% |
+         | BinghamNODDI | tensor averaged | 44.1 µs | 89.1 s | 12.4 | 99.5% |
+         | BinghamNODDIConvolved | signal averaged | 110.6 µs | 177.0 s | 12.7 | 99.9% |
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained

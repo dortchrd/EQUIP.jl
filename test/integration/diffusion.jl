@@ -319,6 +319,125 @@ end
     @test derived(r).kappa ≈ @. 1 / tan(π * r.params.ODI / 2)
     cc = init(m); y = signal(m, tw); fit!(cc, y)
     @test_noalloc fitallocs(cc, y) == 0
+    # NODDIConvolved: the zeppelin's signal averaged, as the sticks' is. At ODI = 1 both
+    # compartments' spherical means, powder's closed forms (erf); at every image at least NODDI's
+    # tensor-averaged signal (Jensen: ⟨e^(−bD)⟩ ≥ e^(−b⟨D⟩)), equal at b = 0; fitted at SNR 100
+    # within crlb's spread, its own fit allocation-free
+    msg = NODDIConvolved(; acq...)
+    zp = zeppelin.(bv, 1.7e-3, Dp, Ref(powder))
+    @test signal(msg, t1) ≈ (@. 1000 * (0.8 * (0.5 * sp + 0.5 * zp) + 0.2 * exp(-bv * 3e-3))) rtol = 1e-7
+    ss, st = signal(msg, tw), signal(m, tw)
+    @test all(ss .>= st .- 1e-9) && ss[bv .== 0] ≈ st[bv .== 0] && maximum(ss .- st) > 1
+    Ys = simulate(msg, truth; snr = 100, noise = :rician, rng)
+    rs = fit(msg, Ys)
+    cs = crlb(msg, tw; snr = 100)
+    @test all(isconverged, rs.status)
+    for k in (:vic, :ODI)
+        @test abs(mean(rs.params[k]) - tw[k]) < 4 * std(rs.params[k]) / sqrt(nv)
+        @test std(rs.params[k]) ≈ cs.sd[k] rtol = 0.2
+    end
+    cg = init(msg); fit!(cg, y)
+    @test_noalloc fitallocs(cg, y) == 0
+end
+
+@testset "BinghamNODDI: NODDI's dispersion fanning in one plane (Tariq 2016)" begin
+    rng = MersenneTwister(15)
+    acq = DWI_ACQ; bv = acq.b
+    m, mw = BinghamNODDI(; acq...), NODDI(; acq...)
+    tb = (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)
+    # β = 0 is Watson: NODDI's signal, whatever ψ (its series against this file's quadrature and
+    # eigenvalues: two computations)
+    tw = (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)
+    @test signal(m, merge(tb, (betafraction = 0.0, psi = 2.2))) ≈ signal(mw, tw) rtol = 1e-7
+    # the dispersed stick and the averaged tensor's moments against a 2-D quadrature over the
+    # sphere in the Bingham's frame (u along μ, the azimuth from μβ): within 1e-7 and 1e-8
+    function ref(κ, β, μ, μβ, μ3, g, s)
+        x, w = gausslegendre01(600)
+        num = den = 0.0; mom = zeros(3)
+        for (xi, wi) in zip(x, w), u in (xi, -xi), k in 0:255
+            ψ = 2π * k / 256
+            n = u * μ + sqrt(1 - u^2) * (cos(ψ) * μβ + sin(ψ) * μ3)
+            B = wi * exp(κ * (u^2 - 1) + β * (1 - u^2) * cos(ψ)^2)
+            num += B * exp(-s * dot(g, n)^2); den += B
+            mom .+= B .* (dot(n, μ)^2, dot(n, μβ)^2, dot(n, μ3)^2)
+        end
+        return num / den, mom ./ den
+    end
+    for (κ, f) in ((0.5, 0.5), (20.0, 0.8), (64.0, 1.0)), s in (1.7, 4.25)
+        β = f * κ
+        μ, μβ, μ3 = EQUIP._binghamaxes(0.7, 0.3, 0.4)
+        den, mx, my, mz = EQUIP._binghammoments(κ, β)
+        for g in (normalize(SVector(0.3, -0.5, 0.8)), μ3)
+            a, mom = ref(κ, β, μ, μβ, μ3, g, s)
+            @test EQUIP._binghamstick(κ * μ * μ' + β * μβ * μβ' - s * g * g', κ) / den ≈ a rtol = 1e-7
+            @test maximum(abs.((mx, my, mz) .- Tuple(mom))) < 1e-8
+        end
+    end
+    # the fan and the fiber: ψ + π, and μ flipped with ψ reversed, give the same signal; `relabel`
+    # reports μ with z ≥ 0 and ψ in [0, π), the signal unchanged
+    s0 = signal(m, tb)
+    @test signal(m, merge(tb, (psi = 0.8 + π,))) ≈ s0 rtol = 1e-12
+    @test signal(m, merge(tb, (theta = π - 0.7, phi = 0.3 + π, psi = -0.8))) ≈ s0 rtol = 1e-12
+    r = relabel(m, (vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = π - 0.7, phi = 0.3 - π, psi = 2.5))
+    @test r.theta ≈ 0.7 && 0 <= r.psi < π &&
+          isapprox(signal(m, merge(tb, r)), signal(m, merge(tb, (theta = π - 0.7, phi = 0.3 - π, psi = 2.5))); rtol = 1e-12)
+    # the derivatives (dual numbers: the smallest eigenvalue by perturbation) against central
+    # differences, also where eigenvalues meet: β = 0 with μ along a measured gradient, β = κ,
+    # ODI = 1; finite there
+    g5 = SVector(acq.gx[10], acq.gy[10], acq.gz[10])
+    for q in (tb, merge(tb, (betafraction = 0.0, theta = acos(g5[3]), phi = atan(g5[2], g5[1]))),
+              merge(tb, (betafraction = 1.0,)), merge(tb, (ODI = 1.0,)))
+        J = jacobian(m, q)
+        @test all(isfinite, J)
+        for (k, n) in enumerate((:S0, :vic, :viso, :ODI, :betafraction, :theta, :phi, :psi))
+            ((n == :betafraction && q[n] in (0.0, 1.0)) || (n == :ODI && q[n] == 1.0)) && continue   # on a bound
+            h = 1e-6 * max(1, abs(q[n]))
+            d = (signal(m, merge(q, NamedTuple{(n,)}((q[n] + h,)))) .- signal(m, merge(q, NamedTuple{(n,)}((q[n] - h,))))) ./ 2h
+            @test maximum(abs.(J[:, k] .- d)) <= 1e-6 * maximum(abs.(d)) + 1e-6   # the differences' rounding at S0 = 1000
+        end
+    end
+    # fitted at SNR 100 (Rician), fanning (β = 0.6κ), the fiber and the fan at random: every voxel
+    # converged, vic, ODI and betafraction unbiased (4 standard errors of the mean) with crlb's
+    # spread (within 20%), the fan's direction within 5° (median)
+    nv = 300
+    dirs = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]
+    tf = merge(tb, (viso = 0.05, ODI = 0.15, betafraction = 0.6))
+    truth = merge(map(x -> fill(x, nv), tf), (theta = acos.(getindex.(dirs, 3)), phi = atan.(getindex.(dirs, 2), getindex.(dirs, 1)), psi = π .* rand(rng, nv)))
+    Y = simulate(m, truth; snr = 100, noise = :rician, rng)
+    res = fit(m, Y)
+    c = crlb(m, tf; snr = 100)
+    @test all(isconverged, res.status)
+    for k in (:vic, :ODI, :betafraction)
+        @test abs(mean(res.params[k]) - tf[k]) < 4 * std(res.params[k]) / sqrt(nv)
+        @test std(res.params[k]) ≈ c.sd[k] rtol = 0.2
+    end
+    fan(t, f, ψ) = EQUIP._binghamaxes(t, f, ψ)[2]                  # μβ (its sign is no matter)
+    @test median([acosd(min(1, abs(dot(fan(res.params.theta[i], res.params.phi[i], res.params.psi[i]),
+                                         fan(truth.theta[i], truth.phi[i], truth.psi[i]))))) for i in 1:nv]) < 5
+    # the indices against Tariq et al. 2016's Table 1 (two decimals): ODI_P, ODI_S (the fitted
+    # ODI), ODI_tot, DA_B, DA_T for their seven (κ, β), including β = κ
+    table1 = ((4, 0, 0.16, 0.16, 0.16, 0, 0), (4, 2, 0.30, 0.16, 0.22, 0.5, 0.19), (4, 4, 1, 0.16, 1, 1, 0.73),
+              (16, 0, 0.04, 0.04, 0.04, 0, 0), (16, 8, 0.08, 0.04, 0.06, 0.5, 0.04), (16, 14, 0.30, 0.04, 0.11, 0.91, 0.35),
+              (16, 16, 1, 0.04, 1, 1, 0.94))
+    for (κ, β, odip, odis, oditot, dab, dat) in table1
+        odi = 2 / π * atan(1 / κ)
+        q = derived(m, merge(tb, (ODI = odi, betafraction = β / κ)))
+        @test round(odi; digits = 2) == odis
+        @test (round(q.ODIP; digits = 2), round(q.ODItot; digits = 2), round(q.DAB; digits = 2), round(q.DAT; digits = 2)) ==
+              (odip, oditot, dab, dat)
+    end
+    d = derived(res)
+    @test d.DAB ≈ @. 2 / π * atan(d.beta / (d.kappa - d.beta))
+    cc = init(m); y = signal(m, tb); fit!(cc, y)
+    @test_noalloc fitallocs(cc, y) == 0
+    # BinghamNODDIConvolved: the zeppelin's signal averaged over B; at β = 0 NODDIConvolved's, at
+    # every image at least the tensor-averaged BinghamNODDI's (Jensen); allocation-free
+    mbs = BinghamNODDIConvolved(; acq...)
+    @test signal(mbs, merge(tb, (betafraction = 0.0,))) ≈ signal(NODDIConvolved(; acq...), tw) rtol = 1e-7
+    @test all(signal(mbs, tb) .>= signal(m, tb) .- 1e-9)
+    cs = init(mbs); fit!(cs, y)
+    @test isconverged(fit!(cs, y))
+    @test_noalloc fitallocs(cs, y) == 0
 end
 
 @testset "IVIM: Le Bihan's two compartments, from the segmented fit" begin

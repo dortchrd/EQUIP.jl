@@ -55,6 +55,7 @@ export resolve, signal!, signal, nobs                                       # va
 export datastart, relabel, derived, fromderived                                      # optional hooks
 export @mrimodel, newmodel                                                  # a model in one step; a file
 export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
+export watson, bingham, watsontensor, binghamtensor                         # ... and their dispersed views
 export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
@@ -63,7 +64,7 @@ export onbound
 export T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA                # relaxometry models
 export T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay
 export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS  # diffusion models
-export StickZeppelin, BallStick, NODDI, IVIM
+export StickZeppelin, BallStick, NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved, IVIM
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
