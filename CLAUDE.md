@@ -47,7 +47,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, the optional hooks `datastart`, `relabel`, `derived` and `fromderived`, its reverse for `nominal`); src/models/diffusion/compartments.jl: the diffusion
   compartments exported by EQUIP for writing models (`iso`, `stick`, `zeppelin`, with the view
-  `powder` or a cosine ξ);
+  `powder` or a cosine ξ); src/models/diffusion/dispersion.jl: their dispersed views, `watson(κ)` and `bingham(κ, β, μ, μβ)` (the signal averaged over a distribution of directions), `watsontensor`, `binghamtensor`, and the Watson and Bingham integrals NODDI uses;
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models

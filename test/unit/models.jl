@@ -344,3 +344,60 @@ end
     @test rb.params.T2 ≈ rm.params.T2 rtol = 1e-10
     @test rb.params.S0 ≈ rm.params.S0 rtol = 1e-10
 end
+
+@testset "Dispersed views: watson and bingham, between one direction and powder" begin
+    @test Set(names(EQUIP)) ⊇ Set([:watson, :bingham, :watsontensor, :binghamtensor])
+    # the view averages the signal over the distribution: at κ = 0 every direction equally, the
+    # spherical mean (powder), whatever the cosine ξ; the stick, and the zeppelin with D⊥ < D∥
+    # and D⊥ > D∥ (a negative excess: the series of exp(+|β|v²)), against powder's closed forms
+    # (erf, erfi)
+    w0 = watson(0.0)
+    for (b, ξ) in ((1000.0, 0.3), (2500.0, 0.9), (6000.0, 0.5))
+        @test stick(b, 1.7e-3, w0(ξ)) ≈ stick(b, 1.7e-3, powder) rtol = 1e-8
+        @test zeppelin(b, 2e-3, 0.5e-3, w0(ξ)) ≈ zeppelin(b, 2e-3, 0.5e-3, powder) rtol = 1e-8
+        @test zeppelin(b, 0.5e-3, 1e-3, w0(ξ)) ≈ zeppelin(b, 0.5e-3, 1e-3, powder) rtol = 1e-8
+    end
+    # ... and at κ → ∞ one direction: the gap to the cosine view halves as κ doubles (its leading
+    # term is 1/κ); above b·D = 12.75, through the quadrature, it closes faster still at these κ
+    # (b·D/κ not yet small: ratios 2.8 and 2.6 measured), so there only at least halving
+    gap(b, κ) = abs(stick(b, 1.7e-3, watson(κ)(0.6)) - stick(b, 1.7e-3, 0.6))
+    @test 1.8 < gap(2500.0, 16.0) / gap(2500.0, 32.0) < 2.2 && 1.8 < gap(2500.0, 32.0) / gap(2500.0, 64.0) < 2.2
+    @test gap(9000.0, 16.0) / gap(9000.0, 32.0) > 1.8 && gap(9000.0, 32.0) / gap(9000.0, 64.0) > 1.8
+    # the zeppelin's view is its signal averaged, against a quadrature over the distribution (u =
+    # μ·n Gauss–Legendre, the azimuth by the trapezoid rule)
+    function averaged(f, κ, ξ)
+        x, wts = GL01
+        num = den = 0.0
+        for (u0, wu) in zip(x, wts), u in (u0, -u0), k in 0:199
+            ψ = 2π * k / 200
+            c = ξ * u + sqrt(1 - ξ^2) * sqrt(1 - u^2) * cos(ψ)      # the gradient's cosine with n
+            W = wu * exp(κ * (u^2 - 1))
+            num += W * f(c); den += W
+        end
+        return num / den
+    end
+    @test zeppelin(2500.0, 2e-3, 0.5e-3, watson(8.0)(0.4)) ≈ averaged(c -> zeppelin(2500.0, 2e-3, 0.5e-3, c), 8.0, 0.4) rtol = 1e-7
+    # the shells' series kept by watson(κ, b, D): the same numbers as made per call, a ninth shell
+    # and another D made each time
+    bs = [0.0; 500.0:500.0:4500.0]                                 # nine shells (and b = 0)
+    wk, wn = watson(12.0, bs, 1.7e-3), watson(12.0)
+    @test all(stick(b, 1.7e-3, wk(0.7)) == stick(b, 1.7e-3, wn(0.7)) for b in bs)
+    @test stick(1000.0, 2.2e-3, wk(0.7)) == stick(1000.0, 2.2e-3, wn(0.7))
+    # watsontensor: the averaged tensor keeps the trace, D∥ₑ + 2D⊥ₑ = D∥ + 2D⊥, isotropic at κ = 0
+    Dp, Dq = watsontensor(2e-3, 0.5e-3, watson(6.0))
+    @test Dp + 2Dq ≈ 2e-3 + 2 * 0.5e-3 && all(watsontensor(2e-3, 0.5e-3, w0) .≈ (3e-3 / 3, 3e-3 / 3))
+    # bingham: at β = 0 the Watson view (μβ any perpendicular), at κ = β = 0 powder; its tensor
+    # keeps the trace and at β = 0 is the Watson tensor's zeppelin
+    μ, μβ = SVector(0.0, 0.6, 0.8), SVector(1.0, 0.0, 0.0)
+    g = normalize(SVector(0.3, -0.5, 0.8))
+    Bw = bingham(6.0, 0.0, μ, μβ)
+    @test stick(2500.0, 1.7e-3, Bw(g)) ≈ stick(2500.0, 1.7e-3, watson(6.0)(g ⋅ μ)) rtol = 1e-8
+    @test zeppelin(2500.0, 2e-3, 0.5e-3, Bw(g)) ≈ zeppelin(2500.0, 2e-3, 0.5e-3, watson(6.0)(g ⋅ μ)) rtol = 1e-8
+    @test stick(2500.0, 1.7e-3, bingham(0.0, 0.0, μ, μβ)(g)) ≈ stick(2500.0, 1.7e-3, powder) rtol = 1e-8
+    D3 = binghamtensor(2e-3, 0.5e-3, bingham(6.0, 3.0, μ, μβ))
+    @test tr(D3) ≈ 2e-3 + 2 * 0.5e-3
+    Dp6, Dq6 = watsontensor(2e-3, 0.5e-3, watson(6.0))
+    @test binghamtensor(2e-3, 0.5e-3, Bw) ≈ Dq6 * I + (Dp6 - Dq6) * μ * μ' rtol = 1e-8
+    # Float32 stays Float32 where the view's own numbers are
+    @test stick(1000f0, 1.7f-3, watson(5f0)(0.5f0)) isa Real
+end

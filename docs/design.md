@@ -6387,6 +6387,31 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          - **A whole brain** (bench/noddi/bingham_brain.jl: 294,912 voxels, fanning varied, SNR
            30, 4 threads): 85.5 s, 12.4 iterations, 99.5% converged; NODDI on the same data 15.1 s.
            Faster would need the Bingham's spherical-harmonic series (m ≠ 0 terms; not built).
+       - **The dispersed views** (2026-11-24, the owner: "we have these compartments and we can take
+         view or powder; would be nice to also do a distribution of views here, for consistency";
+         src/models/diffusion/dispersion.jl, exported): `watson(κ)` and `bingham(κ, β, μ, μβ)`,
+         distributions made once per voxel, and their views `w(ξ)` and `B(g)`, which `stick` and
+         `zeppelin` take as they take `powder` and a cosine: the signal averaged over the
+         distribution. One family: a direction is Watson at κ → ∞, powder Watson at κ = 0,
+         Watson Bingham at β = 0 (the tests check each limit, and the zeppelin's view against a
+         quadrature). Decisions:
+         - **A view averages the signal**, as powder does; so NODDI's extra-neurite space, which
+           averages the zeppelin's tensor (Zhang 2012, Eq. 5), is not `zeppelin(…, w(ξ))` but a
+           zeppelin with averaged diffusivities, `zeppelin(b, watsontensor(D∥, D⊥, w)..., ξ)`;
+           Bingham–NODDI's a tensor of three eigenvalues, `binghamtensor`, written as
+           exp(−b·gᵀDg) (no tensor compartment). The approximation is now visible where it is
+           made; `zeppelin(b, D∥, D⊥, w(ξ))` is dmipy's dispersed zeppelin.
+         - **Speed kept**: `watson(κ, b, D)` keeps the stick's series per shell (eight, built as
+           tuples: an MVector converted to a tuple went to the heap, 80 bytes a voxel); a view
+           per image is then a lookup and a 20-step sum.
+         - **Results unchanged**: NODDI's and Bingham–NODDI's signals equal the code before to
+           2e-16 (ten interleaved shells to b = 10000, 16 and 18 parameter sets); NODDI's fits to
+           2e-15 (Float64) and 6e-5 (Float32, its rounding); Bingham–NODDI's (fanning, β = κ)
+           to 2e-8 in the fractions (Float64), and in Float32 the same voxels' angles moved as
+           Float32 moves them before (the girdle's in-plane orientation undetermined). Speed: one
+           NODDI signal 3.8 µs (3.7 before), Bingham–NODDI's 44.0 (43.6); fits within noise.
+         - In an `@mrimodel` model, whose body runs per image, the distribution is made per
+           image: correct, slower.
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
