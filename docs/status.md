@@ -22,7 +22,7 @@ owner: "add both variants"), `BinghamNODDI` (Tariq 2016; dmipy's parameterizatio
 betafraction, the fan's angle psi) and `BinghamNODDIConvolved`, with Tariq's indices (ODIP, ODItot,
 DAB, DAT) checked against the paper's Table 1. Whole brain on 4 threads: NODDI 12–15 s,
 NODDIConvolved 38 s, BinghamNODDI 85 s, BinghamNODDIConvolved 177 s. Checked first: the full
-`Pkg.test` on the merge, the command line's (184), and CI on the branch's last code commit. The
+`Pkg.test` on the merge (3327), the command line's (184), and CI on the branch's last code commit. The
 branch is to delete (`git push origin --delete bingham-proto`). Not yet tried on the owner's data.
 
 Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
