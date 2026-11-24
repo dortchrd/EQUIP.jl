@@ -6361,14 +6361,21 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          eigenproblem) and the same Bessel integral along one eigenvector. **Built 2026-11-23**
          (the owner: "yes, build it on a branch"; branch `bingham-proto`,
          src/models/diffusion/bingham_noddi.jl), as `BinghamNODDI`:
-         - **The parameterization is dmipy's** (its `SD2Bingham`, read in its source: B ∝
-           exp(κ(μ·n)² + β(μβ·n)²), κ = cot(π·ODI/2), β = betafraction·κ, the fan at ψ about μ):
-           Tariq 2016 itself could not be read from this container (its publisher and repository
-           hosts refused), so the derived indices are written from what is certain: `ODIfan` =
-           (2/π)·arctan(1/(κ − β)), the dispersion within the fan's plane (ODI is the dispersion
-           across it), and `DA` = (2/π)·arctan(β/(κ − β)), with Tariq's stated limits (0 for
-           Watson, 1 at β = κ). **To check against Tariq's Eqs.** (ODI_P, ODI_S, ODI_tot, DA): the
-           owner.
+         - **The parameterization is Tariq's, as dmipy writes it** (its `SD2Bingham`: B ∝
+           exp(κ(μ·n)² + β(μβ·n)²), κ = cot(π·ODI/2), β = betafraction·κ, the fan at ψ about μ;
+           Tariq 2016, Eq. 10, κ = κ1 − κ3, β = κ2 − κ3, μβ their primary dispersion orientation
+           μ2). The derived indices are Tariq's (checked 2026-11-24 in the paper, which the owner
+           uploaded; the container could not reach it): `ODIP` = (2/π)·arctan(1/(κ − β)) (Eq. 17),
+           `ODItot` = (2/π)·arctan(√(1/((κ − β)κ))) (Eqs. 19–20), `DAB` = (2/π)·arctan(β/(κ − β))
+           (Eq. 21), `DAT` = (τ2 − τ3)/τ1 from the orientation tensor's eigenvalues (Eq. 22, the
+           distribution's moments); ODI_S (Eq. 18) is the fitted ODI, (2/π)·arctan(1/κ): the
+           paper prints κ − β in Eq. 18, a misprint, since its text (ODI_S unchanged as β grows)
+           and its Table 1 have 1/κ. The test compares all five with Table 1's seven (κ, β), to
+           its two decimals: equal (DAT's agreement is also an independent check of the moments
+           behind the extra-neurite tensor). Written with atan(y, x), so defined, with finite
+           derivatives, at β = κ and κ = 0. The paper's fit also matches EQUIP's: d∥ = 1.7e-3
+           and d_iso = 3e-3 fixed, κ and β at most 64, the extra-neurite tensor averaged (its Eq.
+           5), the intra-neurite signal the ratio of the Bingham normalizers (its Eq. 12).
          - **The dispersed stick**: the rank-three form's integral, from its smallest eigenvalue
            (the cubic's trigonometric solution; its derivative by perturbation, u3ᵀ·dM·u3, the
            eigenvector from the rows' cross products) and M's invariants (tr, c2), with I0 by

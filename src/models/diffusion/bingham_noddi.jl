@@ -31,9 +31,12 @@ fan out or bend,
   `theta`, `phi`, the mean orientation μ, and `psi`, the fan's direction μβ as an angle about μ
   (radians, unbounded: reported with μ in the upper hemisphere and ψ in [0, π))
 - fixed by default: `Dpar` = 1.7e-3, `Diso` = 3.0e-3 mm²/s, as NODDI's
-- derived: `kappa`, `beta`; `ODIfan`, the dispersion within the fan's plane, (2/π)·arctan(1/(κ − β))
-  (ODI itself is the dispersion across it); `DA`, the dispersion anisotropy (2/π)·arctan(β/(κ − β)),
-  0 for Watson and 1 at β = κ
+- derived, Tariq 2016's indices (Eqs. 17–22): `kappa`, `beta`; `ODIP` = (2/π)·arctan(1/(κ − β)),
+  the dispersion along the primary dispersion orientation μβ (the fan's plane); `ODItot` =
+  (2/π)·arctan(1/√((κ − β)·κ)), the overall dispersion; `DAB` = (2/π)·arctan(β/(κ − β)), the
+  dispersion anisotropy, 0 for Watson and 1 at β = κ; `DAT` = (τ2 − τ3)/τ1, the planarity of the
+  orientation tensor ⟨nnᵀ⟩ (eigenvalues τ1 ≥ τ2 ≥ τ3). The fitted `ODI` is Tariq's ODI_S, the
+  dispersion along μ3 (across the fan), (2/π)·arctan(1/κ)
 
 The orientations start from the voxel's diffusion tensor: μ its principal eigenvector, as
 [`StickZeppelin`](@ref)'s, and ψ from its second (the fan spreads the diffusion along μβ).
@@ -92,11 +95,20 @@ function signal!(out, m::BinghamNODDI, p)
     return out
 end
 
+# Tariq et al. 2016's indices (Eqs. 17–22; checked against their Table 1 in the tests), written
+# with two-argument arctangents, arctan(y/x) = atan(y, x), so that they stay defined, with finite
+# derivatives, where κ − β = 0 (β = κ) or κ = 0 (ODI = 1): ODI_P = (2/π)·atan(1, κ − β), DA_B =
+# (2/π)·atan(β, κ − β) = (2/π)·atan(f, 1 − f) with f = β/κ. (Their Eq. 18 prints ODI_S with
+# κ − β; their text and Table 1 have 1/κ, the fitted ODI.) τ, the orientation tensor's eigenvalues,
+# are the distribution's moments along its axes.
 function derived(::_BinghamNODDIs, p)
     κ = _kappa(p.ODI)
-    β = p.betafraction * κ
-    return (kappa = κ, beta = β, ODIfan = 2 / oftype(κ, π) * atan(1 / (κ - β)),
-            DA = 2 / oftype(κ, π) * atan(β / (κ - β)))
+    f = p.betafraction
+    β = f * κ
+    c = 2 / oftype(κ, π)
+    _, τ1, τ2, τ3 = _binghammoments(κ, β)
+    return (kappa = κ, beta = β, ODIP = c * atan(one(κ), κ - β), ODItot = c * atan(one(κ), sqrt(κ * (κ - β))),
+            DAB = c * atan(f, 1 - f), DAT = (τ2 - τ3) / τ1)
 end
 # The start from the voxel's tensor: μ its principal eigenvector, μβ its second (a fan spreads the
 # diffusion most along μ, then along the fan); ψ the second's angle about μ

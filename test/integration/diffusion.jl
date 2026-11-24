@@ -414,8 +414,20 @@ end
     fan(t, f, ψ) = EQUIP._binghamaxes(t, f, ψ)[2]                  # μβ (its sign is no matter)
     @test median([acosd(min(1, abs(dot(fan(res.params.theta[i], res.params.phi[i], res.params.psi[i]),
                                          fan(truth.theta[i], truth.phi[i], truth.psi[i]))))) for i in 1:nv]) < 5
+    # the indices against Tariq et al. 2016's Table 1 (two decimals): ODI_P, ODI_S (the fitted
+    # ODI), ODI_tot, DA_B, DA_T for their seven (κ, β), including β = κ
+    table1 = ((4, 0, 0.16, 0.16, 0.16, 0, 0), (4, 2, 0.30, 0.16, 0.22, 0.5, 0.19), (4, 4, 1, 0.16, 1, 1, 0.73),
+              (16, 0, 0.04, 0.04, 0.04, 0, 0), (16, 8, 0.08, 0.04, 0.06, 0.5, 0.04), (16, 14, 0.30, 0.04, 0.11, 0.91, 0.35),
+              (16, 16, 1, 0.04, 1, 1, 0.94))
+    for (κ, β, odip, odis, oditot, dab, dat) in table1
+        odi = 2 / π * atan(1 / κ)
+        q = derived(m, merge(tb, (ODI = odi, betafraction = β / κ)))
+        @test round(odi; digits = 2) == odis
+        @test (round(q.ODIP; digits = 2), round(q.ODItot; digits = 2), round(q.DAB; digits = 2), round(q.DAT; digits = 2)) ==
+              (odip, oditot, dab, dat)
+    end
     d = derived(res)
-    @test d.DA ≈ @. 2 / π * atan(d.beta / (d.kappa - d.beta))
+    @test d.DAB ≈ @. 2 / π * atan(d.beta / (d.kappa - d.beta))
     cc = init(m); y = signal(m, tb); fit!(cc, y)
     @test_noalloc fitallocs(cc, y) == 0
     # BinghamNODDIConvolved: the zeppelin's signal averaged over B; at β = 0 NODDIConvolved's, at
