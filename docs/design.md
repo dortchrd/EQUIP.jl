@@ -6412,6 +6412,27 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            NODDI signal 3.8 µs (3.7 before), Bingham–NODDI's 44.0 (43.6); fits within noise.
          - In an `@mrimodel` model, whose body runs per image, the distribution is made per
            image: correct, slower.
+       - **Which averaging for the zeppelin** (the owner, 2026-11-24: "which is better, more
+         founded, dmipy or the averaged tensor; it seems odd to do different forms of averaging
+         for sticks and zeppelins"). The voxel's signal is the sum of its parts' signals (two
+         voxels of differently oriented fibers, joined, give the mean of their signals), so
+         averaging the signal is the general rule, and the one EQUIP's other models already
+         follow: the powder view, SMT (Kaden 2016), the Standard Model's convolution of the whole
+         kernel (Novikov et al., NeuroImage 2019). Averaging the tensor (Zhang 2012) is its
+         limit when each extra-neurite water molecule samples many orientations within the
+         diffusion time (orientation changing on scales shorter than the diffusion length, about
+         10–15 µm), a fast-exchange, effective-medium limit; dispersion on larger scales (fanning
+         fascicles) is the signal average. By Jensen's inequality the signal average is the
+         larger at every b > 0, by (b²/2)·Var(gᵀD(n)g) to second order. Measured
+         (bench/noddi/averaging.jl; 63 images at b 1000 and 2500, vic 0.5): the two
+         extra-neurite signals differ by 0.5–1.4% at b = 1000 and 2–3.9% at b = 2500 (largest
+         at ODI 0.15). Fitting one to data made by the other (SNR 100, 2000 voxels): the
+         residuals cannot tell them apart (SSE 1.00× the matched fit's), and the estimates move
+         by +0.018 in vic and +0.005 in ODI in white matter (1.5 and 1.8 SDs), 0.4 SD in grey.
+         So the data do not choose; the choice should be explicit. Built: the views average the
+         signal; NODDI keeps Zhang's tensor, written as `watsontensor`, for agreement with the
+         toolbox and the literature. Proposed: a signal-averaged variant of NODDI and of
+         Bingham–NODDI beside them (the owner's decision, and the names).
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
