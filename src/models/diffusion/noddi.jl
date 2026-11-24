@@ -89,5 +89,49 @@ derived(::NODDI, p) = (kappa = _kappa(p.ODI),)
 datastart(m::NODDI, y, p) = _tensordirection(m, y)
 relabel(::NODDI, θ) = _upperdirection(θ)
 
+"""
+    NODDISignal(; b, gx, gy, gz)
+
+[`NODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Watson distribution,
+as the sticks' is, in place of Zhang's averaged tensor:
+
+    A_ec = zeppelin(b, D∥, D⊥, w(ξ)) = ⟨exp(−b·D⊥ − b·(D∥ − D⊥)·(g·n)²)⟩_W,   D⊥ = (1 − vic)·D∥
+
+The same parameters, bounds, starts and fixed diffusivities as NODDI's. Every compartment is then
+averaged the same way, as a voxel's signal is the sum of its parts' (two regions of differently
+oriented fibers give the mean of their signals), as in SMT and the Standard Model (Novikov et
+al., NeuroImage 2019) and as dmipy disperses NODDI. Zhang's tensor average is the limit where
+each extra-neurite water molecule samples many orientations within the diffusion time. The two
+differ by 2–4% at b = 2500, which the residuals cannot show, and shift white matter's vic and ODI
+by about 1.5–2 SDs at SNR 100 (docs/design.md, item 7): a choice to make, and to report.
+"""
+@kwdef struct NODDISignal{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+parameters(::Type{<:NODDISignal}) = parameters(NODDI)
+
+function signal!(out, m::NODDISignal, p)
+    (; b, gx, gy, gz) = m
+    (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
+    μ = fiberdirection(theta, phi)
+    Dperp = (1 - vic) * Dpar
+    w = watson(_kappa(ODI), b, Dpar)                    # the sticks': their series per shell
+    wz = watson(w, b, Dpar - Dperp)                     # the same distribution, the zeppelin's excess
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        ξ = (gx[j], gy[j], gz[j]) ⋅ μ
+        Aic = stick(b[j], Dpar, w(ξ))
+        Aec = zeppelin(b[j], Dpar, Dperp, wz(ξ))
+        out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
+    end
+    return out
+end
+
+derived(::NODDISignal, p) = (kappa = _kappa(p.ODI),)
+datastart(m::NODDISignal, y, p) = _tensordirection(m, y)
+relabel(::NODDISignal, θ) = _upperdirection(θ)
+
 # κ from ODI = (2/π)·arctan(1/κ): κ = cot(π·ODI/2), 0 at ODI = 1
 @inline _kappa(ODI) = cot(oftype(float(ODI), π) * ODI / 2)

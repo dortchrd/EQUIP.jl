@@ -226,6 +226,8 @@ const CASES = [
     (BallStick(; DWI_ACQ...), (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)),
     (NODDI(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)),
     (BinghamNODDI(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)),
+    (NODDISignal(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)),
+    (BinghamNODDISignal(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)),
 ]
 
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix

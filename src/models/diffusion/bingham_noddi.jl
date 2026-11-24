@@ -45,7 +45,25 @@ The orientations start from the voxel's diffusion tensor: μ its principal eigen
     gz::Z
 end
 
-parameters(::Type{<:BinghamNODDI}) = (
+"""
+    BinghamNODDISignal(; b, gx, gy, gz)
+
+[`BinghamNODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Bingham
+distribution, `zeppelin(b, D∥, D⊥, B(g))`, as the sticks' is, in place of the averaged tensor:
+the Bingham counterpart of [`NODDISignal`](@ref) (its reasons there). The same parameters, starts
+and derived quantities as BinghamNODDI's. Two quadratures an image (the sticks' and the
+zeppelin's), so about twice BinghamNODDI's time.
+"""
+@kwdef struct BinghamNODDISignal{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+# the methods they share: the parameters, derived quantities, start and labels
+const _BinghamNODDIs = Union{BinghamNODDI,BinghamNODDISignal}
+
+parameters(::Type{<:_BinghamNODDIs}) = (
     S0 = Free(start = :scale, lower = 0),
     vic = Free(start = 0.5, lower = 0, upper = 1),
     viso = Free(start = 0.1, lower = 0, upper = 1),
@@ -74,7 +92,7 @@ function signal!(out, m::BinghamNODDI, p)
     return out
 end
 
-function derived(::BinghamNODDI, p)
+function derived(::_BinghamNODDIs, p)
     κ = _kappa(p.ODI)
     β = p.betafraction * κ
     return (kappa = κ, beta = β, ODIfan = 2 / oftype(κ, π) * atan(1 / (κ - β)),
@@ -82,7 +100,7 @@ function derived(::BinghamNODDI, p)
 end
 # The start from the voxel's tensor: μ its principal eigenvector, μβ its second (a fan spreads the
 # diffusion most along μ, then along the fan); ψ the second's angle about μ
-function datastart(m::BinghamNODDI, y, p)
+function datastart(m::_BinghamNODDIs, y, p)
     T = eltype(y)
     U = _tensorvectors(m, y)
     U === nothing && return (theta = T(π) / 2, phi = zero(T), psi = zero(T))
@@ -95,11 +113,27 @@ end
 
 # μ in the upper hemisphere (as the other directional models), and ψ for the same fan: μβ (or −μβ,
 # the same fan) as an angle about the new μ from its e_θ, in [0, π)
-function relabel(::BinghamNODDI, θ)
+function relabel(::_BinghamNODDIs, θ)
     haskey(θ, :theta) && haskey(θ, :phi) && haskey(θ, :psi) || return θ
     μ, μβ, _ = _binghamaxes(θ.theta, θ.phi, θ.psi)
     u = _upperhemisphere(μ)
     t, f = acos(clamp(u[3], -one(u[3]), one(u[3]))), atan(u[2], u[1])
     _, eθ, eφ = _binghamaxes(t, f, zero(t))
     return merge(θ, (theta = t, phi = f, psi = mod(atan(μβ ⋅ eφ, μβ ⋅ eθ), oftype(t, π))))
+end
+
+function signal!(out, m::BinghamNODDISignal, p)
+    (; b, gx, gy, gz) = m
+    (; S0, vic, viso, ODI, betafraction, theta, phi, psi, Dpar, Diso) = p
+    κ = _kappa(ODI)
+    μ, μβ, _ = _binghamaxes(theta, phi, psi)
+    B = bingham(κ, betafraction * κ, μ, μβ)
+    Dperp = (1 - vic) * Dpar
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        g = SVector(gx[j], gy[j], gz[j])
+        Aic = stick(b[j], Dpar, B(g))
+        Aec = zeppelin(b[j], Dpar, Dperp, B(g))
+        out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
+    end
+    return out
 end

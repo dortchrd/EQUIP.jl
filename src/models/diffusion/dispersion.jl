@@ -303,8 +303,9 @@ view: `w = watson(κ)` once per voxel, then `stick(b, D, w(ξ))` and `zeppelin(b
 for an image whose gradient makes the cosine ξ = g·μ with the axis: the compartment's signal
 averaged over the distribution. `watson(κ, b, D)` also keeps the stick's series for the b-values
 `b` at diffusivity `D` (a model's acquisition and its stick's D), which a model loops over: then
-`stick(b[j], D, w(ξ))` costs a short sum. Accurate (2e-8) for κ up to 64 and b·D to 12.75, and
-by quadrature above.
+`stick(b[j], D, w(ξ))` costs a short sum; `watson(w, b, D)` keeps them for another D, the same
+distribution (a dispersed zeppelin's excess, `zeppelin(b, D∥, D⊥, wz(ξ))` with `wz = watson(w, b,
+D∥ − D⊥)`). Accurate (2e-8) for κ up to 64 and b·D to 12.75, and by quadrature above.
 
 ```julia
 w = watson(5.0)                          # about an axis μ
@@ -342,8 +343,10 @@ end
     w = _watsoncoeffs(κ)
     return Watson(κ, w, _watsoncos2(κ), nothing, 0, ntuple(_ -> 0.0, Val(8)), ntuple(_ -> zero(w), Val(8)))
 end
-@inline function watson(κ, b::AbstractVector, D)
-    w = _watsoncoeffs(κ)
+@inline watson(κ, b::AbstractVector, D) = _watsonshells(κ, _watsoncoeffs(κ), _watsoncos2(κ), b, D)
+# the same distribution, its series kept for another D (a dispersed zeppelin's excess D∥ − D⊥)
+@inline watson(w::Watson, b::AbstractVector, D) = _watsonshells(w.κ, w.w, w.τ, b, D)
+@inline function _watsonshells(κ, w, τ, b, D)
     C = typeof(first(w) * D)
     # the shells as tuples, each new one set in place (Base.setindex: a new tuple, on the stack; an
     # MVector converted to a tuple at the end was put on the heap, 80 bytes a voxel)
@@ -362,7 +365,7 @@ end
         bs = Base.setindex(bs, bj, n)
         cs = Base.setindex(cs, _shellcoeffs(bj * D, w, C), n)
     end
-    return Watson(κ, w, _watsoncos2(κ), D, n, bs, cs)
+    return Watson(κ, w, τ, D, n, bs, cs)
 end
 
 # The stick averaged over W (the header): 1 at b = 0; the series, its coefficients kept or made;

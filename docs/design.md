@@ -6431,8 +6431,14 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          by +0.018 in vic and +0.005 in ODI in white matter (1.5 and 1.8 SDs), 0.4 SD in grey.
          So the data do not choose; the choice should be explicit. Built: the views average the
          signal; NODDI keeps Zhang's tensor, written as `watsontensor`, for agreement with the
-         toolbox and the literature. Proposed: a signal-averaged variant of NODDI and of
-         Bingham–NODDI beside them (the owner's decision, and the names).
+         toolbox and the literature. And, beside them (the owner: "yes, add both variants"),
+         `NODDISignal` and `BinghamNODDISignal`, the zeppelin's signal averaged
+         (`zeppelin(b, D∥, D⊥, w(ξ))`, `B(g)`): the same parameters, starts and derived
+         quantities. `watson(w, b, D)` keeps the series for the zeppelin's excess D∥ − D⊥ = vic·D∥
+         from the same distribution (one Legendre table per voxel, two shell sets): NODDISignal
+         7.0 µs a signal (NODDI 3.8), no allocation. Tested: at ODI = 1 powder's closed forms for
+         both compartments; at every image at least the tensor-averaged signal (Jensen), equal at
+         b = 0; BinghamNODDISignal at β = 0 equal to NODDISignal; fits against crlb.
    - **Design ideas from Microstructure.jl** (Gong & Yendiki, arXiv:2407.06379, 2024; v0.1.8,
      github.com/Tinggong/Microstructure.jl; read 2026-11-03, the owner's suggestion). A Julia
      package for diffusion compartment models, estimated by MCMC or by neural networks trained
