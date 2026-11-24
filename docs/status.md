@@ -1,4 +1,4 @@
-# Where we are (2026-11-17)
+# Where we are (2026-11-24)
 
 The map to read first when coming back: what is where, and what is left. The reasons and the
 measurements behind each item are in docs/design.md (roadmap items by number).
@@ -13,8 +13,17 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `bingham-proto` | the dispersed views `watson` and `bingham` for the compartments (2026-11-24), NODDI and BinghamNODDI written with them, and `NODDIConvolved`, `BinghamNODDIConvolved` (the zeppelin's signal averaged; the owner: "add both variants"); and `BinghamNODDI` (2026-11-23, the owner: "build it on a branch"): NODDI with the Bingham distribution, dmipy's parameterization (ODI, betafraction, the fan's angle psi); tested against NODDI at β = 0, a 2-D quadrature over the sphere, the derivatives at the bounds, fits against crlb; a whole brain in 85 s on 4 threads. On the branch's last code (the views, NODDIConvolved and BinghamNODDIConvolved): the full suite (3313) and the command line's (184) pass. Tariq 2016's indices (ODIP, ODItot, DAB, DAT; the fitted ODI is ODI_S) checked against the paper's equations and Table 1 (2026-11-24). Waits on the owner's merge. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (2026-11-24, at the owner's request: "Merge"): `bingham-proto` (a merge), the
+dispersed views `watson(κ)` and `bingham(κ, β, μ, μβ)` for the compartments (src/models/diffusion/
+dispersion.jl), NODDI written with them, `NODDIConvolved` (the zeppelin's signal averaged; the
+owner: "add both variants"), `BinghamNODDI` (Tariq 2016; dmipy's parameterization: ODI,
+betafraction, the fan's angle psi) and `BinghamNODDIConvolved`, with Tariq's indices (ODIP, ODItot,
+DAB, DAT) checked against the paper's Table 1. Whole brain on 4 threads: NODDI 12–15 s,
+NODDIConvolved 38 s, BinghamNODDI 85 s, BinghamNODDIConvolved 177 s. Checked first: the full
+`Pkg.test` on the merge, the command line's (184), and CI on the branch's last code commit. The
+branch is to delete (`git push origin --delete bingham-proto`). Not yet tried on the owner's data.
 
 Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
 `models-proto`, four built-in diffusion models: `StickZeppelin` and `BallStick` (multi-compartment,
@@ -334,8 +343,7 @@ first")
 - Later (the owner, 2026-11-23): DKI's and DTI's Jacobian written out (about 1.5× and 1.3×,
   estimated; not worth it for SIR, 6–13% measured); safe stopping tolerances learned per model;
   the dictionary starts (`bestof-proto`, with tier 6); the branch-free `exp` (item 26: 1.39× on
-  16-point SIR fits, none on the 4-point). Bingham–NODDI faster (its spherical-harmonic series; the model on
-  `bingham-proto`), and its indices checked against Tariq 2016.
+  16-point SIR fits, none on the 4-point). Bingham–NODDI faster (its spherical-harmonic series).
 - The other start changes: ADCKurtosis and T2DecayOffset on `:loglinear` (the owner: the offset
   not now), the second pass from the linear prediction, `BestOf(fits = k)`, neighbours as a
   second pass (item 4). R2Decay and ADCDecay keep their constant starts (measured:
