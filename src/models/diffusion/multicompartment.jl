@@ -83,7 +83,7 @@ function signal!(out, m::StickZeppelin, p)
     n = fiberdirection(theta, phi)                          # once per voxel
     Dperp = (1 - vax) * Dax                                 # the tortuosity limit
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ n                       # the cosine, gradient to fiber
+        ξ = g[j] ⋅ n                                        # the cosine, gradient to fiber
         out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
     end
     return out
