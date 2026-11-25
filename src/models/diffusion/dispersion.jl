@@ -2,7 +2,6 @@
 # Dispersed views: a compartment's signal averaged over a distribution of fiber directions
 #
 #   w = watson(κ)               the Watson distribution W(n) ∝ exp(κ·(μ·n)²) about an axis μ
-#   w = watson(κ, b, D)         the same, with the stick's series kept for the shells b at D (speed)
 #   stick(b, D, w(ξ))           the stick averaged over W, along a gradient at cosine ξ = g·μ
 #   zeppelin(b, D∥, D⊥, w(ξ))   the zeppelin averaged over W: exp(−b·D⊥)·stick(b, D∥ − D⊥, w(ξ))
 #   B = bingham(κ, β, μ, μβ)    the Bingham distribution B(n) ∝ exp(κ(μ·n)² + β(μβ·n)²), 0 ≤ β ≤ κ
@@ -27,10 +26,15 @@
 #   - to β = 12.75 (b = 7500 at D = 1.7e-3) by the Funk–Hecke series of two axially symmetric
 #     functions, A(ξ) = Σₗ (2l + 1)/2 · kₗ(β) · wₗ(κ)/w₀(κ) · Pₗ(ξ), l even ≤ 40, with wₗ(κ) =
 #     ∫₋₁¹ e^(κ(u² − 1))·Pₗ(u) du the distribution's Legendre coefficients (made by `watson(κ)`,
-#     once per voxel) and kₗ(β) = ∫₋₁¹ e^(−βv²)·Pₗ(v) dv the stick's (made per call, or kept per
-#     shell by `watson(κ, b, D)`: eight shells, a ninth made each time), both by Gauss–Legendre
-#     with the Legendre values at the nodes tabulated once (the distribution's in u = 1 − s², its
-#     nodes where it peaks), not by the closed forms, which cancel at small κ and β. The even
+#     once per voxel) and kₗ(β) = ∫₋₁¹ e^(−βv²)·Pₗ(v) dv the stick's, both by Gauss–Legendre with
+#     the Legendre values at the nodes tabulated once (the distribution's in u = 1 − s², its
+#     nodes where it peaks), not by the closed forms, which cancel at small κ and β. The kₗ
+#     depend on β alone, so they are tabulated once too, with their derivatives k′ₗ (the
+#     integrand times −v²), at β = 0, 0.05, ..., 12.85 (258 points, 83 kB), and each image's
+#     taken by cubic Hermite interpolation at its own β (error ≤ h⁴/384·max|k⁗| ≈ 4e-9): the
+#     same cost whatever the b-values, which scanners write per direction (995, 1000, 1005);
+#     until 2026-11-25 they were made per b-value and kept for eight, so such data cost 4–5×
+#     (docs/design.md, roadmap item 27, "Shells"). The even
 #     series is summed in z = 2ξ² − 1: P₂ₙ(ξ) = Pₙ^(0,−1/2)(z), Jacobi polynomials, by Clenshaw's
 #     recurrence in 20 steps. Its error grows with β (the stick sharpens): 1e-13 to 8.5, 6e-9 to
 #     12.75, 3e-5 at 17 (measured against the quadrature, κ to 64);
@@ -143,11 +147,43 @@ const _STICK_TAB = _evenlegendretable(_STICK_V, map(w -> 2w, _STICK_VW))
     end
     return SVector(c)
 end
-# a shell's series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀, in the number type C
-@inline function _shellcoeffs(β, w, C)
-    k = _tablesum(_STICK_TAB, _STICK_V, v -> exp(-β * v^2))
-    return SVector{_WATSON_NL,C}(ntuple(i -> (4(i - 1) + 1) / 2 * k[i] * w[i], Val(_WATSON_NL)))
+# kₗ(β) and k′ₗ(β) exactly, from one set of exponentials at the 40 nodes (d/dβ e^(−βv²) = −v²·e^(−βv²))
+@inline function _stickk(β)
+    T = typeof(exp(-β * one(eltype(_STICK_V))))
+    k = zero(MVector{_WATSON_NL,T}); dk = zero(MVector{_WATSON_NL,T})
+    @inbounds for j in eachindex(_STICK_V)
+        v2 = _STICK_V[j]^2
+        e = exp(-β * v2)
+        for l in 1:_WATSON_NL
+            k[l] += _STICK_TAB[l, j] * e
+            dk[l] -= _STICK_TAB[l, j] * v2 * e
+        end
+    end
+    return SVector(k), SVector(dk)
 end
+# The table of kₗ and k′ₗ in β (the header), and its cubic Hermite interpolation at any β in
+# [0, 12.75]: h00·kᵢ + h·h10·k′ᵢ + h01·kᵢ₊₁ + h·h11·k′ᵢ₊₁ at t = β/h − i. The cell's index from
+# the plain value of β (a dual number's derivative is the interpolant's, carried by t)
+const _STICK_H = 0.05
+const _STICK_KT, _STICK_DKT = let tab = [_stickk(i * _STICK_H) for i in 0:(ceil(Int, _WATSON_βMAX / _STICK_H) + 2)]
+    first.(tab), last.(tab)
+end
+@inline function _stickkinterp(β)
+    x = β / _STICK_H
+    i = unsafe_trunc(Int, _plain(x))
+    t = x - i
+    t2 = t * t
+    t3 = t2 * t
+    h00, h10, h01, h11 = 2t3 - 3t2 + 1, t3 - 2t2 + t, 3t2 - 2t3, t3 - t2
+    @inbounds return h00 * _STICK_KT[i+1] + (_STICK_H * h10) * _STICK_DKT[i+1] +
+                     h01 * _STICK_KT[i+2] + (_STICK_H * h11) * _STICK_DKT[i+2]
+end
+const _SERIES_FAC = SVector{_WATSON_NL}(ntuple(i -> (4(i - 1) + 1) / 2, Val(_WATSON_NL)))   # (2l + 1)/2, l even
+# the series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀: kₗ from the table (0 ≤ β ≤ 12.75), or made
+# exactly where β < 0 (a zeppelin with D∥ < D⊥); `_shellcoeffsexact` always exactly (the tests'
+# check of the table)
+@inline _shellcoeffs(β, w) = _SERIES_FAC .* (_plain(β) < 0 ? first(_stickk(β)) : _stickkinterp(β)) .* w
+@inline _shellcoeffsexact(β, w) = _SERIES_FAC .* first(_stickk(β)) .* w
 # Jacobi Pₙ^(0,−1/2): Pₙ = (Aₙz + Bₙ)·Pₙ₋₁ − Cₙ·Pₙ₋₂ (the standard recurrence at a = 0, b = −1/2)
 _jacobiD(n) = 2n * (n - 0.5) * (2n - 2.5)
 const _JA = ntuple(n -> (2n - 1.5) * (2n - 0.5) * (2n - 2.5) / _jacobiD(n), _WATSON_NL + 1)
@@ -165,7 +201,7 @@ end
 function _watsonseries(β, t, κ)
     w0 = _tablesum(_WATSON_TAB, _WATSON_U, u -> exp(κ * (u^2 - 1)))
     w = w0 / w0[1]
-    return _jacobisum(_shellcoeffs(β, w, typeof(first(w) * β)), 2t^2 - 1)
+    return _jacobisum(_shellcoeffs(β, w), 2t^2 - 1)
 end
 
 # --- Watson: the dispersed stick by quadrature (above the series' range; the tests' reference) -----
@@ -295,17 +331,14 @@ end
 
 """
     watson(κ)
-    watson(κ, b, D)
 
 The Watson distribution of fiber directions, W(n) ∝ exp(κ·(μ·n)²) about an axis μ (κ ≥ 0: 0 is
 isotropic, a large κ concentrated about μ; NODDI's ODI = (2/π)·arctan(1/κ)), as a compartment's
 view: `w = watson(κ)` once per voxel, then `stick(b, D, w(ξ))` and `zeppelin(b, D∥, D⊥, w(ξ))`
 for an image whose gradient makes the cosine ξ = g·μ with the axis: the compartment's signal
-averaged over the distribution. `watson(κ, b, D)` also keeps the stick's series for the b-values
-`b` at diffusivity `D` (a model's acquisition and its stick's D), which a model loops over: then
-`stick(b[j], D, w(ξ))` costs a short sum; `watson(w, b, D)` keeps them for another D, the same
-distribution (a dispersed zeppelin's excess, `zeppelin(b, D∥, D⊥, wz(ξ))` with `wz = watson(w, b,
-D∥ − D⊥)`). Accurate (2e-8) for κ up to 64 and b·D to 12.75, and by quadrature above.
+averaged over the distribution. A short sum per image whatever the b-values (the stick's part
+of the series is tabulated in b·D once, for every model). Accurate (2e-8) for κ up to 64 and
+b·D to 12.75, and by quadrature above.
 
 ```julia
 w = watson(5.0)                          # about an axis μ
@@ -315,18 +348,11 @@ stick(1000.0, 1.7e-3, watson(0.0)(0.8))  # = stick(1000.0, 1.7e-3, powder): κ =
 """
 function watson end
 
-# The distribution: κ, wₗ/w₀ (l even to 40), τ = ⟨(μ·n)²⟩, and the shells kept (b-values `bs`, the
-# series coefficients `cs`, at diffusivity `D`; `n` of them, none for `watson(κ)`). The shells in
-# stack arrays (MVector): as immutable tuples, eight shells of 21 coefficients of nested dual
-# numbers (crlb's second derivatives) are a 66 kB value that the compiler took minutes over
-struct Watson{T,R,S,B,C}
+# The distribution: κ, wₗ/w₀ (l even to 40) and τ = ⟨(μ·n)²⟩, made once per voxel
+struct Watson{T,R}
     κ::T
     w::SVector{_WATSON_NL,R}          # (R may be wider than T: Float64 nodes in a Float32 fit)
     τ::T
-    D::S
-    n::Int
-    bs::MVector{8,B}
-    cs::MVector{8,SVector{_WATSON_NL,C}}
 end
 # A view: the distribution, and the cosine between the gradient and its axis
 struct WatsonView{W<:Watson,X}
@@ -341,50 +367,16 @@ end
     return w0 / w0[1]
 end
 
-@inline function watson(κ)
-    w = _watsoncoeffs(κ)
-    return Watson(κ, w, _watsoncos2(κ), nothing, 0, MVector{8,Float64}(undef), MVector{8,SVector{_WATSON_NL,eltype(w)}}(undef))
-end
-@inline watson(κ, b::AbstractVector, D) = _watsonshells(κ, _watsoncoeffs(κ), _watsoncos2(κ), b, D)
-# the same distribution, its series kept for another D (a dispersed zeppelin's excess D∥ − D⊥)
-@inline watson(w::Watson, b::AbstractVector, D) = _watsonshells(w.κ, w.w, w.τ, b, D)
-@inline function _watsonshells(κ, w, τ, b, D)
-    C = typeof(first(w) * D)
-    bs = MVector{8,eltype(b)}(undef)
-    cs = MVector{8,SVector{_WATSON_NL,C}}(undef)
-    n = 0
-    @inbounds for bj in b
-        n == 8 && break
-        (iszero(bj) || abs(bj * D) > _WATSON_βMAX) && continue
-        seen = false
-        for s in 1:n
-            bs[s] == bj && (seen = true; break)
-        end
-        seen && continue
-        n += 1
-        bs[n], cs[n] = bj, _shellcoeffs(bj * D, w, C)
-    end
-    return Watson(κ, w, τ, D, n, bs, cs)
-end
+@inline watson(κ) = Watson(κ, _watsoncoeffs(κ), _watsoncos2(κ))
 
-# The stick averaged over W (the header): 1 at b = 0; the series, its coefficients kept or made;
-# the quadrature above β = 12.75
+# The stick averaged over W (the header): 1 at b = 0; the series, kₗ from the table; the
+# quadrature above β = 12.75
 @inline function stick(b, D, v::WatsonView)
     w, ξ = v.dist, v.ξ
     β = b * D
     iszero(b) && return one(ξ * β * first(w.w))
-    if abs(β) <= _WATSON_βMAX
-        return _jacobisum(_watsonshell(w, b, D, β), 2ξ^2 - 1)
-    end
+    abs(β) <= _WATSON_βMAX && return _jacobisum(_shellcoeffs(β, w.w), 2ξ^2 - 1)
     return _watsonstick(β, ξ, w.κ) / _watsonnorm(w.κ)
-end
-@inline function _watsonshell(w::Watson{T,R,S,B,C}, b, D, β) where {T,R,S,B,C}
-    if S !== Nothing && D == w.D
-        @inbounds for s in 1:w.n
-            w.bs[s] == b && return w.cs[s]
-        end
-    end
-    return _shellcoeffs(β, w.w, typeof(first(w.w) * β))
 end
 # the zeppelin averaged over W: every direction sees D⊥, the excess D∥ − D⊥ is a stick's
 @inline zeppelin(b, Dpar, Dperp, v::WatsonView) = exp(-b * Dperp) * stick(b, Dpar - Dperp, v)

@@ -6474,7 +6474,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
            Bingham–NODDI's a tensor of three eigenvalues, `binghamtensor`, written as
            exp(−b·gᵀDg) (no tensor compartment). The approximation is now visible where it is
            made; `zeppelin(b, D∥, D⊥, w(ξ))` is dmipy's dispersed zeppelin.
-         - **Speed kept**: `watson(κ, b, D)` keeps the stick's series per shell (eight, in stack
+         - **Speed kept** (until 2026-11-25; since then the stick's kₗ come from a table in β, and
+           `watson(κ)` keeps no shells: roadmap item 27): `watson(κ, b, D)` keeps the stick's series per shell (eight, in stack
            arrays, MVectors, inside the distribution); a view per image is then a lookup and a
            20-step sum. Two dead ends on the way: an MVector converted to a tuple at the end went
            to the heap (80 bytes a voxel); and the shells as immutable tuples (Base.setindex),

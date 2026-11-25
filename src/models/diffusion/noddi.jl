@@ -106,8 +106,7 @@ function signal!(out, m::NODDI, p)
     (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)                      # once per voxel
-    w = watson(_kappa(ODI), b, Dpar)                    # the neurites' distribution; the stick's
-                                                        #  series kept for each shell
+    w = watson(_kappa(ODI))                             # the neurites' distribution
     Dpare, Dperpe = watsontensor(Dpar, (1 - vic) * Dpar, w)   # the extra-neurite tensor, averaged
     @inbounds for j in eachindex(out, b, g)
         ξ = g[j] ⋅ μ
@@ -150,12 +149,11 @@ function signal!(out, m::NODDIConvolved, p)
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)
     Dperp = (1 - vic) * Dpar
-    w = watson(_kappa(ODI), b, Dpar)                    # the sticks': their series per shell
-    wz = watson(w, b, Dpar - Dperp)                     # the same distribution, the zeppelin's excess
+    w = watson(_kappa(ODI))                             # the neurites' distribution
     @inbounds for j in eachindex(out, b, g)
         ξ = g[j] ⋅ μ
         Aic = stick(b[j], Dpar, w(ξ))
-        Aec = zeppelin(b[j], Dpar, Dperp, wz(ξ))
+        Aec = zeppelin(b[j], Dpar, Dperp, w(ξ))
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
     end
     return out

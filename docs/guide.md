@@ -418,9 +418,10 @@ distribution with κ → ∞, and `powder` is κ = 0, so the three are one famil
 | `powder` | every direction equally (the spherical mean) |
 
 `stick(b, D, w(ξ))` and `zeppelin(b, D∥, D⊥, w(ξ))` take it as they take `powder`. Make the
-distribution once per voxel, before the loop over images. `watson(κ, b, D)` also keeps the stick's
-series for the acquisition's b-values at diffusivity D, so each image costs a short sum: about 4 µs
-for a 63-image NODDI signal. A view averages the *signal*. NODDI's extra-neurite space instead
+distribution once per voxel, before the loop over images. Each image then costs a short sum,
+whatever its b-value (the stick's part of the series is tabulated in b·D once): about 3 µs for a
+63-image NODDI signal, the same when the b-values vary by direction as scanners write them. A
+view averages the *signal*. NODDI's extra-neurite space instead
 averages the zeppelin's *tensor* (Zhang 2012, Eq. 5), an approximation: `watsontensor(D∥, D⊥, w)`
 gives that tensor's diffusivities, again a zeppelin along μ, `zeppelin(b, D∥ₑ, D⊥ₑ, ξ)`.
 `binghamtensor(D∥, D⊥, B)` gives the same for Bingham, a 3×3 tensor (signal exp(−b·gᵀDg)). The

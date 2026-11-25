@@ -377,12 +377,17 @@ end
         return num / den
     end
     @test zeppelin(2500.0, 2e-3, 0.5e-3, watson(8.0)(0.4)) ≈ averaged(c -> zeppelin(2500.0, 2e-3, 0.5e-3, c), 8.0, 0.4) rtol = 1e-7
-    # the shells' series kept by watson(κ, b, D): the same numbers as made per call, a ninth shell
-    # and another D made each time
-    bs = [0.0; 500.0:500.0:4500.0]                                 # nine shells (and b = 0)
-    wk, wn = watson(12.0, bs, 1.7e-3), watson(12.0)
-    @test all(stick(b, 1.7e-3, wk(0.7)) == stick(b, 1.7e-3, wn(0.7)) for b in bs)
-    @test stick(1000.0, 2.2e-3, wk(0.7)) == stick(1000.0, 2.2e-3, wn(0.7))
+    # the stick's kₗ from the table in β (cubic Hermite between the points, h = 0.05), against kₗ
+    # made exactly, at β off the grid over the series' range: the coefficients within 1e-8
+    # (4e-9 expected, h⁴/384), and their derivative in β (a dual number through the
+    # interpolant) within 1e-5 of the exact k′ₗ (an O(h³) error); at a grid point, the exact
+    # k′ₗ the table holds
+    wk = EQUIP._watsoncoeffs(12.0)
+    βs = [0.0123; range(0.031, 12.74; length = 97)]
+    @test maximum(maximum(abs.(EQUIP._shellcoeffs(β, wk) .- EQUIP._shellcoeffsexact(β, wk))) for β in βs) < 1e-8
+    dk(β) = ForwardDiff.derivative(x -> EQUIP._stickkinterp(x), β)
+    @test maximum(maximum(abs.(dk(β) .- last(EQUIP._stickk(β)))) for β in βs) < 1e-5
+    @test dk(2.5) ≈ last(EQUIP._stickk(2.5)) rtol = 1e-12
     # watsontensor: the averaged tensor keeps the trace, D∥ₑ + 2D⊥ₑ = D∥ + 2D⊥, isotropic at κ = 0
     Dp, Dq = watsontensor(2e-3, 0.5e-3, watson(6.0))
     @test Dp + 2Dq ≈ 2e-3 + 2 * 0.5e-3 && all(watsontensor(2e-3, 0.5e-3, w0) .≈ (3e-3 / 3, 3e-3 / 3))
