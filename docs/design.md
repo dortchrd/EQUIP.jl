@@ -8350,6 +8350,30 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      match exactly). Planned: one shell grouping for all, and within a shell the series'
      coefficients corrected to each image's own b by a short Taylor expansion in b (each image
      keeps its b, to about 1e-7), so NODDI keeps its exact-shell speed.
+     **Prototyped, 2026-11-25** (the owner: "Prototype both"; bench/noddi/shells.jl, branch
+     `shells-proto`): A, shells within 20 s/mm² of a centre and a third-order Taylor step in β
+     from the shell's kₗ and its derivatives (the same 40 exponentials); B, no shells, a table
+     of kₗ and k′ₗ at β = 0, 0.05, ..., 12.85 (258 points, 83 kB, made once) and cubic Hermite
+     interpolation at each image's own β. Against the built-in (kₗ exact at every b), the
+     largest signal difference over ODI 0.01–1 and orientations every 30°: A 3e-10, B 1.4e-9
+     (the series itself is accurate to 2e-8). One thread, one signal (µs, plain) | one voxel's
+     fit (µs, 1000 voxels, Rician SNR 30):
+
+     | acquisition | model | built-in | A | B |
+     |---|---|---:|---:|---:|
+     | 2 shells, exact | NODDI | 3.1 \| 101 | 3.7 \| 117 | 3.2 \| 102 |
+     | | NODDIConvolved | 5.4 \| 206 | 6.4 \| 226 | 5.4 \| 204 |
+     | 2 shells, jittered (±5, ±10) | NODDI | 11.3 \| 189 | 4.1 \| 112 | 3.1 \| 102 |
+     | | NODDIConvolved | 21.0 \| 918 | 7.4 \| 325 | 5.5 \| 204 |
+     | 10 shells, exact | NODDI | 6.8 \| 159 | 9.1 \| 187 | 3.1 \| 115 |
+     | | NODDIConvolved | 13.3 \| 605 | 17.4 \| 745 | 5.4 \| 233 |
+     | 10 shells, jittered (±0.5%) | NODDI | 14.9 \| 256 | 10.9 \| 203 | 3.2 \| 116 |
+     | | NODDIConvolved | 28.4 \| 1419 | 20.1 \| 919 | 5.4 \| 230 |
+
+     B is as fast as the built-in on exact shells, and on everything else faster than both: the
+     same cost whatever the b-values (no grouping, no 8-shell limit), so NODDI needs no shell
+     tolerance at all. A pays for its derivatives and its search of the shells, and is capped at
+     8 shells as the built-in is.
    - **The frame of the direction maps, stated.** `theta`, `phi`, `psi` and DTI's V1 are in the
      .bvec's frame (dcm2niix and FSL: the image axes, x flipped for neurological storage): as
      FSL's dtifit and FSLeyes, not MRtrix (scanner coordinates), and wrong if θ/φ maps from
