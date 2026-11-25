@@ -13,9 +13,19 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `gvector-proto` | (2026-11-25, the owner: "yes go ahead on a branch"; made from `noddi-file`, which it contains) the gradient directions as one field, `g`, an SVector{3} per image, in place of gx, gy, gz: every directional model, `diffusionencoding` → (b, g), `readdata`, the command line's `--bval FILE`/`--bvec FILE`; results identical (DKI to rounding), speed unchanged (docs/design.md, "Directions per image", revised a third time). g typed `DiffusionDirections` (SVector{3}s) and checked by each directional model's constructor, `checkencoding` (a direction per b-value, unit vectors where b > 50; the owner: "where do we force unity"), and the same written by `@mrimodel` and `newmodel` for an acquisition `b`, `g`. The full suite (3367), the command line's (188), the examples and the second-order validation pass; CI passed on bd2f51e, and runs on 5e126ba. Waits on the owner's merge. |
-| `noddi-file` | (2026-11-25) the four NODDIs in one file, noddi.jl, and dot products written `a ⋅ b` throughout (the owner: "put all noddis into the same noddi.jl file. then check to make sure dot product is consistent"); the full suite (3356) passes. In `gvector-proto` too: merging that merges both. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "merge into main"):
+`gvector-proto`, with `noddi-file` in it. The four NODDIs in one file (noddi.jl) and dot products
+written `a ⋅ b` throughout; the gradient directions as one field, `g`, an SVector{3} per image, in
+place of gx, gy, gz, in every directional model, `diffusionencoding` → (b, g), `readdata`, and the
+command line's `--bval FILE` and `--bvec FILE`; `g` typed `DiffusionDirections` and checked by each
+directional model's inner constructor, `checkencoding` (a direction per b-value, unit vectors
+where b > 50), also written by `@mrimodel` and `newmodel` for an acquisition `b`, `g`. Results
+identical (DKI to rounding), speed unchanged (docs/design.md, "Directions per image", revised a
+third time). Checked first: the full `Pkg.test` (3367), the command line's (188), the examples, the
+second-order validation and CI (5e126ba, all six jobs). The branches are to delete (`git push origin
+--delete gvector-proto noddi-file`).
 
 Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "Merge into main"):
 `stickzeppelinball-proto`, `StickZeppelinBall`: StickZeppelin with a CSF ball (Diso fixed at
