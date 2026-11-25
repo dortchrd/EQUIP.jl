@@ -8468,3 +8468,26 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      per image, made at every signal), and any model's terms in fixed parameters only.
    - **To measure**: NODDI's whole brain with kₗ prepared (the per-image product with the fitted
      wₗ remains, so not all of the 11% may return), and DKI's.
+   - **Measured, 2026-11-25** (the owner: "should we measure to see if worth keeping on roadmap
+     . maybe for both DKI and NODDI"; bench/prepare/prepare.jl, branch `prepare-proto`: each
+     prepared model a model of its own, its signal identical to the built-in's; 294,912 voxels,
+     Rician SNR 30, 4 threads):
+
+     | model | acquisition | version | one signal | one voxel's fit (1 thread) | whole brain |
+     |---|---|---|---:|---:|---:|
+     | NODDI | 63 images, exact b | built-in | 4.12 µs | 142 µs | 10.8 s |
+     | | | prepared (kₗ at D∥ once) | 2.73 µs | 129 µs | 9.8 s |
+     | NODDI | b as scanners write them | built-in | 4.12 µs | 142 µs | 11.0 s |
+     | | | prepared | 2.79 µs | 130 µs | 9.8 s |
+     | DKI | 61 images, b 1000, 2000 | built-in | 1.45 µs | 126 µs | 10.4 s |
+     | | | prepared (21 products per image) | 0.67 µs | 131 µs | 11.9 s |
+
+     NODDI: 9% a fit, the 11% of item 27 back (9.8 s, the original's on exact shells), whatever
+     the b-values. DKI: the plain signal twice as fast, but the fit no faster (4% slower one
+     voxel at a time, 14% on 4 threads): a fit evaluates the signal on dual numbers of 22
+     partials, whose arithmetic (V's 15 terms times 22 partials per image) the 15 plain products
+     never weighed against, and reading 21 stored numbers per image costs about what computing
+     them from 3 did. So preparing pays where the parameter-independent work is itself heavy
+     (NODDI's interpolation of 21 coefficients), not where it is a few products beside dual
+     arithmetic; the plain signal (simulation, one-off signals) gains in both. For a fit, of the
+     two, only NODDI, by 9%.
