@@ -69,10 +69,10 @@ acq = diffusionencoding("dwi.bval", "dwi.bvec")    # b, g
 res = fit(DTI(; acq...), dwi; mask)
 ```
 """
-@kwdef struct DTI{A<:AbstractVector,G<:Directions} <: MRIModel
+@kwdef struct DTI{A<:AbstractVector,G<:DiffusionDirections} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
-    # The bound G<:Directions says what g holds, SVector{3}s of numbers (Julia refuses anything
+    # The bound G<:DiffusionDirections says what g holds, SVector{3}s of numbers (Julia refuses anything
     # else when the model is made), and the line below is its constructor (an *inner*
     # constructor: Julia calls it however the model is made, `DTI(b = ..., g = ...)`, from files,
     # or rebuilt in the fit's precision), which checks b and g together: a direction per b-value,

@@ -132,10 +132,10 @@ end
                   C = fill(10.0, 4)); snr = 100, noise = :gaussian, rng)
     @test isequal(Base.invokelatest(fit, mw, Yt).params, fit(T2DecayOffset(TE = mw.TE), Yt).params)
     @test occursin("MacroMFA(FA, TR::Real)", read(newmodel(MacroMFA; file = joinpath(dir, "mfa.jl")), String))
-    # a directional model written out with the built-in models' struct: g of type Directions, the
+    # a directional model written out with the built-in models' struct: g of type DiffusionDirections, the
     # constructor that checks b and g; loaded, the same signal, and the check kept
     f = newmodel(MacroStickZeppelin; file = joinpath(dir, "sz.jl"))
-    @test occursin("A2<:Directions", read(f, String)) && occursin("checkencoding(b, g)", read(f, String))
+    @test occursin("A2<:DiffusionDirections", read(f, String)) && occursin("checkencoding(b, g)", read(f, String))
     Msz = Base.invokelatest(getproperty, load(f), :MacroStickZeppelin)
     tsz = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
     @test Base.invokelatest(signal, Base.invokelatest(Msz; DWI_ACQ...), tsz) == signal(MacroStickZeppelin(; DWI_ACQ...), tsz)

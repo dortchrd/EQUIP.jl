@@ -479,12 +479,12 @@ m = DTI(; acq...)                                     # built in; any model with
 
 With `@mrimodel`, name the acquisition `b` and `g` and the model is directional: in the body `g`
 is the image's direction (`ξ = g ⋅ fiberdirection(theta, phi)`), and the macro writes the struct
-as the built-in models': `g` of type `Directions` (SVector{3}s), checked by `checkencoding` when
+as the built-in models': `g` of type `DiffusionDirections` (SVector{3}s), checked by `checkencoding` when
 the model is made (a direction per b-value, unit vectors where b > 50). `newmodel` writes that
 struct out too. A struct written by hand gets the same with two lines:
 
 ```julia
-@kwdef struct MyModel{A<:AbstractVector,G<:Directions} <: MRIModel
+@kwdef struct MyModel{A<:AbstractVector,G<:DiffusionDirections} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
     MyModel(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked when made

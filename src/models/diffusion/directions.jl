@@ -5,7 +5,7 @@
 #                           ξ = g ⋅ n that the directional compartments take (stick, zeppelin)
 #   directionset(N)         N gradient directions spread evenly over the sphere (electrostatic
 #                           repulsion), to simulate a scanner's scheme
-#   Directions              the type of a directional model's `g`: a vector of SVector{3}s
+#   DiffusionDirections     the type of a directional model's `g`: a vector of SVector{3}s
 #   checkencoding(b, g)     a directional model's acquisition checked: a direction per b-value,
 #                           unit vectors where b > 50 s/mm² (every directional model's
 #                           constructor, the ones @mrimodel and newmodel write, and
@@ -18,7 +18,7 @@
 # =================================================================================================
 
 """
-    Directions
+    DiffusionDirections
 
 The type of a directional model's gradient directions `g`: a vector with one `SVector{3}` of
 numbers per image (what [`diffusionencoding`](@ref) makes from a .bvec). As a type parameter's
@@ -26,7 +26,7 @@ bound in a model's struct it says what `g` holds, and Julia refuses anything els
 plain vectors, a matrix) when the model is made:
 
 ```julia
-@kwdef struct MyModel{A<:AbstractVector,G<:Directions} <: MRIModel
+@kwdef struct MyModel{A<:AbstractVector,G<:DiffusionDirections} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
     MyModel(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))
@@ -38,7 +38,7 @@ The line inside is the struct's *inner constructor*: Julia calls it however the 
 with [`checkencoding`](@ref). Every built-in directional model is written so, and
 [`@mrimodel`](@ref) and [`newmodel`](@ref) write it for a model whose acquisition is `b` and `g`.
 """
-const Directions = AbstractVector{<:SVector{3,<:Real}}
+const DiffusionDirections = AbstractVector{<:SVector{3,<:Real}}
 
 """
     checkencoding(b, g) -> g
@@ -46,7 +46,7 @@ const Directions = AbstractVector{<:SVector{3,<:Real}}
 A directional model's acquisition checked, the rule in one place: one gradient direction per
 b-value, and a unit vector (within 1e-2, as DIPY checks) wherever b > 50 s/mm²; at b ≈ 0 the
 direction does not matter, and FSL writes 0 0 0 there. Returns `g`; an error names the image
-otherwise. Called by every directional model's constructor (see [`Directions`](@ref)) and by
+otherwise. Called by every directional model's constructor (see [`DiffusionDirections`](@ref)) and by
 [`diffusionencoding`](@ref), so a model made by hand, or rebuilt in the fit's precision or by the
 protocol designer, is checked as one made from files is. The b-values are not changed. One pass
 over the images, nothing allocated.

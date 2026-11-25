@@ -133,7 +133,7 @@ end
 end
 
 # A directional model made with @mrimodel (acquisition b and g): StickZeppelin's equation per
-# image; the macro types g as `Directions` and checks b and g when the model is made
+# image; the macro types g as `DiffusionDirections` and checks b and g when the model is made
 @mrimodel function MacroStickZeppelin(b, g; S0 = Free(start = :scale, lower = 0),
                                       vax = Free(start = 0.5, lower = 0, upper = 1),
                                       Dax = Free(start = 2.0e-3, lower = 0), theta = Free(start = 0.6),

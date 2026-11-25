@@ -153,7 +153,7 @@ function _writemodel(file, force, name, acq, opts, optvals, roles, body, doc, fr
     tvars = ["A$i" for i in eachindex(acq)]
     # Fields: the acquisition, a vector each (a type parameter each, so any vector works); the
     # options with their defaults (typed when the default is a literal).
-    # A directional model (acquisition b and g) as the built-in ones: g of type `Directions`, and
+    # A directional model (acquisition b and g) as the built-in ones: g of type `DiffusionDirections`, and
     # the inner constructor that checks b and g when the model is made (`checkencoding`)
     directional = (:b, :g) ⊆ acq
     note(a) = directional && a === :b ? "# b-values (s/mm²)" :
@@ -165,13 +165,13 @@ function _writemodel(file, force, name, acq, opts, optvals, roles, body, doc, fr
         line = v isa Union{Bool,Number,String} ? "    $o::$(typeof(v)) = $code" : "    $o = $code"
         push!(fieldlines, line * " "^max(1, 37 - length(line)) * "# an option")
     end
-    curly = join((directional && a === :g ? "$t<:Directions" : "$t<:AbstractVector" for (a, t) in zip(acq, tvars)), ", ")
-    if directional                        # the constructor, checking b and g (see `Directions`)
+    curly = join((directional && a === :g ? "$t<:DiffusionDirections" : "$t<:AbstractVector" for (a, t) in zip(acq, tvars)), ", ")
+    if directional                        # the constructor, checking b and g (see `DiffusionDirections`)
         cargs = join([["$a::$t" for (a, t) in zip(acq, tvars)]; string.(first.(opts))], ", ")
         cvals = join([[a === :g ? "checkencoding(b, g)" : string(a) for a in acq]; string.(first.(opts))], ", ")
         push!(fieldlines, "    $name($cargs) where {$(join(tvars, ","))} =
 " *
-                          "        new{$(join(tvars, ","))}($cvals)   # b and g checked (`Directions`)")
+                          "        new{$(join(tvars, ","))}($cvals)   # b and g checked (`DiffusionDirections`)")
     end
     sig = "$name(; " * join([string.(acq); ["$o = $c" for (o, c) in opts]], ", ") * ")"
     w = maximum(length ∘ string, pnames)

@@ -57,7 +57,7 @@ export @mrimodel, newmodel                                                  # a 
 export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
 export watson, bingham, watsontensor, binghamtensor                         # ... and their dispersed views
 export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)
-export Directions, checkencoding                                            # a directional model's g: its type, its check
+export DiffusionDirections, checkencoding                                   # a directional model's g: its type, its check
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
 export dof, dof_residual, rss, residualsd, loglikelihood, aic, aicc, bic   # fit statistics

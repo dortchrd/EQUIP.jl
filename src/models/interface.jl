@@ -752,7 +752,7 @@ function _acqvalue(x::AbstractVector{<:Real})
     length(x) <= 8 && return "[" * join(map(c, x), ", ") * "]"
     return "$(length(x)) values from $(c(minimum(x))) to $(c(maximum(x)))"
 end
-# Directions (`g`, a unit vector per image): their count, or each in full up to 4
+# Gradient directions (`g`, a unit vector per image): their count, or each in full up to 4
 function _acqvalue(x::AbstractVector{<:StaticVector})
     c(v) = repr(v; context = :compact => true)
     length(x) <= 4 && return "[" * join(map(v -> "(" * join(map(c, v), ", ") * ")", x), ", ") * "]"

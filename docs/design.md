@@ -4033,9 +4033,11 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     directions the model then refused).
   - **The same for models users write** (the owner: "my worry is about custom models with the
     macro ... is there a clever way to make it create the inner constructor"). The type is named,
-    `Directions` (= `AbstractVector{<:SVector{3,<:Real}}`), and the check is public,
+    `DiffusionDirections` (= `AbstractVector{<:SVector{3,<:Real}}`; the owner's name, for
+    `Directions` first: it says which directions, as "30 diffusion directions" does, beside
+    the fiber's, and pairs with `diffusionencoding`), and the check is public,
     `checkencoding(b, g)`, both exported and documented, so a struct written by hand reads
-    `G<:Directions` and has one constructor line to copy (the guide, `?Directions`). `@mrimodel`
+    `G<:DiffusionDirections` and has one constructor line to copy (the guide, `?DiffusionDirections`). `@mrimodel`
     writes both for a model whose acquisition is `b` and `g` (directional by those names, as the
     command line decides it and as `diffusionencoding` names them), and `newmodel` writes them
     out. Tested: a macro stick–zeppelin gives the built-in's signal, fits in Float32, and refuses

@@ -21,7 +21,7 @@
 #
 # What it writes (`@macroexpand` shows it): the struct (a type parameter per field, so any vector
 # or number works; for a directional model, one whose acquisition is `b` and `g`, g's bound
-# `Directions` and the inner constructor that checks b and g, as the built-in models have), a
+# `DiffusionDirections` and the inner constructor that checks b and g, as the built-in models have), a
 # keyword constructor, `parameters` for the type, the body as a function of
 # one observation (`_obsignal`), `signal!` calling it in a loop (the lengths checked once, then
 # `@inbounds`: as fast as a hand-written loop, no allocation), and the conversion to the fit's
@@ -64,10 +64,10 @@ res = fit(m, data; mask)                    # as any model: crlb, montecarlo, de
   - a number, or `Fixed(...)`: fixed;
   - another parameter's name: tied to it (`R1m = R1f`), or a formula of others
     (`R1m = 0.8 * R1f`).
-- **Directions**: a model whose acquisition is `b` and `g` (b-values and gradient directions,
+- **Diffusion directions**: a model whose acquisition is `b` and `g` (b-values and gradient directions,
   as [`diffusionencoding`](@ref) gives them) is directional: in the body, `g` is the
   observation's direction, an `SVector{3}` (`ξ = g ⋅ n`). The macro writes the struct as the
-  built-in directional models are written, `g` of type [`Directions`](@ref) and checked by
+  built-in directional models are written, `g` of type [`DiffusionDirections`](@ref) and checked by
   [`checkencoding`](@ref) when the model is made (a direction per b-value, unit vectors where
   b > 50 s/mm²).
 - **The body** is the signal of one observation: plain Julia, any number of lines, the last
@@ -208,10 +208,10 @@ function _mrimodel(ex)
     pnames = first.(pars)
     E = EQUIP                                            # EQUIP's functions, whatever the caller imported
     tparams = [Symbol("T", i) for i in eachindex(fields)]
-    # A directional model (acquisition b and g): g bound to `Directions` (SVector{3}s), and an
+    # A directional model (acquisition b and g): g bound to `DiffusionDirections` (SVector{3}s), and an
     # inner constructor that checks b and g when the model is made (as the built-in ones do)
     directional = (:b, :g) ⊆ acq
-    bounds = [directional && f === :g ? Expr(:<:, t, GlobalRef(E, :Directions)) : t
+    bounds = [directional && f === :g ? Expr(:<:, t, GlobalRef(E, :DiffusionDirections)) : t
               for (f, t) in zip(fields, tparams)]
     inner = directional ?
         :($name($((Expr(:(::), f, t) for (f, t) in zip(fields, tparams))...)) where {$(tparams...)} =

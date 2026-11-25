@@ -69,7 +69,7 @@ r = fit(DKI(; acq...), dwi; mask)
 d = derived(r)           # (MD = ..., FA = ..., ..., MK = ..., AK = ..., RK = ..., MKT = ...)
 ```
 """
-@kwdef struct DKI{A<:AbstractVector,G<:Directions} <: MRIModel
+@kwdef struct DKI{A<:AbstractVector,G<:DiffusionDirections} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
     DKI(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
