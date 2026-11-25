@@ -8393,6 +8393,43 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      | NODDIConvolved | as scanners write them | 109.4 s | 22.8 s |
 
      The same iterations (9.8, 11.7) and convergence (99.9%, 98.9%) before and after.
+     **Then quintic, with its own derivative rule** (the owner: "please confirm Jacobian and
+     Hessian accuracy against the original implementation, including near interpolation grid
+     boundaries ... preserve Float32 precision, nested AD compatibility, and exact evaluation
+     outside the table range. The table should be read-only during fitting"). Measured against
+     the original (kₗ exact at every β; scratch shells/derivs.jl: NODDI and NODDIConvolved with
+     D∥ freed, so the stick's b·D∥ and the zeppelin's b·vic·D∥ both move; β on the grid points,
+     1e-9 either side, mid-cell, near 0, near 12.75), each relative to the original's largest
+     entry:
+
+     | table | signal | Jacobian | Hessian | crlb SD | second-order bias |
+     |---|---:|---:|---:|---:|---:|
+     | cubic Hermite (kₗ, k′ₗ) | 1.7e-9 | 2.3e-8 | 4.3e-5 | 3.2e-7 | 1.3e-5 SD |
+     | quintic Hermite (kₗ, k′ₗ, k″ₗ) | 2.4e-14 | 4.0e-13 | 1.4e-8 (near 0; 4e-10 elsewhere) | 4.3e-12 | 1.2e-10 SD |
+
+     The cubic's second derivative is only continuous within a cell (it jumps at the points); the
+     quintic is twice continuously differentiable, its k″ₗ within 1.2e-9 of exact (kₗ 2.6e-14, k′ₗ
+     5e-12; at h = 0.1: 1.6e-12, 1.6e-10, 1.9e-8, 66 kB; h = 0.05 kept, 130 kB). Its derivatives
+     for dual numbers by its own chain rule (`_kinterp(β::Dual)`: the value and the derivative of
+     the interpolant in plain numbers, then the partials; recursive, so crlb's nested duals, to the
+     third derivatives of its bias term, are the interpolant's exactly); through dual arithmetic the
+     quintic had cost NODDIConvolved 25% (28.7 s a brain). Float32: the fits identical to main's
+     (the stick's series is in Float64 within a Float32 fit, from Float64 nodes, before as now),
+     Float32 against Float64 as before (0.3–0.6% of crlb's SD); Float64 fits within 3e-12 SD of
+     main's. Exact outside the table: kₗ made from the nodes wherever β is not in [0, 12.85)
+     (β < 0, a zeppelin with D∥ < D⊥; NaN; past the table), so it is never read outside its range.
+     Read-only: the three tables in a struct with indexing and no assignment, made when EQUIP is
+     precompiled. A whole brain (bench/noddi/brain_shells.jl, as above):
+
+     | model | b-values | original | quintic |
+     |---|---|---:|---:|
+     | NODDI | exact | 9.8 s | 10.9 s |
+     | NODDI | as scanners write them | 18.0 s | 11.1 s |
+     | NODDIConvolved | exact | 22.9 s | 21.5 s |
+     | NODDIConvolved | as scanners write them | 109.4 s | 21.5 s |
+
+     NODDI on exact shells 11% slower than the original: the coefficients (2l+1)/2·kₗ·wₗ made per
+     image (wₗ dual), where the original made them once per shell; the price of no shells.
    - **The frame of the direction maps, stated.** `theta`, `phi`, `psi` and DTI's V1 are in the
      .bvec's frame (dcm2niix and FSL: the image axes, x flipped for neurological storage): as
      FSL's dtifit and FSLeyes, not MRtrix (scanner coordinates), and wrong if θ/φ maps from

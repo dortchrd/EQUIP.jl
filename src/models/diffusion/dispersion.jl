@@ -35,7 +35,9 @@
 #     differentiable, so a fit's Jacobian and crlb's Hessians are smooth across the points, and
 #     within 3e-14 of kₗ made exactly, 5e-12 for k′ₗ and 1e-9 for k″ₗ (relative to their largest;
 #     a cubic, from kₗ and k′ₗ, was 2e-9, 3e-7 and 1e-4, its second derivative jumping at the
-#     points). Outside [0, 12.85) (a zeppelin with D∥ < D⊥, β < 0), kₗ is made exactly. The
+#     points). Its derivatives for dual numbers by its own chain rule (value and derivative in
+#     plain numbers, then the partials), not by dual arithmetic through the 21 coefficients.
+#     Outside [0, 12.85) (a zeppelin with D∥ < D⊥, β < 0; NaN), kₗ is made exactly. The
 #     same cost whatever the b-values, which scanners write per direction (995, 1000, 1005);
 #     until 2026-11-25 they were made per b-value and kept for eight, so such data cost 4–5×
 #     (docs/design.md, roadmap item 27, "Shells"). The table is made when EQUIP is precompiled
@@ -185,23 +187,42 @@ const _STICK_TOP = (length(_STICK_KT) - 1) * _STICK_H           # the table's la
 # Its quintic Hermite interpolation at β in [0, 12.85): on the cell [βᵢ, βᵢ₊₁], t = β/h − i,
 #   kₗ(β) ≈ H0·kᵢ + h·H1·k′ᵢ + h²·H2·k″ᵢ + H3·kᵢ₊₁ + h·H4·k′ᵢ₊₁ + h²·H5·k″ᵢ₊₁,
 # the basis matching value, slope and curvature at both ends (so the interpolant is twice
-# continuously differentiable across the points). The cell from the plain value of β; a dual
-# number's derivatives (a fit's, crlb's nested ones) are the interpolant's, carried by t.
-@inline function _stickkinterp(β)
-    x = β / _STICK_H
-    i = unsafe_trunc(Int, _plain(x))
-    t = x - i
-    t2 = t * t; t3 = t2 * t; t4 = t3 * t; t5 = t4 * t
-    H0 = 1 - 10t3 + 15t4 - 6t5
-    H1 = t - 6t3 + 8t4 - 3t5
-    H2 = (t2 - 3t3 + 3t4 - t5) / 2
-    H3 = 10t3 - 15t4 + 6t5
-    H4 = -4t3 + 7t4 - 3t5
-    H5 = (t3 - 2t4 + t5) / 2
-    h, h2 = _STICK_H, _STICK_H^2
-    @inbounds return H0 * _STICK_KT[i+1] + (h * H1) * _STICK_D1T[i+1] + (h2 * H2) * _STICK_D2T[i+1] +
-                     H3 * _STICK_KT[i+2] + (h * H4) * _STICK_D1T[i+2] + (h2 * H5) * _STICK_D2T[i+2]
+# continuously differentiable across the points). Each Hᵣ(t) = Σₖ cᵣₖ·tᵏ, k = 0 … 5:
+const _QUINTIC = ((1.0, 0.0, 0.0, -10.0, 15.0, -6.0),        # H0
+                  (0.0, 1.0, 0.0, -6.0, 8.0, -3.0),          # H1
+                  (0.0, 0.0, 0.5, -1.5, 1.5, -0.5),          # H2
+                  (0.0, 0.0, 0.0, 10.0, -15.0, 6.0),         # H3
+                  (0.0, 0.0, 0.0, -4.0, 7.0, -3.0),          # H4
+                  (0.0, 0.0, 0.0, 0.5, -1.0, 0.5))           # H5
+# dᵐHᵣ/dtᵐ at t: Σₖ cᵣₖ·k!/(k − m)!·t^(k−m), m known when compiling (Val), 0 past the fifth
+@inline function _basisderiv(c, t, ::Val{m}) where {m}
+    s = zero(t)
+    @inbounds for k in 5:-1:m                                 # Horner in t
+        s = s * t + c[k+1] * prod(ntuple(q -> k - q + 1, Val(m)); init = 1.0)
+    end
+    return s
 end
+# The m-th derivative in β of the interpolant (m = 0: kₗ itself), at a plain β: the basis' m-th
+# derivatives in t, over hᵐ
+@inline function _kinterp(β::Real, ::Val{m}) where {m}
+    x = β / _STICK_H
+    i = unsafe_trunc(Int, x)
+    t = x - i
+    H = map(c -> _basisderiv(c, t, Val(m)), _QUINTIC)
+    h, h2, s = _STICK_H, _STICK_H^2, inv(_STICK_H)^m
+    @inbounds return (s * H[1]) * _STICK_KT[i+1] + (s * h * H[2]) * _STICK_D1T[i+1] + (s * h2 * H[3]) * _STICK_D2T[i+1] +
+                     (s * H[4]) * _STICK_KT[i+2] + (s * h * H[5]) * _STICK_D1T[i+2] + (s * h2 * H[6]) * _STICK_D2T[i+2]
+end
+# ... at a dual number (a fit's derivatives; crlb's nested ones, a dual of duals): its value at
+# the value, and its derivative times the partials, the chain rule written once, so the 21
+# coefficients' arithmetic stays in plain numbers (the dual arithmetic through the basis cost a
+# NODDIConvolved fit 25%). Recursive: the value of a nested dual is itself a dual.
+@inline function _kinterp(β::Dual{T}, ::Val{m}) where {T,m}
+    v, p = value(β), partials(β)
+    a, d = _kinterp(v, Val(m)), _kinterp(v, Val(m + 1))
+    return map((ai, di) -> Dual{T}(ai, di * p), a, d)
+end
+@inline _stickkinterp(β) = _kinterp(β, Val(0))
 const _SERIES_FAC = SVector{_WATSON_NL}(ntuple(i -> (4(i - 1) + 1) / 2, Val(_WATSON_NL)))   # (2l + 1)/2, l even
 # the series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀: kₗ from the table where 0 ≤ β < 12.85, and
 # made exactly anywhere else (β < 0, a zeppelin with D∥ < D⊥; past the table; NaN), so the table
