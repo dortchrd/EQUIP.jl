@@ -12,8 +12,8 @@
 # the stick's series to b·D∥ = 12.75, its quadrature above). The extra-neurite space is Zhang's:
 # the zeppelin's *tensor* averaged over W, an approximation NODDI makes (Eq. 5), which is again a
 # zeppelin along μ; not the zeppelin's signal averaged, `zeppelin(b, D∥, D⊥, w(ξ))`, as dmipy has it.
-# At κ → ∞ (ODI → 0) the model is StickZeppelin with a ball (multicompartment.jl), at κ = 0 (ODI =
-# 1) the sticks' spherical mean with an isotropic tensor. D∥ and Diso fixed at the paper's in vivo
+# At κ → ∞ (ODI → 0) the model is StickZeppelinBall with Dax = D∥ (multicompartment.jl), at κ = 0
+# (ODI = 1) the sticks' spherical mean with an isotropic tensor. D∥ and Diso fixed at the paper's in vivo
 # values, 1.7e-3 and 3.0e-3 mm²/s (Zhang 2012), as the NODDI toolbox fixes them.
 # =================================================================================================
 

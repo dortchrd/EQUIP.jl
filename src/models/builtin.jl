@@ -104,7 +104,7 @@ include("diffusion/dti.jl")             # DTI: the diffusion tensor, one image p
 include("diffusion/dki.jl")             # DKI: diffusion kurtosis (V = MD²·W), MK, AK, RK as DIPY's
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
 include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
-include("diffusion/multicompartment.jl") # StickZeppelin, BallStick: compartments along a direction, every image
+include("diffusion/multicompartment.jl") # StickZeppelin, StickZeppelinBall, BallStick: compartments along a direction, every image
 include("diffusion/noddi.jl")           # NODDI: sticks and a zeppelin dispersed (Watson), a ball
 include("diffusion/bingham_noddi.jl")   # BinghamNODDI: the same dispersed by a Bingham distribution
 include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start

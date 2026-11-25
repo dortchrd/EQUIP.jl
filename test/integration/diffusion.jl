@@ -187,20 +187,24 @@ end
     end
 end
 
-@testset "StickZeppelin and BallStick: one fiber, started from the voxel's tensor, reported with z ≥ 0" begin
+@testset "StickZeppelin, StickZeppelinBall and BallStick: one fiber, started from the voxel's tensor, reported with z ≥ 0" begin
     rng = MersenneTwister(12)
     acq = DWI_ACQ; bv = acq.b
-    msz, mbs = StickZeppelin(; acq...), BallStick(; acq...)
+    msz, mbs, mszb = StickZeppelin(; acq...), BallStick(; acq...), StickZeppelinBall(; acq...)
     tsz = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
+    tszb = (S0 = 1000.0, vax = 0.6, viso = 0.1, Dax = 1.9e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)
     tbs = (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)
     # BallStick against Behrens et al. (MRM 2003), written out: one diffusivity, isotropic and
     # along the fiber (StickZeppelin's signal is checked written out in the test set above)
     n = SVector(fiberdirection(0.7, 0.3))
     ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
     @test signal(mbs, tbs) ≈ (@. 1000 * (0.5 * exp(-bv * 1.2e-3) + 0.5 * exp(-bv * 1.2e-3 * ξ^2))) rtol = 1e-12
+    # StickZeppelinBall (its signal written out in NODDI's test set, its limit ODI → 0) is
+    # StickZeppelin where there is no ball
+    @test signal(mszb, merge(tszb, (viso = 0.0,))) ≈ signal(msz, tsz) rtol = 1e-12
     # n and −n are one fiber, and the angles repeat: the same signal; `relabel` reports the
     # upper hemisphere (θ in [0, π/2], φ in (−π, π]), so the signal is unchanged by it
-    for (m, t) in ((msz, tsz), (mbs, tbs))
+    for (m, t) in ((msz, tsz), (mbs, tbs), (mszb, tszb))
         s = signal(m, t)
         @test signal(m, merge(t, (theta = π - 0.7, phi = 0.3 + π))) ≈ s rtol = 1e-12
         @test signal(m, merge(t, (theta = 0.7 + 2π, phi = 0.3 - 2π))) ≈ s rtol = 1e-12
@@ -211,7 +215,7 @@ end
     # noise-free data along any direction (θ, φ every 15° and 30°), within 0.1° of the fiber's
     # (the tensor is not these models, and 30 directions are not isotropic: 0.0996° measured)
     err = Float64[]
-    for th in range(0, π, length = 13), ph in range(-π, π, length = 13), (m, t) in ((msz, tsz), (mbs, tbs))
+    for th in range(0, π, length = 13), ph in range(-π, π, length = 13), (m, t) in ((msz, tsz), (mbs, tbs), (mszb, tszb))
         d = datastart(m, signal(m, merge(t, (theta = th, phi = ph))), NamedTuple())
         push!(err, acosd(clamp(abs(dot(SVector(fiberdirection(d.theta, d.phi)), SVector(fiberdirection(th, ph)))), 0, 1)))
     end
@@ -225,13 +229,13 @@ end
     dirs = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]
     θt, φt = acos.(getindex.(dirs, 3)), atan.(getindex.(dirs, 2), getindex.(dirs, 1))
     angle(r, i) = acosd(clamp(abs(dot(SVector(fiberdirection(r.params.theta[i], r.params.phi[i])), dirs[i])), 0, 1))
-    for (m, t, q) in ((msz, tsz, :vax), (mbs, tbs, :f))
+    for (m, t, q) in ((msz, tsz, :vax), (mbs, tbs, :f), (mszb, tszb, :vax))
         Y = simulate(m, merge(map(x -> fill(x, nv), t), (theta = θt, phi = φt)); snr = 50, noise = :rician, rng)
         r = fit(m, Y)
         @test all(isconverged, r.status) && median(angle.(Ref(r), 1:nv)) < 1
         @test all(0 .<= r.params.theta .<= π / 2) && all(-π .<= r.params.phi .<= π)
         @test abs(mean(r.params[q]) - t[q]) < 4 * std(r.params[q]) / sqrt(nv)
-        m isa StickZeppelin && @test derived(r).Dperp ≈ (1 .- r.params.vax) .* r.params.Dax
+        m isa Union{StickZeppelin,StickZeppelinBall} && @test derived(r).Dperp ≈ (1 .- r.params.vax) .* r.params.Dax
         # the direction fixed instead, as maps (from a DTI fit, say): not fitted, not relabelled
         rf = fit(m, Y; theta = θt, phi = φt)
         @test !haskey(rf.params, :theta) && abs(mean(rf.params[q]) - t[q]) < 4 * std(rf.params[q]) / sqrt(nv)
@@ -298,6 +302,8 @@ end
     n = SVector(fiberdirection(0.7, 0.3))
     ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
     nodisp = @. 1000 * (0.8 * (0.5 * exp(-bv * 1.7e-3 * ξ^2) + 0.5 * zeppelin(bv, 1.7e-3, Dp, ξ)) + 0.2 * exp(-bv * 3e-3))
+    # ... which is StickZeppelinBall's signal, its axial diffusivity NODDI's D∥
+    @test signal(StickZeppelinBall(; acq...), (S0 = 1000.0, vax = 0.5, viso = 0.2, Dax = 1.7e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)) ≈ nodisp rtol = 1e-12
     gap(κ) = maximum(abs.(signal(m, merge(t1, (ODI = 2 / π * atan(1 / κ),))) .- nodisp))
     @test 1.8 < gap(16) / gap(32) < 2.2 && 1.8 < gap(32) / gap(64) < 2.2
     # fitted at SNR 100 (Rician), white-matter-like, orientations random: every voxel converged,

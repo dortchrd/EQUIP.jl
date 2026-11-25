@@ -13,6 +13,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
+| `stickzeppelinball-proto` | `StickZeppelinBall` (2026-11-25, the owner: "Make stick ball zep"): StickZeppelin with a CSF ball (Diso fixed at 3.0e-3), NODDI at ODI → 0 with Dax fitted; in the command line and both precompile workloads; a brain in 2.3 s on 4 threads. Waits on the full suite, CI and the owner's merge. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
 Merged into `main` (2026-11-24, at the owner's request: "Merge"): `bingham-proto` (a merge), the

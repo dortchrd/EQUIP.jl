@@ -223,6 +223,7 @@ const CASES = [
     (QMTSIREqualR1(TI = TI5, TD = TD5), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)),
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
     (StickZeppelin(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)),
+    (StickZeppelinBall(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, viso = 0.1, Dax = 1.9e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)),
     (BallStick(; DWI_ACQ...), (S0 = 1000.0, f = 0.5, d = 1.2e-3, theta = 0.7, phi = 0.3)),
     (NODDI(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)),
     (BinghamNODDI(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)),

@@ -1,12 +1,15 @@
 # =================================================================================================
-# Multi-compartment models along one direction, every image (no spherical mean): StickZeppelin
-# and BallStick. "Multi-compartment": compartments added together, each a fraction of the water
+# Multi-compartment models along one direction, every image (no spherical mean): StickZeppelin,
+# StickZeppelinBall and BallStick. "Multi-compartment": compartments added together, each a fraction of the water
 # (Panagiotaki et al., NeuroImage 2012, whose taxonomy names them by their compartments); the
 # compartments are EQUIP's (compartments.jl). The direction is the stick's, a fiber bundle's
 # orientation in the papers ("fibre orientation", Behrens et al. 2003): a voxel's, not a tract.
 #
 #   StickZeppelin   S = S0·[vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, D⊥, ξ)],
 #                   D⊥ = (1 − vax)·Dax (the tortuosity limit)
+#   StickZeppelinBall  S = S0·[(1 − viso)·(vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, D⊥, ξ))
+#                          + viso·iso(b, Diso)],  D⊥ = (1 − vax)·Dax: StickZeppelin with a ball (CSF),
+#                   NODDI without dispersion (its κ → ∞)
 #   BallStick       S = S0·[(1 − f)·iso(b, d) + f·stick(b, d, ξ)]          (Behrens et al., 2003)
 #
 #   ξ = g·n, the cosine between image j's gradient direction g = (gx, gy, gz) and the fiber's
@@ -91,6 +94,69 @@ end
 derived(::StickZeppelin, p) = (Dperp = (1 - p.vax) * p.Dax,)
 datastart(m::StickZeppelin, y, p) = _tensordirection(m, y)
 relabel(::StickZeppelin, θ) = _upperdirection(θ)
+
+"""
+    StickZeppelinBall(; b, gx, gy, gz)
+
+[`StickZeppelin`](@ref) with a ball, free water (CSF) in the voxel as well: three compartments,
+the tissue's two along n(θ, φ) and an isotropic one with the free diffusivity,
+
+    S  = S0·[(1 − viso)·(vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)) + viso·exp(−b·Diso)]
+    D⊥ = (1 − vax)·Dax,   ξ = g·n
+
+[`NODDI`](@ref) without orientation dispersion (its limit ODI → 0, κ → ∞), with the axial
+diffusivity fitted: a fiber bundle's model where partial volume with CSF matters (near the
+ventricles, in atrophy), as the free-water models do for the tensor (Pasternak et al., Magn
+Reson Med 2009).
+
+- acquisition: as [`StickZeppelin`](@ref)'s (`b`, `gx`, `gy`, `gz`); two shells or more, for the
+  ball to be told from the tissue
+- free by default: `S0`; `vax`, the intra-axonal fraction of the tissue (0 to 1; NODDI's `vic`);
+  `viso`, the ball's fraction of the voxel (0 to 1); `Dax`, the axial diffusivity (mm²/s, 0 to
+  4e-3); `theta` and `phi`, the fiber's direction (radians, unbounded: reported in the upper
+  hemisphere, z ≥ 0)
+- fixed by default: `Diso` = 3.0e-3 mm²/s, free water at body temperature (NODDI's; Zhang 2012)
+- derived: `Dperp`, the extra-axonal radial diffusivity (1 − vax)·Dax
+
+The direction starts from the voxel's diffusion tensor, as [`StickZeppelin`](@ref)'s.
+
+```julia
+res = fit(StickZeppelinBall(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
+```
+"""
+@kwdef struct StickZeppelinBall{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+    b::A
+    gx::X
+    gy::Y
+    gz::Z
+end
+
+parameters(::Type{<:StickZeppelinBall}) = (
+    S0 = Free(start = :scale, lower = 0),
+    vax = Free(start = 0.5, lower = 0, upper = 1),
+    viso = Free(start = 0.1, lower = 0, upper = 1),
+    Dax = Free(start = 2.0e-3, lower = 0, upper = _DMAX),
+    theta = Free(start = :data),
+    phi = Free(start = :data),
+    Diso = Fixed(3.0e-3; lower = 0, upper = _DMAX),
+)
+
+function signal!(out, m::StickZeppelinBall, p)
+    (; b, gx, gy, gz) = m
+    (; S0, vax, viso, Dax, theta, phi, Diso) = p
+    n = fiberdirection(theta, phi)
+    Dperp = (1 - vax) * Dax
+    @inbounds for j in eachindex(out, b, gx, gy, gz)
+        ξ = (gx[j], gy[j], gz[j]) ⋅ n
+        tissue = vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ)
+        out[j] = S0 * ((1 - viso) * tissue + viso * iso(b[j], Diso))
+    end
+    return out
+end
+
+derived(::StickZeppelinBall, p) = (Dperp = (1 - p.vax) * p.Dax,)
+datastart(m::StickZeppelinBall, y, p) = _tensordirection(m, y)
+relabel(::StickZeppelinBall, θ) = _upperdirection(θ)
 
 """
     BallStick(; b, gx, gy, gz)

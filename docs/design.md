@@ -7375,6 +7375,19 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        one helper for both; θ and φ as start maps from a DTI fit remain possible, as today.
      - **Free-water DTI** (Pasternak et al., Magn Reson Med 2009): DTI plus an isotropic
        compartment at the free-water diffusivity; after these three.
+     - **Stick–zeppelin–ball, built 2026-11-25** (the owner: "Make stick ball zep"; branch
+       `stickzeppelinball-proto`): `StickZeppelinBall`, the stick–zeppelin with a ball at the
+       free diffusivity, S0·[(1 − viso)·(vax·stick + (1 − vax)·zeppelin) + viso·iso(b, Diso)].
+       Choices: `vax` a fraction of the tissue, not of the voxel, as NODDI's `vic`, so that the
+       tortuosity limit D⊥ = (1 − vax)·Dax keeps its meaning and the model is NODDI at ODI → 0
+       with Dax = D∥ (tested against NODDI's no-dispersion signal, written out); `Dax` free, as
+       StickZeppelin's (NODDI fixes it); `Diso` fixed at 3.0e-3 mm²/s, NODDI's (a free ball
+       diffusivity is poorly determined from two shells). Named after StickZeppelin, which it
+       extends. Measured (2 × 30 directions at b = 1000 and 2500, one b = 0; 4 threads):
+       crlb at SNR 50, vax 0.0236 against StickZeppelin's 0.0117 and Dax 3.8e-5 against 3.1e-5
+       (the ball costs vax's precision twice over), viso 0.039; 20,000 voxels at Rician SNR 30
+       (vax 0.4–0.8, viso 0–0.3, Dax 1.5–2.3e-3), every voxel converged in 7.2 iterations on
+       average, 8.0 µs a voxel: a brain's 294,912 voxels in 2.3 s.
    - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
      them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
      ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),
