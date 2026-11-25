@@ -57,6 +57,16 @@
           occursin("unit vectors", msg(() -> readdata(path("dwi.nii"))))
     write(path("dwi.bvec"), "0 1 0\n0 0 1\n0 0 0\n")                      # three images, not four
     @test occursin("one direction per image", msg(() -> readdata(path("dwi.nii"))))
+    # ... or named, in place of those beside the data (eddy's rotated directions have a name of
+    # their own): the beside .bvec (now wrong) not read; the named one alone, with the .bval
+    # beside; a named .bval with nothing beside; each mistake naming the file
+    write(path("dwi.eddy_rotated_bvecs"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0\n")
+    @test readdata(path("dwi.nii"); bvec = path("dwi.eddy_rotated_bvecs"))[2].found[:g] == fd[:g]
+    cp(path("dwi.nii"), path("eddy.nii"); force = true)
+    fe = readdata(path("eddy.nii"); bval = path("dwi.bval"), bvec = path("dwi.eddy_rotated_bvecs"))[2].found
+    @test fe[:b] == fd[:b] && fe[:g] == fd[:g]
+    @test occursin("give the b-values too", msg(() -> readdata(path("eddy.nii"); bvec = path("dwi.eddy_rotated_bvecs"))))
+    @test occursin("dwi.bvec (with", msg(() -> readdata(path("eddy.nii"); bval = path("dwi.bval"), bvec = path("dwi.bvec"))))
     rm(path("dwi.bvec"))
     # Mistakes
     NIfTI.niwrite(path("other.nii"), NIfTI.NIVolume(Float32.(Y[:, :, :, 1])))
@@ -138,6 +148,8 @@
                             "sub-01_status.nii.gz", "sub-01_SSE.nii.gz"]
     fa = readimage(wd[9])
     @test isequal(fa.data, Float64.(Float32.(derived(rdt).FA))) && fa.meta["Map"] == "FA"
+    # a direction map's sidecar says its frame (the .bvec's); a scalar map's does not
+    @test readimage(wd[12]).meta["DirectionFrame"] == "bvec" && !haskey(fa.meta, "DirectionFrame")
 
     # MATLAB files: the data as an array, observations last; maps back in its own shape
     S = reshape(Y, 60, 8)                                  # voxels already masked: nvoxels×N

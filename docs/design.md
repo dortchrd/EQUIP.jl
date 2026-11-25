@@ -8339,10 +8339,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **Done: one field, `g`** (an SVector{3} per image, typed `DiffusionDirections`, checked by
      every directional model's constructor, `checkencoding`), and **`--bval FILE`, `--bvec
      FILE`** on the command line (eddy's rotated directions without renaming).
-   - **The same for `readdata`**: keywords naming the files, `readdata("dwi.nii.gz"; bval =
-     "dwi.bval", bvec = "dwi.eddy_rotated_bvecs")`, as the command line's flags (proposed with
-     them; not yet built: from Julia the files must sit beside the data under its name, or the
-     model is made with `diffusionencoding` and the found values left unused).
+   - **Done (2026-11-25, branch `gradients-io`): the same for `readdata`**: keywords naming the
+     files, `readdata("dwi.nii.gz"; bval = "dwi.bval", bvec = "dwi.eddy_rotated_bvecs")`, in place
+     of those beside the data; either alone (the other from beside); checked together, an error
+     naming the files; for several stacked files too (one value per image of all of them), and
+     MATLAB data. The command line keeps its own `--bval`/`--bvec` (also for `crlb` and `design`,
+     which read no data).
    - **Shells, for speed on real data.** NODDI keeps the stick's series per b-value and shares
      it only between images whose b are equal to the last digit; scanners write b per direction
      (995, 1000, 1005). Measured (2 × 30 directions, b jittered ±5–10): NODDI 4.6 → 18 µs a
@@ -8434,8 +8436,22 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      .bvec's frame (dcm2niix and FSL: the image axes, x flipped for neurological storage): as
      FSL's dtifit and FSLeyes, not MRtrix (scanner coordinates), and wrong if θ/φ maps from
      another tool are given to fix the direction. Scalar maps (FA, NDI, ODI) are not affected.
-     Planned: say it in the guide, write the frame into each direction map's sidecar; later a
-     conversion to scanner coordinates (`g .= Ref(R) .* g` with the affine's rotation).
+     **Done (2026-11-25, branch `gradients-io`)**: the guide says it ("The frame of the
+     directions"), and each direction map's sidecar (`theta`, `phi`, `psi`, `V1x/y/z` of a model
+     with `b` and `g`) carries `"DirectionFrame": "bvec"` and a description; a scalar map's does
+     not; the user's own sidecar entries still win.
+   - **To do: directions in scanner coordinates** (the owner, 2026-11-25: "make sure to have
+     conversion to scanner coordinates on roadmap"). From the NIfTI affine (the sform, or the
+     qform where the sform is unset): R its rotation (the 3×3 with the voxel sizes divided out),
+     and FSL's flip F = diag(−1, 1, 1) where det(R) > 0; a direction in the .bvec's frame is then
+     R·F·g in scanner coordinates (to check against MRtrix's `mrconvert -export_grad_mrtrix` from
+     the same .bvec, and FSL's documentation, before relying on it: the sign conventions are where
+     such conversions go wrong). Three uses: the gradient directions themselves (a model fitted
+     in scanner coordinates, `diffusionencoding(...; frame = :scanner, affine)`); the output maps
+     (`writemaps(...; frame = :scanner)`, theta and phi recomputed from the rotated n, z ≥ 0 again,
+     the sidecar's `DirectionFrame` saying "scanner"); and θ/φ maps from another program converted
+     in. Tested on a known rotation (a fiber along a known scanner axis, the image stored
+     obliquely and neurologically), not only on the identity.
    - **One kind of argument for every dispersed view.** Watson's view takes the cosine, `w(ξ)`;
      Bingham's the direction, `B(g)`. Planned: every view takes `g[j]` (Watson holding μ), a
      bare cosine ξ kept for one fixed direction.

@@ -13,6 +13,21 @@ const _MAPNAMES = (T1 = "T1map", R1 = "R1map", T2 = "T2map", R2 = "R2map", T2sta
                    R2star = "R2starmap", M0 = "M0map", S0 = "S0map", B1 = "B1map")
 _mapname(p::Symbol) = haskey(_MAPNAMES, p) ? _MAPNAMES[p] : String(p)
 
+# The maps that are directions (a fiber's angles, ψ, DTI's and DKI's principal eigenvector), and
+# the frame they are in, written into their sidecars: the frame of the gradient directions the
+# fit was given, which EQUIP keeps as they came (no rotation), so for a .bvec, FSL's
+# convention. Scalar maps (FA, MD, NDI, ODI, ...) do not depend on it. Converting them to scanner
+# coordinates (MRtrix's) is on the roadmap (docs/design.md, item 27).
+const _DIRECTIONMAPS = ("theta", "phi", "psi", "V1x", "V1y", "V1z")
+const _DIRECTIONFRAME = Dict{String,Any}(
+    "DirectionFrame" => "bvec",
+    "DirectionFrameDescription" => "the frame of the gradient directions the fit was given (g), " *
+        "kept as given: for a .bvec from dcm2niix or FSL, the image's voxel axes with x negated " *
+        "where the image is stored in neurological order (its affine's determinant positive), " *
+        "as FSL's dtifit V1; not scanner (world) coordinates, as MRtrix's. theta and phi: " *
+        "n = (sin θ cos φ, sin θ sin φ, cos θ), θ from z, φ from x, in radians, z ≥ 0")
+_directional(m) = (:b, :g) ⊆ fieldnames(typeof(m))
+
 """
     writemaps(prefix, res, info; stderror = false, sidecar = Dict(), like = nothing,
               format = :auto, compress = nothing) -> Vector{String}
@@ -22,7 +37,9 @@ free parameter (BIDS names where they exist: `T1map`, `R1map`, `T2map`, `S0map`,
 parameter's name), the quantities the model derives from them ([`derived`](@ref): DTI's `MD`,
 `FA`, `AD`, `RD`, `V1x`, `V1y`, `V1z`), the fit's status (the [`FitStatus`](@ref) as an integer: 0 not fitted, ...)
 and its SSE, and with `stderror = true` each parameter's standard error (`T2map_SE`). Values
-are Float32, NaN outside the mask. Returns the files written.
+are Float32, NaN outside the mask. Returns the files written. The sidecar of a direction map
+(`theta`, `phi`, `psi`, `V1x`, `V1y`, `V1z`) says its frame, `"DirectionFrame": "bvec"`: the
+gradient directions' as given, for a .bvec FSL's image axes, not scanner coordinates.
 
 - `format = :nifti` (the default for NIfTI data): one file per map, `prefix * "T2map.nii.gz"`,
   in the data's geometry (or in `like`'s, an [`MRImage`](@ref) of the same size: for data from
@@ -81,7 +98,10 @@ function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInf
     car = merge(_provenance(res), sidecar)
     dir = dirname(prefix)
     isempty(dir) || mkpath(dir)
-    format === :mat && return _savemat(prefix, maps, info, car)
+    if format === :mat                      # one sidecar for all: the frame if any map is a direction
+        _directional(res.model) && any(m -> first(m) in _DIRECTIONMAPS, maps) && (car = merge(_DIRECTIONFRAME, car))
+        return _savemat(prefix, maps, info, car)
+    end
     geometry = like !== nothing ? like.header : info.header
     if like !== nothing
         size(like)[1:3] == info.spatial || throw(DimensionMismatch("`like` is " *
@@ -93,8 +113,9 @@ function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInf
     end
     files = String[]
     for (name, a) in maps
-        img = MRImage(a, geometry; meta = merge(Dict{String,Any}("Map" => name), car),
-                      descrip = "EQUIP " * name)
+        frame = _directional(res.model) && name in _DIRECTIONMAPS ? _DIRECTIONFRAME : Dict{String,Any}()
+        meta = merge(Dict{String,Any}("Map" => name), frame, car)        # `sidecar`'s entries win
+        img = MRImage(a, geometry; meta, descrip = "EQUIP " * name)
         push!(files, writeimage(prefix * name * (compress ? ".nii.gz" : ".nii"), img))
     end
     return files

@@ -90,8 +90,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
   and a .bvec as a directional model's b and g (an SVector{3} per image), checked), data.jl (`readdata`,
   `readmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
-  model fields), maps.jl (`writemaps`: BIDS
-  names, a provenance sidecar per map; one .mat file for MATLAB data), tables.jl (`writetable`);
+  model fields, beside the data or named: `bval = ...`, `bvec = ...`), maps.jl (`writemaps`: BIDS
+  names, a provenance sidecar per map, a direction map's frame in it; one .mat file for MATLAB data), tables.jl (`writetable`);
   ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
   invalidates MRImages' own, docs/design.md)
 - MRImages/: a package of its own (in this repository for now): MRI images in and out of files,

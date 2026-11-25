@@ -41,7 +41,7 @@ end
 const _Found = Dict{Symbol,Union{Vector{Float64},Vector{SVector{3,Float64}}}}
 
 """
-    readdata(paths; precision = Float64) -> (data, info)
+    readdata(paths; precision = Float64, bval = nothing, bvec = nothing) -> (data, info)
 
 The data of one dataset, as a 4-D array with the observations along the 4th dimension, and
 `info` (a [`DataInfo`](@ref)): the geometry to write maps with, and the acquisition values
@@ -67,6 +67,10 @@ The acquisition values found (`info.found`), one per observation, by the models'
 - An FSL `.bval` file beside a single file (dcm2niix writes them for diffusion): `b` (s/mm²);
   with a `.bvec` beside it too, the gradient directions `g`, checked as
   [`diffusionencoding`](@ref) checks them.
+- Or the files named, `bval = "dwi.bval"` and `bvec = "dwi_eddy.eddy_rotated_bvecs"` (eddy's
+  rotated directions, say, which have names of their own): in place of those beside the data,
+  one value or direction per image of all the files, checked as the files beside are. Either may
+  be given alone: `bvec` with the `.bval` beside the data, `bval` with its `.bvec`.
 
 ```julia
 data, info = readdata("sub-01_T2map.nii.gz")      # TE from sub-01_T2map.json
@@ -76,12 +80,16 @@ writemaps("results/sub-01_", res, info)
 """
 readdata(path::AbstractString; kwargs...) = readdata([path]; kwargs...)
 function readdata(paths::AbstractVector{<:AbstractString};
-                  precision::Type{<:AbstractFloat} = Float64)
+                  precision::Type{<:AbstractFloat} = Float64,
+                  bval::Union{Nothing,AbstractString} = nothing,
+                  bvec::Union{Nothing,AbstractString} = nothing)
     isempty(paths) && throw(ArgumentError("no data files given"))
     if any(MRImages._ismat, paths)
         length(paths) == 1 || throw(ArgumentError("a MATLAB file holds the whole dataset " *
             "(observations last): give one, not $(length(paths)) files"))
-        return _loadmat(paths[1], precision)
+        data, info = _loadmat(paths[1], precision)
+        _encoding!(info.found, paths, size(data, 4), bval, bvec)
+        return data, info
     end
     foreach(_check_nifti, paths)
     imgs = [readimage(p; precision) for p in paths]
@@ -101,7 +109,7 @@ function readdata(paths::AbstractVector{<:AbstractString};
            cat((reshape(img.data, spatial..., :) for img in imgs)...; dims = 4)
     size(data, 4) >= 2 || throw(ArgumentError("one image is one observation: give a 4-D file, " *
                                               "or one 3-D file per observation"))
-    found = _found(paths, [img.meta for img in imgs], [size(img, 4) for img in imgs])
+    found = _found(paths, [img.meta for img in imgs], [size(img, 4) for img in imgs]; bval, bvec)
     return data, DataInfo(collect(paths), imgs[1].header, spatial, collect(spatial), found)
 end
 
@@ -130,7 +138,7 @@ end
 const _BIDS = (EchoTime = :TE, InversionTime = :TI, RepetitionTime = :TR, FlipAngle = :FA)
 
 # The acquisition values beside the files: one per observation, by field name.
-function _found(paths, cars, counts)
+function _found(paths, cars, counts; bval = nothing, bvec = nothing)
     found = _Found()
     for (key, field) in pairs(_BIDS)
         all(c -> haskey(c, String(key)), cars) || continue
@@ -143,27 +151,36 @@ function _found(paths, cars, counts)
         end
         found[field] = vals
     end
-    if length(paths) == 1
-        bval = filestem(paths[1]) * ".bval"
-        if isfile(bval)
-            b = readvalues(bval)
-            length(b) == counts[1] || throw(ArgumentError("$bval has $(length(b)) b-values; " *
-                                                          "$(paths[1]) has $(counts[1]) images"))
-            found[:b] = b
-            # the gradient directions beside it (FSL's .bvec): g, checked with the
-            # b-values by `diffusionencoding` (one per image, unit vectors where b > 50)
-            bvec = filestem(paths[1]) * ".bvec"
-            if isfile(bvec)
-                acq = try
-                    diffusionencoding(b, readbvec(bvec))
-                catch e                                    # said with the file's name
-                    e isa Union{ArgumentError,DimensionMismatch} || rethrow()
-                    throw(ArgumentError("$bvec (with $bval): $(e.msg)"))
-                end
-                found[:g] = acq.g
-            end
-        end
+    _encoding!(found, paths, sum(counts), bval, bvec)
+    return found
+end
+
+# A diffusion acquisition's files: the b-values and gradient directions named (`bval`, `bvec`),
+# or else those beside a single data file, with its name (dcm2niix's dwi.bval, dwi.bvec). The
+# directions checked with the b-values by `diffusionencoding` (one per image, unit vectors where
+# b > 50), an error naming the files.
+function _encoding!(found, paths, n, bval, bvec)
+    beside(ext) = length(paths) == 1 && !MRImages._ismat(paths[1]) &&
+                  isfile(filestem(paths[1]) * ext) ? filestem(paths[1]) * ext : nothing
+    bvalfile = something(bval, beside(".bval"), Some(nothing))
+    bvecfile = something(bvec, beside(".bvec"), Some(nothing))
+    bvalfile === nothing && bvec !== nothing && throw(ArgumentError("bvec = \"$bvec\": give the " *
+        "b-values too, bval = \"...\" (there is no .bval beside the data)"))
+    bvalfile === nothing && return found
+    isfile(bvalfile) || throw(ArgumentError("$bvalfile: no such file"))
+    b = readvalues(bvalfile)
+    length(b) == n || throw(ArgumentError("$bvalfile has $(length(b)) b-values; the data " *
+                                          "($(join(paths, ", "))) have $n images"))
+    found[:b] = b
+    bvecfile === nothing && return found
+    isfile(bvecfile) || throw(ArgumentError("$bvecfile: no such file"))
+    acq = try
+        diffusionencoding(b, readbvec(bvecfile))
+    catch e                                                # said with the files' names
+        e isa Union{ArgumentError,DimensionMismatch} || rethrow()
+        throw(ArgumentError("$bvecfile (with $bvalfile): $(e.msg)"))
     end
+    found[:g] = acq.g
     return found
 end
 

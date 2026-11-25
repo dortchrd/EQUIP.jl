@@ -492,6 +492,16 @@ struct out too. A struct written by hand gets the same with two lines:
 end
 ```
 
+**The frame of the directions.** EQUIP keeps the gradient directions as they came, so every
+direction it reports (a fiber's `theta` and `phi`, Bingham's `psi`, DTI's and DKI's `V1x`, `V1y`,
+`V1z`) is in the .bvec's frame. For a .bvec from dcm2niix or FSL that is the image's voxel axes,
+with x negated where the image is stored in neurological order: FSL's convention, the same as
+dtifit's V1, so the maps overlay correctly in FSLeyes. It is not scanner (world) coordinates,
+MRtrix's convention: compare directions with MRtrix's output, or fix `theta` and `phi` to maps
+another program made, only in the same frame. Scalar maps (FA, MD, NDI, ODI, ...) do not depend
+on it. Each direction map's sidecar says so (`"DirectionFrame": "bvec"`). A conversion to
+scanner coordinates is on the roadmap.
+
 With fiber angles, write `signal!` by hand and compute the direction once per voxel,
 `n = fiberdirection(θ, φ)`, then `ξ = g[j] ⋅ n` for each image: an
 `@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
@@ -1040,8 +1050,10 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map
   for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
   `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), `b`
   from an FSL `.bval` beside the data, and `g` (a direction per image) from a `.bvec` beside that
-  (checked as `diffusionencoding` checks them). Nothing is converted: seconds and degrees, as in
-  BIDS.
+  (checked as `diffusionencoding` checks them), or from the files named, `readdata("dwi_eddy.nii.gz";
+  bval = "dwi.bval", bvec = "dwi_eddy.eddy_rotated_bvecs")` (eddy's rotated directions have names
+  of their own; either may be named alone, the other then taken from beside the data). Nothing is
+  converted: seconds and degrees, as in BIDS.
 - MATLAB: `readdata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
   observations along the last dimension after up to three spatial ones (`nx×ny×nz×N`,
   `nx×ny×N`, or `nvoxels×N` for voxels already masked); `readmap("data.mat:mask", info)`;
