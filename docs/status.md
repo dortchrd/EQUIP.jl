@@ -15,6 +15,12 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
+Merged into `main` (fast-forward, 2026-11-25, the owner: "put on roadmap"): `prepare-proto`, a bench
+only (bench/prepare/prepare.jl) and its measurements in roadmap item 28: preparing the work that does not
+depend on the fitted parameters once per fit gains NODDI 9% (9.8 s a brain against 10.8), DKI nothing in a
+fit; kept on the roadmap at low priority. No code in src/. The branch is to delete (`git push origin
+--delete prepare-proto`).
+
 Merged into `main` (fast-forward, 2026-11-25, the owner: "I would merge once CI passes"):
 `shells-proto`, the Watson stick's kₗ from a table in β (quintic Hermite of kₗ, k′ₗ, k″ₗ, with
 its own derivative rule; read-only; exact outside [0, 12.85)), in place of the 8-shell cache:
