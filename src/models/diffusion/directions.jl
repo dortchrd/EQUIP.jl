@@ -5,12 +5,37 @@
 #                           ξ = g ⋅ n that the directional compartments take (stick, zeppelin)
 #   directionset(N)         N gradient directions spread evenly over the sphere (electrostatic
 #                           repulsion), to simulate a scanner's scheme
+#   _checkencoding(b, g)    the directional models' acquisition checked: a direction per b-value,
+#                           unit vectors where b > 50 s/mm² (every directional model's
+#                           constructor, and `diffusionencoding`)
 #
 # (Until 2026-11-06 this was orientation.jl, which also held the spherical mean's pipeline
 # errors for SMT: `orientationcovariance`, `RicianSphericalMean`, `sphericalmeannoise`. They are
 # on the roadmap, to return with the nerve-SMT protocol work; the code is on branch `nerve-smt`:
 # docs/design.md, roadmap item 18.)
 # =================================================================================================
+
+# The rule for a directional model's acquisition, in one place: one gradient direction per
+# b-value, and a unit vector (within 1e-2, as DIPY checks) wherever b > 50 s/mm²; at b ≈ 0 the
+# direction does not matter, and FSL writes 0 0 0 there. Every directional model's constructor
+# applies it (its field `g` typed as SVector{3}s, and this for their lengths), so a model built
+# by hand, or rebuilt in the fit's precision or by the protocol designer, is checked as one made
+# from files is; `diffusionencoding` applies it too. The b-values are not changed. Returns g. One
+# pass over the images, nothing allocated (the errors are made in functions of their own).
+const _B0THRESHOLD = 50
+function _checkencoding(b, g)
+    length(b) == length(g) || _badencodinglength(b, g)
+    @inbounds for j in eachindex(b, g)
+        b[j] > _B0THRESHOLD || continue
+        abs(norm(g[j]) - 1) <= 1e-2 || _notunit(j, b[j], g[j])
+    end
+    return g
+end
+@noinline _badencodinglength(b, g) = throw(DimensionMismatch("$(length(b)) b-values but " *
+    "$(length(g)) gradient directions: there must be one direction per image"))
+@noinline _notunit(j, bj, gj) = throw(ArgumentError("image $j (b = $bj): the gradient direction " *
+    "($(gj[1]), $(gj[2]), $(gj[3])) has length $(round(norm(gj); sigdigits = 4)), not 1: the " *
+    "directions must be unit vectors (where b > $_B0THRESHOLD s/mm²)"))
 
 """
     fiberdirection(θ, φ) -> (nx, ny, nz)

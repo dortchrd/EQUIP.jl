@@ -147,7 +147,13 @@ end
     @test occursin("3×N or N×3", msg(() -> diffusionencoding(bv, [G; G[1:1, :]])))
     @test occursin("image 5", msg(() -> diffusionencoding(bv, 2 .* G))) &&
           occursin("unit vectors", msg(() -> diffusionencoding(bv, 2 .* G)))
-    @test diffusionencoding(bv, 2 .* G; b0threshold = 3000).g[5] == 2 .* G[:, 5] # (checked above it)
+    # the same rule when a model is made from b and g by hand (each directional model's
+    # constructor): g must hold SVector{3}s, a direction per b-value, unit vectors where b > 50
+    g2 = [SVector{3}(2 .* c) for c in eachcol(G)]
+    @test occursin("image 5", msg(() -> StickZeppelin(b = bv, g = g2))) && occursin("unit vectors", msg(() -> DTI(b = bv, g = g2)))
+    @test occursin("one direction per image", msg(() -> NODDI(b = bv[1:63], g = acq.g)))
+    @test msg(() -> DTI(b = bv, g = [Vector(c) for c in eachcol(G)])) |> e -> occursin("SVector{3", e)
+    @test DTI(b = [0.0], g = [SVector(0.0, 0.0, 0.0)]).g[1] == zeros(3)        # any direction at b = 0
     # from the files, as dcm2niix writes them
     dir = mktempdir()
     write(joinpath(dir, "dwi.bval"), join(bv, " ") * "\n")

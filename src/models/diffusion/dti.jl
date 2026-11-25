@@ -69,9 +69,15 @@ acq = diffusionencoding("dwi.bval", "dwi.bvec")    # b, g
 res = fit(DTI(; acq...), dwi; mask)
 ```
 """
-@kwdef struct DTI{A<:AbstractVector,G<:AbstractVector} <: MRIModel
+# The struct says what g holds, SVector{3}s of numbers (a type parameter's bound: Julia refuses
+# anything else when the model is made), and its one line inside is its constructor (an *inner*
+# constructor: Julia calls it however the model is made, `DTI(b = ..., g = ...)`, from files, or
+# rebuilt in the fit's precision), which checks b and g together: a direction per b-value, unit
+# vectors where b > 50 s/mm² (`_checkencoding`, directions.jl). Every directional model is made so.
+@kwdef struct DTI{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
+    DTI(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
 end
 
 parameters(::Type{<:DTI}) = (

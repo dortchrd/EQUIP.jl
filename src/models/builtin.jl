@@ -94,6 +94,7 @@ include("relaxometry/t1_sr.jl")         # T1SR, R1SR: saturation recovery
 include("relaxometry/t1_mfa.jl")        # T1MFA, R1MFA: multiple flip angles (spoiled gradient echo)
 include("relaxometry/t2_decay.jl")      # T2Decay, R2Decay and their offset versions
 include("relaxometry/t2_biexp_decay.jl")  # T2BiexpDecay, R2BiexpDecay: two T2 components
+include("diffusion/directions.jl")      # fiberdirection, directionset; the directional models' check of b and g
 include("diffusion/compartments.jl")    # the compartments: iso, stick, zeppelin and their view
                                         # powder (exported), for the diffusion models below
 include("diffusion/dispersion.jl")      # their dispersed views: watson, bingham (signal averaged over
@@ -103,7 +104,6 @@ include("diffusion/adc_kurtosis.jl")    # ADCKurtosis: diffusion with kurtosis, 
 include("diffusion/dti.jl")             # DTI: the diffusion tensor, one image per gradient direction
 include("diffusion/dki.jl")             # DKI: diffusion kurtosis (V = MD²·W), MK, AK, RK as DIPY's
 include("diffusion/smt.jl")             # SMT, SMTFreeWater, SMTT2: the spherical mean technique; sphericalmean
-include("diffusion/directions.jl")      # fiberdirection, directionset: a fiber's direction; gradient direction sets
 include("diffusion/multicompartment.jl") # StickZeppelin, StickZeppelinBall, BallStick: compartments along a direction, every image
 include("diffusion/noddi.jl")           # NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved:
                                         #   sticks and a zeppelin dispersed (Watson, Bingham), a ball

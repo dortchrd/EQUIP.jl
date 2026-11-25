@@ -468,8 +468,9 @@ examples/compartments.jl.
 A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
 two acquisition fields, `b` and `g`, each one value per image: the b-value, and the gradient
 direction as a unit vector (an `SVector{3}`; a model reads image j's as `g[j]`, or its
-components as `gx, gy, gz = g[j]`). `diffusionencoding` makes them from a .bval and a .bvec
-(checked: a direction per b-value, unit vectors where b > 50):
+components as `gx, gy, gz = g[j]`). `diffusionencoding` makes them from a .bval and a .bvec,
+checked: a direction per b-value, unit vectors where b > 50 s/mm². The built-in models check
+the same when made from `b` and `g` by hand, and refuse a `g` that is not SVector{3}s:
 
 ```julia
 acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., g = ...)

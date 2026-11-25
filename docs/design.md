@@ -4018,6 +4018,19 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     directions); the command line takes `--bval FILE` and `--bvec FILE` (eddy's rotated
     directions, which have another name, need no renaming; checked together, the file named in
     an error), and `--g` is refused with that remedy; `--gx`, `--gy`, `--gz` are gone.
+  - **The struct says it, and the constructor checks it** (the owner: "the struct does not say
+    it has to be an svector and where do we force unity"). Each directional model's `g` is
+    typed, `G<:AbstractVector{<:SVector{3,<:Real}}` (plain vectors refused when the model is
+    made, naming SVector{3}), and an inner constructor checks b and g together with the rule
+    `diffusionencoding` had alone: a direction per b-value, a unit vector (within 1e-2) where
+    b > 50 s/mm² (`_checkencoding`, directions.jl, one function for both). Before, a model made
+    by hand, `DTI(b = b, g = g)`, was not checked: a non-unit g would scale b by |g|² in DTI and
+    DKI, and put ξ outside [−1, 1] in NODDI's Watson series. Every way a model is made passes
+    the constructor (by keyword, from files, the fit's precision rebuild, the protocol
+    designer's protocols), so the check holds everywhere; one pass over the images, nothing
+    allocated. `diffusionencoding`'s keyword `b0threshold` is gone: one threshold, 50, for the
+    files and the constructors alike (a larger one in the files would have let through
+    directions the model then refused).
   - **Checked** (scratch gref/, 9 models × 2 acquisitions, one with b = 8000 for NODDI's
     quadrature and b-values that vary by image): signals, starts, Float64 and Float32 fits,
     iterations, derived values and crlb identical, bit for bit, for DTI, the three

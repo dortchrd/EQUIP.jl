@@ -22,7 +22,7 @@
 # =================================================================================================
 
 """
-    diffusionencoding(bval, bvec; b0threshold = 50) -> (b = ..., g = ...)
+    diffusionencoding(bval, bvec) -> (b = ..., g = ...)
 
 The acquisition of a directional diffusion model from a .bval and a .bvec: the b-value of every
 image (s/mm²), `b`, and its gradient direction, `g`, a unit vector (`SVector{3}`) per image.
@@ -33,36 +33,27 @@ say). The result goes into any model whose fields are `b` and `g`:
 
 ```julia
 acq = diffusionencoding("dwi.bval", "dwi.bvec")
-m = DTI(; acq...)                      # `...` passes the four as keywords
+m = DTI(; acq...)                      # `...` passes the two as keywords
 ```
 
-Checked: one direction for every b-value, and a unit vector wherever b > `b0threshold`
-(within 1e-2, as DIPY checks; a direction at b ≤ `b0threshold` may be anything, e.g. FSL's
-0 0 0 at b = 0). The values are kept as given (a small b is not set to 0) and copied, so changing
+Checked: one direction for every b-value, and a unit vector wherever b > 50 s/mm² (within
+1e-2, as DIPY checks; a direction at b ≤ 50 may be anything, e.g. FSL's 0 0 0 at b = 0): the
+check every directional model's constructor makes too, so a model given `b` and `g` by hand is
+held to the same rule. The values are kept as given (a small b is not set to 0) and copied, so changing
 the matrix later (rotating directions for motion, flipping an axis) does not change a model
 made from it: make a new one.
 """
-function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:Real};
-                           b0threshold::Real = 50)
+function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:Real})
     G = size(bvec, 1) == 3 ? bvec :                                    # 3 × N, as a .bvec
         size(bvec, 2) == 3 ? permutedims(bvec) :                       # N × 3: transposed
         throw(DimensionMismatch("the directions must be 3×N or N×3 (x, y, z for each image), " *
                                 "got $(join(size(bvec), "×"))"))
-    length(bval) == size(G, 2) || throw(DimensionMismatch("$(length(bval)) b-values but " *
-        "$(size(G, 2)) gradient directions: there must be one direction per image"))
     b = Vector{Float64}(bval)
     g = [SVector{3,Float64}(G[1, j], G[2, j], G[3, j]) for j in axes(G, 2)]
-    for j in eachindex(b, g)
-        b[j] > b0threshold || continue
-        len = norm(g[j])
-        abs(len - 1) <= 1e-2 || throw(ArgumentError("image $j (b = $(b[j])): the gradient " *
-            "direction ($(g[j][1]), $(g[j][2]), $(g[j][3])) has length $(round(len; sigdigits = 4)), " *
-            "not 1: the directions must be unit vectors"))
-    end
-    return (b = b, g = g)
+    return (b = b, g = _checkencoding(b, g))      # one per b-value, unit vectors (directions.jl)
 end
 # directions as a vector of 3-vectors (`directionset`'s, or g itself), one per image
-diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}; kwargs...) =
-    diffusionencoding(bval, reduce(hcat, [collect(x) for x in g]); kwargs...)
-diffusionencoding(bvalfile::AbstractString, bvecfile::AbstractString; kwargs...) =
-    diffusionencoding(readvalues(bvalfile), readbvec(bvecfile); kwargs...)
+diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}) =
+    diffusionencoding(bval, reduce(hcat, [collect(x) for x in g]))
+diffusionencoding(bvalfile::AbstractString, bvecfile::AbstractString) =
+    diffusionencoding(readvalues(bvalfile), readbvec(bvecfile))
