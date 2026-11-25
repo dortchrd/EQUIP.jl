@@ -477,6 +477,20 @@ acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., g = ...)
 m = DTI(; acq...)                                     # built in; any model with these fields
 ```
 
+With `@mrimodel`, name the acquisition `b` and `g` and the model is directional: in the body `g`
+is the image's direction (`ξ = g ⋅ fiberdirection(theta, phi)`), and the macro writes the struct
+as the built-in models': `g` of type `Directions` (SVector{3}s), checked by `checkencoding` when
+the model is made (a direction per b-value, unit vectors where b > 50). `newmodel` writes that
+struct out too. A struct written by hand gets the same with two lines:
+
+```julia
+@kwdef struct MyModel{A<:AbstractVector,G<:Directions} <: MRIModel
+    b::A                                # b-values (s/mm²)
+    g::G                                # gradient direction of each image (a unit SVector{3})
+    MyModel(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked when made
+end
+```
+
 With fiber angles, write `signal!` by hand and compute the direction once per voxel,
 `n = fiberdirection(θ, φ)`, then `ξ = g[j] ⋅ n` for each image: an
 `@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,

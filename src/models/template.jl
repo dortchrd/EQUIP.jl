@@ -153,14 +153,26 @@ function _writemodel(file, force, name, acq, opts, optvals, roles, body, doc, fr
     tvars = ["A$i" for i in eachindex(acq)]
     # Fields: the acquisition, a vector each (a type parameter each, so any vector works); the
     # options with their defaults (typed when the default is a literal).
-    fieldlines = ["    $a::$t" * " "^max(1, 33 - length("$a::$t")) * "# TODO: units; one value per observation"
-                  for (a, t) in zip(acq, tvars)]
+    # A directional model (acquisition b and g) as the built-in ones: g of type `Directions`, and
+    # the inner constructor that checks b and g when the model is made (`checkencoding`)
+    directional = (:b, :g) ⊆ acq
+    note(a) = directional && a === :b ? "# b-values (s/mm²)" :
+              directional && a === :g ? "# gradient direction of each image (a unit SVector{3})" :
+              "# TODO: units; one value per observation"
+    fieldlines = ["    $a::$t" * " "^max(1, 33 - length("$a::$t")) * note(a) for (a, t) in zip(acq, tvars)]
     for (o, code) in opts
         v = get(optvals, o, nothing)
         line = v isa Union{Bool,Number,String} ? "    $o::$(typeof(v)) = $code" : "    $o = $code"
         push!(fieldlines, line * " "^max(1, 37 - length(line)) * "# an option")
     end
-    curly = join(("$t<:AbstractVector" for t in tvars), ", ")
+    curly = join((directional && a === :g ? "$t<:Directions" : "$t<:AbstractVector" for (a, t) in zip(acq, tvars)), ", ")
+    if directional                        # the constructor, checking b and g (see `Directions`)
+        cargs = join([["$a::$t" for (a, t) in zip(acq, tvars)]; string.(first.(opts))], ", ")
+        cvals = join([[a === :g ? "checkencoding(b, g)" : string(a) for a in acq]; string.(first.(opts))], ", ")
+        push!(fieldlines, "    $name($cargs) where {$(join(tvars, ","))} =
+" *
+                          "        new{$(join(tvars, ","))}($cvals)   # b and g checked (`Directions`)")
+    end
     sig = "$name(; " * join([string.(acq); ["$o = $c" for (o, c) in opts]], ", ") * ")"
     w = maximum(length ∘ string, pnames)
     rolelines = ["    " * rpad(string(n), w) * " = " * r for (n, r) in roles]

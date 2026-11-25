@@ -85,10 +85,10 @@ in 12–15 s on 4 threads.
 res = fit(NODDI(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct NODDI{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct NODDI{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    NODDI(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    NODDI(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 
 parameters(::Type{<:NODDI}) = (
@@ -138,10 +138,10 @@ each extra-neurite water molecule samples many orientations within the diffusion
 differ by 2–4% at b = 2500, which the residuals cannot show, and shift white matter's vic and ODI
 by about 1.5–2 SDs at SNR 100 (docs/design.md, item 7): a choice to make, and to report.
 """
-@kwdef struct NODDIConvolved{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct NODDIConvolved{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    NODDIConvolved(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    NODDIConvolved(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 parameters(::Type{<:NODDIConvolved}) = parameters(NODDI)
 
@@ -194,10 +194,10 @@ fan out or bend,
 The orientations start from the voxel's diffusion tensor: μ its principal eigenvector, as
 [`StickZeppelin`](@ref)'s, and ψ from its second (the fan spreads the diffusion along μβ).
 """
-@kwdef struct BinghamNODDI{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct BinghamNODDI{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    BinghamNODDI(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    BinghamNODDI(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 
 """
@@ -209,10 +209,10 @@ the Bingham counterpart of [`NODDIConvolved`](@ref) (its reasons there). The sam
 and derived quantities as BinghamNODDI's. Two quadratures an image (the sticks' and the
 zeppelin's), so about twice BinghamNODDI's time.
 """
-@kwdef struct BinghamNODDIConvolved{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct BinghamNODDIConvolved{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    BinghamNODDIConvolved(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    BinghamNODDIConvolved(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 # the methods they share: the parameters, derived quantities, start and labels
 const _BinghamNODDIs = Union{BinghamNODDI,BinghamNODDIConvolved}

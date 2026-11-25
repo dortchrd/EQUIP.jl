@@ -69,6 +69,17 @@
                    msg(() -> fit(mn, yn)))
     @test fit(mn, yn; k = Free(start = 1.0)).params.k ≈ 1.5
 
+    # A directional model (acquisition b and g), as the built-in ones: g an SVector{3} per image
+    # in the body; the same signal as StickZeppelin (whose own is checked written out in
+    # diffusion.jl); fitted in Float32 too; g typed and checked when the model is made
+    msz = MacroStickZeppelin(; DWI_ACQ...)
+    tsz = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
+    @test signal(msz, tsz) ≈ signal(StickZeppelin(; DWI_ACQ...), tsz) rtol = 1e-12
+    rz = fit(msz, simulate(msz, map(x -> fill(x, 20), tsz); snr = 100, noise = :gaussian, rng = MersenneTwister(3)); precision = Float32)
+    @test eltype(rz.params.vax) == Float32 && all(isconverged, rz.status)
+    @test occursin("SVector{3", msg(() -> MacroStickZeppelin(b = DWI_ACQ.b, g = [Vector(x) for x in DWI_ACQ.g])))
+    @test occursin("image 2", msg(() -> MacroStickZeppelin(b = DWI_ACQ.b, g = 2 .* DWI_ACQ.g)))
+
     # Lengths checked once against the output
     @test occursin("MacroSIR: `TD` has 4 values for 5 observations",
                    msg(() -> signal!(zeros(5), MacroSIR(TI = TI5, TD = TD5[1:4]), resolve(mq, nominal(mq)))))
@@ -121,6 +132,14 @@ end
                   C = fill(10.0, 4)); snr = 100, noise = :gaussian, rng)
     @test isequal(Base.invokelatest(fit, mw, Yt).params, fit(T2DecayOffset(TE = mw.TE), Yt).params)
     @test occursin("MacroMFA(FA, TR::Real)", read(newmodel(MacroMFA; file = joinpath(dir, "mfa.jl")), String))
+    # a directional model written out with the built-in models' struct: g of type Directions, the
+    # constructor that checks b and g; loaded, the same signal, and the check kept
+    f = newmodel(MacroStickZeppelin; file = joinpath(dir, "sz.jl"))
+    @test occursin("A2<:Directions", read(f, String)) && occursin("checkencoding(b, g)", read(f, String))
+    Msz = Base.invokelatest(getproperty, load(f), :MacroStickZeppelin)
+    tsz = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
+    @test Base.invokelatest(signal, Base.invokelatest(Msz; DWI_ACQ...), tsz) == signal(MacroStickZeppelin(; DWI_ACQ...), tsz)
+    @test occursin("image 2", msg(() -> Base.invokelatest(Msz; b = DWI_ACQ.b, g = 2 .* DWI_ACQ.g)))
 
     # A blank model: it loads, its roles are there, its signal is a TODO (zeros)
     f = newmodel(:BlankIR; acquisition = [:TI, :TD], parameters = [:M0, :T1],

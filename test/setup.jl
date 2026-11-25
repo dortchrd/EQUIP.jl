@@ -132,6 +132,16 @@ end
     return magnitude ? abs(s) : s
 end
 
+# A directional model made with @mrimodel (acquisition b and g): StickZeppelin's equation per
+# image; the macro types g as `Directions` and checks b and g when the model is made
+@mrimodel function MacroStickZeppelin(b, g; S0 = Free(start = :scale, lower = 0),
+                                      vax = Free(start = 0.5, lower = 0, upper = 1),
+                                      Dax = Free(start = 2.0e-3, lower = 0), theta = Free(start = 0.6),
+                                      phi = Free(start = 0.2))
+    ξ = g ⋅ fiberdirection(theta, phi)
+    S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
+end
+
 # A tie by a formula of another parameter, and a free parameter with no start (given in the call).
 # T2Decay's equation written as a user writes it, relaxation as its equation, T2 fitted
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =

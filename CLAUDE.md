@@ -54,7 +54,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
   start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
-  evenly, to simulate a scheme)
+  evenly, to simulate a scheme; `Directions`, the type of a directional model's `g`, and
+  `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones
+  `@mrimodel` and `newmodel` write for an acquisition `b`, `g` included)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl and loglinear.jl (`:loglinear`)
   → cache.jl (`init`, `FitCache`) → voxel.jl (one voxel) → dataset.jl (maps, threads, `refit`)
   → statistics.jl (`stderror`, `vcov`, `cor`, `residualsd`, AIC/BIC, `onbound`: from the fit's

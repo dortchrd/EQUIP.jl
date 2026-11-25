@@ -50,7 +50,7 @@ function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:
                                 "got $(join(size(bvec), "×"))"))
     b = Vector{Float64}(bval)
     g = [SVector{3,Float64}(G[1, j], G[2, j], G[3, j]) for j in axes(G, 2)]
-    return (b = b, g = _checkencoding(b, g))      # one per b-value, unit vectors (directions.jl)
+    return (b = b, g = checkencoding(b, g))      # one per b-value, unit vectors (directions.jl)
 end
 # directions as a vector of 3-vectors (`directionset`'s, or g itself), one per image
 diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}) =

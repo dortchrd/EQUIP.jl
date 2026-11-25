@@ -5,9 +5,11 @@
 #                           ξ = g ⋅ n that the directional compartments take (stick, zeppelin)
 #   directionset(N)         N gradient directions spread evenly over the sphere (electrostatic
 #                           repulsion), to simulate a scanner's scheme
-#   _checkencoding(b, g)    the directional models' acquisition checked: a direction per b-value,
+#   Directions              the type of a directional model's `g`: a vector of SVector{3}s
+#   checkencoding(b, g)     a directional model's acquisition checked: a direction per b-value,
 #                           unit vectors where b > 50 s/mm² (every directional model's
-#                           constructor, and `diffusionencoding`)
+#                           constructor, the ones @mrimodel and newmodel write, and
+#                           `diffusionencoding`)
 #
 # (Until 2026-11-06 this was orientation.jl, which also held the spherical mean's pipeline
 # errors for SMT: `orientationcovariance`, `RicianSphericalMean`, `sphericalmeannoise`. They are
@@ -15,15 +17,41 @@
 # docs/design.md, roadmap item 18.)
 # =================================================================================================
 
-# The rule for a directional model's acquisition, in one place: one gradient direction per
-# b-value, and a unit vector (within 1e-2, as DIPY checks) wherever b > 50 s/mm²; at b ≈ 0 the
-# direction does not matter, and FSL writes 0 0 0 there. Every directional model's constructor
-# applies it (its field `g` typed as SVector{3}s, and this for their lengths), so a model built
-# by hand, or rebuilt in the fit's precision or by the protocol designer, is checked as one made
-# from files is; `diffusionencoding` applies it too. The b-values are not changed. Returns g. One
-# pass over the images, nothing allocated (the errors are made in functions of their own).
-const _B0THRESHOLD = 50
-function _checkencoding(b, g)
+"""
+    Directions
+
+The type of a directional model's gradient directions `g`: a vector with one `SVector{3}` of
+numbers per image (what [`diffusionencoding`](@ref) makes from a .bvec). As a type parameter's
+bound in a model's struct it says what `g` holds, and Julia refuses anything else (a vector of
+plain vectors, a matrix) when the model is made:
+
+```julia
+@kwdef struct MyModel{A<:AbstractVector,G<:Directions} <: MRIModel
+    b::A                                # b-values (s/mm²)
+    g::G                                # gradient direction of each image (a unit SVector{3})
+    MyModel(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))
+end
+```
+
+The line inside is the struct's *inner constructor*: Julia calls it however the model is made
+(`MyModel(b = ..., g = ...)`, from files, rebuilt in a fit's precision), and it checks b and g
+with [`checkencoding`](@ref). Every built-in directional model is written so, and
+[`@mrimodel`](@ref) and [`newmodel`](@ref) write it for a model whose acquisition is `b` and `g`.
+"""
+const Directions = AbstractVector{<:SVector{3,<:Real}}
+
+"""
+    checkencoding(b, g) -> g
+
+A directional model's acquisition checked, the rule in one place: one gradient direction per
+b-value, and a unit vector (within 1e-2, as DIPY checks) wherever b > 50 s/mm²; at b ≈ 0 the
+direction does not matter, and FSL writes 0 0 0 there. Returns `g`; an error names the image
+otherwise. Called by every directional model's constructor (see [`Directions`](@ref)) and by
+[`diffusionencoding`](@ref), so a model made by hand, or rebuilt in the fit's precision or by the
+protocol designer, is checked as one made from files is. The b-values are not changed. One pass
+over the images, nothing allocated.
+"""
+function checkencoding(b, g)
     length(b) == length(g) || _badencodinglength(b, g)
     @inbounds for j in eachindex(b, g)
         b[j] > _B0THRESHOLD || continue
@@ -31,6 +59,8 @@ function _checkencoding(b, g)
     end
     return g
 end
+const _B0THRESHOLD = 50
+# the errors made in functions of their own, so the check's loop stays small (and allocates nothing)
 @noinline _badencodinglength(b, g) = throw(DimensionMismatch("$(length(b)) b-values but " *
     "$(length(g)) gradient directions: there must be one direction per image"))
 @noinline _notunit(j, bj, gj) = throw(ArgumentError("image $j (b = $bj): the gradient direction " *

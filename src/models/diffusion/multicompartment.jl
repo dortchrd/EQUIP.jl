@@ -64,10 +64,10 @@ acq = diffusionencoding("dwi.bval", "dwi.bvec")
 res = fit(StickZeppelin(; acq...), dwi; mask)
 ```
 """
-@kwdef struct StickZeppelin{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct StickZeppelin{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A                                # b-values (s/mm²)
     g::G                                # gradient direction of each image (a unit SVector{3})
-    StickZeppelin(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    StickZeppelin(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 
 parameters(::Type{<:StickZeppelin}) = (
@@ -123,10 +123,10 @@ The direction starts from the voxel's diffusion tensor, as [`StickZeppelin`](@re
 res = fit(StickZeppelinBall(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct StickZeppelinBall{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct StickZeppelinBall{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    StickZeppelinBall(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    StickZeppelinBall(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 
 parameters(::Type{<:StickZeppelinBall}) = (
@@ -179,10 +179,10 @@ the data do not support them) are not modelled.
 res = fit(BallStick(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct BallStick{A<:AbstractVector,G<:AbstractVector{<:SVector{3,<:Real}}} <: MRIModel
+@kwdef struct BallStick{A<:AbstractVector,G<:Directions} <: MRIModel
     b::A
     g::G
-    BallStick(b::A, g::G) where {A,G} = new{A,G}(b, _checkencoding(b, g))   # checked (directions.jl)
+    BallStick(b::A, g::G) where {A,G} = new{A,G}(b, checkencoding(b, g))   # checked (directions.jl)
 end
 
 parameters(::Type{<:BallStick}) = (

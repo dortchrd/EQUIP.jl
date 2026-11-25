@@ -4031,6 +4031,17 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     allocated. `diffusionencoding`'s keyword `b0threshold` is gone: one threshold, 50, for the
     files and the constructors alike (a larger one in the files would have let through
     directions the model then refused).
+  - **The same for models users write** (the owner: "my worry is about custom models with the
+    macro ... is there a clever way to make it create the inner constructor"). The type is named,
+    `Directions` (= `AbstractVector{<:SVector{3,<:Real}}`), and the check is public,
+    `checkencoding(b, g)`, both exported and documented, so a struct written by hand reads
+    `G<:Directions` and has one constructor line to copy (the guide, `?Directions`). `@mrimodel`
+    writes both for a model whose acquisition is `b` and `g` (directional by those names, as the
+    command line decides it and as `diffusionencoding` names them), and `newmodel` writes them
+    out. Tested: a macro stick–zeppelin gives the built-in's signal, fits in Float32, and refuses
+    plain vectors and non-unit directions when made; written out by `newmodel` and loaded, the
+    same signal and the same refusal. A struct written from scratch without the line keeps the
+    generic check (plain vectors refused when a fit starts) and `diffusionencoding`'s.
   - **Checked** (scratch gref/, 9 models × 2 acquisitions, one with b = 8000 for NODDI's
     quadrature and b-values that vary by image): signals, starts, Float64 and Float32 fits,
     iterations, derived values and crlb identical, bit for bit, for DTI, the three
