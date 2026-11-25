@@ -29,12 +29,17 @@
 #     once per voxel) and kₗ(β) = ∫₋₁¹ e^(−βv²)·Pₗ(v) dv the stick's, both by Gauss–Legendre with
 #     the Legendre values at the nodes tabulated once (the distribution's in u = 1 − s², its
 #     nodes where it peaks), not by the closed forms, which cancel at small κ and β. The kₗ
-#     depend on β alone, so they are tabulated once too, with their derivatives k′ₗ (the
-#     integrand times −v²), at β = 0, 0.05, ..., 12.85 (258 points, 83 kB), and each image's
-#     taken by cubic Hermite interpolation at its own β (error ≤ h⁴/384·max|k⁗| ≈ 4e-9): the
+#     depend on β alone, so they are tabulated once too, with their first two derivatives (the
+#     integrand times −v² and v⁴), at β = 0, 0.05, ..., 12.85 (258 points, 130 kB), and each
+#     image's taken by quintic Hermite interpolation at its own β: twice continuously
+#     differentiable, so a fit's Jacobian and crlb's Hessians are smooth across the points, and
+#     within 3e-14 of kₗ made exactly, 5e-12 for k′ₗ and 1e-9 for k″ₗ (relative to their largest;
+#     a cubic, from kₗ and k′ₗ, was 2e-9, 3e-7 and 1e-4, its second derivative jumping at the
+#     points). Outside [0, 12.85) (a zeppelin with D∥ < D⊥, β < 0), kₗ is made exactly. The
 #     same cost whatever the b-values, which scanners write per direction (995, 1000, 1005);
 #     until 2026-11-25 they were made per b-value and kept for eight, so such data cost 4–5×
-#     (docs/design.md, roadmap item 27, "Shells"). The even
+#     (docs/design.md, roadmap item 27, "Shells"). The table is made when EQUIP is precompiled
+#     and only read after (threads read it at once; nothing writes it). The even
 #     series is summed in z = 2ξ² − 1: P₂ₙ(ξ) = Pₙ^(0,−1/2)(z), Jacobi polynomials, by Clenshaw's
 #     recurrence in 20 steps. Its error grows with β (the stick sharpens): 1e-13 to 8.5, 6e-9 to
 #     12.75, 3e-5 at 17 (measured against the quadrature, κ to 64);
@@ -147,42 +152,65 @@ const _STICK_TAB = _evenlegendretable(_STICK_V, map(w -> 2w, _STICK_VW))
     end
     return SVector(c)
 end
-# kₗ(β) and k′ₗ(β) exactly, from one set of exponentials at the 40 nodes (d/dβ e^(−βv²) = −v²·e^(−βv²))
+# kₗ(β), k′ₗ(β) and k″ₗ(β) exactly, from one set of exponentials at the 40 nodes
+# (dᵐ/dβᵐ e^(−βv²) = (−v²)ᵐ·e^(−βv²))
 @inline function _stickk(β)
     T = typeof(exp(-β * one(eltype(_STICK_V))))
-    k = zero(MVector{_WATSON_NL,T}); dk = zero(MVector{_WATSON_NL,T})
+    k = zero(MVector{_WATSON_NL,T}); d1 = zero(MVector{_WATSON_NL,T}); d2 = zero(MVector{_WATSON_NL,T})
     @inbounds for j in eachindex(_STICK_V)
         v2 = _STICK_V[j]^2
         e = exp(-β * v2)
         for l in 1:_WATSON_NL
-            k[l] += _STICK_TAB[l, j] * e
-            dk[l] -= _STICK_TAB[l, j] * v2 * e
+            a = _STICK_TAB[l, j] * e
+            k[l] += a
+            d1[l] -= v2 * a
+            d2[l] += v2^2 * a
         end
     end
-    return SVector(k), SVector(dk)
+    return SVector(k), SVector(d1), SVector(d2)
 end
-# The table of kₗ and k′ₗ in β (the header), and its cubic Hermite interpolation at any β in
-# [0, 12.75]: h00·kᵢ + h·h10·k′ᵢ + h01·kᵢ₊₁ + h·h11·k′ᵢ₊₁ at t = β/h − i. The cell's index from
-# the plain value of β (a dual number's derivative is the interpolant's, carried by t)
+# The table (the header): kₗ, k′ₗ and k″ₗ at β = i·h, i = 0 … 257, made once. Read-only: held in
+# a struct with indexing and no assignment (nothing in EQUIP can write it), read by every thread.
+struct _ReadOnly{T}
+    v::Vector{T}
+end
+Base.@propagate_inbounds Base.getindex(t::_ReadOnly, i::Int) = t.v[i]
+Base.length(t::_ReadOnly) = length(t.v)
 const _STICK_H = 0.05
-const _STICK_KT, _STICK_DKT = let tab = [_stickk(i * _STICK_H) for i in 0:(ceil(Int, _WATSON_βMAX / _STICK_H) + 2)]
-    first.(tab), last.(tab)
-end
+const _STICK_KT, _STICK_D1T, _STICK_D2T =
+    let tab = [_stickk(i * _STICK_H) for i in 0:(ceil(Int, _WATSON_βMAX / _STICK_H) + 2)]
+        _ReadOnly(getindex.(tab, 1)), _ReadOnly(getindex.(tab, 2)), _ReadOnly(getindex.(tab, 3))
+    end
+const _STICK_TOP = (length(_STICK_KT) - 1) * _STICK_H           # the table's last point, 12.85
+# Its quintic Hermite interpolation at β in [0, 12.85): on the cell [βᵢ, βᵢ₊₁], t = β/h − i,
+#   kₗ(β) ≈ H0·kᵢ + h·H1·k′ᵢ + h²·H2·k″ᵢ + H3·kᵢ₊₁ + h·H4·k′ᵢ₊₁ + h²·H5·k″ᵢ₊₁,
+# the basis matching value, slope and curvature at both ends (so the interpolant is twice
+# continuously differentiable across the points). The cell from the plain value of β; a dual
+# number's derivatives (a fit's, crlb's nested ones) are the interpolant's, carried by t.
 @inline function _stickkinterp(β)
     x = β / _STICK_H
     i = unsafe_trunc(Int, _plain(x))
     t = x - i
-    t2 = t * t
-    t3 = t2 * t
-    h00, h10, h01, h11 = 2t3 - 3t2 + 1, t3 - 2t2 + t, 3t2 - 2t3, t3 - t2
-    @inbounds return h00 * _STICK_KT[i+1] + (_STICK_H * h10) * _STICK_DKT[i+1] +
-                     h01 * _STICK_KT[i+2] + (_STICK_H * h11) * _STICK_DKT[i+2]
+    t2 = t * t; t3 = t2 * t; t4 = t3 * t; t5 = t4 * t
+    H0 = 1 - 10t3 + 15t4 - 6t5
+    H1 = t - 6t3 + 8t4 - 3t5
+    H2 = (t2 - 3t3 + 3t4 - t5) / 2
+    H3 = 10t3 - 15t4 + 6t5
+    H4 = -4t3 + 7t4 - 3t5
+    H5 = (t3 - 2t4 + t5) / 2
+    h, h2 = _STICK_H, _STICK_H^2
+    @inbounds return H0 * _STICK_KT[i+1] + (h * H1) * _STICK_D1T[i+1] + (h2 * H2) * _STICK_D2T[i+1] +
+                     H3 * _STICK_KT[i+2] + (h * H4) * _STICK_D1T[i+2] + (h2 * H5) * _STICK_D2T[i+2]
 end
 const _SERIES_FAC = SVector{_WATSON_NL}(ntuple(i -> (4(i - 1) + 1) / 2, Val(_WATSON_NL)))   # (2l + 1)/2, l even
-# the series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀: kₗ from the table (0 ≤ β ≤ 12.75), or made
-# exactly where β < 0 (a zeppelin with D∥ < D⊥); `_shellcoeffsexact` always exactly (the tests'
-# check of the table)
-@inline _shellcoeffs(β, w) = _SERIES_FAC .* (_plain(β) < 0 ? first(_stickk(β)) : _stickkinterp(β)) .* w
+# the series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀: kₗ from the table where 0 ≤ β < 12.85, and
+# made exactly anywhere else (β < 0, a zeppelin with D∥ < D⊥; past the table; NaN), so the table
+# is never read outside its range; `_shellcoeffsexact` always exactly (the tests' check)
+@inline function _shellcoeffs(β, w)
+    pβ = _plain(β)
+    k = 0 <= pβ < _STICK_TOP ? _stickkinterp(β) : first(_stickk(β))
+    return _SERIES_FAC .* k .* w
+end
 @inline _shellcoeffsexact(β, w) = _SERIES_FAC .* first(_stickk(β)) .* w
 # Jacobi Pₙ^(0,−1/2): Pₙ = (Aₙz + Bₙ)·Pₙ₋₁ − Cₙ·Pₙ₋₂ (the standard recurrence at a = 0, b = −1/2)
 _jacobiD(n) = 2n * (n - 0.5) * (2n - 2.5)

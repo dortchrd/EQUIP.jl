@@ -377,17 +377,26 @@ end
         return num / den
     end
     @test zeppelin(2500.0, 2e-3, 0.5e-3, watson(8.0)(0.4)) ≈ averaged(c -> zeppelin(2500.0, 2e-3, 0.5e-3, c), 8.0, 0.4) rtol = 1e-7
-    # the stick's kₗ from the table in β (cubic Hermite between the points, h = 0.05), against kₗ
-    # made exactly, at β off the grid over the series' range: the coefficients within 1e-8
-    # (4e-9 expected, h⁴/384), and their derivative in β (a dual number through the
-    # interpolant) within 1e-5 of the exact k′ₗ (an O(h³) error); at a grid point, the exact
-    # k′ₗ the table holds
+    # the stick's kₗ from the table in β (quintic Hermite between the points, h = 0.05), against
+    # kₗ made exactly (their largest: 2, 2/3, 0.4), over the series' range, on the points, 1e-9
+    # to either side, mid-cell, near 0 and near 12.75: kₗ within 1e-12, its first derivative in
+    # β (a dual number through the interpolant) within 1e-10, its second (nested duals, as
+    # crlb's) within 1e-8 (3e-14, 5e-12 and 1e-9 relative measured), and the second continuous
+    # across a point; outside the table (β < 0, past 12.85, NaN), kₗ made exactly
+    kx(β) = EQUIP._stickk(β)
+    ki(β) = EQUIP._stickkinterp(β)
+    d1(β) = ForwardDiff.derivative(ki, β)
+    d2(β) = ForwardDiff.derivative(x -> ForwardDiff.derivative(ki, x), β)
+    βs = [1e-8; 1e-4; 0.0123; range(0.031, 12.74; length = 97); [i * 0.05 + s for i in (1, 34, 85, 254) for s in (-1e-9, 0.0, 1e-9)];
+          [(i + 0.5) * 0.05 for i in (0, 85, 254)]; 12.75]
+    @test maximum(maximum(abs.(ki(β) .- kx(β)[1])) for β in βs) < 1e-12
+    @test maximum(maximum(abs.(d1(β) .- kx(β)[2])) for β in βs) < 1e-10
+    @test maximum(maximum(abs.(d2(β) .- kx(β)[3])) for β in βs) < 1e-8
+    @test maximum(abs.(d2(4.25 - 1e-12) .- d2(4.25 + 1e-12))) < 1e-8
     wk = EQUIP._watsoncoeffs(12.0)
-    βs = [0.0123; range(0.031, 12.74; length = 97)]
-    @test maximum(maximum(abs.(EQUIP._shellcoeffs(β, wk) .- EQUIP._shellcoeffsexact(β, wk))) for β in βs) < 1e-8
-    dk(β) = ForwardDiff.derivative(x -> EQUIP._stickkinterp(x), β)
-    @test maximum(maximum(abs.(dk(β) .- last(EQUIP._stickk(β)))) for β in βs) < 1e-5
-    @test dk(2.5) ≈ last(EQUIP._stickk(2.5)) rtol = 1e-12
+    @test all(EQUIP._shellcoeffs(β, wk) == EQUIP._shellcoeffsexact(β, wk) for β in (-0.3, 12.86, 20.0))
+    @test all(isnan, EQUIP._shellcoeffs(NaN, wk))
+    @test !hasmethod(setindex!, Tuple{typeof(EQUIP._STICK_KT),Any,Int})     # read-only
     # watsontensor: the averaged tensor keeps the trace, D∥ₑ + 2D⊥ₑ = D∥ + 2D⊥, isotropic at κ = 0
     Dp, Dq = watsontensor(2e-3, 0.5e-3, watson(6.0))
     @test Dp + 2Dq ≈ 2e-3 + 2 * 0.5e-3 && all(watsontensor(2e-3, 0.5e-3, w0) .≈ (3e-3 / 3, 3e-3 / 3))
