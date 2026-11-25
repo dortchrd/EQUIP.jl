@@ -78,8 +78,9 @@ tortuosity limit) spread over orientations about μ(θ, φ) by a Watson distribu
 
 The orientation starts from the voxel's diffusion tensor, as [`StickZeppelin`](@ref)'s. The
 dispersed sticks are computed from their Legendre series up to b·D∥ = 12.75 (b = 7500 s/mm² at
-D∥ = 1.7e-3) and by quadrature above: about 4 µs a signal at 63 images, a brain's 300,000 voxels
-in 12–15 s on 4 threads.
+D∥ = 1.7e-3) and by quadrature above: about 3 µs a signal at 63 images, a brain's 300,000 voxels
+in about 10 s on 4 threads, whether the b-values are exact or vary by direction as scanners
+write them (NODDIConvolved: 23 s).
 
 ```julia
 res = fit(NODDI(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)

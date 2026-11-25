@@ -8375,6 +8375,24 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      same cost whatever the b-values (no grouping, no 8-shell limit), so NODDI needs no shell
      tolerance at all. A pays for its derivatives and its search of the shells, and is capped at
      8 shells as the built-in is.
+     **Built, B** (the owner: "Yes"; src/models/diffusion/dispersion.jl: `_stickk`, the table
+     `_STICK_KT`, `_STICK_DKT`, `_stickkinterp`; `Watson` keeps κ, wₗ and τ only, `watson(κ, b,
+     D)` and `watson(w, b, D)` gone, NODDIConvolved's zeppelin on the sticks' own `w`). Checked
+     against main (scratch gref/, two acquisitions, one jittered with b = 8000): NODDI's signal
+     within 4.5e-10, NODDIConvolved's 1.3e-9; fits within 2e-7 of crlb's SD in Float64 (0.5% in
+     Float32: rounding), the same iterations; crlb within 2.2e-8; BinghamNODDI's unchanged, bit
+     for bit. kₗ from the table within 1e-8 of exact and k′ₗ within 1e-5 (O(h³)), tested. A
+     whole brain (bench/noddi/brain_shells.jl: 294,912 voxels, Rician SNR 30, 63 images, 4
+     threads), before and after:
+
+     | model | b-values | before | after |
+     |---|---|---:|---:|
+     | NODDI | exact | 9.8 s | 9.8 s |
+     | NODDI | as scanners write them (±5, ±10) | 18.0 s | 9.9 s |
+     | NODDIConvolved | exact | 22.9 s | 22.8 s |
+     | NODDIConvolved | as scanners write them | 109.4 s | 22.8 s |
+
+     The same iterations (9.8, 11.7) and convergence (99.9%, 98.9%) before and after.
    - **The frame of the direction maps, stated.** `theta`, `phi`, `psi` and DTI's V1 are in the
      .bvec's frame (dcm2niix and FSL: the image axes, x flipped for neurological storage): as
      FSL's dtifit and FSLeyes, not MRtrix (scanner coordinates), and wrong if θ/φ maps from
