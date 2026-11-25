@@ -8338,6 +8338,10 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **Done: one field, `g`** (an SVector{3} per image, typed `DiffusionDirections`, checked by
      every directional model's constructor, `checkencoding`), and **`--bval FILE`, `--bvec
      FILE`** on the command line (eddy's rotated directions without renaming).
+   - **The same for `readdata`**: keywords naming the files, `readdata("dwi.nii.gz"; bval =
+     "dwi.bval", bvec = "dwi.eddy_rotated_bvecs")`, as the command line's flags (proposed with
+     them; not yet built: from Julia the files must sit beside the data under its name, or the
+     model is made with `diffusionencoding` and the found values left unused).
    - **Shells, for speed on real data.** NODDI keeps the stick's series per b-value and shares
      it only between images whose b are equal to the last digit; scanners write b per direction
      (995, 1000, 1005). Measured (2 × 30 directions, b jittered ±5–10): NODDI 4.6 → 18 µs a
@@ -8360,4 +8364,5 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      an option to `diffusionencoding` that rescales b and normalizes g, never by default.
    - **Later:** gradient nonlinearity per voxel (HCP's `grad_dev.nii.gz`: each voxel's own
      b-matrix, an acquisition per voxel, which the fit does not take now), and b-tensor
-     encoding (planar, spherical; an SMatrix per image, the B-matrix item above).
+     encoding (planar, spherical): an SMatrix per image now that `g` holds SVectors, not the
+     six component vectors of the 2026-11-04 rule (the B-matrix item above).
