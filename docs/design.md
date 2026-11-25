@@ -8491,3 +8491,6 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      (NODDI's interpolation of 21 coefficients), not where it is a few products beside dual
      arithmetic; the plain signal (simulation, one-off signals) gains in both. For a fit, of the
      two, only NODDI, by 9%.
+   - **Decided** (the owner, 2026-11-25: "put on roadmap"): kept, low priority. The generic hook
+     waits until a second model shows a real gain in a fit; NODDI's 9% (about 1 s a brain) alone
+     does not justify it now. The bench stays to measure the next candidate against.
