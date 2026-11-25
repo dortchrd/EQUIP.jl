@@ -25,7 +25,7 @@ What [`readdata`](@ref) returns beside the data:
 - `shape`: the size of one image as stored (for a MATLAB array, its own dimensions: maps are
   written back in that shape);
 - `found`: the acquisition values found beside the files, by the models' field names
-  (`found[:TE]`).
+  (`found[:TE]`): numbers, or for `g` the gradient directions (an `SVector{3}` per image).
 
 One concrete type whatever was found, so the functions that take it are compiled once (a named
 tuple of the values found would be a new type for each set of names, and compile them again).
@@ -35,8 +35,10 @@ struct DataInfo
     header::Union{Nothing,MRImages.NIfTIHeader}
     spatial::NTuple{3,Int}
     shape::Vector{Int}
-    found::Dict{Symbol,Vector{Float64}}
+    found::Dict{Symbol,Union{Vector{Float64},Vector{SVector{3,Float64}}}}
 end
+# what `found` holds: one number per observation, or one direction (g)
+const _Found = Dict{Symbol,Union{Vector{Float64},Vector{SVector{3,Float64}}}}
 
 """
     readdata(paths; precision = Float64) -> (data, info)
@@ -63,7 +65,7 @@ The acquisition values found (`info.found`), one per observation, by the models'
   `TE`, `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees). A
   value given for a 4-D file holds for each of its volumes; a key some files lack is left out.
 - An FSL `.bval` file beside a single file (dcm2niix writes them for diffusion): `b` (s/mm²);
-  with a `.bvec` beside it too, the gradient directions `gx`, `gy`, `gz`, checked as
+  with a `.bvec` beside it too, the gradient directions `g`, checked as
   [`diffusionencoding`](@ref) checks them.
 
 ```julia
@@ -121,8 +123,7 @@ function _loadmat(path, precision)
     data = reshape(a, spatial..., size(a, ndims(a)))
     size(data, 4) >= 2 || throw(ArgumentError("$path has one observation (its last " *
         "dimension is $(size(data, 4))): the observations go along the last dimension"))
-    return data, DataInfo([String(path)], nothing, NTuple{3,Int}(spatial), shape,
-                          Dict{Symbol,Vector{Float64}}())
+    return data, DataInfo([String(path)], nothing, NTuple{3,Int}(spatial), shape, _Found())
 end
 
 # BIDS sidecar keys and the model fields they give (seconds, degrees: no conversion).
@@ -130,7 +131,7 @@ const _BIDS = (EchoTime = :TE, InversionTime = :TI, RepetitionTime = :TR, FlipAn
 
 # The acquisition values beside the files: one per observation, by field name.
 function _found(paths, cars, counts)
-    found = Dict{Symbol,Vector{Float64}}()
+    found = _Found()
     for (key, field) in pairs(_BIDS)
         all(c -> haskey(c, String(key)), cars) || continue
         vals = Float64[]
@@ -149,7 +150,7 @@ function _found(paths, cars, counts)
             length(b) == counts[1] || throw(ArgumentError("$bval has $(length(b)) b-values; " *
                                                           "$(paths[1]) has $(counts[1]) images"))
             found[:b] = b
-            # the gradient directions beside it (FSL's .bvec): gx, gy, gz, checked with the
+            # the gradient directions beside it (FSL's .bvec): g, checked with the
             # b-values by `diffusionencoding` (one per image, unit vectors where b > 50)
             bvec = filestem(paths[1]) * ".bvec"
             if isfile(bvec)
@@ -159,7 +160,7 @@ function _found(paths, cars, counts)
                     e isa Union{ArgumentError,DimensionMismatch} || rethrow()
                     throw(ArgumentError("$bvec (with $bval): $(e.msg)"))
                 end
-                found[:gx], found[:gy], found[:gz] = acq.gx, acq.gy, acq.gz
+                found[:g] = acq.g
             end
         end
     end

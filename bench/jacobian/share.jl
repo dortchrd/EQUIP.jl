@@ -17,8 +17,8 @@ cases = [("QMTSIREqualR1 4-point", sir(SIR_4POINT, false)...),
          ("T1IR, 9 TI", T1IR(TI = [0.05, 0.1, 0.2, 0.4, 0.8, 1.2, 2.0, 3.0, 5.0]), (M0 = fill(1000.0, N), Sf = uu(-1.0, -0.85), T1 = lu(0.3, 4.0)), (;))]
 function dmodel(M)
     g = directionset(30)
-    b = [0.0; fill(1000.0, 30); fill(2000.0, 30)]; G = [[(0.0, 0.0, 0.0)]; g; g]
-    M(b = b, gx = [x[1] for x in G], gy = [x[2] for x in G], gz = [x[3] for x in G])
+    b = [0.0; fill(1000.0, 30); fill(2000.0, 30)]
+    M(b = b, g = [[SVector(0.0, 0.0, 0.0)]; g; g])
 end
 md, mk = dmodel(DTI), dmodel(DKI)
 push!(cases, ("DTI, 61 images", md, nominal(md; MD = 0.8e-3, FA = 0.5, direction = (1.0, 0.0, 0.0)) |> t -> map(x -> fill(Float64(x), N), t), (;)))

@@ -470,24 +470,27 @@ end
     throw(DimensionMismatch("$(nameof(typeof(m))): $list: give one value per image in each " *
                             "(the per-observation fields must have the same length)"))
 end
-# A per-observation field holds numbers, one per observation: every generic routine relies on
-# it (the lengths, the signal's number type, the conversion to the fit's precision). A vector of
-# anything else (3-vectors as gradient directions, one per image) is said here, where every fit,
-# signal and crlb starts, with what to write instead; otherwise it would fail later, obscurely
-# (`float(Any)`), or stay Float64 in a Float32 fit. The test is on the fields' types, so the
-# compiler settles it when compiling: nothing at run time. A matrix is not checked: it is not a
-# per-observation field (a lookup table, say), and `nobs` does not count it.
+# A per-observation field holds one value per observation: a number, or a static vector of
+# numbers (a gradient direction, `SVector{3}`, one per image: a directional model's `g`). Every
+# generic routine relies on it (the lengths, the signal's number type, the conversion to the fit's
+# precision), so a vector of anything else (plain vectors as directions, `[[1, 0, 0], ...]`) is
+# said here, where every fit, signal and crlb starts, with what to write instead; otherwise it
+# would fail later, obscurely (`float(Any)`), or stay Float64 in a Float32 fit. The test is on the
+# fields' types, so the compiler settles it when compiling: nothing at run time. A matrix is not
+# checked: it is not a per-observation field (a lookup table, say), and `nobs` does not count it.
+const _ObsValue = Union{Number,StaticVector{N,<:Number} where {N}}
 @inline _checkfields(m) =
-    any(x -> x isa AbstractVector && !(eltype(x) <: Number), _fields(m)) ? _badfield(m) : nothing
+    any(x -> x isa AbstractVector && !(eltype(x) <: _ObsValue), _fields(m)) ? _badfield(m) : nothing
 @noinline function _badfield(m)
     names = fieldnames(typeof(m))
-    f = names[findfirst(f -> (x = getfield(m, f); x isa AbstractVector && !(eltype(x) <: Number)),
+    f = names[findfirst(f -> (x = getfield(m, f); x isa AbstractVector && !(eltype(x) <: _ObsValue)),
                         names)]
     T = eltype(getfield(m, f))
     throw(ArgumentError("$(nameof(typeof(m))): the field `$f` holds $T values; a field with " *
-        "one value per observation must hold numbers. Gradient directions go in as three " *
-        "fields of numbers, gx, gy and gz: `diffusionencoding(bval, bvec)` makes them (and b) " *
-        "from a .bval and a .bvec, or from a 3×N matrix"))
+        "one value per observation must hold numbers or static vectors (SVector) of numbers. " *
+        "Gradient directions go in as one field, g, an SVector{3} per image: " *
+        "`diffusionencoding(bval, bvec)` makes it (and b) from a .bval and a .bvec, or from a " *
+        "3×N matrix"))
 end
 
 # `nobs` is StatsAPI's function (imported in EQUIP.jl); this adds a method for every
@@ -507,6 +510,7 @@ function _with_precision(m::MRIModel, ::Type{T}) where {T}
 end
 _to_precision(x::AbstractVector{<:Real}, ::Type{T}) where {T} = Vector{T}(x)
 _to_precision(x::AbstractVector{Bool}, ::Type{T}) where {T} = x     # flags stay flags
+_to_precision(x::AbstractVector{<:SVector{N,<:Real}}, ::Type{T}) where {N,T} = Vector{SVector{N,T}}(x)  # directions
 _to_precision(x, ::Type{T}) where {T} = x
 # `::Type{T}` with `where {T}` means "this argument is a type, call it T". When several methods
 # match, Julia picks the most specific one: a Vector{Bool} matches the second method.
@@ -687,8 +691,11 @@ end
 # `signal`). Shared with `simulate`, which writes into one buffer of this type.
 function _signaltype(m::MRIModel, q::NamedTuple)
     vectors = filter(x -> x isa AbstractVector, _fields(m))
-    return float(promote_type(map(typeof, values(q))..., map(eltype, vectors)...))
+    return float(promote_type(map(typeof, values(q))..., map(_numbertype, vectors)...))
 end
+# The number type of a per-observation field: its elements', or for directions (`g`, an
+# SVector{3} per image) the numbers' inside them
+_numbertype(x::AbstractVector) = eltype(x) <: StaticVector ? eltype(eltype(x)) : eltype(x)
 
 # -------------------------------------------------------------------------------------------------
 # How a model prints at the REPL
@@ -744,6 +751,12 @@ function _acqvalue(x::AbstractVector{<:Real})
     length(x) > 1 && all(==(first(x)), x) && return c(first(x)) * ", every observation"
     length(x) <= 8 && return "[" * join(map(c, x), ", ") * "]"
     return "$(length(x)) values from $(c(minimum(x))) to $(c(maximum(x)))"
+end
+# Directions (`g`, a unit vector per image): their count, or each in full up to 4
+function _acqvalue(x::AbstractVector{<:StaticVector})
+    c(v) = repr(v; context = :compact => true)
+    length(x) <= 4 && return "[" * join(map(v -> "(" * join(map(c, v), ", ") * ")", x), ", ") * "]"
+    return "$(length(x)) directions"
 end
 _acqvalue(x) = _showvalue(x)
 

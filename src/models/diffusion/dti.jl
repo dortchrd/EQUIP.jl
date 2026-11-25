@@ -5,7 +5,8 @@
 #   gᵀDg = gx²·Dxx + gy²·Dyy + gz²·Dzz + 2gx·gy·Dxy + 2gx·gz·Dxz + 2gy·gz·Dyz
 #
 # One image per gradient direction: the acquisition is each image's b-value and gradient
-# direction, the vectors b, gx, gy, gz (from a .bval and a .bvec by `diffusionencoding`). gᵀDg is
+# direction, the vectors b and g (from a .bval and a .bvec by `diffusionencoding`; g[j] = (gx, gy,
+# gz), a unit vector). gᵀDg is
 # the diffusivity along the gradient direction g; along one direction this is ADCDecay with
 # ADC = gᵀDg. D is symmetric, so it has six distinct elements, and each off-diagonal one appears
 # twice in the 3×3 sum (Dxy and Dyx): hence the 2s.
@@ -33,15 +34,15 @@
 # =================================================================================================
 
 """
-    DTI(; b, gx, gy, gz)
+    DTI(; b, g)
 
 The diffusion tensor (Basser, Mattiello and LeBihan, Biophys J 1994;66:259): one image per
 gradient direction, the signal decaying with the diffusivity along that direction,
 
     S    = S0·exp(−b·gᵀDg),
-    gᵀDg = gx²·Dxx + gy²·Dyy + gz²·Dzz + 2gx·gy·Dxy + 2gx·gz·Dxz + 2gy·gz·Dyz
+    gᵀDg = gx²·Dxx + gy²·Dyy + gz²·Dzz + 2gx·gy·Dxy + 2gx·gz·Dxz + 2gy·gz·Dyz,   g = (gx, gy, gz)
 
-- acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` (a unit vector) of every
+- acquisition: `b` (s/mm²) and the gradient direction `g` (a unit vector, `SVector{3}`) of every
   image, from a .bval and a .bvec by [`diffusionencoding`](@ref)
 - free by default: `S0` (the signal at b = 0) and the tensor's six elements `Dxx`, `Dyy`, `Dzz`,
   `Dxy`, `Dxz`, `Dyz` (mm²/s). The diagonal elements from 0 (a diffusivity along an axis is not
@@ -64,15 +65,13 @@ axially symmetric tensor, from `MD` and `FA` or `AD` and `RD`, and the direction
 `nominal(DTI; S0 = 1000, MD = 0.8e-3, FA = 0.7, direction = fiberdirection(θ, φ))`.
 
 ```julia
-acq = diffusionencoding("dwi.bval", "dwi.bvec")    # b, gx, gy, gz
+acq = diffusionencoding("dwi.bval", "dwi.bvec")    # b, g
 res = fit(DTI(; acq...), dwi; mask)
 ```
 """
-@kwdef struct DTI{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct DTI{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A                                # b-values (s/mm²)
-    gx::X                               # gradient direction of each image (unit vectors):
-    gy::Y                               #   its x, y and z components
-    gz::Z
+    g::G                                # gradient direction of each image (a unit SVector{3})
 end
 
 parameters(::Type{<:DTI}) = (
@@ -84,11 +83,12 @@ parameters(::Type{<:DTI}) = (
 )
 
 function signal!(out, m::DTI, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        gDg = gx[j]^2 * Dxx + gy[j]^2 * Dyy + gz[j]^2 * Dzz +
-              2gx[j] * gy[j] * Dxy + 2gx[j] * gz[j] * Dxz + 2gy[j] * gz[j] * Dyz
+    @inbounds for j in eachindex(out, b, g)
+        gx, gy, gz = g[j]                               # image j's gradient direction
+        gDg = gx^2 * Dxx + gy^2 * Dyy + gz^2 * Dzz +
+              2gx * gy * Dxy + 2gx * gz * Dxz + 2gy * gz * Dyz
         out[j] = S0 * exp(-b[j] * gDg)
     end
     return out

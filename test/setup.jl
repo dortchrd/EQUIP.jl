@@ -137,7 +137,7 @@ end
 @mrimodel BlockT2(TE; S0 = Free(start = :scale, lower = 0), T2 = Free(start = 0.05, lower = 1e-6)) =
     S0 * exp(-TE / T2)
 
-# The same acquisition given as one 3-vector per image: refused, with what to write instead
+# The directions given as plain vectors, one per image (not SVectors): refused, with what to write instead
 Base.@kwdef struct DirVectors{A,G} <: MRIModel
     b::A
     g::G

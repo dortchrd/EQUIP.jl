@@ -135,18 +135,19 @@ end
     G = reduce(hcat, [fill([0.0, 0.0, 0.0], 4); collect.(dirs); collect.(dirs)])   # 3×64, FSL: 0 0 0 at b = 0
     bv = [fill(0.0, 2); fill(5.0, 2); fill(1000.0, 30); fill(2500.0, 30)]
     acq = diffusionencoding(bv, G)
-    @test keys(acq) == (:b, :gx, :gy, :gz) && all(v -> v isa Vector{Float64}, values(acq))
-    @test acq.b == bv && (acq.gx, acq.gy, acq.gz) == (G[1, :], G[2, :], G[3, :])   # b kept as given
+    @test keys(acq) == (:b, :g) && acq.b isa Vector{Float64} && acq.g isa Vector{SVector{3,Float64}}
+    @test acq.b == bv && acq.g == [SVector{3}(c) for c in eachcol(G)]          # b kept as given
     @test diffusionencoding(bv, permutedims(G)) == acq                           # N×3 too
-    @test diffusionencoding(1:3, [1 0 0; 0 1 0; 0 0 1]).gy == [0, 1, 0]          # 3×3: a .bvec
+    @test diffusionencoding(1:3, [1 0 0; 0 1 0; 0 0 1]).g[2] == [0, 1, 0]        # 3×3: a .bvec
+    @test diffusionencoding(bv, acq.g) == acq                                    # or the directions
     Gc = copy(G); a2 = diffusionencoding(bv, Gc); Gc[1, 5] = 9.0
-    @test a2.gx[5] == G[1, 5]                                                    # copied
+    @test a2.g[5][1] == G[1, 5]                                                  # copied
     # mistakes, said with what is wrong
     @test occursin("one direction per image", msg(() -> diffusionencoding(bv[1:63], G)))
     @test occursin("3×N or N×3", msg(() -> diffusionencoding(bv, [G; G[1:1, :]])))
     @test occursin("image 5", msg(() -> diffusionencoding(bv, 2 .* G))) &&
           occursin("unit vectors", msg(() -> diffusionencoding(bv, 2 .* G)))
-    @test diffusionencoding(bv, 2 .* G; b0threshold = 3000).gx == 2 .* G[1, :]   # (checked above it)
+    @test diffusionencoding(bv, 2 .* G; b0threshold = 3000).g[5] == 2 .* G[:, 5] # (checked above it)
     # from the files, as dcm2niix writes them
     dir = mktempdir()
     write(joinpath(dir, "dwi.bval"), join(bv, " ") * "\n")
@@ -166,7 +167,7 @@ end
     # zeppelin written out, no allocation
     m = StickZeppelin(; acq...)
     θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
-    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ SVector(n) for j in 1:64]
+    ξ = [SVector{3}(G[:, j]) ⋅ SVector(n) for j in 1:64]                       # from the .bvec's columns
     Dp = 0.4 * 1.9e-3
     @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * ξ^2) +
                                     0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * ξ^2))) rtol = 1e-12
@@ -180,8 +181,9 @@ end
         @test eltype(r.params.vax) == T && count(isconverged, r.status) == 200
         @test abs(mean(r.params.vax) - 0.6) < 0.01 && abs(mean(r.params.theta) - 0.7) < 0.01
     end
-    # one 3-vector per image is refused where every fit and signal starts, naming the remedy
-    mv = DirVectors(b = bv, g = [SVector(c...) for c in eachcol(G)])
+    # directions as plain vectors (not static ones) are refused where every fit and signal
+    # starts, naming the remedy
+    mv = DirVectors(b = bv, g = [Vector(c) for c in eachcol(G)])
     for f in (() -> signal(mv, (S0 = 1.0,)), () -> fit(mv, Y), () -> nobs(mv))
         @test occursin("the field `g` holds", msg(f)) && occursin("diffusionencoding", msg(f))
     end
@@ -197,7 +199,7 @@ end
     # BallStick against Behrens et al. (MRM 2003), written out: one diffusivity, isotropic and
     # along the fiber (StickZeppelin's signal is checked written out in the test set above)
     n = SVector(fiberdirection(0.7, 0.3))
-    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ n for j in eachindex(bv)]
+    ξ = [acq.g[j] ⋅ n for j in eachindex(bv)]
     @test signal(mbs, tbs) ≈ (@. 1000 * (0.5 * exp(-bv * 1.2e-3) + 0.5 * exp(-bv * 1.2e-3 * ξ^2))) rtol = 1e-12
     # StickZeppelinBall (its signal written out in NODDI's test set, its limit ODI → 0) is
     # StickZeppelin where there is no ball
@@ -300,7 +302,7 @@ end
     @test signal(m, t1) ≈ iso1 rtol = 1e-7
     # ODI → 0 (κ → ∞): the stick, zeppelin and ball without dispersion; the difference falls as 1/κ
     n = SVector(fiberdirection(0.7, 0.3))
-    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ n for j in eachindex(bv)]
+    ξ = [acq.g[j] ⋅ n for j in eachindex(bv)]
     nodisp = @. 1000 * (0.8 * (0.5 * exp(-bv * 1.7e-3 * ξ^2) + 0.5 * zeppelin(bv, 1.7e-3, Dp, ξ)) + 0.2 * exp(-bv * 3e-3))
     # ... which is StickZeppelinBall's signal, its axial diffusivity NODDI's D∥
     @test signal(StickZeppelinBall(; acq...), (S0 = 1000.0, vax = 0.5, viso = 0.2, Dax = 1.7e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)) ≈ nodisp rtol = 1e-12
@@ -390,7 +392,7 @@ end
     # the derivatives (dual numbers: the smallest eigenvalue by perturbation) against central
     # differences, also where eigenvalues meet: β = 0 with μ along a measured gradient, β = κ,
     # ODI = 1; finite there
-    g5 = SVector(acq.gx[10], acq.gy[10], acq.gz[10])
+    g5 = acq.g[10]
     for q in (tb, merge(tb, (betafraction = 0.0, theta = acos(g5[3]), phi = atan(g5[2], g5[1]))),
               merge(tb, (betafraction = 1.0,)), merge(tb, (ODI = 1.0,)))
         J = jacobian(m, q)
@@ -685,7 +687,7 @@ end
     @test all(k -> di[k] ≈ 1.2, (:MK, :AK, :RK, :MKT))
     # D's own, as DTI's; no allocation; differentiable (MK's gradient against finite differences)
     @test keys(dg) == (:MD, :FA, :AD, :RD, :V1x, :V1y, :V1z, :MK, :AK, :RK, :MKT)
-    @test all(k -> dg[k] == derived(DTI(b = [0.0], gx = [0.0], gy = [0.0], gz = [0.0]), pg)[k], (:MD, :FA, :AD, :RD, :V1x))
+    @test all(k -> dg[k] == derived(DTI(b = [0.0], g = [SVector(0.0, 0.0, 0.0)]), pg)[k], (:MD, :FA, :AD, :RD, :V1x))
     allocdk(m, p) = @allocated derived(m, p)
     @test_noalloc (allocdk(m, pg); allocdk(m, pg) == 0)
     fmk(x) = derived(m, merge(pg, (Dxx = x[1], V1111 = x[2]))).MK

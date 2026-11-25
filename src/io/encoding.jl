@@ -1,13 +1,14 @@
 # =================================================================================================
 # Diffusion encoding: a .bval and a .bvec as the acquisition of a directional model
 #
-#   diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz = ...)
+#   diffusionencoding(bval, bvec) -> (b = ..., g = ...)
 #
 # A directional diffusion model (one image per gradient direction: DTI, a stick and a zeppelin
-# along a fiber, ...) takes four acquisition fields, each a vector with one value per image: the
-# b-value `b` (s/mm²) and the three components of the gradient direction, `gx`, `gy`, `gz`. This
-# is the rule every per-observation field follows (a vector of numbers), so EQUIP's generic code
-# (lengths, the Float32 conversion, the protocol designer) handles them as it handles TE or TI.
+# along a fiber, ...) takes two acquisition fields, each a vector with one value per image: the
+# b-value `b` (s/mm²) and the gradient direction `g`, a unit vector (an `SVector{3}`: x, y, z).
+# A per-observation field holds numbers or static vectors of numbers, so EQUIP's generic code
+# (lengths, the Float32 conversion, the protocol designer) handles `g` as it handles TE or TI;
+# a model reads one image's direction as `g[j]`, and its cosine with a fiber as `g[j] ⋅ n`.
 #
 # The files hold them otherwise: an FSL .bval, one b per image, and a .bvec, three lines (x, y,
 # z) of one value per image, read by MRImages (`readvalues`, `readbvec`, the file's 3×N matrix).
@@ -16,18 +17,19 @@
 # b = 0 it does not, and FSL writes 0 0 0 there). The b-values are kept as given: a b of 5 s/mm²
 # is a real b-value, and the model is more accurate with it than with 0 (DIPY's `b0_threshold`
 # likewise marks the b = 0 images without changing the values). Names decided with the owner
-# (docs/design.md, "Directions per image").
+# (docs/design.md, "Directions per image"); `g` one field since 2026-11-25 (until then three,
+# gx, gy, gz: "Directions per image, revised").
 # =================================================================================================
 
 """
-    diffusionencoding(bval, bvec; b0threshold = 50) -> (b = ..., gx = ..., gy = ..., gz = ...)
+    diffusionencoding(bval, bvec; b0threshold = 50) -> (b = ..., g = ...)
 
 The acquisition of a directional diffusion model from a .bval and a .bvec: the b-value of every
-image (s/mm²) and the three components of its gradient direction, each a vector with one value
-per image. Give the file names, or the values already read: a vector of b-values and a 3×N or
-N×3 matrix of directions (a .bvec as `readbvec` returns it, or a table with one direction per
-row; a 3×3 matrix is read as a .bvec, one column per image). The result goes into any model
-whose fields are `b`, `gx`, `gy`, `gz`:
+image (s/mm²), `b`, and its gradient direction, `g`, a unit vector (`SVector{3}`) per image.
+Give the file names, or the values already read: a vector of b-values and a 3×N or N×3 matrix
+of directions (a .bvec as `readbvec` returns it, or a table with one direction per row; a 3×3
+matrix is read as a .bvec, one column per image), or a vector of directions (`directionset`'s,
+say). The result goes into any model whose fields are `b` and `g`:
 
 ```julia
 acq = diffusionencoding("dwi.bval", "dwi.bvec")
@@ -49,15 +51,18 @@ function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:
     length(bval) == size(G, 2) || throw(DimensionMismatch("$(length(bval)) b-values but " *
         "$(size(G, 2)) gradient directions: there must be one direction per image"))
     b = Vector{Float64}(bval)
-    gx, gy, gz = Vector{Float64}(G[1, :]), Vector{Float64}(G[2, :]), Vector{Float64}(G[3, :])
-    for j in eachindex(b, gx, gy, gz)
+    g = [SVector{3,Float64}(G[1, j], G[2, j], G[3, j]) for j in axes(G, 2)]
+    for j in eachindex(b, g)
         b[j] > b0threshold || continue
-        len = hypot(gx[j], gy[j], gz[j])
+        len = norm(g[j])
         abs(len - 1) <= 1e-2 || throw(ArgumentError("image $j (b = $(b[j])): the gradient " *
-            "direction ($(gx[j]), $(gy[j]), $(gz[j])) has length $(round(len; sigdigits = 4)), " *
+            "direction ($(g[j][1]), $(g[j][2]), $(g[j][3])) has length $(round(len; sigdigits = 4)), " *
             "not 1: the directions must be unit vectors"))
     end
-    return (b = b, gx = gx, gy = gy, gz = gz)
+    return (b = b, g = g)
 end
+# directions as a vector of 3-vectors (`directionset`'s, or g itself), one per image
+diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}; kwargs...) =
+    diffusionencoding(bval, reduce(hcat, [collect(x) for x in g]); kwargs...)
 diffusionencoding(bvalfile::AbstractString, bvecfile::AbstractString; kwargs...) =
     diffusionencoding(readvalues(bvalfile), readbvec(bvecfile); kwargs...)

@@ -323,15 +323,15 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `R2BiexpDecay(TE = ...)` | the same with R2short = 1/T2short, R2long = 1/T2long; each at least 0.4 s⁻¹ | S0, fshort, R2short, R2long | |
 | diffusion | `ADCDecay(b = ...)` | S0·exp(−b·ADC); b in s/mm², ADC in mm²/s, at most 4e-3 (above free water's 3e-3, so data whose decay is lost in the noise end on the bound, flagged by `onbound`; `ADC = Free(upper = Inf)` removes it, as for b in other units) | S0, ADC | |
 | | `ADCKurtosis(b = ...)` | kurtosis, one direction or direction-averaged (Jensen et al., MRM 2005): S0·exp(−b·ADC + b²·ADC²·K/6); K in [0, 3]; ADC at most 4e-3 mm²/s, as ADCDecay; check b_max·ADC·K < 3 | S0, ADC, K | |
-| | `DTI(b = ..., gx = ..., gy = ..., gz = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted, the diagonal ones from 0 (a diffusivity is not negative) to 4e-3 mm²/s (as ADCDecay); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
-| | `DKI(b = ..., gx = ..., gy = ..., gz = ...)` | diffusion kurtosis (Jensen et al., MRM 2005) in DIPY's parameterization, V = MD²·W: S0·exp(−b·gᵀDg + b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6), every element from the two-pass WLS (`:loglinear`); D's diagonal from 0 to 4e-3 mm²/s, as DTI; derived: DTI's quantities and MK, AK, RK as DIPY's fit methods give them by default (Tabesh et al., MRM 2011, analytic), MKT (Hansen et al., MRM 2013), clipped to [−3/7, 10] | S0, D's six, V's fifteen | |
-| | `StickZeppelin(b = ..., gx = ..., gy = ..., gz = ...)` | one fiber bundle, every image (the standard model's kernel without dispersion; Kaden et al., NeuroImage 2016, not averaged): S0·[vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)], D⊥ = (1 − vax)·Dax, ξ = g·n(θ, φ); the direction starts from the voxel's own tensor (its log-linear fit's principal eigenvector, `:data`) and is reported with z ≥ 0 (θ in [0, π/2]; θ, φ unbounded in the fit, as n and −n are one fiber); or fix it to a DTI fit's maps (`theta = θmap, phi = φmap`); derived: Dperp | S0, vax, Dax (to 4e-3 mm²/s), theta, phi (radians) | |
-| | `StickZeppelinBall(b = ..., gx = ..., gy = ..., gz = ...)` | StickZeppelin with a ball, free water (CSF) in the voxel: S0·[(1 − viso)·(vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)) + viso·exp(−b·Diso)], D⊥ = (1 − vax)·Dax; `vax` a fraction of the tissue (NODDI's `vic`), `viso` the ball's of the voxel; NODDI without dispersion (ODI → 0), with Dax fitted; two shells or more; the direction as StickZeppelin's; derived: Dperp | S0, vax, viso, Dax (to 4e-3 mm²/s), theta, phi | Diso = 3.0e-3 mm²/s |
-| | `BallStick(b = ..., gx = ..., gy = ..., gz = ...)` | ball and stick (Behrens et al., MRM 2003; bedpostx with one fiber): S0·[(1 − f)·exp(−b·d) + f·exp(−b·d·ξ²)], one diffusivity for both; the direction as StickZeppelin's | S0, f, d (to 4e-3 mm²/s), theta, phi | |
-| | `NODDI(b = ..., gx = ..., gy = ..., gz = ...)` | neurite orientation dispersion and density (Zhang et al., NeuroImage 2012): S0·[(1 − viso)·(vic·A_ic + (1 − vic)·A_ec) + viso·exp(−b·Diso)], sticks (A_ic) and a zeppelin with the tortuosity limit (A_ec) spread by a Watson distribution about the orientation (theta, phi); `vic` the neurite density index (the toolbox's ficvf), `viso` the CSF fraction (fiso), `ODI` = (2/π)·arctan(1/κ) from 0.01 (κ = 64) to 1 (isotropic); D∥ and Diso fixed at the paper's 1.7e-3 and 3.0e-3 mm²/s; the orientation starts from the voxel's tensor, as StickZeppelin's; derived: kappa; needs two shells or more. The dispersed sticks by their Legendre series up to b·D∥ = 12.75 (b = 7500 at D∥ = 1.7e-3), by quadrature above: a whole brain (about 300,000 voxels) in 12–15 s on 4 threads | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s (0 to 4e-3 when estimated) |
-| | `NODDIConvolved(b = ..., gx = ..., gy = ..., gz = ...)` | `NODDI` with the extra-neurite zeppelin's *signal* averaged over the Watson distribution, `zeppelin(b, D∥, D⊥, w(ξ))`, as the sticks' is (as SMT, the Standard Model and dmipy average), in place of Zhang's averaged tensor; the same parameters. The two differ by 2–4% at b = 2500, which the residuals cannot show, and give white matter's vic and ODI about 1.5–2 SDs apart at SNR 100: choose, and report which. About 7 µs a signal at 63 images | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
-| | `BinghamNODDI(b = ..., gx = ..., gy = ..., gz = ...)` | NODDI with anisotropic dispersion (Tariq et al., NeuroImage 2016): the Bingham distribution exp(κ(μ·n)² + β(μβ·n)²), the neurites fanning toward μβ, at the angle `psi` about the mean orientation; `betafraction` = β/κ from 0 (Watson: NODDI) to 1; ODI as NODDI's (the dispersion across the fan); derived, Tariq's indices (Eqs. 17–22): kappa, beta, ODIP = (2/π)·arctan(1/(κ − β)) (along the primary dispersion orientation, the fan's plane), ODItot = (2/π)·arctan(1/√((κ − β)κ)) (overall), DAB = (2/π)·arctan(β/(κ − β)) (0 for Watson, 1 at β = κ), DAT = (τ2 − τ3)/τ1 (the orientation tensor's planarity), all equal to Tariq's Table 1; the fitted ODI is their ODI_S; the orientations from the voxel's tensor (μ its first eigenvector, the fan its second); the zeppelin by the averaged tensor, as NODDI's (`binghamtensor`); the sticks by quadrature (no series: a whole brain in about 85 s on 4 threads); written with the dispersed views (Compartments, below) | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
-| | `BinghamNODDIConvolved(b = ..., gx = ..., gy = ..., gz = ...)` | `BinghamNODDI` with the zeppelin's signal averaged over the Bingham distribution, `zeppelin(b, D∥, D⊥, B(g))` (as `NODDIConvolved` for Watson); the same parameters; two quadratures an image, about twice BinghamNODDI's time | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
+| | `DTI(b = ..., g = ...)` | the diffusion tensor (Basser et al., Biophys J 1994): one image per gradient direction, S0·exp(−b·gᵀDg), the six elements fitted, the diagonal ones from 0 (a diffusivity is not negative) to 4e-3 mm²/s (as ADCDecay); each voxel starts from the weighted log-linear fit (`:loglinear`); the acquisition from a .bval and a .bvec by `diffusionencoding` (`DTI(; acq...)`) | S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz (mm²/s) | |
+| | `DKI(b = ..., g = ...)` | diffusion kurtosis (Jensen et al., MRM 2005) in DIPY's parameterization, V = MD²·W: S0·exp(−b·gᵀDg + b²·ΣgᵢgⱼgₖgₗVᵢⱼₖₗ/6), every element from the two-pass WLS (`:loglinear`); D's diagonal from 0 to 4e-3 mm²/s, as DTI; derived: DTI's quantities and MK, AK, RK as DIPY's fit methods give them by default (Tabesh et al., MRM 2011, analytic), MKT (Hansen et al., MRM 2013), clipped to [−3/7, 10] | S0, D's six, V's fifteen | |
+| | `StickZeppelin(b = ..., g = ...)` | one fiber bundle, every image (the standard model's kernel without dispersion; Kaden et al., NeuroImage 2016, not averaged): S0·[vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)], D⊥ = (1 − vax)·Dax, ξ = g·n(θ, φ); the direction starts from the voxel's own tensor (its log-linear fit's principal eigenvector, `:data`) and is reported with z ≥ 0 (θ in [0, π/2]; θ, φ unbounded in the fit, as n and −n are one fiber); or fix it to a DTI fit's maps (`theta = θmap, phi = φmap`); derived: Dperp | S0, vax, Dax (to 4e-3 mm²/s), theta, phi (radians) | |
+| | `StickZeppelinBall(b = ..., g = ...)` | StickZeppelin with a ball, free water (CSF) in the voxel: S0·[(1 − viso)·(vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)) + viso·exp(−b·Diso)], D⊥ = (1 − vax)·Dax; `vax` a fraction of the tissue (NODDI's `vic`), `viso` the ball's of the voxel; NODDI without dispersion (ODI → 0), with Dax fitted; two shells or more; the direction as StickZeppelin's; derived: Dperp | S0, vax, viso, Dax (to 4e-3 mm²/s), theta, phi | Diso = 3.0e-3 mm²/s |
+| | `BallStick(b = ..., g = ...)` | ball and stick (Behrens et al., MRM 2003; bedpostx with one fiber): S0·[(1 − f)·exp(−b·d) + f·exp(−b·d·ξ²)], one diffusivity for both; the direction as StickZeppelin's | S0, f, d (to 4e-3 mm²/s), theta, phi | |
+| | `NODDI(b = ..., g = ...)` | neurite orientation dispersion and density (Zhang et al., NeuroImage 2012): S0·[(1 − viso)·(vic·A_ic + (1 − vic)·A_ec) + viso·exp(−b·Diso)], sticks (A_ic) and a zeppelin with the tortuosity limit (A_ec) spread by a Watson distribution about the orientation (theta, phi); `vic` the neurite density index (the toolbox's ficvf), `viso` the CSF fraction (fiso), `ODI` = (2/π)·arctan(1/κ) from 0.01 (κ = 64) to 1 (isotropic); D∥ and Diso fixed at the paper's 1.7e-3 and 3.0e-3 mm²/s; the orientation starts from the voxel's tensor, as StickZeppelin's; derived: kappa; needs two shells or more. The dispersed sticks by their Legendre series up to b·D∥ = 12.75 (b = 7500 at D∥ = 1.7e-3), by quadrature above: a whole brain (about 300,000 voxels) in 12–15 s on 4 threads | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s (0 to 4e-3 when estimated) |
+| | `NODDIConvolved(b = ..., g = ...)` | `NODDI` with the extra-neurite zeppelin's *signal* averaged over the Watson distribution, `zeppelin(b, D∥, D⊥, w(ξ))`, as the sticks' is (as SMT, the Standard Model and dmipy average), in place of Zhang's averaged tensor; the same parameters. The two differ by 2–4% at b = 2500, which the residuals cannot show, and give white matter's vic and ODI about 1.5–2 SDs apart at SNR 100: choose, and report which. About 7 µs a signal at 63 images | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
+| | `BinghamNODDI(b = ..., g = ...)` | NODDI with anisotropic dispersion (Tariq et al., NeuroImage 2016): the Bingham distribution exp(κ(μ·n)² + β(μβ·n)²), the neurites fanning toward μβ, at the angle `psi` about the mean orientation; `betafraction` = β/κ from 0 (Watson: NODDI) to 1; ODI as NODDI's (the dispersion across the fan); derived, Tariq's indices (Eqs. 17–22): kappa, beta, ODIP = (2/π)·arctan(1/(κ − β)) (along the primary dispersion orientation, the fan's plane), ODItot = (2/π)·arctan(1/√((κ − β)κ)) (overall), DAB = (2/π)·arctan(β/(κ − β)) (0 for Watson, 1 at β = κ), DAT = (τ2 − τ3)/τ1 (the orientation tensor's planarity), all equal to Tariq's Table 1; the fitted ODI is their ODI_S; the orientations from the voxel's tensor (μ its first eigenvector, the fan its second); the zeppelin by the averaged tensor, as NODDI's (`binghamtensor`); the sticks by quadrature (no series: a whole brain in about 85 s on 4 threads); written with the dispersed views (Compartments, below) | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
+| | `BinghamNODDIConvolved(b = ..., g = ...)` | `BinghamNODDI` with the zeppelin's signal averaged over the Bingham distribution, `zeppelin(b, D∥, D⊥, B(g))` (as `NODDIConvolved` for Watson); the same parameters; two quadratures an image, about twice BinghamNODDI's time | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
 | | `IVIM(b = ..., bsplit = 200)` | intravoxel incoherent motion (Le Bihan et al., Radiology 1988): S0·[f·exp(−b·D*) + (1 − f)·exp(−b·D)], D and D* numbers, not tensors: one image per b-value, the directions combined (the scanner's trace-weighted images); each voxel starts from the segmented fit (D from b ≥ bsplit, f from its intercept, D* from what is left below: faster, and more often at the best minimum, than constant or BestOf starts); the faster component reported as D*; poorly determined at usual SNR (f 0.75% biased even at SNR 200, as crlb's second-order term predicts): check a protocol with crlb; the simplified IVIM: `Dstar = 0.02` fixed | S0, f, Dstar (to 0.2 mm²/s), D (to 4e-3) | |
 | | `SMT(b = ...)` | the spherical mean technique, two compartments (Kaden et al., NeuroImage 2016; as in Devan et al., Magn Reson Imaging 2020): one value per shell, the mean over its directions (`sphericalmean(data, b)`); sticks and a zeppelin with the tortuosity limit, D⊥,ex = (1 − v_ax)·D_ax; protocols `SMT_PROTOCOLS` (Devan Table 2), tissues `SMT_NWM`, `SMT_NAWM`, `SMT_T2lesion`, `SMT_cBH` (Table 1) | S0, vax, Dax (mm²/s) | |
 | | `SMTFreeWater(b = ...)` | `SMT` with free water, isotropic (Devan 2020's main confound): S0·[(1 − fiso)·SMT + fiso·exp(−b·Diso)] | S0, vax, Dax, fiso | Diso = 3e-3 mm²/s (0 to 4e-3 when estimated) |
@@ -404,7 +404,7 @@ cosine comes from two helpers, not compartments themselves:
 |---|---|
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
 | `directionset(N)` | N gradient directions spread evenly over the sphere (electrostatic repulsion), to simulate a scheme |
-| `g ⋅ n` | ξ, the cosine between one image's gradient direction g = (gx[j], gy[j], gz[j]) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on two tuples, nothing allocated |
+| `g[j] ⋅ n` | ξ, the cosine between image j's gradient direction g[j] (a unit `SVector{3}`) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on static vectors and tuples, nothing allocated |
 
 **Dispersed views.** A third kind of view, between one direction and `powder`: the compartment's
 signal averaged over a distribution of fiber directions about an axis. One direction is a Watson
@@ -466,17 +466,18 @@ More, each fitted to simulated data (inversion recovery, a T2 decay against the 
 examples/compartments.jl.
 
 A model with one image per gradient direction (DTI, a stick and a zeppelin along a fiber) takes
-four acquisition fields, `b`, `gx`, `gy`, `gz`, each one value per image, and
-`diffusionencoding` makes them from a .bval and a .bvec (checked: a direction per b-value, unit
-vectors where b > 50):
+two acquisition fields, `b` and `g`, each one value per image: the b-value, and the gradient
+direction as a unit vector (an `SVector{3}`; a model reads image j's as `g[j]`, or its
+components as `gx, gy, gz = g[j]`). `diffusionencoding` makes them from a .bval and a .bvec
+(checked: a direction per b-value, unit vectors where b > 50):
 
 ```julia
-acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., gx = ..., gy = ..., gz = ...)
+acq = diffusionencoding("dwi.bval", "dwi.bvec")       # (b = ..., g = ...)
 m = DTI(; acq...)                                     # built in; any model with these fields
 ```
 
 With fiber angles, write `signal!` by hand and compute the direction once per voxel,
-`n = fiberdirection(θ, φ)`, then `ξ = (gx[j], gy[j], gz[j]) ⋅ n` for each image: an
+`n = fiberdirection(θ, φ)`, then `ξ = g[j] ⋅ n` for each image: an
 `@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
 and the fit takes about twice as long (examples/directional_models.jl times both).
 
@@ -1022,7 +1023,7 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map
   given; their size and geometry checked), the intensity scaling applied; `precision = Float32`
   for half the memory. `info.found` holds what the sidecars say: `EchoTime` → `TE`,
   `InversionTime` → `TI`, `RepetitionTime` → `TR` (s), `FlipAngle` → `FA` (degrees), `b`
-  from an FSL `.bval` beside the data, and `gx`, `gy`, `gz` from a `.bvec` beside that
+  from an FSL `.bval` beside the data, and `g` (a direction per image) from a `.bvec` beside that
   (checked as `diffusionencoding` checks them). Nothing is converted: seconds and degrees, as in
   BIDS.
 - MATLAB: `readdata("data.mat:S")` (the variable `S`; `data.mat` alone if it holds one array),
@@ -1046,7 +1047,7 @@ writemaps("results/sub-01_", res, info; stderror = true)   # T2map.nii.gz, S0map
   2026-11-12: one verb pair, read and write, for every file function.)
 - `readvalues(path)`: numbers from a text file (one per line, or an FSL `.bval` as it is);
   `readbvec(path)`: an FSL `.bvec` as its 3×N matrix; `diffusionencoding(bval, bvec)`: both,
-  as a directional model's `b`, `gx`, `gy`, `gz` (from file names or from those arrays).
+  as a directional model's `b` and `g` (from file names or from those arrays).
   `writetable(path, rows)`: crlb's and montecarlo's rows as TSV.
 - Any image: `img = readimage(path)` gives `img.data`, `img.header` (the geometry), `img.meta`
   (the sidecar, every entry as it is); `writeimage(path, MRImage(values, img))` writes values
@@ -1065,6 +1066,7 @@ equip fit T2Decay t2.nii.gz                                   # TE from the BIDS
 equip fit QMTSIR sir.nii.gz --protocol SIR_5POINT --kmf free,start=10 --mask brain.nii.gz
 equip fit ADCDecay dwi.nii.gz --b @dwi.bval --weights @nex.txt --stderror --out res/sub-01_
 equip fit DTI dwi.nii.gz                                       # b and the directions from dwi.bval, dwi.bvec
+equip fit NODDI dwi.nii.gz --bvec dwi.eddy_rotated_bvecs        # the directions eddy rotated
 equip fit DKI dwi.nii.gz --out res/sub-01_                     # MK, AK, RK, MKT maps too
 equip fit DTI dwi.nii.gz --likelihood rician --sigma sigma.nii.gz   # magnitude data at low SNR
 equip crlb QMTSIR --protocol SIR_4POINT --tissue SIR_WM_I,SIR_GM,SIR_lesion --snr 100,200 --kmf 12.5 --out crlb.tsv
@@ -1082,6 +1084,10 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
   `fit`'s rules: `--kmf 12.5` fixes, `--kmf free,start=10,lower=0` estimates, `--R1m R1f` ties,
   `--Sm map.nii.gz` fixes to a map. A value given wins over the data's sidecar (with a warning
   if they differ). Times in seconds.
+- A directional model's b-values and gradient directions come from the `.bval` and `.bvec`
+  beside the data, with its name (dcm2niix's); `--bval FILE` and `--bvec FILE` name others, as
+  eddy's rotated directions (`--bvec dwi.eddy_rotated_bvecs`); `--b` gives the b-values as
+  numbers.
 - Magnitude data at low SNR: `--likelihood rician --sigma SD` fits the Rician model
   (`fit(m, data; likelihood = :rician, σ, method)`), with `--sigma` the noise SD of each
   channel, a number or a map (`sigma.nii.gz`, or `file.mat:NAME`; voxels where it is 0 or NaN

@@ -26,7 +26,7 @@ using EQUIP, LinearAlgebra, StaticArrays, Statistics, Random, Printf
 g = directionset(30)
 bval = [fill(0.0, 6); fill(1000.0, 30); fill(2000.0, 30)]
 bvec = reduce(hcat, [fill(SVector(0.0, 0.0, 0.0), 6); g; g])     # 3×66, as a .bvec file holds it
-m = DKI(; diffusionencoding(bval, bvec)...)                      # b, gx, gy, gz
+m = DKI(; diffusionencoding(bval, bvec)...)                      # b, g
 
 # --- the truth: D's eigenvalues 1.7, 0.4, 0.3e-3 mm²/s along x, y, z; isotropic kurtosis K = 1 --
 # For isotropic kurtosis W = K·(δᵢⱼδₖₗ + δᵢₖδⱼₗ + δᵢₗδⱼₖ)/3: W1111 = W2222 = W3333 = K and

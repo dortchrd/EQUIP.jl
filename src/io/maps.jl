@@ -157,4 +157,5 @@ function _roledict(r::Fixed)
 end
 _jsonvalue(v::Union{Real,AbstractString,Symbol}) = v isa Symbol ? String(v) : v
 _jsonvalue(v::AbstractVector{<:Real}) = collect(v)
+_jsonvalue(v::AbstractVector{<:StaticVector}) = [collect(x) for x in v]    # g: [x, y, z] per image
 _jsonvalue(v) = repr(v)

@@ -46,12 +46,12 @@
     niwrite(path("dwi.nii"), Float32.(Y[:, :, :, 1:4]))
     write(path("dwi.bval"), "0 500 1000 2000\n")
     @test readdata(path("dwi.nii"))[2].found[:b] == [0.0, 500, 1000, 2000]
-    # and an FSL .bvec beside both: gx, gy, gz (0 0 0 at b = 0), checked by diffusionencoding
+    # and an FSL .bvec beside both: g, a direction per image (0 0 0 at b = 0), checked by
+    # diffusionencoding
     write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0\n")
     fd = readdata(path("dwi.nii"))[2].found
-    @test fd[:gx] == [0, 1, 0, 0.6] && fd[:gy] == [0, 0, 1, 0.8] && fd[:gz] == zeros(4)
-    @test (; (k => fd[k] for k in (:b, :gx, :gy, :gz))...) ==
-          diffusionencoding(path("dwi.bval"), path("dwi.bvec"))
+    @test fd[:g] == [SVector(0.0, 0, 0), SVector(1.0, 0, 0), SVector(0.0, 1, 0), SVector(0.6, 0.8, 0)]
+    @test (b = fd[:b], g = fd[:g]) == diffusionencoding(path("dwi.bval"), path("dwi.bvec"))
     write(path("dwi.bvec"), "0 1 0 0.6\n0 0 1 0.8\n0 0 0 0.5\n")          # image 4 not unit
     @test occursin("dwi.bvec (with", msg(() -> readdata(path("dwi.nii")))) &&
           occursin("unit vectors", msg(() -> readdata(path("dwi.nii"))))
@@ -129,7 +129,7 @@
     write(path("dti.bval"), join(bvd, " ") * "\n")
     write(path("dti.bvec"), join((join(Gd[k, :], " ") for k in 1:3), "\n") * "\n")
     dtd, dti_info = readdata(path("dti.nii.gz"))
-    rdt = fit(DTI(; (k => dti_info.found[k] for k in (:b, :gx, :gy, :gz))...), dtd)
+    rdt = fit(DTI(b = dti_info.found[:b], g = dti_info.found[:g]), dtd)
     wd = writemaps(path("dti/sub-01_"), rdt, dti_info)
     @test basename.(wd) == ["sub-01_S0map.nii.gz", "sub-01_Dxx.nii.gz", "sub-01_Dyy.nii.gz",
                             "sub-01_Dzz.nii.gz", "sub-01_Dxy.nii.gz", "sub-01_Dxz.nii.gz", "sub-01_Dyz.nii.gz",

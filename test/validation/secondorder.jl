@@ -39,8 +39,7 @@ end
     # along x (the case of docs/design.md, roadmap item 16); measured z within ±0.8
     dirs = directionset(30)
     g = vcat(fill(SVector(1.0, 0, 0), 6), dirs)
-    m = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), gx = getindex.(g, 1), gy = getindex.(g, 2),
-            gz = getindex.(g, 3))
+    m = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), g = g)
     θ = (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
     mc = montecarlo(m, θ; snr = 20, noise = :gaussian, secondorder = true, n = 20_000,
                     rng = MersenneTwister(1))

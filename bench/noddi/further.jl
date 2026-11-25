@@ -26,8 +26,8 @@ const JC = ntuple(n -> 2 * (n - 1) * (n - 1.5) * (2n - 0.5) / _jD(n), NJ + 2)
 end
 for M in (:NODDI_JAC, :NODDI_FA)
     @eval begin
-        @kwdef struct $M{A,X,Y,Z} <: MRIModel
-            b::A; gx::X; gy::Y; gz::Z
+        @kwdef struct $M{A,G} <: MRIModel
+            b::A; g::G
         end
         relabel(::$M, θ) = _upperdirection(θ)
     end
@@ -35,15 +35,15 @@ end
 parameters(::Type{<:NODDI_JAC}) = parameters(NODDI)
 datastart(m::NODDI_JAC, y, p) = _tensordirection(m, y)
 function _noddijac!(out, m, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     κ = _kappa(ODI); μ = fiberdirection(theta, phi); τ = _watsoncos2(κ); Dperp = (1 - vic) * Dpar
     w0 = _coeffs(PW, UW, u -> exp(κ * (u^2 - 1)))
     w = w0 / w0[1]
     blast = -one(eltype(b))
     cw = w
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        t = g[j] ⋅ μ
         if iszero(b[j])
             Aic = one(t)
         else
@@ -66,12 +66,12 @@ signal!(out, m::NODDI_FA, p) = _noddijac!(out, m, p)
 # --- B. ODI from the tensor's FA ----------------------------------------------------------------
 # The voxel's log-linear tensor (as `_tensordirection`), its FA and direction
 function _tensorfa(m, y)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     T = eltype(y)
     A = zero(SMatrix{7,7,T}); r = zero(SVector{7,T})
-    @inbounds for j in eachindex(y, b, gx, gy, gz)
+    @inbounds for j in eachindex(y, b, g)
         y[j] > 0 || continue
-        x, yy, z, bj = T(gx[j]), T(gy[j]), T(gz[j]), T(b[j])
+        x, yy, z, bj = T(g[j][1]), T(g[j][2]), T(g[j][3]), T(b[j])
         row = SVector{7,T}(1, -bj * x * x, -bj * yy * yy, -bj * z * z, -2bj * x * yy, -2bj * x * z, -2bj * yy * z)
         w = y[j]^2
         A += w * row * row'; r += (w * log(y[j])) * row

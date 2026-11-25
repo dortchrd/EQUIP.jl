@@ -16,8 +16,8 @@ import EQUIP: parameters, signal!, datastart, relabel, _kappa, _watsoncos2, _i01
               _I0E_LO, _I0E_HI, _gausslegendre01, _tensordirection, _upperdirection
 for M in (:NODDI_I0, :NODDI_12, :NODDI_SH)
     @eval begin
-        @kwdef struct $M{A,X,Y,Z} <: MRIModel
-            b::A; gx::X; gy::Y; gz::Z
+        @kwdef struct $M{A,G} <: MRIModel
+            b::A; g::G
         end
         parameters(::Type{<:$M}) = parameters(NODDI)
         datastart(m::$M, y, p) = _tensordirection(m, y)
@@ -51,12 +51,12 @@ end
 const Z16, W16 = _gausslegendre01(16)
 const Z12, W12 = _gausslegendre01(12)
 function _noddi!(out, m, p, stickfun)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     κ = _kappa(ODI); μ = fiberdirection(theta, phi); τ = _watsoncos2(κ); Dperp = (1 - vic) * Dpar
     st = stickfun(κ)
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        t = g[j] ⋅ μ
         Aic = iszero(b[j]) ? one(t) : st(b[j] * Dpar, t)
         Aec = exp(-b[j] * (Dperp + (Dpar - Dperp) * (τ * t^2 + (1 - τ) * (1 - t^2) / 2)))
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
@@ -105,13 +105,13 @@ end
     return SVector(ntuple(i -> (4(i - 1) + 1) / 2 * c[i], Val(NL)))
 end
 function signal!(out, m::NODDI_SH, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     κ = _kappa(ODI); μ = fiberdirection(theta, phi); τ = _watsoncos2(κ); Dperp = (1 - vic) * Dpar
     w = _watsoncoeffs(κ)
     blast = -one(eltype(b)); ck = _stickcoeffs(zero(Dpar))
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        t = g[j] ⋅ μ
         if iszero(b[j])
             Aic = one(t)
         else
@@ -129,8 +129,8 @@ end
 # coefficients summed into stack arrays (MVector); per image one recurrence, summing as it goes
 for M in (:NODDI_SHFAST,)
     @eval begin
-        @kwdef struct $M{A,X,Y,Z} <: MRIModel
-            b::A; gx::X; gy::Y; gz::Z
+        @kwdef struct $M{A,G} <: MRIModel
+            b::A; g::G
         end
         parameters(::Type{<:$M}) = parameters(NODDI)
         datastart(m::$M, y, p) = _tensordirection(m, y)
@@ -163,7 +163,7 @@ const VK = collect(ZK)
     return SVector(c)
 end
 function signal!(out, m::NODDI_SHFAST, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     κ = _kappa(ODI); μ = fiberdirection(theta, phi); τ = _watsoncos2(κ); Dperp = (1 - vic) * Dpar
     w0 = _coeffs(PW, UW, u -> exp(κ * (u^2 - 1)))
@@ -171,8 +171,8 @@ function signal!(out, m::NODDI_SHFAST, p)
                                                                 #  captured by a closure is boxed)
     blast = -one(eltype(b))
     cw = w                                                      # (2l+1)/2·kₗ·wₗ/w₀, per shell
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        t = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        t = g[j] ⋅ μ
         if iszero(b[j])
             Aic = one(t)
         else

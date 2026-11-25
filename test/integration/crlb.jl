@@ -362,7 +362,7 @@ end
     # bias is their mean's (FA against montecarlo: test/validation/secondorder.jl)
     dirs = directionset(30)
     gd = vcat(fill(SVector(1.0, 0, 0), 6), dirs)
-    md = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), gx = getindex.(gd, 1), gy = getindex.(gd, 2), gz = getindex.(gd, 3))
+    md = DTI(b = vcat(fill(0.0, 6), fill(1000.0, 30)), g = gd)
     cd = crlb(md, (S0 = 1000.0, Dxx = 1.7e-3, Dyy = 0.4e-3, Dzz = 0.3e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0);
               snr = 20, secondorder = true)
     nb = cd.noisebias

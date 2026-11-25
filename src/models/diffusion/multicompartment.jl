@@ -12,12 +12,12 @@
 #                   NODDI without dispersion (its κ → ∞)
 #   BallStick       S = S0·[(1 − f)·iso(b, d) + f·stick(b, d, ξ)]          (Behrens et al., 2003)
 #
-#   ξ = g·n, the cosine between image j's gradient direction g = (gx, gy, gz) and the fiber's
+#   ξ = g·n, the cosine between image j's gradient direction g[j] (a unit vector) and the fiber's
 #   n = (sin θ cos φ, sin θ sin φ, cos θ) (`fiberdirection`); stick(b, D, ξ) = exp(−b·D·ξ²),
 #   zeppelin(b, D∥, D⊥, ξ) = exp(−b·D⊥ − b·(D∥ − D⊥)·ξ²), iso(b, D) = exp(−b·D)
 #
-# The acquisition is DTI's: each image's b and gradient direction, b, gx, gy, gz (from a .bval
-# and a .bvec by `diffusionencoding`). The models are written by hand, n once per voxel and
+# The acquisition is DTI's: each image's b and gradient direction, b and g (from a .bval and a
+# .bvec by `diffusionencoding`). The models are written by hand, n once per voxel and
 # ξ = g ⋅ n per image: written with `@mrimodel`, whose body runs once per image, the sines and
 # cosines are computed for every image, and the fit took about twice as long (examples/
 # directional_models.jl, where these were sketched; docs/design.md, roadmap item 17).
@@ -36,7 +36,7 @@
 # =================================================================================================
 
 """
-    StickZeppelin(; b, gx, gy, gz)
+    StickZeppelin(; b, g)
 
 One fiber bundle, every image: intra-axonal water as a stick and extra-axonal water as a
 zeppelin along the same direction n(θ, φ), with the same parallel diffusivity and the radial
@@ -47,7 +47,7 @@ from the directions' average),
     S  = S0·[vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)]
     D⊥ = (1 − vax)·Dax,   ξ = g·n,   n = (sin θ cos φ, sin θ sin φ, cos θ)
 
-- acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` of every image, from a
+- acquisition: `b` (s/mm²) and the gradient direction `g` (a unit vector) of every image, from a
   .bval and a .bvec by [`diffusionencoding`](@ref)
 - free by default: `S0`; `vax`, the intra-axonal fraction (0 to 1); `Dax`, the axial
   diffusivity (mm²/s, 0 to 4e-3); `theta` and `phi`, the fiber's polar angle and azimuth
@@ -64,11 +64,9 @@ acq = diffusionencoding("dwi.bval", "dwi.bvec")
 res = fit(StickZeppelin(; acq...), dwi; mask)
 ```
 """
-@kwdef struct StickZeppelin{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct StickZeppelin{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A                                # b-values (s/mm²)
-    gx::X                               # gradient direction of each image (unit vectors):
-    gy::Y                               #   its x, y and z components
-    gz::Z
+    g::G                                # gradient direction of each image (a unit SVector{3})
 end
 
 parameters(::Type{<:StickZeppelin}) = (
@@ -80,12 +78,12 @@ parameters(::Type{<:StickZeppelin}) = (
 )
 
 function signal!(out, m::StickZeppelin, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vax, Dax, theta, phi) = p
     n = fiberdirection(theta, phi)                          # once per voxel
     Dperp = (1 - vax) * Dax                                 # the tortuosity limit
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ n                       # the cosine, gradient to fiber
+    @inbounds for j in eachindex(out, b, g)
+        ξ = g[j] ⋅ n                       # the cosine, gradient to fiber
         out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
     end
     return out
@@ -96,7 +94,7 @@ datastart(m::StickZeppelin, y, p) = _tensordirection(m, y)
 relabel(::StickZeppelin, θ) = _upperdirection(θ)
 
 """
-    StickZeppelinBall(; b, gx, gy, gz)
+    StickZeppelinBall(; b, g)
 
 [`StickZeppelin`](@ref) with a ball, free water (CSF) in the voxel as well: three compartments,
 the tissue's two along n(θ, φ) and an isotropic one with the free diffusivity,
@@ -109,7 +107,7 @@ diffusivity fitted: a fiber bundle's model where partial volume with CSF matters
 ventricles, in atrophy), as the free-water models do for the tensor (Pasternak et al., Magn
 Reson Med 2009).
 
-- acquisition: as [`StickZeppelin`](@ref)'s (`b`, `gx`, `gy`, `gz`); two shells or more, for the
+- acquisition: as [`StickZeppelin`](@ref)'s (`b`, `g`); two shells or more, for the
   ball to be told from the tissue
 - free by default: `S0`; `vax`, the intra-axonal fraction of the tissue (0 to 1; NODDI's `vic`);
   `viso`, the ball's fraction of the voxel (0 to 1); `Dax`, the axial diffusivity (mm²/s, 0 to
@@ -124,11 +122,9 @@ The direction starts from the voxel's diffusion tensor, as [`StickZeppelin`](@re
 res = fit(StickZeppelinBall(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct StickZeppelinBall{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct StickZeppelinBall{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 
 parameters(::Type{<:StickZeppelinBall}) = (
@@ -142,12 +138,12 @@ parameters(::Type{<:StickZeppelinBall}) = (
 )
 
 function signal!(out, m::StickZeppelinBall, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vax, viso, Dax, theta, phi, Diso) = p
     n = fiberdirection(theta, phi)
     Dperp = (1 - vax) * Dax
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ n
+    @inbounds for j in eachindex(out, b, g)
+        ξ = g[j] ⋅ n
         tissue = vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ)
         out[j] = S0 * ((1 - viso) * tissue + viso * iso(b[j], Diso))
     end
@@ -159,7 +155,7 @@ datastart(m::StickZeppelinBall, y, p) = _tensordirection(m, y)
 relabel(::StickZeppelinBall, θ) = _upperdirection(θ)
 
 """
-    BallStick(; b, gx, gy, gz)
+    BallStick(; b, g)
 
 The ball-and-stick model (Behrens et al., Magn Reson Med 2003;50:1077; FSL's bedpostx with
 one fiber): an isotropic compartment and a stick along n(θ, φ), with one diffusivity `d` for
@@ -167,7 +163,7 @@ both,
 
     S = S0·[(1 − f)·exp(−b·d) + f·exp(−b·d·ξ²)],   ξ = g·n,   n = (sin θ cos φ, sin θ sin φ, cos θ)
 
-- acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` of every image, from a
+- acquisition: `b` (s/mm²) and the gradient direction `g` (a unit vector) of every image, from a
   .bval and a .bvec by [`diffusionencoding`](@ref)
 - free by default: `S0`; `f`, the stick's fraction (0 to 1); `d`, the diffusivity (mm²/s, 0 to
   4e-3); `theta` and `phi`, the fiber's polar angle and azimuth (radians, unbounded: reported in
@@ -181,11 +177,9 @@ the data do not support them) are not modelled.
 res = fit(BallStick(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct BallStick{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct BallStick{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 
 parameters(::Type{<:BallStick}) = (
@@ -197,11 +191,11 @@ parameters(::Type{<:BallStick}) = (
 )
 
 function signal!(out, m::BallStick, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, f, d, theta, phi) = p
     n = fiberdirection(theta, phi)
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ n
+    @inbounds for j in eachindex(out, b, g)
+        ξ = g[j] ⋅ n
         out[j] = S0 * ((1 - f) * iso(b[j], d) + f * stick(b[j], d, ξ))
     end
     return out
@@ -225,13 +219,13 @@ function _tensordirection(m, y)
 end
 # The voxel's log-linear tensor's eigenvectors (columns, eigenvalues ascending), or nothing
 function _tensorvectors(m, y)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     T = eltype(y)
     A = zero(SMatrix{7,7,T})
     r = zero(SVector{7,T})
-    @inbounds for j in eachindex(y, b, gx, gy, gz)
+    @inbounds for j in eachindex(y, b, g)
         y[j] > 0 || continue
-        x, yy, z, bj = T(gx[j]), T(gy[j]), T(gz[j]), T(b[j])
+        x, yy, z, bj = T(g[j][1]), T(g[j][2]), T(g[j][3]), T(b[j])
         row = SVector{7,T}(1, -bj * x * x, -bj * yy * yy, -bj * z * z, -2bj * x * yy, -2bj * x * z, -2bj * yy * z)
         w = y[j]^2
         A += w * row * row'

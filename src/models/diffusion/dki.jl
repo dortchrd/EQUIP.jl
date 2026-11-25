@@ -34,14 +34,14 @@
 # =================================================================================================
 
 """
-    DKI(; b, gx, gy, gz)
+    DKI(; b, g)
 
 Diffusion kurtosis imaging (Jensen et al., Magn Reson Med 2005), in DIPY's parameterization,
 V = MD²·W:
 
     S = S0·exp(−b·gᵀDg + b²·Σᵢⱼₖₗ gᵢgⱼgₖgₗVᵢⱼₖₗ / 6)
 
-- acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` of every image, from a
+- acquisition: `b` (s/mm²) and the gradient direction `g` (a unit vector) of every image, from a
   .bval and a .bvec by [`diffusionencoding`](@ref); at least two shells besides b = 0 (e.g.
   1000 and 2000 s/mm²) and 15 directions on the highest
 - free by default: `S0`, D's six elements `Dxx`, `Dyy`, `Dzz`, `Dxy`, `Dxz`, `Dyz` (mm²/s), and
@@ -69,11 +69,9 @@ r = fit(DKI(; acq...), dwi; mask)
 d = derived(r)           # (MD = ..., FA = ..., ..., MK = ..., AK = ..., RK = ..., MKT = ...)
 ```
 """
-@kwdef struct DKI{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct DKI{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A                                # b-values (s/mm²)
-    gx::X                               # gradient direction of each image (unit vectors):
-    gy::Y                               #   its x, y and z components
-    gz::Z
+    g::G                                # gradient direction of each image (a unit SVector{3})
 end
 
 parameters(::Type{<:DKI}) = (
@@ -104,13 +102,14 @@ parameters(::Type{<:DKI}) = (
                                      p.V1333, p.V2333, p.V1122, p.V1133, p.V2233, p.V1123, p.V1223, p.V1233)
 
 function signal!(out, m::DKI, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
     V = _kurtosisvector(p)
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        gDg = gx[j]^2 * Dxx + gy[j]^2 * Dyy + gz[j]^2 * Dzz +
-              2gx[j] * gy[j] * Dxy + 2gx[j] * gz[j] * Dxz + 2gy[j] * gz[j] * Dyz
-        gVg = _kurtosisweights(gx[j], gy[j], gz[j]) ⋅ V                 # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
+    @inbounds for j in eachindex(out, b, g)
+        gx, gy, gz = g[j]                               # image j's gradient direction
+        gDg = gx^2 * Dxx + gy^2 * Dyy + gz^2 * Dzz +
+              2gx * gy * Dxy + 2gx * gz * Dxz + 2gy * gz * Dyz
+        gVg = _kurtosisweights(gx, gy, gz) ⋅ V                          # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
         out[j] = S0 * exp(-b[j] * gDg + b[j]^2 * gVg / 6)
     end
     return out

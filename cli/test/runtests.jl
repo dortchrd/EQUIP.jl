@@ -255,7 +255,7 @@ end
         @test rawmap(out("ns_vic.nii.gz")) ≈ Float32.(fit(NODDIConvolved(; acq...), data).params.vic)
         # help: the gradients from the files; the start described
         r = run("fit", "DTI", "--help")
-        @test r.code == 0 && occursin("--gx", r.out) && occursin(".bval and .bvec", r.out) &&
+        @test r.code == 0 && occursin("--bvec", r.out) && occursin(".bval and .bvec", r.out) &&
               occursin("the log-linear fit to the data", r.out)
         @test occursin("DTI", run("models").out) && occursin("DKI", run("models").out)
         @test occursin("from the data", run("fit", "StickZeppelin", "--help").out)
@@ -270,7 +270,17 @@ end
         cp(path("dti.nii.gz"), path("nobvec.nii.gz"); force = true)
         cp(path("dti.bval"), path("nobvec.bval"); force = true)
         e = bad("fit", "DTI", path("nobvec.nii.gz"))
-        @test occursin("DTI needs `gx`", e) && occursin(".bval and .bvec files beside the data", e)
+        @test occursin("DTI needs `g`", e) && occursin("--bvec", e)
+        # ... or named by the flags, as eddy writes its rotated directions (another name): the
+        # same maps as from the files beside the data
+        cp(path("dti.bvec"), path("dti.eddy_rotated_bvecs"); force = true)
+        r = run("fit", "DTI", path("nobvec.nii.gz"), "--bvec", path("dti.eddy_rotated_bvecs"), "--out", out("f_"))
+        @test r.code == 0 && rawmap(out("f_Dxx.nii.gz")) == rawmap(out("a_Dxx.nii.gz"))
+        @test occursin("--bval", bad("fit", "DTI", path("dti.nii.gz"), "--b", "0", "--bval", path("dti.bval")))
+        @test occursin("--bvec FILE", bad("fit", "DTI", path("dti.nii.gz"), "--g", "1,0,0"))
+        # the directions checked with the b-values, the file named
+        write(path("short.bvec"), "1 0\n0 1\n0 0\n")
+        @test occursin("short.bvec", bad("fit", "DTI", path("dti.nii.gz"), "--bvec", path("short.bvec")))
     end
 
     @testset "equip fit with MATLAB files: MAT loaded when named, maps back as .mat" begin

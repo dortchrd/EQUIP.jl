@@ -55,7 +55,7 @@ const _ODI_MIN = 2 / π * atan(1 / 64)
 # =================================================================================================
 
 """
-    NODDI(; b, gx, gy, gz)
+    NODDI(; b, g)
 
 Neurite orientation dispersion and density imaging (Zhang et al., NeuroImage 2012;61:1000):
 sticks (neurites) and a zeppelin (the space around them, its radial diffusivity from the
@@ -64,7 +64,7 @@ tortuosity limit) spread over orientations about μ(θ, φ) by a Watson distribu
 
     S = S0·[(1 − viso)·(vic·A_ic + (1 − vic)·A_ec) + viso·exp(−b·Diso)]
 
-- acquisition: `b` (s/mm²) and the gradient direction `gx`, `gy`, `gz` of every image, from a
+- acquisition: `b` (s/mm²) and the gradient direction `g` (a unit vector) of every image, from a
   .bval and a .bvec by [`diffusionencoding`](@ref); two shells or more (e.g. b = 700 or 1000
   and 2000 or more), as NODDI needs
 - free by default: `S0`; `vic`, the intra-neurite fraction of the tissue (the neurite density
@@ -85,11 +85,9 @@ in 12–15 s on 4 threads.
 res = fit(NODDI(; diffusionencoding("dwi.bval", "dwi.bvec")...), dwi; mask)
 ```
 """
-@kwdef struct NODDI{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct NODDI{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 
 parameters(::Type{<:NODDI}) = (
@@ -104,14 +102,14 @@ parameters(::Type{<:NODDI}) = (
 )
 
 function signal!(out, m::NODDI, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)                      # once per voxel
     w = watson(_kappa(ODI), b, Dpar)                    # the neurites' distribution; the stick's
                                                         #  series kept for each shell
     Dpare, Dperpe = watsontensor(Dpar, (1 - vic) * Dpar, w)   # the extra-neurite tensor, averaged
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        ξ = g[j] ⋅ μ
         Aic = stick(b[j], Dpar, w(ξ))
         Aec = zeppelin(b[j], Dpare, Dperpe, ξ)
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
@@ -124,7 +122,7 @@ datastart(m::NODDI, y, p) = _tensordirection(m, y)
 relabel(::NODDI, θ) = _upperdirection(θ)
 
 """
-    NODDIConvolved(; b, gx, gy, gz)
+    NODDIConvolved(; b, g)
 
 [`NODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Watson distribution,
 as the sticks' is, in place of Zhang's averaged tensor:
@@ -139,23 +137,21 @@ each extra-neurite water molecule samples many orientations within the diffusion
 differ by 2–4% at b = 2500, which the residuals cannot show, and shift white matter's vic and ODI
 by about 1.5–2 SDs at SNR 100 (docs/design.md, item 7): a choice to make, and to report.
 """
-@kwdef struct NODDIConvolved{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct NODDIConvolved{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 parameters(::Type{<:NODDIConvolved}) = parameters(NODDI)
 
 function signal!(out, m::NODDIConvolved, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)
     Dperp = (1 - vic) * Dpar
     w = watson(_kappa(ODI), b, Dpar)                    # the sticks': their series per shell
     wz = watson(w, b, Dpar - Dperp)                     # the same distribution, the zeppelin's excess
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        ξ = (gx[j], gy[j], gz[j]) ⋅ μ
+    @inbounds for j in eachindex(out, b, g)
+        ξ = g[j] ⋅ μ
         Aic = stick(b[j], Dpar, w(ξ))
         Aec = zeppelin(b[j], Dpar, Dperp, wz(ξ))
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
@@ -172,7 +168,7 @@ relabel(::NODDIConvolved, θ) = _upperdirection(θ)
 # =================================================================================================
 
 """
-    BinghamNODDI(; b, gx, gy, gz)
+    BinghamNODDI(; b, g)
 
 NODDI with anisotropic orientation dispersion, the Bingham distribution (Tariq et al.,
 NeuroImage 2016;133:207): neurites that fan more in one plane than across it, as where fibers
@@ -180,7 +176,7 @@ fan out or bend,
 
     S = S0·[(1 − viso)·(vic·A_ic + (1 − vic)·A_ec) + viso·exp(−b·Diso)],   B(n) ∝ exp(κ(μ·n)² + β(μβ·n)²)
 
-- acquisition: as [`NODDI`](@ref)'s (`b`, `gx`, `gy`, `gz`; two shells or more)
+- acquisition: as [`NODDI`](@ref)'s (`b`, `g`; two shells or more)
 - free by default: `S0`, `vic`, `viso`, `ODI` (κ = cot(π·ODI/2), 0.01 to 1, as NODDI's), and
   `betafraction`, β/κ from 0 (Watson: [`NODDI`](@ref)) to 1 (spread evenly in the fan's plane);
   `theta`, `phi`, the mean orientation μ, and `psi`, the fan's direction μβ as an angle about μ
@@ -196,15 +192,13 @@ fan out or bend,
 The orientations start from the voxel's diffusion tensor: μ its principal eigenvector, as
 [`StickZeppelin`](@ref)'s, and ψ from its second (the fan spreads the diffusion along μβ).
 """
-@kwdef struct BinghamNODDI{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct BinghamNODDI{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 
 """
-    BinghamNODDIConvolved(; b, gx, gy, gz)
+    BinghamNODDIConvolved(; b, g)
 
 [`BinghamNODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Bingham
 distribution, `zeppelin(b, D∥, D⊥, B(g))`, as the sticks' is, in place of the averaged tensor:
@@ -212,11 +206,9 @@ the Bingham counterpart of [`NODDIConvolved`](@ref) (its reasons there). The sam
 and derived quantities as BinghamNODDI's. Two quadratures an image (the sticks' and the
 zeppelin's), so about twice BinghamNODDI's time.
 """
-@kwdef struct BinghamNODDIConvolved{A<:AbstractVector,X<:AbstractVector,Y<:AbstractVector,Z<:AbstractVector} <: MRIModel
+@kwdef struct BinghamNODDIConvolved{A<:AbstractVector,G<:AbstractVector} <: MRIModel
     b::A
-    gx::X
-    gy::Y
-    gz::Z
+    g::G
 end
 # the methods they share: the parameters, derived quantities, start and labels
 const _BinghamNODDIs = Union{BinghamNODDI,BinghamNODDIConvolved}
@@ -235,32 +227,32 @@ parameters(::Type{<:_BinghamNODDIs}) = (
 )
 
 function signal!(out, m::BinghamNODDI, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, betafraction, theta, phi, psi, Dpar, Diso) = p
     κ = _kappa(ODI)
     μ, μβ, _ = _binghamaxes(theta, phi, psi)
     B = bingham(κ, betafraction * κ, μ, μβ)             # once per voxel
     Dec = binghamtensor(Dpar, (1 - vic) * Dpar, B)      # the extra-neurite tensor, averaged
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        g = SVector(gx[j], gy[j], gz[j])
-        Aic = stick(b[j], Dpar, B(g))
-        Aec = exp(-b[j] * (g' * Dec * g))
+    @inbounds for j in eachindex(out, b, g)
+        gj = g[j]                                       # image j's gradient direction
+        Aic = stick(b[j], Dpar, B(gj))
+        Aec = exp(-b[j] * (gj' * Dec * gj))
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
     end
     return out
 end
 
 function signal!(out, m::BinghamNODDIConvolved, p)
-    (; b, gx, gy, gz) = m
+    (; b, g) = m
     (; S0, vic, viso, ODI, betafraction, theta, phi, psi, Dpar, Diso) = p
     κ = _kappa(ODI)
     μ, μβ, _ = _binghamaxes(theta, phi, psi)
     B = bingham(κ, betafraction * κ, μ, μβ)
     Dperp = (1 - vic) * Dpar
-    @inbounds for j in eachindex(out, b, gx, gy, gz)
-        g = SVector(gx[j], gy[j], gz[j])
-        Aic = stick(b[j], Dpar, B(g))
-        Aec = zeppelin(b[j], Dpar, Dperp, B(g))
+    @inbounds for j in eachindex(out, b, g)
+        gj = g[j]
+        Aic = stick(b[j], Dpar, B(gj))
+        Aec = zeppelin(b[j], Dpar, Dperp, B(gj))
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
     end
     return out

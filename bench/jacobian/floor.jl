@@ -7,8 +7,8 @@ import EQUIP: normal_equations, VoxelProblem, _pick
 TE = collect(0.01:0.01:0.32)
 function dmodel(M)
     g = directionset(30)
-    b = [0.0; fill(1000.0, 30); fill(2000.0, 30)]; G = [[(0.0, 0.0, 0.0)]; g; g]
-    M(b = b, gx = [x[1] for x in G], gy = [x[2] for x in G], gz = [x[3] for x in G])
+    b = [0.0; fill(1000.0, 30); fill(2000.0, 30)]
+    M(b = b, g = [[SVector(0.0, 0.0, 0.0)]; g; g])
 end
 md, mk = dmodel(DTI), dmodel(DKI)
 cases = [("QMTSIREqualR1 4-point", QMTSIREqualR1(; SIR_4POINT...), (PSR = 0.15, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)),

@@ -17,8 +17,9 @@
 
 The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y plane), in
 radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
-g = (gx[j], gy[j], gz[j]), the cosine between them is ξ = g ⋅ n (Julia's dot product, which
-EQUIP exports: it takes tuples, with nothing allocated): the view `ξ` that the compartments
+g[j] (a model's field `g`, a unit `SVector{3}` per image), the cosine between them is
+ξ = g[j] ⋅ n (Julia's dot product, which EQUIP exports: it takes tuples and static vectors, with
+nothing allocated): the view `ξ` that the compartments
 [`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction, and for unit vectors
 also the gradient's projection on the fiber. Only ξ² enters their signals, so n and −n are the
 same fiber. Not a compartment: the geometry that gives a directional compartment its view.
@@ -30,9 +31,8 @@ image").
 
 ```julia
 n = fiberdirection(θ, φ)                                  # once per voxel
-for j in eachindex(out, b, gx, gy, gz)
-    g = (gx[j], gy[j], gz[j])                             # image j's gradient direction
-    ξ = g ⋅ n                                             # the cosine, gradient to fiber
+for j in eachindex(out, b, g)
+    ξ = g[j] ⋅ n                                          # the cosine, image j's gradient to fiber
     out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
 end
 ```

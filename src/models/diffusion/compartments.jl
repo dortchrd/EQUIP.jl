@@ -11,7 +11,7 @@
 # direction set samples), or `powder`, its average over all directions (the spherical mean,
 # NMR's powder average, what SMT fits). `stick(b, D)` without a view is an error that says which
 # to write. The isotropic compartment is the same in every view and takes none. The cosine for one image comes from
-# `fiberdirection` (directions.jl) and Julia's dot product: ξ = (gx[j], gy[j], gz[j]) ⋅ n.
+# `fiberdirection` (directions.jl) and Julia's dot product: ξ = g[j] ⋅ n.
 #
 # The name is the literature's: the compartments of Panagiotaki et al.'s taxonomy (NeuroImage
 # 2012: ball, stick, zeppelin, tensor, cylinder, sphere, dot) and of Microstructure.jl (Gong &

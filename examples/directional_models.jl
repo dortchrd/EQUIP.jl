@@ -31,7 +31,7 @@ rng = MersenneTwister(11)
 g = directionset(64)                                        # 64 unit vectors, z ≥ 0
 bval = [fill(0.0, 4); fill(1000.0, 64); fill(2500.0, 64)]
 bvec = reduce(hcat, [fill(SVector(0.0, 0.0, 0.0), 4); g; g])   # 3×132, as a .bvec (0 0 0 at b = 0)
-acq = diffusionencoding(bval, bvec)                         # (b, gx, gy, gz), checked;
+acq = diffusionencoding(bval, bvec)                         # (b, g), checked;
                                                             # from files: diffusionencoding("dwi.bval", "dwi.bvec")
 
 # --- 1. stick + zeppelin along one fiber direction n(θ, φ): EQUIP's `StickZeppelin` --------------
@@ -39,11 +39,11 @@ acq = diffusionencoding(bval, bvec)                         # (b, gx, gy, gz), c
 # n computed once per voxel in its `signal!` (`EQUIP.signal!(out, ::StickZeppelin, p)`).
 
 # the same model with the macro: the body is one image's signal, so n is computed for every image
-@mrimodel function StickZeppelinMacro(b, gx, gy, gz; S0 = Free(start = :scale, lower = 0),
+@mrimodel function StickZeppelinMacro(b, g; S0 = Free(start = :scale, lower = 0),
                                       vax = Free(start = 0.5, lower = 0, upper = 1),
                                       Dax = Free(start = 2.0e-3, lower = 0, upper = 4.0e-3),
                                       theta = Free(start = 0.5), phi = Free(start = 0.0))
-    ξ = (gx, gy, gz) ⋅ fiberdirection(theta, phi)                   # the cosine, gradient to fiber
+    ξ = g ⋅ fiberdirection(theta, phi)                              # the cosine, gradient to fiber
     Dperp = (1 - vax) * Dax                                          # tortuosity
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, Dperp, ξ))
 end
@@ -52,7 +52,7 @@ end
 # Built into EQUIP (src/models/diffusion/dti.jl): the six elements fitted, each voxel starting
 # from the weighted log-linear fit. Used below, on the b ≤ 1000 images.
 
-m = StickZeppelin(; acq...)                                 # `...`: b, gx, gy, gz as keywords
+m = StickZeppelin(; acq...)                                 # `...`: b and g as keywords
 display(m); println()
 
 # a stick and a zeppelin are tensors: D = D∥·nnᵀ, and D⊥·I + (D∥ − D⊥)·nnᵀ

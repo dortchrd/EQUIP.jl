@@ -3992,6 +3992,41 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
     .bvec in `readdata` (and its errors), the blocks, a hand-written stick–zeppelin on them
     (its signal against the equation written out, no allocation, fits in both precisions),
     and the refusal of 3-vector fields by `signal`, `fit` and `nobs`. 27 tests; full runs: EQUIP 2106, CLI 124, MRImages 103.
+- **Revised a third time (2026-11-25, the owner: "yes go ahead on a branch"): one field, `g`, an
+  `SVector{3}` per image** (branch `gvector-proto`). Asked by the owner ("do you think we should
+  not reconsider g as a matrix or tuple of 3 vectors"), with twelve directional models written:
+  - **Why now.** Every model's loop began by putting the vector back together,
+    `(gx[j], gy[j], gz[j])` or `SVector(gx[j], gy[j], gz[j])`, from three fields the .bvec had
+    held as one; every struct carried four fields and every loop `eachindex(out, b, gx, gy, gz)`.
+    With `g`: `g[j] ⋅ n`, `B(g[j])`, `gx, gy, gz = g[j]` (DTI, DKI), `eachindex(out, b, g)`, two
+    fields. And what comes next needs the vector whole: the gradients' frame (a rotation,
+    `g .= Ref(R) .* g`), rotations for motion, one kind of argument for every dispersed view,
+    b-tensors later (an `SMatrix` per image, not six component vectors). The 2026-11-05 option,
+    now with the evidence of the models.
+  - **Not a matrix** (3×N: the 2026-11-05 measurements, a Float32 fit kept it Float64, `nobs`
+    did not check its rows, `@mrimodel` cannot index it per image), **nor a tuple of three
+    vectors** (three fields under one name, `g[1][j]`, with methods of its own).
+  - **The generic code** (src/models/interface.jl): a per-observation field holds numbers or
+    static vectors of numbers (`_ObsValue`; anything else, plain vectors as directions, is
+    refused where every fit starts, naming `diffusionencoding`); `_to_precision` converts a
+    `Vector{SVector{N}}` to the fit's precision; `_signaltype` takes the numbers' type inside
+    the vectors (`_numbertype`); the display prints "61 directions"; the provenance sidecar
+    writes each direction as [x, y, z]. The protocol designer needed nothing: it converts only
+    fields of numbers to static vectors and keeps the others.
+  - **Files**: `diffusionencoding(bval, bvec) -> (b, g)`, also from a vector of directions
+    (`directionset`'s); `readdata`'s `found[:g]` (`DataInfo.found` holds numbers or
+    directions); the command line takes `--bval FILE` and `--bvec FILE` (eddy's rotated
+    directions, which have another name, need no renaming; checked together, the file named in
+    an error), and `--g` is refused with that remedy; `--gx`, `--gy`, `--gz` are gone.
+  - **Checked** (scratch gref/, 9 models × 2 acquisitions, one with b = 8000 for NODDI's
+    quadrature and b-values that vary by image): signals, starts, Float64 and Float32 fits,
+    iterations, derived values and crlb identical, bit for bit, for DTI, the three
+    multi-compartment models and the four NODDIs. DKI's signal and crlb identical at the truth;
+    at other points its signal moved by a few units in the last place (1e-12 relative: the
+    compiler's instruction choice for the new loads), which its 22-parameter fit amplifies to at
+    most 3e-6 of crlb's SD in Float64 and 0.6% in Float32: rounding. Speed: signals the same or
+    faster (−6% to +2%); one-voxel fits on one thread within ±3% of before for every model
+    (DKI 185.0 → 184.7 µs, NODDI 161 → 166, StickZeppelin 26.0 → 25.3).
 
 - **Reversed (2026-11-06, the owner): no families, no `decay`; every model in the standard
   format, the blocks EQUIP's own diffusion functions.** In the owner's words: "outside of the

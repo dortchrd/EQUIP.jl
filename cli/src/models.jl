@@ -10,9 +10,11 @@ const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay,
                   T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay, ADCDecay, ADCKurtosis,
                   DTI, DKI, StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, BinghamNODDI,
                   BinghamNODDIConvolved, IVIM, QMTSIR, QMTSIREqualR1)
-# The directional models: their acquisition is each image's b and gradient direction, read from
-# an FSL .bval and .bvec beside the data (as dcm2niix writes them), or given as flags.
-_directional(M) = (:gx, :gy, :gz) ⊆ fieldnames(M)
+# The directional models: their acquisition is each image's b and gradient direction g, read from
+# an FSL .bval and .bvec beside the data (as dcm2niix writes them), or from the files the flags
+# --bval and --bvec name (eddy's rotated .bvec, say); --b gives the b-values as numbers too.
+_directional(M) = (:b, :g) ⊆ fieldnames(M)
+const _ENCODING = ("bval", "bvec")              # the directional models' file flags
 # Named protocols (acquisitions), by name, and the models each is for.
 const _SIR = (QMTSIR, QMTSIREqualR1)
 const PROTOCOLS = (; SIR_5POINT = (_SIR, SIR_5POINT), SIR_4POINT = (_SIR, SIR_4POINT),
@@ -48,7 +50,8 @@ end
     buildmodel(M, a::Args, found; warn) -> model
 
 The model of type `M` with its acquisition from, in order of priority: the flags named after
-its fields (`--TI 0.01,0.05`; a Bool field, `--magnitude false`), a named protocol
+its fields (`--TI 0.01,0.05`; a Bool field, `--magnitude false`; for a directional model,
+`--bval` and `--bvec`, the files of its b-values and gradient directions), a named protocol
 (`--protocol SIR_5POINT`), and the values found beside the data (`found`, from `readdata`).
 A field the flags give that the files also give differently is reported to `warn`.
 """
@@ -68,13 +71,28 @@ function buildmodel(M, a::Args, found; warn::IO = stderr)
     end
     for k in fields                                           # 1. the flags
         has(a, String(k)) || continue
+        k === :g && _directional(M) && throw(ArgumentError("`--g`: give the gradient directions " *
+            "as a file, `--bvec FILE` (FSL's .bvec: three rows, x, y and z)"))
         s = value(a, String(k))
         v = fieldtype(M, k) === Bool ? _bool(s, k) : (x = numbers(s, k); length(x) == 1 ? x[1] : x)
-        if haskey(found, k) && !(length(found[k]) == length(v) && isapprox(found[k], v; rtol = 1e-6))
-            println(warn, "equip: warning: --$k differs from the value in the data's sidecar files " *
-                          "($(found[k])); using --$k")
-        end
+        _warndiffers(warn, found, k, v, "--$k")
         vals[k] = v
+    end
+    if _directional(M)                                        # 1. --bval and --bvec, files
+        has(a, "bval") && has(a, "b") && throw(ArgumentError("give the b-values once: --b or --bval"))
+        if has(a, "bval")
+            vals[:b] = readvalues(value(a, "bval"))
+            _warndiffers(warn, found, :b, vals[:b], "--bval")
+        end
+        if has(a, "bvec")
+            G = readbvec(value(a, "bvec"))
+            haskey(vals, :b) || throw(ArgumentError("--bvec $(value(a, "bvec")): give the " *
+                "b-values too, --bval FILE or --b (no .bval beside the data)"))
+            vals[:g] = _checkedencoding(vals[:b], G, value(a, "bvec")).g
+            _warndiffers(warn, found, :g, vals[:g], "--bvec")
+        elseif has(a, "bval") && haskey(vals, :g)               # the directions beside the data
+            _checkedencoding(vals[:b], vals[:g], value(a, "bval"))
+        end
     end
     try
         return M(; vals...)
@@ -83,11 +101,30 @@ function buildmodel(M, a::Args, found; warn::IO = stderr)
         k = e.var
         _directional(M) && throw(ArgumentError("$(nameof(M)) needs `$k`: put the FSL .bval and " *
             ".bvec files beside the data, with the data's name (dwi.nii.gz: dwi.bval, dwi.bvec; " *
-            "dcm2niix writes them), or give --b, --gx, --gy and --gz (one value per image: a " *
-            "comma list, start:step:stop, or @file); they were not found beside the data"))
+            "dcm2niix writes them), or name them, --bval FILE --bvec FILE (eddy's rotated " *
+            ".bvec, say); they were not found beside the data"))
         hint = M === QMTSIR ? ", or a named protocol (`--protocol SIR_5POINT`)" : ""
         throw(ArgumentError("$(nameof(M)) needs `$k`: give --$k (values in seconds: a comma " *
             "list, start:step:stop, or @file)$hint; the data's sidecar files did not have it"))
+    end
+end
+
+# A value the flags give that the files beside the data give differently: said, and the flag used
+function _warndiffers(warn, found, k, v, flag)
+    haskey(found, k) || return
+    f = found[k]
+    same = length(f) == length(v) && all(i -> isapprox(f[i], v[i]; rtol = 1e-6), eachindex(f, v))
+    same || println(warn, "equip: warning: $flag differs from the value in the data's sidecar " *
+                          "files ($(_short(f))); using $flag")
+end
+_short(f) = length(f) <= 6 ? string(f) : string(length(f), " values")
+# b and the directions checked together (one direction per b-value, unit vectors), naming the file
+function _checkedencoding(b, G, file)
+    try
+        return diffusionencoding(b, G)
+    catch e
+        e isa Union{ArgumentError,DimensionMismatch} || rethrow()
+        throw(ArgumentError("$file: $(e.msg)"))
     end
 end
 
@@ -99,7 +136,8 @@ end
 
 # The flags a subcommand accepts for model M: its fields, its parameters, the options.
 function _check_flags(a::Args, M, options, cmd)
-    known = Set([String.(fieldnames(M))...; String.(paramnames(M))...; options...])
+    known = Set([String.(fieldnames(M))...; String.(paramnames(M))...; options...;
+                 (_directional(M) ? collect(_ENCODING) : String[])...])
     for (name, _) in a.flags
         name in known && continue
         throw(ArgumentError("`--$name` is not a flag of `equip $cmd $(nameof(M))`. Its " *
@@ -122,6 +160,12 @@ function modelhelp(io::IO, M, cmd)
     _directional(M) && println(io, "  (read from the .bval and .bvec beside the data, FSL's, " *
                                "when they are there; the flags override them)")
     for k in fieldnames(M)
+        if k === :g && _directional(M)                       # the directions: a file
+            println(io, "  --", rpad("bval", 12), "FILE, the b-values (FSL's .bval; or --b, numbers)")
+            println(io, "  --", rpad("bvec", 12), "FILE, the gradient directions (FSL's .bvec: " *
+                        "eddy's rotated one, say)")
+            continue
+        end
         t = fieldtype(M, k) === Bool ? "true or false" : "numbers"
         println(io, "  --", rpad(k, 12), t)
     end
