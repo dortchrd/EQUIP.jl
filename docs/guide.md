@@ -424,8 +424,8 @@ for a 63-image NODDI signal. A view averages the *signal*. NODDI's extra-neurite
 averages the zeppelin's *tensor* (Zhang 2012, Eq. 5), an approximation: `watsontensor(D∥, D⊥, w)`
 gives that tensor's diffusivities, again a zeppelin along μ, `zeppelin(b, D∥ₑ, D⊥ₑ, ξ)`.
 `binghamtensor(D∥, D⊥, B)` gives the same for Bingham, a 3×3 tensor (signal exp(−b·gᵀDg)). The
-built-in `NODDI` and `BinghamNODDI` are written this way (src/models/diffusion/noddi.jl,
-bingham_noddi.jl). Watson is accurate (2e-8) for κ up to 64 at any b; Bingham by quadrature,
+built-in `NODDI` and `BinghamNODDI` are written this way (src/models/diffusion/noddi.jl, which
+has all four NODDIs). Watson is accurate (2e-8) for κ up to 64 at any b; Bingham by quadrature,
 about 0.6 µs an image.
 
 ```julia

@@ -64,7 +64,7 @@ function directionset(N::Integer; iterations::Integer = 2000)
                     f += d / norm(d)^3
                 end
             end
-            f -= dot(f, g[i]) * g[i]             # along the sphere
+            f -= (f ⋅ g[i]) * g[i]               # along the sphere
             F[i] = f
             maxf = max(maxf, norm(f))
         end

@@ -82,7 +82,7 @@ end
     @test d.MD ≈ 0.8e-3 rtol = 1e-12
     @test d.FA ≈ 0.7 rtol = 1e-12
     @test d.RD ≈ d.MD - (d.AD - d.MD) / 2 rtol = 1e-10
-    @test abs(dot([d.V1x, d.V1y, d.V1z], collect(n))) ≈ 1 rtol = 1e-12
+    @test abs([d.V1x, d.V1y, d.V1z] ⋅ collect(n)) ≈ 1 rtol = 1e-12
     θx = nominal(mt; AD = 1.7e-3, RD = 0.35e-3, direction = (2, 0, 0))     # any length
     @test θx == (S0 = 1.0, Dxx = 1.7e-3, Dyy = 0.35e-3, Dzz = 0.35e-3, Dxy = 0.0, Dxz = 0.0, Dyz = 0.0)
     # what it refuses, and what it says
@@ -111,7 +111,7 @@ end
     @test dk.AD ≈ 1.7e-3 rtol = 1e-12
     @test dk.RD ≈ 0.35e-3 rtol = 1e-12
     W = V(θk) ./ dk.MD^2                     # symmetric about n: the same K at each angle to it
-    W4(x) = dot(EQUIP._kurtosisweights(x...), W)
+    W4(x) = EQUIP._kurtosisweights(x...) ⋅ W
     u = normalize(cross(collect(n), [1.0, 0, 0])); w = cross(collect(n), u)
     ring = [W4(cos(0.4) .* collect(n) .+ sin(0.4) .* (cos(φ) .* u .+ sin(φ) .* w)) for φ in 0:0.5:3]
     @test maximum(ring) - minimum(ring) < 1e-10 * maximum(abs, ring)

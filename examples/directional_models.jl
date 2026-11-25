@@ -79,7 +79,7 @@ function principal(p, i)
 end
 pr = [principal(rd.params, i) for i in 1:nv]
 θd, φd, fa = first.(pr), getindex.(pr, 2), last.(pr)
-angerr(θ1, φ1, i) = acosd(clamp(abs(dot(SVector(sin(θ1) * cos(φ1), sin(θ1) * sin(φ1), cos(θ1)), ns[i])), 0, 1))
+angerr(θ1, φ1, i) = acosd(clamp(abs(SVector(sin(θ1) * cos(φ1), sin(θ1) * sin(φ1), cos(θ1)) ⋅ ns[i]), 0, 1))
 @printf("DTI (b ≤ 1000): FA %.2f, its direction %.1f° from the fibers (median)\n", median(fa), median(angerr.(θd, φd, 1:nv)))
 
 # --- stick + zeppelin: orientation fixed at DTI's, or fitted from it -------------------------------

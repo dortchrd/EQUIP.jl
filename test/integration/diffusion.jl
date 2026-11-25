@@ -157,7 +157,7 @@ end
     @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
     # the cosine is Julia's dot, exported by EQUIP too (the same function: no clash with LinearAlgebra)
     @test EQUIP.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(EQUIP)
-    @test Tuple(dirs[3]) ⋅ n ≈ dot(dirs[3], SVector(n))                     # two tuples
+    @test Tuple(dirs[3]) ⋅ n ≈ dirs[3] ⋅ SVector(n)                          # two tuples
     @test dirs[3] ⋅ n == Tuple(dirs[3]) ⋅ n                                  # or an SVector
     @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5
     tdot(g, n) = @allocated g ⋅ n
@@ -166,7 +166,7 @@ end
     # zeppelin written out, no allocation
     m = StickZeppelin(; acq...)
     θ = (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)
-    ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), SVector(n)) for j in 1:64]
+    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ SVector(n) for j in 1:64]
     Dp = 0.4 * 1.9e-3
     @test signal(m, θ) ≈ (@. 1000 * (0.6 * exp(-bv * 1.9e-3 * ξ^2) +
                                     0.4 * exp(-bv * Dp) * exp(-bv * (1.9e-3 - Dp) * ξ^2))) rtol = 1e-12
@@ -197,7 +197,7 @@ end
     # BallStick against Behrens et al. (MRM 2003), written out: one diffusivity, isotropic and
     # along the fiber (StickZeppelin's signal is checked written out in the test set above)
     n = SVector(fiberdirection(0.7, 0.3))
-    ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
+    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ n for j in eachindex(bv)]
     @test signal(mbs, tbs) ≈ (@. 1000 * (0.5 * exp(-bv * 1.2e-3) + 0.5 * exp(-bv * 1.2e-3 * ξ^2))) rtol = 1e-12
     # StickZeppelinBall (its signal written out in NODDI's test set, its limit ODI → 0) is
     # StickZeppelin where there is no ball
@@ -217,7 +217,7 @@ end
     err = Float64[]
     for th in range(0, π, length = 13), ph in range(-π, π, length = 13), (m, t) in ((msz, tsz), (mbs, tbs), (mszb, tszb))
         d = datastart(m, signal(m, merge(t, (theta = th, phi = ph))), NamedTuple())
-        push!(err, acosd(clamp(abs(dot(SVector(fiberdirection(d.theta, d.phi)), SVector(fiberdirection(th, ph)))), 0, 1)))
+        push!(err, acosd(clamp(abs(fiberdirection(d.theta, d.phi) ⋅ fiberdirection(th, ph)), 0, 1)))
     end
     @test maximum(err) < 0.15
     # ... and where no tensor can be fitted (no positive data), the x axis, finite
@@ -228,7 +228,7 @@ end
     nv = 500
     dirs = [normalize(SVector{3}(randn(rng, 3))) for _ in 1:nv]
     θt, φt = acos.(getindex.(dirs, 3)), atan.(getindex.(dirs, 2), getindex.(dirs, 1))
-    angle(r, i) = acosd(clamp(abs(dot(SVector(fiberdirection(r.params.theta[i], r.params.phi[i])), dirs[i])), 0, 1))
+    angle(r, i) = acosd(clamp(abs(fiberdirection(r.params.theta[i], r.params.phi[i]) ⋅ dirs[i]), 0, 1))
     for (m, t, q) in ((msz, tsz, :vax), (mbs, tbs, :f), (mszb, tszb, :vax))
         Y = simulate(m, merge(map(x -> fill(x, nv), t), (theta = θt, phi = φt)); snr = 50, noise = :rician, rng)
         r = fit(m, Y)
@@ -277,7 +277,7 @@ end
     for (κ, th) in ((0.5, 0.3), (12.0, 1.1), (64.0, 0.6))
         ph = (S0 = 1.0, vic = 1.0, viso = 0.0, ODI = 2 / π * atan(1 / κ), theta = th, phi = 0.4, Dpar = 1.7e-3, Diso = 3.0e-3)
         μh = SVector(fiberdirection(th, 0.4))
-        refh = [reference(bh[j] * 1.7e-3, dot(SVector(gs[(j - 1) ÷ 10 + 1]), μh), κ) for j in eachindex(bh)]
+        refh = [reference(bh[j] * 1.7e-3, gs[(j - 1) ÷ 10 + 1] ⋅ μh, κ) for j in eachindex(bh)]
         @test signal(mh, ph) ≈ refh rtol = 1e-7
     end
     # the images' order does not change their signals (the shells' coefficients kept by b)
@@ -300,7 +300,7 @@ end
     @test signal(m, t1) ≈ iso1 rtol = 1e-7
     # ODI → 0 (κ → ∞): the stick, zeppelin and ball without dispersion; the difference falls as 1/κ
     n = SVector(fiberdirection(0.7, 0.3))
-    ξ = [dot(SVector(acq.gx[j], acq.gy[j], acq.gz[j]), n) for j in eachindex(bv)]
+    ξ = [SVector(acq.gx[j], acq.gy[j], acq.gz[j]) ⋅ n for j in eachindex(bv)]
     nodisp = @. 1000 * (0.8 * (0.5 * exp(-bv * 1.7e-3 * ξ^2) + 0.5 * zeppelin(bv, 1.7e-3, Dp, ξ)) + 0.2 * exp(-bv * 3e-3))
     # ... which is StickZeppelinBall's signal, its axial diffusivity NODDI's D∥
     @test signal(StickZeppelinBall(; acq...), (S0 = 1000.0, vax = 0.5, viso = 0.2, Dax = 1.7e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)) ≈ nodisp rtol = 1e-12
@@ -364,8 +364,8 @@ end
             ψ = 2π * k / 256
             n = u * μ + sqrt(1 - u^2) * (cos(ψ) * μβ + sin(ψ) * μ3)
             B = wi * exp(κ * (u^2 - 1) + β * (1 - u^2) * cos(ψ)^2)
-            num += B * exp(-s * dot(g, n)^2); den += B
-            mom .+= B .* (dot(n, μ)^2, dot(n, μβ)^2, dot(n, μ3)^2)
+            num += B * exp(-s * (g ⋅ n)^2); den += B
+            mom .+= B .* ((n ⋅ μ)^2, (n ⋅ μβ)^2, (n ⋅ μ3)^2)
         end
         return num / den, mom ./ den
     end
@@ -418,8 +418,8 @@ end
         @test std(res.params[k]) ≈ c.sd[k] rtol = 0.2
     end
     fan(t, f, ψ) = EQUIP._binghamaxes(t, f, ψ)[2]                  # μβ (its sign is no matter)
-    @test median([acosd(min(1, abs(dot(fan(res.params.theta[i], res.params.phi[i], res.params.psi[i]),
-                                         fan(truth.theta[i], truth.phi[i], truth.psi[i]))))) for i in 1:nv]) < 5
+    @test median([acosd(min(1, abs(fan(res.params.theta[i], res.params.phi[i], res.params.psi[i]) ⋅
+                                     fan(truth.theta[i], truth.phi[i], truth.psi[i])))) for i in 1:nv]) < 5
     # the indices against Tariq et al. 2016's Table 1 (two decimals): ODI_P, ODI_S (the fitted
     # ODI), ODI_tot, DA_B, DA_T for their seven (κ, β), including β = κ
     table1 = ((4, 0, 0.16, 0.16, 0.16, 0, 0), (4, 2, 0.30, 0.16, 0.22, 0.5, 0.19), (4, 4, 1, 0.16, 1, 1, 0.73),
@@ -547,7 +547,7 @@ end
     # the principal eigenvector, in the upper hemisphere (z ≥ 0): D·e1 = λ1·e1, unit length
     e1 = [dv.V1x, dv.V1y, dv.V1z]
     @test D * e1 ≈ λ[3] * e1 rtol = 1e-10
-    @test norm(e1) ≈ 1 && dv.V1z >= 0 && abs(dot(e1, Ev[:, 3])) ≈ 1
+    @test norm(e1) ≈ 1 && dv.V1z >= 0 && abs(e1 ⋅ Ev[:, 3]) ≈ 1
     @test EQUIP._upperhemisphere(SVector(0.6, 0.0, -0.8)) == SVector(-0.6, -0.0, 0.8)
     @test EQUIP._upperhemisphere(SVector(0.6, -0.8, 0.0)) == SVector(-0.6, 0.8, -0.0)
     @test dv.MD ≈ mean(λ) rtol = 1e-12
@@ -671,7 +671,7 @@ end
     pg = withW(Dl, kt)
     D = Symmetric([Dl[1] Dl[4] Dl[5]; Dl[4] Dl[2] Dl[6]; Dl[5] Dl[6] Dl[3]])
     mdg = tr(D) / 3
-    Kn(n) = mdg^2 * dot(EQUIP._kurtosisweights(n...), collect(kt)) / dot(n, D * n)^2
+    Kn(n) = mdg^2 * (EQUIP._kurtosisweights(n...) ⋅ collect(kt)) / (n ⋅ (D * n))^2
     Jg = SymTridiagonal(zeros(64), [k / sqrt(4k^2 - 1) for k in 1:63])
     zg = eigen(Jg); zs, wz = zg.values, 2 .* zg.vectors[1, :] .^ 2
     MKavg = sum(wz[i] * sum(Kn([sqrt(1 - zs[i]^2) * cos(φ), sqrt(1 - zs[i]^2) * sin(φ), zs[i]]) for φ in (0:255) .* (π / 128)) / 256 for i in 1:64) / 2

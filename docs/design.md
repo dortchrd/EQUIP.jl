@@ -6365,7 +6365,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          quadratic form is then of rank three, its eigenvalues per image (a 3×3 symmetric
          eigenproblem) and the same Bessel integral along one eigenvector. **Built 2026-11-23**
          (the owner: "yes, build it on a branch"; branch `bingham-proto`,
-         src/models/diffusion/bingham_noddi.jl), as `BinghamNODDI`:
+         src/models/diffusion/bingham_noddi.jl; since 2026-11-25 in noddi.jl), as `BinghamNODDI`:
          - **The parameterization is Tariq's, as dmipy writes it** (its `SD2Bingham`: B ∝
            exp(κ(μ·n)² + β(μβ·n)²), κ = cot(π·ODI/2), β = betafraction·κ, the fan at ψ about μ;
            Tariq 2016, Eq. 10, κ = κ1 − κ3, β = κ2 − κ3, μβ their primary dispersion orientation
@@ -7388,6 +7388,17 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        (the ball costs vax's precision twice over), viso 0.039; 20,000 voxels at Rician SNR 30
        (vax 0.4–0.8, viso 0–0.3, Dax 1.5–2.3e-3), every voxel converged in 7.2 iterations on
        average, 8.0 µs a voxel: a brain's 294,912 voxels in 2.3 s.
+     - **The four NODDIs in one file, and one spelling of the dot product** (2026-11-25, the
+       owner: "put all noddis into the same noddi.jl file. then check to make sure dot product
+       is consistent"): bingham_noddi.jl moved into noddi.jl, one header with the four forms as
+       a table (Watson or Bingham, the zeppelin's tensor or its signal averaged), `_ODI_MIN` and
+       `_kappa` at the top as the four share them. The code was moved, not changed. The dot
+       product is written `a ⋅ b` everywhere in src/, test/ and examples/ (it had been
+       `dot(a, b)` in the solver's predicted decrease, crlb's second-order bias, DKI and
+       `directionset`, and `⋅` in the directional models): the same function (LinearAlgebra's
+       `⋅` is `dot`), so results are unchanged; `⋅` because it reads as the papers' g·n and is
+       what EQUIP exports for writing models. Quadratic forms stay `g' * D * g`. A rule in
+       CLAUDE.md's style.
    - **The acquisition, shared.** Every directional model takes b, gx, gy, gz; one helper builds
      them from the files, `diffusionencoding(bval, bvec) -> (b = ..., gx = ..., gy = ..., gz =
      ...)` (tested in scratch handmodels.jl, as `diffusion`, and as option A of 2026-11-05),

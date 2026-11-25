@@ -26,7 +26,7 @@ module EQUIP
 # function that another package owns. We do that for a few standard function names, so that our
 # `fit` IS StatsBase's `fit` (and our `init` is SciML's `init`): loading those packages together
 # then causes no name clash.
-using LinearAlgebra                        # dot, Diagonal, diag; cholesky (DTI's start)
+using LinearAlgebra                        # ⋅ (dot), Diagonal, diag; cholesky (DTI's start)
 import LinearAlgebra: cond                 # cond(c): a crlb result's condition number
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives

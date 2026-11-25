@@ -217,7 +217,7 @@ end
     mo = [EQUIP._ricianmoments(a / σ, a / σ) for a in A(x0)]
     R = [EQUIP._ricianR(a / σ) for a in A(x0)]
     Ii = inv(sum(R[i] / σ^2 * J[i, :] * J[i, :]' for i in 1:32))
-    bcs = Ii * sum(J[i, :] * ((mo[i].vu + mo[i].w / 2) / σ^3 * dot(J[i, :], Ii * J[i, :]) -
+    bcs = Ii * sum(J[i, :] * ((mo[i].vu + mo[i].w / 2) / σ^3 * (J[i, :] ⋅ (Ii * J[i, :])) -
                               R[i] / σ^2 / 2 * tr(Ii * Hs[i, :, :])) for i in 1:32)
     @test collect(c2.noisebias) ≈ bcs rtol = 1e-7
     @test c2.bias == c2.noisebias && c2.noisebias.T2 > 0          # nothing wrong: T2 +0.78% at SNR 10

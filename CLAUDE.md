@@ -52,7 +52,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor written out, with a log-linear
-  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged); bingham_noddi.jl: `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), both written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
+  start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with Julia's `⋅` gives a
   directional compartment its view ξ = g ⋅ n; `directionset`, N gradient directions spread
   evenly, to simulate a scheme)
 - src/fit/, in pipeline order: setup.jl (`FitSpec`) → starts.jl and loglinear.jl (`:loglinear`)
@@ -123,6 +123,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   at the top of each file, comments that say why, equations in the papers' notation, citations
   (author, journal, year, table) for published values.
 - Times in seconds, rates in 1/s.
+- Dot products as `a ⋅ b` (LinearAlgebra's `dot`, the papers' g·n), never `dot(a, b)`; quadratic
+  forms as `g' * D * g` (gᵀDg).
 - Naming: "parameters" are the quantities in the signal equation (T1, PSR, M0, B1, ...), fitted
   or fixed; the "acquisition" is the protocol (TI, TE, flip angles, ...), never "parameters".
 - Match the surrounding code; explain Julia idioms (dispatch, type parameters, closures) when

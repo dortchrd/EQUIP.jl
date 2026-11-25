@@ -369,7 +369,7 @@ function levmar(prob::VoxelProblem, θ0::SVector{P,T}, lo::SVector{P,T}, hi::SVe
 
         # --- evaluate the trial point and compare actual vs predicted SSE decrease ------------
         ssen, An, gn = normal_equations(prob, θn, buf)
-        pred = -(2 * dot(g, s) + dot(s, A * s))  # decrease predicted by the linear model
+        pred = -(2 * (g ⋅ s) + s ⋅ (A * s))    # decrease predicted by the linear model
         actual = sse - ssen
         if isfinite(ssen) && _allfinite(gn) && _allfinite(diag(An)) && pred > 0 && actual > 0 &&
            !_lost_influence(A, An, fm)                      # not into a dead zone (see above)
