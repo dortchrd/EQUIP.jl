@@ -8333,3 +8333,31 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        none measured against the prototype.
    - Batching across voxels (W voxels in lockstep) stays out: the Performance notes,
      "Batching", have the reasons.
+27. **Gradient directions: what is left after `g`** (2026-11-25, the owner: "rethink now we have
+   all the diff models"; the first two items below done that day, branch `gvector-proto`):
+   - **Done: one field, `g`** (an SVector{3} per image, typed `DiffusionDirections`, checked by
+     every directional model's constructor, `checkencoding`), and **`--bval FILE`, `--bvec
+     FILE`** on the command line (eddy's rotated directions without renaming).
+   - **Shells, for speed on real data.** NODDI keeps the stick's series per b-value and shares
+     it only between images whose b are equal to the last digit; scanners write b per direction
+     (995, 1000, 1005). Measured (2 × 30 directions, b jittered ±5–10): NODDI 4.6 → 18 µs a
+     signal, 34 → 61 µs a voxel's fit; NODDIConvolved 8.4 → 33 and 63 → 301. The models also
+     disagree on what a shell is (SMT groups b within 100 and takes the mean; NODDI and IVIM
+     match exactly). Planned: one shell grouping for all, and within a shell the series'
+     coefficients corrected to each image's own b by a short Taylor expansion in b (each image
+     keeps its b, to about 1e-7), so NODDI keeps its exact-shell speed.
+   - **The frame of the direction maps, stated.** `theta`, `phi`, `psi` and DTI's V1 are in the
+     .bvec's frame (dcm2niix and FSL: the image axes, x flipped for neurological storage): as
+     FSL's dtifit and FSLeyes, not MRtrix (scanner coordinates), and wrong if θ/φ maps from
+     another tool are given to fix the direction. Scalar maps (FA, NDI, ODI) are not affected.
+     Planned: say it in the guide, write the frame into each direction map's sidecar; later a
+     conversion to scanner coordinates (`g .= Ref(R) .* g` with the affine's rotation).
+   - **One kind of argument for every dispersed view.** Watson's view takes the cosine, `w(ξ)`;
+     Bingham's the direction, `B(g)`. Planned: every view takes `g[j]` (Watson holding μ), a
+     bare cosine ξ kept for one fixed direction.
+   - **Non-unit directions, rescaled on request.** Refused now (above b = 50). Some protocols set
+     several b-values by the vector's length (b·|g|², which MRtrix rescales by default):
+     an option to `diffusionencoding` that rescales b and normalizes g, never by default.
+   - **Later:** gradient nonlinearity per voxel (HCP's `grad_dev.nii.gz`: each voxel's own
+     b-matrix, an acquisition per voxel, which the fit does not take now), and b-tensor
+     encoding (planar, spherical; an SMatrix per image, the B-matrix item above).
