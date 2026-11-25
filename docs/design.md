@@ -8446,3 +8446,25 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      b-matrix, an acquisition per voxel, which the fit does not take now), and b-tensor
      encoding (planar, spherical): an SMatrix per image now that `g` holds SVectors, not the
      six component vectors of the 2026-11-04 rule (the B-matrix item above).
+28. **Preparing the work that does not depend on the fitted parameters, once per fit** (the owner,
+   2026-11-25: "If D∥ is fixed, why interpolate the stick coefficients repeatedly during fitting
+   at all? ... Ideally, this would be a generic mechanism for preparing parameter-independent
+   calculations. ... worth exploring as a broader optimization across EQUIP"; not for now, not a
+   NODDI-specific cache). NODDI's stick coefficients depend on β = b·D∥ only, so with D∥ fixed
+   (as NODDI fixes it) they are the same for every iteration, every Jacobian and Hessian, and
+   every voxel; they are made per image at every signal now (item 27: the 11% NODDI pays on exact
+   shells). A sketch to measure before deciding:
+   - **One optional hook**, `prepare(m, fixed) -> m′`, called by `init` after `setup` (where the
+     fixed values are known and the model is rebuilt in the fit's precision); the default returns
+     `m`. A model that uses it returns itself with per-image data made once (NODDI: kₗ at each
+     image's b·D∥, a per-image field of SVectors, which the per-observation rule now allows).
+   - **The three cases**: a globally fixed value, prepared once per fit; a map of fixed values,
+     per voxel, where the fit picks each voxel's (`_voxel_fixed`); a free parameter, nothing.
+   - **Correct by construction**: the prepared data record the values they were made for, and
+     `signal!` uses them only when the parameter arriving is that plain number, otherwise
+     computing as now. crlb's `leakage` seeds the fixed values as dual numbers (dθ̂/dc), and the
+     protocol designer rebuilds models per protocol; both then fall back, and nothing goes stale.
+   - **Other candidates**: work that depends on the acquisition alone (DKI's 15 kurtosis weights
+     per image, made at every signal), and any model's terms in fixed parameters only.
+   - **To measure**: NODDI's whole brain with kₗ prepared (the per-image product with the fitted
+     wₗ remains, so not all of the 11% may return), and DKI's.

@@ -13,8 +13,16 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `shells-proto` | (2026-11-25, the owner: "Prototype both", then "Yes") the Watson stick's kₗ from a table in β, each image at its own b, in place of the 8-shell cache: by quintic Hermite (kₗ, k′ₗ, k″ₗ) with its own derivative rule, read-only, exact outside its range: NODDI on scanner-written b-values (they vary by direction) 18.0 → 11.1 s a whole brain, NODDIConvolved 109 → 21.5 s; exact shells 9.8 → 10.9 s and 22.9 → 21.5 s; Jacobians within 4e-13 and Hessians 1.4e-8 of the original, crlb 4e-12, Float32 fits identical (docs/design.md, item 27, "Shells"). The full suite (3372) and the second-order validation pass. Waits on the owner's merge. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (fast-forward, 2026-11-25, the owner: "I would merge once CI passes"):
+`shells-proto`, the Watson stick's kₗ from a table in β (quintic Hermite of kₗ, k′ₗ, k″ₗ, with
+its own derivative rule; read-only; exact outside [0, 12.85)), in place of the 8-shell cache:
+NODDI on scanner-written b-values 18.0 → 11.1 s a whole brain, NODDIConvolved 109 → 21.5 s;
+exact shells 9.8 → 10.9 s (the owner: "an acceptable trade-off") and 22.9 → 21.5 s; Jacobians
+within 4e-13 and Hessians 1.4e-8 of the original, crlb 4e-12, Float32 fits identical. Checked
+first: the full `Pkg.test` (3372), the second-order validation, CI (9fbf235, all six jobs). The
+branch is to delete (`git push origin --delete shells-proto`).
 
 Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "merge into main"):
 `gvector-proto`, with `noddi-file` in it. The four NODDIs in one file (noddi.jl) and dot products
