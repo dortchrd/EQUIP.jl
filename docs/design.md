@@ -6325,6 +6325,27 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        (the same code; this session's machine, or the tissue mix): the rows compare with each
        other, not with earlier runs. Not tried: computing Er and Es once per signal where TR, tm
        and ts are the same for every image (two of the three exponentials per image).
+     - **A cleaner form without exponentials?** (the owner, 2026-11-26: "Is there a cleaner form
+       without matrix exp much like we have for sir?"). Searched: no exact one. Yarnykh 2002
+       (abstract: "an approximated analytical model ... a three-parameter equation for the
+       steady-state Z-spectrum far from resonance") and the simplified cross-relaxation-imaging
+       form (as Mossahebi, Yarnykh & Samsonov, MRM 2014, Eqs. 8–10 give it: MzF(W)/MzF(0) ≈
+       [P + (Q − 1)·s·W_B]/[P + Q·s·W_B], P = (R1 − (1 − f)·ln(cos α)/TR)/f, Q = (R1 − ln(cos α)/TR)/k
+       + 1, s = tm/TR) are first order in TR: the excitation and the MT pulse spread over TR as
+       continuous rates, R1F = R1B, the free pool's direct saturation neglected (Δ > 2.5 kHz);
+       Ramani et al. 2002's continuous-wave power equivalent (Henkelman's CW steady state at the
+       pulse's mean power) is the same idea. In EQUIP's terms, generally (R1m ≠ R1f, the free
+       pool saturated too): 0 = (A − s·W + diag(ln cos α, 0)/TR)·M + R1·M0, one 2×2 solve an image,
+       no exponential. Measured (bench/qmt/averaged.jl): under Yarnykh's assumptions it gives his
+       P/Q ratio within 1e-2 (the published form simplifies further, R1 against k/f, as their
+       Eq. 6); against the exact model on the 13-image protocol, white matter, the MT images over
+       the MT-off one differ by 0.55%, 1.57% and 3.45% at kmf 10, 20 and 40 (kmf·TR is not small),
+       and fitting exact noise-free data with it biases PSR +1.5 to +1.8%, kmf −3.5, −5.9 and
+       −11.1%, T2m +0.3 to +0.4%, T2f −0.4 to −1.6% (against SNR-100 SDs of 6.8% for PSR, 14% for
+       kmf). Exact without matrices, as SIR's (Li's form): A's two rates and amplitudes once per
+       signal, so the free intervals tr and ts are two scalar exponentials each (once per signal
+       when TR, tm and ts are the same for every image), and only the MT interval's own pair per
+       image; the same answers, fewer exponentials. Not built yet: the owner to choose.
      - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
        presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
        the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had
