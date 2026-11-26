@@ -18,35 +18,32 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
 `_tensorvector`, which stays for the signals, where D's order must match the weights' (docs/design.md,
-item 30). The same matrix bit for bit; the full `Pkg.test` (3391) first. The branch is to delete
-(`git push origin --delete tensor-names`).
+item 30). The same matrix bit for bit; the full `Pkg.test` (3391) first. Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `weights-arg`, `_tensorweights(g[j])` and
 `_kurtosisweights(g[j])` taking the direction itself; DTI and DKI unpacking `(; S0) = p` and their
 vectors by one helper each (`_tensorvector(p)`, `_kurtosisvector(p)`: each list of names written once),
 `_tensor` built from `_tensorvector`, DKI's `fromderived` reusing it. Results bit for bit as before;
-the full `Pkg.test` (3391) first. The branch is to delete (`git push origin --delete weights-arg`).
+the full `Pkg.test` (3391) first. Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "ok - merge?"): `tensorweights`,
 `_tensorweights` for gᵀDg as DKI's kurtosis weights, and `inner(a, b)`, EQUIP's own dot product
 (in order, inlined, no allocation; StaticArrays' ⋅ was 1.75–3× slower on dual numbers of many
 partials, a non-inlined call per term), for every dot product in EQUIP, `⋅` no longer exported: DKI's
 fit 27% faster, DTI's crlb 23%; results unchanged to rounding (docs/design.md, item 30). Checked
-first: the full `Pkg.test` (3391), the command line's (189), the validation group (76). The branch
-is to delete (`git push origin --delete tensorweights`).
+first: the full `Pkg.test` (3391), the command line's (189), the validation group (76). Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "Yes merge"): `gradients-io`, `readdata(paths;
 bval, bvec, scaleb)` (the files named in place of those beside the data); each direction map's sidecar
 says its frame (`"DirectionFrame": "bvec"`), the guide explains it, scanner coordinates on the roadmap
 (item 27); `watson(κ, μ)` and `w(g[j])`, as Bingham's view; `scaleb` (b-values set by the vectors'
 lengths, as MRtrix's), `--scaleb yes`. Checked first: the full `Pkg.test` (3384), the command line's
-(189), CI (466a7b3, all six jobs). The branch is to delete (`git push origin --delete gradients-io`).
+(189), CI (466a7b3, all six jobs). Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-25, the owner: "put on roadmap"): `prepare-proto`, a bench
 only (bench/prepare/prepare.jl) and its measurements in roadmap item 28: preparing the work that does not
 depend on the fitted parameters once per fit gains NODDI 9% (9.8 s a brain against 10.8), DKI nothing in a
-fit; kept on the roadmap at low priority. No code in src/. The branch is to delete (`git push origin
---delete prepare-proto`).
+fit; kept on the roadmap at low priority. No code in src/. Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-25, the owner: "I would merge once CI passes"):
 `shells-proto`, the Watson stick's kₗ from a table in β (quintic Hermite of kₗ, k′ₗ, k″ₗ, with
@@ -54,8 +51,7 @@ its own derivative rule; read-only; exact outside [0, 12.85)), in place of the 8
 NODDI on scanner-written b-values 18.0 → 11.1 s a whole brain, NODDIConvolved 109 → 21.5 s;
 exact shells 9.8 → 10.9 s (the owner: "an acceptable trade-off") and 22.9 → 21.5 s; Jacobians
 within 4e-13 and Hessians 1.4e-8 of the original, crlb 4e-12, Float32 fits identical. Checked
-first: the full `Pkg.test` (3372), the second-order validation, CI (9fbf235, all six jobs). The
-branch is to delete (`git push origin --delete shells-proto`).
+first: the full `Pkg.test` (3372), the second-order validation, CI (9fbf235, all six jobs). Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "merge into main"):
 `gvector-proto`, with `noddi-file` in it. The four NODDIs in one file (noddi.jl) and dot products
@@ -66,14 +62,12 @@ directional model's inner constructor, `checkencoding` (a direction per b-value,
 where b > 50), also written by `@mrimodel` and `newmodel` for an acquisition `b`, `g`. Results
 identical (DKI to rounding), speed unchanged (docs/design.md, "Directions per image", revised a
 third time). Checked first: the full `Pkg.test` (3367), the command line's (188), the examples, the
-second-order validation and CI (5e126ba, all six jobs). The branches are to delete (`git push origin
---delete gvector-proto noddi-file`).
+second-order validation and CI (5e126ba, all six jobs). Their branches deleted on GitHub (2026-11-26).
 
 Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "Merge into main"):
 `stickzeppelinball-proto`, `StickZeppelinBall`: StickZeppelin with a CSF ball (Diso fixed at
 3.0e-3), NODDI at ODI → 0 with Dax fitted; a brain in 2.3 s on 4 threads. Checked first: the full
-`Pkg.test` (3356), the command line's (184) and CI (4bfa84f). The branch is to delete (`git push
-origin --delete stickzeppelinball-proto`).
+`Pkg.test` (3356), the command line's (184) and CI (4bfa84f). Its branch deleted on GitHub (2026-11-26).
 
 Merged into `main` (2026-11-24, at the owner's request: "Merge"): `bingham-proto` (a merge), the
 dispersed views `watson(κ)` and `bingham(κ, β, μ, μβ)` for the compartments (src/models/diffusion/
@@ -82,8 +76,7 @@ owner: "add both variants"), `BinghamNODDI` (Tariq 2016; dmipy's parameterizatio
 betafraction, the fan's angle psi) and `BinghamNODDIConvolved`, with Tariq's indices (ODIP, ODItot,
 DAB, DAT) checked against the paper's Table 1. Whole brain on 4 threads: NODDI 12–15 s,
 NODDIConvolved 38 s, BinghamNODDI 85 s, BinghamNODDIConvolved 177 s. Checked first: the full
-`Pkg.test` on the merge (3327), the command line's (184), and CI on the branch's last code commit. The
-branch is to delete (`git push origin --delete bingham-proto`; still there on 2026-11-25). Not yet tried on the owner's data.
+`Pkg.test` on the merge (3327), the command line's (184), and CI on the branch's last code commit. Its branch deleted on GitHub (2026-11-26). Not yet tried on the owner's data.
 
 Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
 `models-proto`, four built-in diffusion models: `StickZeppelin` and `BallStick` (multi-compartment,
@@ -116,6 +109,11 @@ passes"): `qmtsir-simple`, `QMTSIREqualR1`, SIR with R1m = R1f and both pools sa
 start of TD, its signal in one line (named by the owner: "rename it QMTSIREqualR1"; the branch
 kept its name). Checked first: the full `Pkg.test` with the precompile workload (EQUIP 3002), the
 command line's (166), and CI on the branch's last commit, a26ffee (all six jobs).
+
+**Deleted on GitHub by the owner, 2026-11-26**, each merged into `main` first: `bingham-proto`,
+`stickzeppelinball-proto`, `noddi-file`, `gvector-proto`, `shells-proto`, `prepare-proto`,
+`gradients-io`, `tensorweights`, `weights-arg`, `tensor-names`. Kept: `main`, `lean`, `claude-oneshot`,
+`bestof-proto` (on hold), `experiments`.
 
 **Deleted on GitHub by the owner, 2026-11-23**, each first merged into `main` or archived in
 `experiments` (checked commit by commit): `models-proto`, `nii-default`, `nifti-units`,
