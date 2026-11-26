@@ -15,6 +15,12 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
+Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `weights-arg`, `_tensorweights(g[j])` and
+`_kurtosisweights(g[j])` taking the direction itself; DTI and DKI unpacking `(; S0) = p` and their
+vectors by one helper each (`_tensorvector(p)`, `_kurtosisvector(p)`: each list of names written once),
+`_tensor` built from `_tensorvector`, DKI's `fromderived` reusing it. Results bit for bit as before;
+the full `Pkg.test` (3391) first. The branch is to delete (`git push origin --delete weights-arg`).
+
 Merged into `main` (fast-forward, 2026-11-26, the owner: "ok - merge?"): `tensorweights`,
 `_tensorweights` for gᵀDg as DKI's kurtosis weights, and `inner(a, b)`, EQUIP's own dot product
 (in order, inlined, no allocation; StaticArrays' ⋅ was 1.75–3× slower on dual numbers of many
