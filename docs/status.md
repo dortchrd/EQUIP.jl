@@ -32,8 +32,7 @@ over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `P
 unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
 command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload). Ready to merge when the owner says. Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
 the time-averaged form measured (bench/qmt/averaged.jl), and how B1, B0 and R1obs errors propagate
-(bench/qmt/maperrors.jl; design.md item 6): unit tests pass (1721); the full `Pkg.test` again before
-merging.
+(bench/qmt/maperrors.jl; design.md item 6): the full `Pkg.test` passes (3482).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
