@@ -38,7 +38,9 @@
     e = msg(() -> nominal(T1IR(TI = [0.1, 1.0]); M0 = 5.0))
     @test occursin(r"\n  M0 +free +:scale +\[0.0, Inf\] +5.0\n", e)
     # mistakes
-    @test occursin("unknown parameter `kfm`", msg(() -> nominal(m; kfm = 3.0)))
+    # (a model without derived quantities: QMTSIR's names that are not parameters go to its
+    # fromderived, MPF and kfm, test/integration/derived.jl)
+    @test occursin("unknown parameter `kfm`", msg(() -> nominal(T1IR(TI = [0.1, 1.0]); kfm = 3.0)))
     @test occursin("is a role", msg(() -> nominal(m; kmf = Fixed(10.0))))
     @test occursin("itself a tie", msg(() -> nominal(m; Sm = :R1m)))
     @test occursin("missing: Sf", msg(() -> resolve(m, Base.structdiff(nominal(m), NamedTuple{(:Sf,)}))))
