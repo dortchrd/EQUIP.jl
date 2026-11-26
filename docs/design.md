@@ -8635,3 +8635,16 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      LinearAlgebra's `⋅` since 2026-11-06 so that `using EQUIP` alone was enough to write `g ⋅ n`
      in a model; with `inner` that reason is gone, and EQUIP offers one spelling. A model that
      uses `⋅` loads LinearAlgebra itself (the tests do, for their independent references).
+   - **The tensor's names: once where an order must match, written out where the code is read
+     against an equation** (the owner, 2026-11-26, of `_tensor`'s `SMatrix{3,3}(d[1], d[4], d[5],
+     …)`: "why write names in one place?"; branch `tensor-names`). The signals unpack `(; S0) = p`
+     and take D's six and V's fifteen from one helper each, `_tensorvector(p)` and
+     `_kurtosisvector(p)` (branch `weights-arg`): there the order is what matters, each element
+     against its weight (`inner(_tensorweights(g[j]), D)`), so it is written once, beside the
+     weights. `_tensor`, the 3×3 matrix, had been built from `_tensorvector` too, by index (`d[4]`
+     is Dxy because `_tensorvector` puts it fourth): no order to match there, and the indices hide
+     which element is where, so it is written by name, as the matrix,
+     `(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; Dxy Dyy Dyz; Dxz Dyz Dzz]`. The names are the
+     model's parameters (fixed by `parameters`; a misspelt one is an error at once), so writing
+     them again costs nothing. The same matrix bit for bit (Float64, Float32, mixed types, duals,
+     `fromderived`'s six alone), nothing allocated.

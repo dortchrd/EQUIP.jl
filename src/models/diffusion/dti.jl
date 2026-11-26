@@ -101,10 +101,10 @@ parameters(::Type{<:DTI}) = (
     return SVector(x^2, y^2, z^2, 2x * y, 2x * z, 2y * z)
 end
 # D's six elements, in the weights' order, from any named tuple that has them (a model's
-# parameters, S0 and V's among them; or the six alone, `fromderived`'s): the one place their names
-# are listed (beyond `parameters`), for the signal (DTI's, DKI's) and the tensor (`_tensor`,
-# below). The bundle goes in whole and the six are picked by name: the others are not read, and
-# nothing is copied (a named tuple's fields are known when compiling).
+# parameters, S0 and V's among them): the one place that order is written, for where it must match
+# `_tensorweights`' (the signal, DTI's and DKI's). The bundle goes in whole and the six are picked
+# by name: the others are not read, and nothing is copied (a named tuple's fields are known when
+# compiling).
 @inline _tensorvector(p) = SVector(p.Dxx, p.Dyy, p.Dzz, p.Dxy, p.Dxz, p.Dyz)
 
 function signal!(out, m::DTI, p)
@@ -134,11 +134,14 @@ end
 # values as computed (an eigenvalue can be negative); a zero tensor, FA = NaN.
 derived(::DTI, p) = first(_tensorindices(_tensor(p)))
 
-# The tensor as a symmetric 3×3 static matrix (DTI's, DKI's), from D's six (`_tensorvector`:
-# xx, yy, zz, xy, xz, yz), column by column.
+# The tensor as a symmetric 3×3 static matrix (DTI's, DKI's), from any named tuple that has D's six
+# (a model's parameters; `fromderived`'s six alone). Written out by name, as the matrix is, so it
+# reads against the equation: no order to match here (`_tensorvector`'s is for the weights).
 @inline function _tensor(p)
-    d = _tensorvector(p)
-    return SMatrix{3,3}(d[1], d[4], d[5], d[4], d[2], d[6], d[5], d[6], d[3])
+    (; Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
+    return @SMatrix [Dxx Dxy Dxz
+                     Dxy Dyy Dyz
+                     Dxz Dyz Dzz]
 end
 
 # The tensor's quantities (above), and its eigenvalues (ascending) and eigenvectors (columns, in
