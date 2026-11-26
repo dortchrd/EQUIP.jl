@@ -13,8 +13,15 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `tensorweights` | (2026-11-26, the owner) `_tensorweights` for gᵀDg as DKI's kurtosis weights, and `inner(a, b)`, EQUIP's own dot product (ordered, inlined: StaticArrays' ⋅ was 1.75–3× slower on dual numbers of many partials), for every dot product in EQUIP: DKI's fit 27% faster, DTI's crlb 23%; results unchanged to rounding (docs/design.md, item 30). Waits on the full suite and the owner's merge. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "ok - merge?"): `tensorweights`,
+`_tensorweights` for gᵀDg as DKI's kurtosis weights, and `inner(a, b)`, EQUIP's own dot product
+(in order, inlined, no allocation; StaticArrays' ⋅ was 1.75–3× slower on dual numbers of many
+partials, a non-inlined call per term), for every dot product in EQUIP, `⋅` no longer exported: DKI's
+fit 27% faster, DTI's crlb 23%; results unchanged to rounding (docs/design.md, item 30). Checked
+first: the full `Pkg.test` (3391), the command line's (189), the validation group (76). The branch
+is to delete (`git push origin --delete tensorweights`).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "Yes merge"): `gradients-io`, `readdata(paths;
 bval, bvec, scaleb)` (the files named in place of those beside the data); each direction map's sidecar
