@@ -404,7 +404,7 @@ cosine comes from two helpers, not compartments themselves:
 |---|---|
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
 | `directionset(N)` | N gradient directions spread evenly over the sphere (electrostatic repulsion), to simulate a scheme |
-| `inner(g[j], n)` | ξ, the cosine between image j's gradient direction g[j] (a unit `SVector{3}`) and the fiber n: EQUIP's dot product, summed in order, inlined, nothing allocated, on static vectors and tuples; LinearAlgebra's `g[j] ⋅ n` (exported by EQUIP too) gives the same, but is slower on the dual numbers of a fit with many parameters and of crlb |
+| `inner(g[j], n)` | ξ, the cosine between image j's gradient direction g[j] (a unit `SVector{3}`) and the fiber n: EQUIP's dot product, summed in order, inlined, nothing allocated, on static vectors and tuples; LinearAlgebra's `g[j] ⋅ n` (`using LinearAlgebra`; EQUIP does not export it) gives the same, but is slower on the dual numbers of a fit with many parameters and of crlb |
 
 **Dispersed views.** A third kind of view, between one direction and `powder`: the compartment's
 signal averaged over a distribution of fiber directions about an axis. One direction is a Watson

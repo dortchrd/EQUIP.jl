@@ -74,7 +74,8 @@ The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y 
 radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
 g[j] (a model's field `g`, a unit `SVector{3}` per image), the cosine between them is
 ξ = inner(g[j], n) (EQUIP's dot product, [`inner`](@ref): tuples and static vectors, nothing
-allocated; LinearAlgebra's `g[j] ⋅ n` gives the same, more slowly on dual numbers): the view `ξ`
+allocated; LinearAlgebra's `g[j] ⋅ n`, after `using LinearAlgebra`, gives the same, more slowly on dual
+numbers): the view `ξ`
 that the compartments
 [`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction, and for unit vectors
 also the gradient's projection on the fiber. Only ξ² enters their signals, so n and −n are the

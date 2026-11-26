@@ -57,7 +57,7 @@ export @mrimodel, newmodel                                                  # a 
 export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
 export watson, bingham, watsontensor, binghamtensor                         # ... and their dispersed views
 export inner                                                                # EQUIP's dot product: ξ = inner(g[j], n)
-export fiberdirection, ⋅                                                    # a directional view (⋅: LinearAlgebra's, kept for models that use it)
+export fiberdirection                                                       # a fiber's direction, for its view ξ = inner(g[j], n)
 export DiffusionDirections, checkencoding                                   # a directional model's g: its type, its check
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves

@@ -175,7 +175,7 @@ end
     n = fiberdirection(0.7, 0.3)
     @test n isa NTuple{3,Float64} && sum(abs2, n) ≈ 1 && fiberdirection(0.0, 1.2) == (0.0, 0.0, 1.0)
     # the cosine is Julia's dot, exported by EQUIP too (the same function: no clash with LinearAlgebra)
-    @test EQUIP.:⋅ === LinearAlgebra.:⋅ && :⋅ in names(EQUIP)
+    @test :inner in names(EQUIP) && !(:⋅ in names(EQUIP))      # EQUIP's dot product; ⋅ is LinearAlgebra's
     @test Tuple(dirs[3]) ⋅ n ≈ dirs[3] ⋅ SVector(n)                          # two tuples
     @test dirs[3] ⋅ n == Tuple(dirs[3]) ⋅ n                                  # or an SVector
     @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5

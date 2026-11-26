@@ -91,7 +91,7 @@ parameters(::Type{<:DTI}) = (
 
 # gᵀDg over the 9 elements of the symmetric D is a sum over its 6 distinct ones, each times its
 # monomial and the number of index orders that give it (1 for Dxx, 2 for Dxy: Dxy and Dyx), as
-# DKI's `_kurtosisweights` is for W: gᵀDg = _tensorweights(g) ⋅ _tensorvector(p). Times b, the
+# DKI's `_kurtosisweights` is for W: gᵀDg = inner(_tensorweights(g), _tensorvector(p)). Times b, the
 # weights are a B-matrix row (the log-linear tensor fit's, `_tensorvectors`; and, for b-tensor
 # encoding later, what a b-tensor replaces). Static vectors: no allocation; the same arithmetic, in
 # the same order, as the sum written out (2gx·gy·Dxy is (2gx·gy)·Dxy), summed by `inner`.

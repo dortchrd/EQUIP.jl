@@ -31,8 +31,8 @@ against the tensor's elements). For static vectors (`SVector`) and tuples, in an
 number type (plain, or the dual numbers of a fit's derivatives and crlb's second derivatives):
 inlined, one accumulator, nothing allocated, the same result on every machine. Faster than
 LinearAlgebra's `⋅` on dual numbers of many partials, which it calls one term at a time (1.75–3×,
-measured: docs/design.md, item 30); `⋅` gives the same value to the last bits or so, and still
-works in a model. Other arrays (a `Vector`) go to LinearAlgebra's `dot`.
+measured: docs/design.md, item 30); `⋅` gives the same value to the last bits or so (EQUIP does
+not export it: a model that uses it loads LinearAlgebra). Other arrays (a `Vector`) go to LinearAlgebra's `dot`.
 
 ```julia
 n = fiberdirection(0.7, 0.3)

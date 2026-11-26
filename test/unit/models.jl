@@ -307,7 +307,7 @@ end
 @testset "Compartments: iso, stick, zeppelin and the powder view, exported by EQUIP" begin
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     # plain functions of EQUIP (no module of their own), diffusion only (no exponential unit)
-    @test Set(names(EQUIP)) ⊇ Set([:iso, :stick, :zeppelin, :powder, :fiberdirection, :⋅])
+    @test Set(names(EQUIP)) ⊇ Set([:iso, :stick, :zeppelin, :powder, :fiberdirection, :inner])
     @test !isdefined(EQUIP, :ball)
     @test !isdefined(EQUIP, :Blocks) && !isdefined(EQUIP, :decay) && !isdefined(EQUIP, :_decay)
     @test iso(1000.0, 1e-3) == exp(-1.0) && iso(0.0, 3e-3) == 1 && iso(4000.0, 0.0) == 1    # D = 0: a dot

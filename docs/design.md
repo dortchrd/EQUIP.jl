@@ -8631,3 +8631,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      runs against main: one voxel's fit DTI −3%, DKI −27% (141.8 → 103.8 µs), StickZeppelin −5%,
      the others within ±5%; crlb with its second-order terms DTI −23%, StickZeppelin −9%, NODDI
      −5%, DKI and BinghamNODDI within ±10% (run to run).
+   - **`⋅` no longer exported** (the owner, 2026-11-26: "yes drop it"). EQUIP had re-exported
+     LinearAlgebra's `⋅` since 2026-11-06 so that `using EQUIP` alone was enough to write `g ⋅ n`
+     in a model; with `inner` that reason is gone, and EQUIP offers one spelling. A model that
+     uses `⋅` loads LinearAlgebra itself (the tests do, for their independent references).
