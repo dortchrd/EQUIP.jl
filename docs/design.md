@@ -6301,6 +6301,30 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        crlb's 6.85% (kmf 14.2% against 14.3%). Note for simulations: `snr` is relative to M0f, and
        the images are M0f·sin α·Mzf (an eighth of M0f at 10°), so snr = 800 gives the MT-off
        image an SNR of 100 (snr = 100 had given 12, and PSR's SD 55%).
+     - **A whole brain against the diffusion models** (the owner, 2026-11-26: "Compare speed to whole
+       brain for diffusion above on 4 threads"; bench/qmt/brain.jl: 294,912 voxels, 4 threads, one
+       session, tissue varied, Rician noise, default starts, the best of two timings):
+
+       | model | images | free | whole brain | µs a voxel, one thread | iterations | converged |
+       |---|---:|---:|---:|---:|---:|---:|
+       | DTI | 63 | 7 | 1.4 s | 19 | 4.8 | 100% |
+       | DKI | 61 | 22 | 10.0 s | 135 | 6.2 | 100% |
+       | StickZeppelinBall | 63 | 6 | 3.2 s | 43 | 9.5 | 99.9% |
+       | NODDI | 63 | 6 | 15.4 s | 209 | 9.8 | 99.9% |
+       | NODDIConvolved | 63 | 6 | 30.6 s | 415 | 11.7 | 99.0% |
+       | BinghamNODDI | 63 | 8 | 94.9 s | 1288 | 12.4 | 99.5% |
+       | QMTSPGRYarnykh | 13 | 5 | 4.2 s | 57 | 8.1 | 100% |
+       | QMTSPGRYarnykh | 25 | 5 | 7.1 s | 96 | 7.2 | 100% |
+       | QMTSIR | 5 | 4 | 0.2 s | 3 | 5.9 | 100% |
+       | QMTSIREqualR1 | 5 | 4 | 0.2 s | 2 | 5.9 | 100% |
+
+       Pulsed MT at 13 images between StickZeppelinBall and DKI, a quarter of NODDI's time; per
+       image it is the dearest (4.4 µs a voxel-image against NODDI's 3.3 and DTI's 0.3: three 2×2
+       exponentials, the saturated steady state and a 2×2 solve per image), but it has few images.
+       NODDI's and NODDIConvolved's 15.4 and 30.6 s are above the 10.9 and 21.5 s of 2026-11-25
+       (the same code; this session's machine, or the tissue mix): the rows compare with each
+       other, not with earlier runs. Not tried: computing Er and Es once per signal where TR, tm
+       and ts are the same for every image (two of the three exponentials per image).
      - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
        presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
        the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had
