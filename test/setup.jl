@@ -247,6 +247,11 @@ const CASES = [
     (BinghamNODDIConvolved(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)),
 ]
 
+# The parameters' part of a crlb or montecarlo result's named tuple (`c.fit`, `c.sd`, ...): the
+# model's derived quantities come after the parameters (QMTSIR's MPF and kfm, DTI's FA, ...), and
+# `c.cov` is over the parameters alone, so its size says how many there are
+params_only(c, x) = NamedTuple{keys(x)[1:size(c.cov, 1)]}(x)
+
 # Pulsed-MT SPGR by brute force (QMTSPGRYarnykh's independent reference): the sequence played TR
 # after TR, from equilibrium, until it no longer changes (contracting by about e^(−R1·TR)·cos α a
 # TR: 4000 TRs reach the steady state to rounding), with LinearAlgebra's matrix exponentials and

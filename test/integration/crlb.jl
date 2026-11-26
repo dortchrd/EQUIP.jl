@@ -18,7 +18,7 @@
                Sf = Free(lower = -1.05, upper = 0), M0f = Free(lower = 0, upper = 10))
     m4 = QMTSIR(; SIR_4POINT..., magnitude = false)
     m5 = QMTSIR(; SIR_5POINT..., magnitude = false)
-    eq5(c, m) = sum(abs2, values(c.relrmse)) * sum(m.TI .+ m.TD .+ 0.3)
+    eq5(c, m) = sum(abs2, values(params_only(c, c.relrmse))) * sum(m.TI .+ m.TD .+ 0.3)   # over the parameters
     for cov in (:sandwich, :biased)
         @test maximum(eq5(crlb(m4, nominal(m4, t); snr = 200, kmf = 12.5, bounds4..., cov), m4)
                       for t in tissues) ≈ 0.243395 rtol = 2e-6
@@ -31,10 +31,10 @@
     c = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4...)
     e3 = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4..., cov = :biased)
     @test collect(values(c.sd)) ≈ collect(values(e3.sd)) rtol = 1e-10
-    F = keys(c.fit)
+    F = keys(params_only(c, c.fit))                              # the parameters (MPF, kfm derived after them)
     g(x) = signal(m4, merge(θ, NamedTuple{F}(Tuple(x)), (kmf = 12.5,)))
-    J0 = FD.jacobian(g, collect(values(c.fit)))
-    @test collect(values(c.sd)) ≈ sqrt.(diag(inv(J0' * J0))) .* (1 / 200) rtol = 1e-8
+    J0 = FD.jacobian(g, collect(values(params_only(c, c.fit))))
+    @test collect(values(params_only(c, c.sd))) ≈ sqrt.(diag(inv(J0' * J0))) .* (1 / 200) rtol = 1e-8
     @test c.relbias.PSR ≈ -0.1409 atol = 1e-4                     # PSR 14% low in WM I
     @test c.fit.PSR - c.bias.PSR ≈ 0.2 && c.rmse.PSR ≈ hypot(c.bias.PSR, c.sd.PSR)
     @test isconverged(c.status) && isempty(c.onbound) && c.method === :sandwich
@@ -57,7 +57,7 @@
     # ∇b by the implicit function theorem = central differences of noise-free fits (what
     # the MATLAB code does), through Eq. 3: (I + ∇b) F⁻¹ (I + ∇b)ᵀ. The differenced fits
     # converge tightly (crlb's own stop at xtol 1e-10, θ̂ to ~1e-9: too coarse for h = 1e-5)
-    F16 = keys(sw.fit)
+    F16 = keys(params_only(sw, sw.fit))
     x0 = [θ16[n] for n in F16]
     tight = LM(maxiter = 1000, xtol = 1e-13, ftol = 0.0, gtol = 0.0)
     function fitof(x)
@@ -69,7 +69,7 @@
     D = reduce(hcat, (fitof(x0 .+ h[k] .* (1:4 .== k)) .- fitof(x0 .- h[k] .* (1:4 .== k))) ./ (2h[k])
                for k in 1:4)
     Jt = FD.jacobian(x -> signal(m16, merge(θ16, NamedTuple{F16}(Tuple(x)))), x0)
-    @test sqrt.(diag(D * inv(Jt' * Jt) * D')) ./ 200 ≈ collect(values(b3.sd)) rtol = 1e-5
+    @test sqrt.(diag(D * inv(Jt' * Jt) * D')) ./ 200 ≈ collect(values(params_only(b3, b3.sd))) rtol = 1e-5
     # Monte Carlo: least squares follows the sandwich (Eq. 3 is 5 standard errors lower for
     # PSR here, 12 with 20 000 fits), and centers on θ̂, not on the truth
     Y = simulate(m16, θ16; noise = :gaussian, snr = 200, n = 4000, rng = MersenneTwister(7))
@@ -85,7 +85,7 @@
     w1 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs)
     w2 = crlb(T2Decay(TE = te), (S0 = 1000.0, T2 = 0.08); σ = σs, cov = :biased)
     @test all(values(w2.sd) .< values(w1.sd))
-    @test collect(values(w2.sd)) ≈ sqrt.(diag(inv(J' * Diagonal(1 ./ σs .^ 2) * J))) rtol = 1e-10
+    @test collect(values(params_only(w2, w2.sd))) ≈ sqrt.(diag(inv(J' * Diagonal(1 ./ σs .^ 2) * J))) rtol = 1e-10
     # A parameter on a bound is held there: SD 0, the others without it
     cb = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4..., Sf = Free(lower = -1.0, upper = 0))
     @test cb.onbound == [:Sf] && cb.fit.Sf == -1.0 && cb.sd.Sf == 0 && all(isfinite, values(cb.sd))
@@ -97,13 +97,13 @@
     # parameters held on a bound
     @test cond(c) isa Float64 && !hasproperty(c, :cond)
     @test cond(c) == EQUIP._condition(EQUIP._crlb!(CRLBCache(m4, θ; kmf = 12.5, bounds4...), m4, EQUIP._crlb_truth(m4, θ), 0.005^2).G,
-                                      [θ[n] for n in keys(c.fit)], falses(4), 4)
+                                      [θ[n] for n in keys(params_only(c, c.fit))], falses(4), 4)
     θf = [Float64(θ[p]) for p in F]
     @test cond(c) ≈ cond(J0 * Diagonal(θf)) rtol = 1e-10
     @test cond(u) ≈ cond(J * Diagonal([1000.0, 0.08])) rtol = 1e-10
     jb = findfirst(==(:Sf), keys(cb.fit))
     kb = setdiff(1:4, jb)
-    @test cond(cb) ≈ cond(FD.jacobian(g, collect(values(cb.fit)))[:, kb] * Diagonal(abs.(θf[kb]))) rtol = 1e-10
+    @test cond(cb) ≈ cond(FD.jacobian(g, collect(values(params_only(cb, cb.fit))))[:, kb] * Diagonal(abs.(θf[kb]))) rtol = 1e-10
     # cor: the covariance scaled by the SDs, 1 on the diagonal (as Statistics' cor); NaN off
     # the diagonal for a parameter on a bound (SD 0) or undetermined (SD Inf)
     R = cor(c)
@@ -120,14 +120,14 @@
     plan = CRLBCache(m4, θ; kmf = 12.5, bounds4...)
     tt = EQUIP._crlb_truth(m4, θ)
     k = EQUIP._crlb!(plan, m4, tt, 0.005^2)
-    @test collect(k.fit) == collect(values(c.fit)) && collect(k.bias) == collect(values(c.bias))
-    @test sqrt.(diag(k.cov)) ≈ collect(values(c.sd)) rtol = 1e-12
+    @test collect(k.fit) == collect(values(params_only(c, c.fit))) && collect(k.bias) == collect(values(params_only(c, c.bias)))
+    @test sqrt.(diag(k.cov)) ≈ collect(values(params_only(c, c.sd))) rtol = 1e-12
     ti, td = [0.02, 0.1, 0.3, 1.0], [1.0, 2.0, 3.0, 0.01]
     mb = QMTSIR(TI = SV{4}(ti), TD = SV{4}(td), magnitude = false)
     kb = EQUIP._crlb!(plan, mb, tt, 0.005^2)
     cb2 = crlb(QMTSIR(TI = ti, TD = td, magnitude = false), θ; snr = 200, kmf = 12.5, bounds4...)
-    @test collect(kb.fit) ≈ collect(values(cb2.fit)) rtol = 1e-12
-    @test sqrt.(diag(kb.cov)) ≈ collect(values(cb2.sd)) rtol = 1e-12
+    @test collect(kb.fit) ≈ collect(values(params_only(cb2, cb2.fit))) rtol = 1e-12
+    @test sqrt.(diag(kb.cov)) ≈ collect(values(params_only(cb2, cb2.sd))) rtol = 1e-12
     allocs(p, mm, t, s2) = @allocated EQUIP._crlb!(p, mm, t, s2)
     allocs(plan, mb, tt, 0.005^2)
     @test_noalloc allocs(plan, mb, tt, 0.005^2) == 0 && allocs(plan, m4, tt, 0.005^2) == 0
@@ -135,7 +135,7 @@
     t16 = EQUIP._crlb_truth(m16, θ16)
     allocs(plan16, m16, t16, fill(0.005^2, 16))
     @test_noalloc allocs(plan16, m16, t16, fill(0.005^2, 16)) == 0
-    @test sqrt.(diag(EQUIP._crlb!(plan16, m16, t16, 0.005^2).cov)) ≈ collect(values(b3.sd)) rtol = 1e-12
+    @test sqrt.(diag(EQUIP._crlb!(plan16, m16, t16, 0.005^2).cov)) ≈ collect(values(params_only(b3, b3.sd))) rtol = 1e-12
     # Several tissues by broadcasting; the display
     cs = crlb.(Ref(m4), [nominal(m4, t) for t in tissues]; snr = 200, kmf = 12.5, bounds4...)
     @test length(cs) == 4 && cs[1].sd == c.sd
@@ -146,7 +146,7 @@
     @test occursin(r"\n  PSR +0.2 +0.1718 +-0.02818 +-14.1% ", s)
     @test occursin("on a bound in the noise-free fit (held there, SD 0): Sf",
                    sprint(show, MIME"text/plain"(), cb))
-    @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f)"
+    @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f, MPF, kfm)"
     # Mistakes
     @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ)))
     # `noise` is the data's: crlb takes it (:gaussian, the default; :rician, magnitude data:
@@ -184,7 +184,7 @@ end
     # the noise-free fit, its bias, and the derivatives at its answer (the fit's kmf = 12.5)
     r = noisefree(m4, θ; kmf = 12.5)
     c = crlb(m4, θ; snr = 200, kmf = 12.5)
-    @test r.params == c.fit && bias(m4, θ; kmf = 12.5) == c.bias == bias(r, θ)
+    @test r.params == params_only(c, c.fit) && bias(m4, θ; kmf = 12.5) == params_only(c, c.bias) == bias(r, θ)
     @test noisefree(m4, θ).params == NamedTuple{F4}(map(n -> θ[n], F4))     # nothing wrong
     θ̂ = merge(r.fixed, r.params)
     @test θ̂.kmf == 12.5 && θ̂.R1m === :R1f
@@ -303,8 +303,8 @@ end
         b, sd = reference(m, θ, f, Matrix(Σ), cov)
         c = crlb(m, θ; Σ = Matrix(Σ), f..., cov)
         @test isempty(c.onbound)
-        @test collect(values(c.bias)) ≈ b atol = 1e-8 * maximum(abs, values(c.fit))
-        @test collect(values(c.sd)) ≈ sd rtol = 1e-6
+        @test collect(values(params_only(c, c.bias))) ≈ b atol = 1e-8 * maximum(abs, values(c.fit))
+        @test collect(values(params_only(c, c.sd))) ≈ sd rtol = 1e-6
     end
     # the cache: made once, reused for several truths and noise levels; crlb is cache + crlb!
     # (the tissues differ only in kmf, which this fit estimates)

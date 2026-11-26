@@ -59,7 +59,7 @@
     @test !isapprox(Ie, Io; rtol = 1e-3)
     @test vcov(c16) ≈ inv(Io) * Ie * inv(Io) rtol = 1e-8
     # the same at the values θ̂ (every value: the fitted ones and the fit's fixed ones)
-    θ̂16 = merge(c16.fixed, c16.fit)
+    θ̂16 = merge(c16.fixed, params_only(c16, c16.fit))
     @test informationmatrix(m16, θ̂16; σ = c16.σ[1]) ≈ Ie rtol = 1e-12
     @test informationmatrix(m16, θ̂16; σ = c16.σ[1], expected = false, y = signal(m16, θ16)) ≈ Io rtol = 1e-12
     # at the truth, where the data are fitted exactly, the two are equal
@@ -155,7 +155,7 @@ end
     # as the search evaluates it, without allocation
     dv = ProtocolDesign(m4, [sU]; snr = 200, averages = a4, acquisition = space, scantime = st)
     cv = crlb(m4, sU; snr = 200, averages = a4)
-    @test dv(m4) ≈ sum(abs2, collect(values(cv.relrmse))) * st(m4) rtol = 1e-9
+    @test dv(m4) ≈ sum(abs2, collect(values(params_only(cv, cv.relrmse)))) * st(m4) rtol = 1e-9
     xv = [m4.TI; m4.TD]
     allocs(d, x) = @allocated d(x)
     allocs(dv, xv)
@@ -255,8 +255,8 @@ end
           biasgradient(m5, θs; kmf = 12.5, weights = wv, method = :unrolled, steps = 8) atol = 1e-8
     lk = leakage(m5, θs; kmf = 12.5, weights = wv)
     h = 1e-4
-    fd = (collect(values(crlb(m5, θs; snr = 200, kmf = 12.5 + h, weights = wv).fit)) .-
-          collect(values(crlb(m5, θs; snr = 200, kmf = 12.5 - h, weights = wv).fit))) ./ 2h
+    cp, cm = crlb(m5, θs; snr = 200, kmf = 12.5 + h, weights = wv), crlb(m5, θs; snr = 200, kmf = 12.5 - h, weights = wv)
+    fd = (collect(values(params_only(cp, cp.fit))) .- collect(values(params_only(cm, cm.fit)))) ./ 2h
     @test collect(values(lk.absolute.kmf)) ≈ fd rtol = 1e-6
     # The weighted kernel allocates nothing
     c5 = CRLBCache(m5, θs; kmf = 12.5, weights = wv, cov = :biased)
@@ -281,7 +281,7 @@ end
     sp = (TI = (0.01, 10.0), TD = (0.01, 10.0))
     st(m) = sum(m.TI .+ m.TD .+ 0.3)
     d = ProtocolDesign(m5, set.results; snr = 200, acquisition = sp, scantime = st)
-    @test d(m5) ≈ maximum(sum(abs2, collect(values(crlb(m5, x; snr = 200).relrmse))) for x in set.results) * st(m5) rtol = 1e-10
+    @test d(m5) ≈ maximum(sum(abs2, collect(values(params_only(c, c.relrmse)))) for c in (crlb(m5, x; snr = 200) for x in set.results)) * st(m5) rtol = 1e-10
     mixed = [set[1], Scenario(QMTSIR, nominal(QMTSIR, :SIR_lesion); kmf = 12.5)]
     @test length(ProtocolDesign(m5, mixed; snr = 200, acquisition = sp, scantime = st).groups) == 2
     x5 = [m5.TI; m5.TD]

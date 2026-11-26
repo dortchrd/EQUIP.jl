@@ -23,7 +23,8 @@
     d4 = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, constraints = g)
     d5 = ProtocolDesign(m5, s5; snr = 200, acquisition = space, scantime = st, constraints = g)
     # the objective: Eq. 5 at the Table 2 schemes, as crlb gives it, both covariances
-    eq5(m, ss; cov = :sandwich) = maximum(sum(abs2, values(crlb(m, s; snr = 200, cov).relrmse)) for s in ss) * st(m)
+    # (over the parameters: QMTSIR's derived MPF and kfm, after them in crlb's tables, left out)
+    eq5(m, ss; cov = :sandwich) = maximum(sum(abs2, values(params_only(c, c.relrmse))) for c in (crlb(m, s; snr = 200, cov) for s in ss)) * st(m)
     @test d4(m4) ≈ 0.243395 rtol = 2e-6
     @test d4(m4) ≈ eq5(m4, s4) rtol = 1e-12
     @test d5(m5) ≈ 1.602062 rtol = 2e-6
@@ -44,7 +45,7 @@
     db = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, budget = st(m4))
     @test db(m4) ≈ d4(m4) / st(m4) rtol = 1e-12             # B = T: Eq. 5 without × T
     dm = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, aggregate = v -> sum(v) / length(v))
-    @test dm(m4) ≈ sum(sum(abs2, values(c.relrmse)) for c in cs) / 4 * st(m4) rtol = 1e-12
+    @test dm(m4) ≈ sum(sum(abs2, values(params_only(c, c.relrmse))) for c in cs) / 4 * st(m4) rtol = 1e-12
     m4s = QMTSIR(TI = m4.TI, TD = 2.5, magnitude = false)
     dsh = ProtocolDesign(m4s, s4; snr = 200, acquisition = space, shared = (:TD,), scantime = st)
     @test length(dsh.lower) == 5 && dsh([m4.TI; 2.5]) == dsh(m4s)

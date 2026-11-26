@@ -51,7 +51,7 @@
     @test isequal(fit(ms, Ys; kmf = Free(start = 10.0)).params, fit(mq, Ys; kmf = Free(start = 10.0)).params)
     # crlb and montecarlo take it as any model
     c1, c2 = crlb(ms, nominal(mq, :SIR_WM_I); snr = 200), crlb(mq, nominal(mq, :SIR_WM_I); snr = 200)
-    @test all(k -> isapprox(c1.sd[k], c2.sd[k]; rtol = 1e-10), keys(c2.sd))
+    @test all(k -> isapprox(c1.sd[k], c2.sd[k]; rtol = 1e-10), keys(c1.sd))     # (QMTSIR's MPF and kfm after them)
 
     # No allocation per fit
     c = init(ms)

@@ -52,7 +52,7 @@
     @test crlb!(CRLBCache(m4, s), θ; snr = 200).sd == c.sd
     @test crlb(m5, s; snr = 200).relbias.PSR < -0.01 && crlb(m5, u; snr = 200).bias.PSR == 0
     # the pieces take a scenario too
-    @test noisefree(m4, s).params == c.fit && bias(m4, s) == c.bias
+    @test noisefree(m4, s).params == params_only(c, c.fit) && bias(m4, s) == params_only(c, c.bias)
     @test jacobian(m4, s) == jacobian(m4, θ) && biasgradient(m4, s) == biasgradient(m4, θ; kmf = 12.5)
     @test informationmatrix(m4, s; snr = 200) == informationmatrix(m4, θ; snr = 200)
     @test hessian(m4, s, signal(m4, θ)) == hessian(m4, θ, signal(m4, θ))
@@ -300,7 +300,7 @@ end
     c = crlb(mm, two; snr = 200)
     @test c isa Sweep && length(c) == 6 && c.settings == two.settings
     @test all(i -> c[i].sd == crlb(mm, two[i]; snr = 200).sd && c[i].bias == crlb(mm, two[i]; snr = 200).bias, 1:6)
-    @test length(c.rows) == 6 * 4 && c.rows[5].tissue === :SIR_WM_I && c.rows[5].Sm == 0.83
+    @test length(c.rows) == 6 * 6 && c.rows[7].tissue === :SIR_WM_I && c.rows[7].Sm == 0.83   # 4 parameters, MPF, kfm
     c2 = crlb(mm, two; snr = [100, 200], cov = :biased)
     @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.78)
     @test c2[8].sd == crlb(mm, two[2]; snr = 200, cov = :biased).sd
