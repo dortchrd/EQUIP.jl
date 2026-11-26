@@ -45,6 +45,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Where things are
 
 - src/inner.jl: `inner(a, b)`, EQUIP's dot product (in order, inlined, no allocation)
+- src/tables.jl: `_QuinticTable`, a function of one variable tabulated with its two derivatives and
+  read by quintic Hermite interpolation, with its own rule for dual numbers (the Watson stick's kₗ,
+  the super-Lorentzian's G)
 - src/models/interface.jl: the model interface (`MRIModel`, `Free`, `Fixed`, `BestOf`,
   `parameters`, `signal!`, the optional hooks `datastart`, `relabel`, `derived` and `fromderived`, its reverse for `nominal`); src/models/diffusion/compartments.jl: the diffusion
   compartments exported by EQUIP for writing models (`iso`, `stick`, `zeppelin`, with the view
@@ -54,7 +57,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   or written out from an @mrimodel definition); src/models/*/: the built-in models
   (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor, gᵀDg = `inner(_tensorweights(g[j]),
   _tensorvector(p))` (the B-matrix row's weights, shared with DKI and the tensor start), with a
-  log-linear start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  log-linear start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/qmt/: `QMTSIR`, `QMTSIREqualR1` (qmt_sir.jl); lineshapes.jl, `lorentzian`,
+  `gaussian`, `superlorentzian` (g(Δ), the saturation rate π·ω1²·g); pulses.jl, `RFPulse`,
+  `blockpulse`, `inversionefficiency` (SIR's Sf) and `boundsaturation` (Sm); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones

@@ -339,6 +339,37 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 | | `QMTSIREqualR1(TI = ..., TD = ..., magnitude = true)` | `QMTSIR` with its two assumptions built in (R1m = R1f, both pools saturated at the start of TD), so the signal is one line: M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}, with E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), k = kmf·(1 + PSR), a = (Sf + PSR·Sm)/(1 + PSR), b = PSR·(Sf − Sm)/(1 + PSR). Inversion recovery whose inversion efficiency, a + b·E_k, relaxes during TI from Sf toward the pools' weighted mean a at the exchange rate k; TD carries no exchange. The same fits as `QMTSIR`'s defaults in 0.6–0.75 of the time; defined at kmf = 0; the SIR protocols apply | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), Sm = 0.83 |
 
+### SIR's Sf and Sm from the inversion pulse
+
+`QMTSIR` fits Sf, the free pool's inversion efficiency, and fixes Sm = 0.83, the macromolecular
+pool's saturation by a 1-ms block at T2m = 15 µs (Dortch et al., MRM 2018). Both follow from the
+inversion pulse and the conditions it plays out in (B1, B0, T2m):
+
+```julia
+blk = blockpulse(180, 1e-3)                                          # the 1-ms block
+cmp = RFPulse([90, 180, 90], [0, 90, 0], [0.5e-3, 1e-3, 0.5e-3])     # composite 90x-180y-90x
+boundsaturation(blk, 15e-6)              # Sm = 0.831 (Gaussian lineshape, on resonance)
+boundsaturation(cmp, 15e-6)              # 0.690: twice the RF energy, Sm squared
+inversionefficiency(cmp; B1 = 0.9)       # Sf = −0.999, where the block gives −0.951
+inversionefficiency(blk; Δ = 100)        # −0.921, 100 Hz off resonance
+Sm = [boundsaturation(blk, 15e-6; B1 = b) for b in b1map]            # a map, from a B1 map
+r = fit(QMTSIR(; SIR_5POINT...), data; Sm = Sm)
+```
+
+An `RFPulse` is segments of constant amplitude: per segment a flip angle (degrees), a phase
+(degrees: 0 along x, 90 along y) and a duration (s), or one duration for the whole pulse, split
+evenly among its segments (a shaped pulse's samples). `inversionefficiency(pulse; B1, Δ)`
+rotates the free pool about each segment's effective field; `boundsaturation(pulse, T2m; B1, Δ,
+lineshape)` saturates the macromolecular pool at the rate π·ω1²·g(Δ), so Sm = exp(−π·g(Δ)·∫ω1²dt).
+Both neglect relaxation and exchange during the pulse (the pulse short against T1 and 1/kmf), and
+Sm assumes T2m far shorter than the pulse. `B1` is a B1 map's relative value, `Δ` the offset in
+Hz (a B0 map's).
+
+The lineshapes, g(Δ) in s for an offset Δ in Hz, normalized (∫ g d(2πΔ) = 1): `gaussian(T2, Δ)`
+(Sm's default: finite on resonance), `lorentzian(T2, Δ)` (a liquid) and `superlorentzian(T2, Δ)`
+(the macromolecular pool of tissue, for MT pulses off resonance; infinite on resonance, where a
+cutoff is still to come).
+
 ## Writing a model
 
 ### In one step: `@mrimodel`

@@ -111,6 +111,89 @@ end
     @test nominal(QMTSIREqualR1(; SIR_4POINT...), :SIR_WM_I) == (PSR = 0.2, R1f = 1.5, Sf = -1.0, M0f = 1.0, kmf = 5.0, Sm = 0.83)
 end
 
+@testset "qMT lineshapes and pulses: normalized, the super-Lorentzian's table, SIR's Sf and Sm" begin
+    # each lineshape integrates to 1 over the angular offset: ∫ g d(2πΔ) = 4π ∫₀^∞ g dΔ, by the
+    # trapezoid rule in ln Δ (the super-Lorentzian's ln(1/Δ) divergence integrable; below 1e-6 Hz
+    # about 1e-11 of the whole), T2 = 12 µs; the Lorentzian's to 1e7 Hz against its arctangent
+    v = range(log(1e-6), log(1e7); length = 4001)
+    area(g) = 4π * sum(i -> (i in (1, length(v)) ? 0.5 : 1.0) * g(12e-6, exp(v[i])) * exp(v[i]), eachindex(v)) * step(v)
+    @test area(gaussian) ≈ 1 rtol = 1e-8
+    @test area(superlorentzian) ≈ 1 rtol = 1e-8
+    @test area(lorentzian) ≈ (2 / π) * atan(2π * 1e7 * 12e-6) rtol = 1e-8
+    @test gaussian(15e-6, 0.0) ≈ 15e-6 / sqrt(2π) && superlorentzian(12e-6, -3e3) == superlorentzian(12e-6, 3e3)
+    # The super-Lorentzian's G(x) = g/T2 at x = 2π|Δ|T2: by quadrature and from the table, against
+    # 25-digit values (QuadGK in BigFloat, rtol 1e-25, the u integral split at the magic angle;
+    # computed 2026-11-26), from near resonance to far past the MT offsets used
+    ref = ((1e-6, 6.40691009505922401299), (1e-2, 2.16392593577816564919), (1.0, 0.0658473493416759753783),
+           (5.0, 1.86586916378355878189e-8), (20.0, 4.58179051200014677726e-91))
+    @test all(isapprox(EQUIP._slGexact(x), G; rtol = 1e-13) for (x, G) in ref)
+    @test all(isapprox(EQUIP._slG(x), G; rtol = 1e-12) for (x, G) in ref)
+    @test superlorentzian(12e-6, 1e3) ≈ 12e-6 * EQUIP._slGexact(2π * 1e3 * 12e-6) rtol = 1e-12
+    # the table (quintic Hermite in t = ln x, spacing 0.01) against the quadrature over its range,
+    # on its points, 1e-9 to either side, mid-cell and near its ends: G within 1e-12, its first
+    # derivative in x (a dual number through the interpolant) within 1e-10, its second (nested
+    # duals, as crlb's) within 1e-8 (1e-13, 6e-12 and 9e-10 measured, relative), the second
+    # continuous across a point; outside it (x < 8e-7, x ≥ 33, 0, NaN), G by quadrature
+    G, Gq = EQUIP._slG, EQUIP._slGexact
+    D1(f, x) = ForwardDiff.derivative(f, x)
+    D2(f, x) = ForwardDiff.derivative(y -> ForwardDiff.derivative(f, y), x)
+    ts = [range(-13.999, 3.499; length = 301); [-14 + 0.01i + s for i in (1, 700, 1500, 1749) for s in (-1e-9, 0.0, 1e-9)];
+          [-14 + 0.01(i + 0.5) for i in (0, 900, 1749)]]
+    rel(a, b) = abs(a / b - 1)
+    @test maximum(t -> rel(G(exp(t)), Gq(exp(t))), ts) < 1e-12
+    @test maximum(t -> rel(D1(G, exp(t)), D1(Gq, exp(t))), ts) < 1e-10
+    @test maximum(t -> rel(D2(G, exp(t)), D2(Gq, exp(t))), ts) < 1e-8
+    xp = exp(-14 + 0.01 * 900)
+    @test rel(D2(G, xp * (1 - 1e-12)), D2(G, xp * (1 + 1e-12))) < 1e-8
+    @test all(G(x) == Gq(x) for x in (5e-7, 34.0, 40.0)) && G(0.0) == Inf && isnan(G(NaN))
+    @test !hasmethod(setindex!, Tuple{typeof(EQUIP._SL_TABLE.v),Any,Int})     # read-only
+    # SIR's Sm, the macromolecular pool's saturation, Gaussian on resonance: the 1-ms block
+    # inversion at T2m = 15 µs gives Dortch et al. 2018's 0.83; −ln Sm is the pulse's ∫ω1²dt
+    # times π·g(0), so the composite 90x-180y-90x (twice the block's energy at its amplitude)
+    # gives Sm², and B1 = 1.1, 1.21 times −ln Sm
+    blk = blockpulse(180, 1e-3)
+    cmp = RFPulse([90, 180, 90], [0, 90, 0], [0.5e-3, 1e-3, 0.5e-3])
+    Sm = boundsaturation(blk, 15e-6)
+    @test Sm ≈ 0.83 atol = 0.005
+    @test boundsaturation(cmp, 15e-6) ≈ Sm^2 rtol = 1e-12
+    @test log(boundsaturation(blk, 15e-6; B1 = 1.1)) ≈ 1.21 * log(Sm) rtol = 1e-12
+    @test boundsaturation(blk, 12e-6; Δ = 2e3, lineshape = superlorentzian) ≈ exp(-π * superlorentzian(12e-6, 2e3) * π^2 / 1e-3)
+    # SIR's Sf, the free pool's Mz after the pulse: a block on resonance, cos(B1·180°); off
+    # resonance, the Rabi formula, (Δω² + ω1²·cos(ωτ))/ω²; the composite against a product of
+    # matrix exponentials of the rotations' generators (Ω×), and its tolerance of B1 errors
+    for B1 in (0.8, 1.0, 1.15)
+        @test inversionefficiency(blk; B1) ≈ cosd(180 * B1) atol = 1e-14
+    end
+    ω1, Δω = π / 1e-3, 2π * 150.0
+    ω = hypot(ω1, Δω)
+    @test inversionefficiency(blk; Δ = 150.0) ≈ (Δω^2 + ω1^2 * cos(ω * 1e-3)) / ω^2 rtol = 1e-12
+    function viaexp(p; B1, Δ)
+        M = [0.0, 0.0, 1.0]
+        for k in eachindex(p.flip)
+            w1, φ = B1 * deg2rad(p.flip[k]) / p.duration[k], deg2rad(p.phase[k])
+            Ωx, Ωy, Ωz = w1 * cos(φ), w1 * sin(φ), 2π * Δ
+            M = exp([0 -Ωz Ωy; Ωz 0 -Ωx; -Ωy Ωx 0] * p.duration[k]) * M
+        end
+        return M[3]
+    end
+    @test maximum(abs(inversionefficiency(cmp; B1, Δ) - viaexp(cmp; B1, Δ)) for B1 in 0.7:0.1:1.3 for Δ in (-200.0, 0.0, 90.0)) < 1e-13
+    @test inversionefficiency(cmp) ≈ -1 && inversionefficiency(cmp; B1 = 0.9) < inversionefficiency(blk; B1 = 0.9) - 0.04
+    # dual numbers (a fitted B1 or T2m), against central differences; nothing allocated
+    @test ForwardDiff.derivative(b -> inversionefficiency(cmp; B1 = b), 0.9) ≈
+          (inversionefficiency(cmp; B1 = 0.9 + 1e-6) - inversionefficiency(cmp; B1 = 0.9 - 1e-6)) / 2e-6 rtol = 1e-6
+    @test ForwardDiff.derivative(t -> boundsaturation(blk, t; Δ = 2e3, lineshape = superlorentzian), 12e-6) ≈
+          (boundsaturation(blk, 12e-6 + 1e-11; Δ = 2e3, lineshape = superlorentzian) -
+           boundsaturation(blk, 12e-6 - 1e-11; Δ = 2e3, lineshape = superlorentzian)) / 2e-11 rtol = 1e-5
+    inversionefficiency(cmp; B1 = 0.9); boundsaturation(cmp, 15e-6)
+    @test_noalloc @allocated(inversionefficiency(cmp; B1 = 0.9)) == 0
+    @test_noalloc @allocated(superlorentzian(12e-6, 2e3)) == 0
+    # a pulse's segments: one flip, phase and duration each; durations > 0; a number split evenly
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    @test occursin("phase (1)", msg(() -> RFPulse([90, 90], [0], [1e-3, 1e-3])))
+    @test occursin("-0.001", msg(() -> blockpulse(180, -1e-3)))
+    @test RFPulse([90, 180, 90], [0, 90, 0], 3e-3).duration == fill(1e-3, 3)
+end
+
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin
     m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
     @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)
@@ -396,7 +479,7 @@ end
     wk = EQUIP._watsoncoeffs(12.0)
     @test all(EQUIP._shellcoeffs(β, wk) == EQUIP._shellcoeffsexact(β, wk) for β in (-0.3, 12.86, 20.0))
     @test all(isnan, EQUIP._shellcoeffs(NaN, wk))
-    @test !hasmethod(setindex!, Tuple{typeof(EQUIP._STICK_KT),Any,Int})     # read-only
+    @test !hasmethod(setindex!, Tuple{typeof(EQUIP._STICK_TABLE.v),Any,Int})     # read-only
     # watsontensor: the averaged tensor keeps the trace, D∥ₑ + 2D⊥ₑ = D∥ + 2D⊥, isotropic at κ = 0
     Dp, Dq = watsontensor(2e-3, 0.5e-3, watson(6.0))
     @test Dp + 2Dq ≈ 2e-3 + 2 * 0.5e-3 && all(watsontensor(2e-3, 0.5e-3, w0) .≈ (3e-3 / 3, 3e-3 / 3))

@@ -6202,6 +6202,75 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      protocol-design section): a 3-point scheme optimized for the nominal case had a worst PSR
      error of about 50% over B1 ±10%, B0 ±50 Hz and T2m 10–20 µs, against 20% for Table 2's
      4-point; optimized over those conditions, 18.3%.
+   - **Built: the lineshapes and the pulses, Sf and Sm** (branch `pulsedmt-proto`, 2026-11-26,
+     step 1 of 3; the owner: "we need on resonance for SIR. We get Sm from on-resonance. we can do
+     it via Gaussian but SL prob better. We do Gaussian for now because Sm requires other
+     assumptions"). Reviewed first, the lab's MATLAB (the owner: "dont take as gospel - could be
+     better ways"): `absorptionLineShape.m` and `yarnykh_pulseMT.m` (A. Smith, 2013).
+     - **Lineshapes**, src/models/qmt/lineshapes.jl, exported: `lorentzian(T2, Δ)`,
+       `gaussian(T2, Δ)`, `superlorentzian(T2, Δ)`, g in s for Δ in Hz, ∫ g d(2πΔ) = 1, so a
+       pool's saturation rate is W = π·ω1²·g(Δ) (as the MATLAB's). Functions, so a model holds its
+       lineshape as a value (`lineshape = superlorentzian`), lowercase as the compartments.
+     - **The super-Lorentzian: one function of one variable, tabulated.** g(Δ) = T2·G(x),
+       x = 2π|Δ|T2, so G is tabulated once (the quintic Hermite table, now shared with Watson's
+       kₗ: src/tables.jl, a `_QuinticTable` of a function and its two derivatives; Watson's
+       moved onto it with its kₗ, their derivatives, and NODDI's and NODDIConvolved's signals,
+       Jacobians and crlb bit for bit, their speed unchanged: signal and fit within ±3%, the best
+       of three against main), as ln(G·e^(x²/2)) against ln x (the scaling keeps G² from underflowing
+       in the table's second derivative at x ≥ 26, where G < 1e-150), spacing 0.01 from
+       x = 8e-7 to 33 (1751 points, 42 kB, made in 24 ms): within 1e-13 of the quadrature, its
+       first derivative 6e-12, its second 9e-10 (spacing 0.02: 5e-12, 2e-10, 1e-8). 45 ns a value
+       against 4.3 µs by quadrature (about 100×; matters with T2m fitted: each MT image's
+       lineshape, every signal). Outside the table, and to build it, by quadrature in
+       w = ln|u − u₀| on each side of the magic angle (smooth and bounded there; in u, a peak of
+       width x at u₀), 128-point Gauss–Legendre: within 1e-15 of a 25-digit QuadGK in BigFloat
+       from x = 1e-6 to 20 (Octave's `integral` was itself off by 3e-11 at x = 1e-6 and 4e-7 at
+       x = 5, so not the reference). **The MATLAB's rectangle rule** (du = 5e-4, both endpoints
+       counted in full) is 1–3e-4 too high at 0.1–1 kHz and up to 0.4% at 16 kHz, 0.3–3% at
+       50 kHz (T2m 5–20 µs), from the endpoint u = 1, which dominates the tail; small in a signal,
+       but 2001 exponentials a value. Its on-resonance variant (computed beyond 1.5 kHz, splined
+       inside; Gloor et al., MRM 2008) is to come, with bSSFP or the excitation's saturation; SIR
+       uses the Gaussian, finite on resonance (the owner, above).
+     - **Pulses**, src/models/qmt/pulses.jl, exported: `RFPulse(flip, phase, duration)`, segments
+       of constant amplitude (flip and phase in degrees, as EQUIP's flip angles; durations per
+       segment or the whole, split evenly: a shaped pulse's samples), `blockpulse(flip, duration)`;
+       `inversionefficiency(pulse; B1, Δ)`, the free pool's Mz/M0 after it (Sf), rotations about
+       each segment's effective field (Rodrigues; equal to matrix exponentials of the generator to
+       1e-13); `boundsaturation(pulse, T2m; B1, Δ, lineshape = gaussian)`, the macromolecular
+       pool's, exp(−π·g(Δ)·B1²·∫ω1²dt) (Sm). Both neglect relaxation and exchange during the pulse
+       (the pulse short against T1 and 1/kmf), and Sm assumes the rate approximation (T2m far
+       shorter than the pulse). Checked: the 1-ms block gives Sm = 0.831 at T2m = 15 µs (Dortch
+       2018's 0.83), the composite 90x-180y-90x its square, 0.690; Sf cos(B1·180°) for the block,
+       the Rabi formula off resonance; the prototype's numbers above ("Conditions" in the protocol
+       design section: −0.999 against −0.951 at B1 0.9, −0.931 against −0.921 at 100 Hz)
+       reproduced. Nothing allocated; dual numbers through both (a fitted B1 or T2m).
+     - **QMTSIR unchanged**: Sf and Sm stay its parameters, and these functions give their values
+       (a B1 map gives an Sm map, fixed in the fit: `Sm = [boundsaturation(p, 15e-6; B1 = b) for
+       b in b1map]`), as the roadmap's conditions → Sf, Sm planned, rather than new parameters
+       (T2m, B1) in the model. Scenarios over B1 × B0 × T2m (robust designs) from them: to come.
+     - **The names**: the functions' (`inversionefficiency`, `boundsaturation`, `RFPulse`,
+       `gaussian`, ...) are the first choice, to confirm with the owner. `gaussian` may clash with
+       DSP.jl's window of that name if both are loaded (Julia then asks for `EQUIP.gaussian`).
+     - **Next** (steps 2 and 3): the two-pool pieces (the 2×2 matrix exponential in closed form,
+       e^τ[cosh δ·I + (sinh δ/δ)(X − τI)], equal to `expm` to 2e-16 and taking dual numbers, where
+       the MATLAB's `eig` does not; Henkelman's CW steady state, equal to the 2×2 solve to 1e-16)
+       and Yarnykh's SPGR model, the MT-off image fitted as one more observation (not divided
+       into the others: its noise would be in every point), B1 and B0 as fixed maps, R1f from an
+       observed R1 as a tie (R1f = R1obs − kfm·(R1m − R1obs)/(R1m + kmf − R1obs), the slow
+       eigenvalue's, Sled & Pike's); then the names (next bullet).
+   - **Names across the field** (the owner, 2026-11-26: "One issue in field - different
+     terminology ... henkelman R - directional exchange. And lots of names for PSR and MPF").
+     Pool size: PSR = M0m/M0f (SIR), F, M0B with M0A = 1 (Henkelman), the fraction
+     M0m/(M0f + M0m) as BPF, MPF (Yarnykh) or f; exchange: kmf and kfm (SIR), kf and kr or kb,
+     kab and kba (the lab's MATLAB); Henkelman's R, not directional (kfm = R·M0m, kmf = R·M0f, so
+     R = kmf with M0f = 1); pools f/m, A/B, f/r, a/b; T2m, T2B, T2r (from memory: to check paper
+     by paper). Proposed (step 3): one set of names in every EQUIP MT model, QMTSIR's (PSR,
+     kmf, R1f, R1m, T2f, T2m, M0f; k_xy from x to y), no aliases; the others as derived
+     quantities with crlb's errors (MPF = PSR/(1 + PSR), kfm = kmf·PSR) for every MT model, SIR's
+     too, and nominal values in their terms through `fromderived`; a table in the guide from each
+     paper's names to EQUIP's (Henkelman 1993, Sled & Pike 2001, Yarnykh 2002 and 2012, Gochberg
+     & Gore, Li 2010, Dortch 2011 and 2018, qMRLab); a hint when a fit is given another
+     convention's name (`F`: "EQUIP's pool size is PSR; MPF is derived").
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool
      Bloch–McConnell equations under constant off-resonance saturation, in closed form. The
      reference model, and the building block of the pulsed approximations.
@@ -6231,8 +6300,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      generalized Bloch model for the bound pool under short pulses (MRM 2022) and his Julia
      package MRIgeneralizedBloch.jl, a reference to compare against or build on.
    - **Shared pieces**, written once: bound-pool lineshapes (Gaussian, Lorentzian,
-     super-Lorentzian; the super-Lorentzian's integral needs care near the magic angle, and a
-     fixed quadrature keeps it differentiable when the bound pool's T2 is fitted); MT pulse
+     super-Lorentzian; built 2026-11-26, above: the super-Lorentzian by a table, differentiable
+     when the bound pool's T2 is fitted); MT pulse
      shapes (Gaussian, sinc, Fermi, hard) and their power integrals; two-pool steady-state
      solvers on static matrices.
    - **Per-voxel inputs are fixed maps**, already supported: B1 (scales the MT and excitation

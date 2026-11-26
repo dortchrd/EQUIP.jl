@@ -108,4 +108,6 @@ include("diffusion/multicompartment.jl") # StickZeppelin, StickZeppelinBall, Bal
 include("diffusion/noddi.jl")           # NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved:
                                         #   sticks and a zeppelin dispersed (Watson, Bingham), a ball
 include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start
+include("qmt/lineshapes.jl")             # absorption lineshapes: lorentzian, gaussian, superlorentzian
+include("qmt/pulses.jl")                 # RFPulse, blockpulse; inversionefficiency (Sf), boundsaturation (Sm)
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery

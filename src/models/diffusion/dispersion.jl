@@ -173,58 +173,11 @@ end
     end
     return SVector(k), SVector(d1), SVector(d2)
 end
-# The table (the header): kₗ, k′ₗ and k″ₗ at β = i·h, i = 0 … 257, made once. Read-only: held in
-# a struct with indexing and no assignment (nothing in EQUIP can write it), read by every thread.
-struct _ReadOnly{T}
-    v::Vector{T}
-end
-Base.@propagate_inbounds Base.getindex(t::_ReadOnly, i::Int) = t.v[i]
-Base.length(t::_ReadOnly) = length(t.v)
-const _STICK_H = 0.05
-const _STICK_KT, _STICK_D1T, _STICK_D2T =
-    let tab = [_stickk(i * _STICK_H) for i in 0:(ceil(Int, _WATSON_βMAX / _STICK_H) + 2)]
-        _ReadOnly(getindex.(tab, 1)), _ReadOnly(getindex.(tab, 2)), _ReadOnly(getindex.(tab, 3))
-    end
-const _STICK_TOP = (length(_STICK_KT) - 1) * _STICK_H           # the table's last point, 12.85
-# Its quintic Hermite interpolation at β in [0, 12.85): on the cell [βᵢ, βᵢ₊₁], t = β/h − i,
-#   kₗ(β) ≈ H0·kᵢ + h·H1·k′ᵢ + h²·H2·k″ᵢ + H3·kᵢ₊₁ + h·H4·k′ᵢ₊₁ + h²·H5·k″ᵢ₊₁,
-# the basis matching value, slope and curvature at both ends (so the interpolant is twice
-# continuously differentiable across the points). Each Hᵣ(t) = Σₖ cᵣₖ·tᵏ, k = 0 … 5:
-const _QUINTIC = ((1.0, 0.0, 0.0, -10.0, 15.0, -6.0),        # H0
-                  (0.0, 1.0, 0.0, -6.0, 8.0, -3.0),          # H1
-                  (0.0, 0.0, 0.5, -1.5, 1.5, -0.5),          # H2
-                  (0.0, 0.0, 0.0, 10.0, -15.0, 6.0),         # H3
-                  (0.0, 0.0, 0.0, -4.0, 7.0, -3.0),          # H4
-                  (0.0, 0.0, 0.0, 0.5, -1.0, 0.5))           # H5
-# dᵐHᵣ/dtᵐ at t: Σₖ cᵣₖ·k!/(k − m)!·t^(k−m), m known when compiling (Val), 0 past the fifth
-@inline function _basisderiv(c, t, ::Val{m}) where {m}
-    s = zero(t)
-    @inbounds for k in 5:-1:m                                 # Horner in t
-        s = s * t + c[k+1] * prod(ntuple(q -> k - q + 1, Val(m)); init = 1.0)
-    end
-    return s
-end
-# The m-th derivative in β of the interpolant (m = 0: kₗ itself), at a plain β: the basis' m-th
-# derivatives in t, over hᵐ
-@inline function _kinterp(β::Real, ::Val{m}) where {m}
-    x = β / _STICK_H
-    i = unsafe_trunc(Int, x)
-    t = x - i
-    H = map(c -> _basisderiv(c, t, Val(m)), _QUINTIC)
-    h, h2, s = _STICK_H, _STICK_H^2, inv(_STICK_H)^m
-    @inbounds return (s * H[1]) * _STICK_KT[i+1] + (s * h * H[2]) * _STICK_D1T[i+1] + (s * h2 * H[3]) * _STICK_D2T[i+1] +
-                     (s * H[4]) * _STICK_KT[i+2] + (s * h * H[5]) * _STICK_D1T[i+2] + (s * h2 * H[6]) * _STICK_D2T[i+2]
-end
-# ... at a dual number (a fit's derivatives; crlb's nested ones, a dual of duals): its value at
-# the value, and its derivative times the partials, the chain rule written once, so the 21
-# coefficients' arithmetic stays in plain numbers (the dual arithmetic through the basis cost a
-# NODDIConvolved fit 25%). Recursive: the value of a nested dual is itself a dual.
-@inline function _kinterp(β::Dual{T}, ::Val{m}) where {T,m}
-    v, p = value(β), partials(β)
-    a, d = _kinterp(v, Val(m)), _kinterp(v, Val(m + 1))
-    return map((ai, di) -> Dual{T}(ai, di * p), a, d)
-end
-@inline _stickkinterp(β) = _kinterp(β, Val(0))
+# The table (the header): kₗ, k′ₗ and k″ₗ at β = i·h, i = 0 … 257, h = 0.05, made once, read by
+# quintic Hermite interpolation (src/tables.jl, shared with the super-Lorentzian lineshape's)
+const _STICK_TABLE = _QuinticTable(_stickk, 0.0, 0.05, ceil(Int, _WATSON_βMAX / 0.05) + 3)
+const _STICK_TOP = _tabletop(_STICK_TABLE)                     # the table's last point, 12.85
+@inline _stickkinterp(β) = _interp(_STICK_TABLE, β)
 const _SERIES_FAC = SVector{_WATSON_NL}(ntuple(i -> (4(i - 1) + 1) / 2, Val(_WATSON_NL)))   # (2l + 1)/2, l even
 # the series coefficients, (2l + 1)/2 · kₗ(β) · wₗ/w₀: kₗ from the table where 0 ≤ β < 12.85, and
 # made exactly anywhere else (β < 0, a zeppelin with D∥ < D⊥; past the table; NaN), so the table

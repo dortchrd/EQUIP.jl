@@ -15,6 +15,15 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
+Branch `pulsedmt-proto` (2026-11-26, not merged; MT, step 1 of 3, the owner: "lets move on to mt",
+then the lab's `absorptionLineShape.m` and `yarnykh_pulseMT.m`, "dont take as gospel"): the
+lineshapes (`lorentzian`, `gaussian`, `superlorentzian`, the last from a table of one variable,
+45 ns a value, within 1e-13 of the quadrature), the pulses (`RFPulse`, `blockpulse`), SIR's Sf
+(`inversionefficiency`) and Sm (`boundsaturation`, Gaussian on resonance: "We do Gaussian for now");
+the quintic table shared with Watson's (src/tables.jl; NODDI bit for bit, speed unchanged). The
+models tests pass (1397). Next: step 2, the two-pool pieces and Yarnykh's SPGR model; step 3, the
+names (docs/design.md, item 6). Before merging: the full `Pkg.test`.
+
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
 `_tensorvector`, which stays for the signals, where D's order must match the weights' (docs/design.md,

@@ -69,6 +69,8 @@ export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS 
 export StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved, IVIM
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
+export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
+export RFPulse, blockpulse, inversionefficiency, boundsaturation            # pulses: Sf and Sm
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
@@ -88,6 +90,7 @@ export MRImage, readimage, writeimage, readvalues, readbvec                 # (f
 
 # models: the interface every model implements, and the built-in models
 include("inner.jl")                    # inner: EQUIP's dot product, ordered and inlined
+include("tables.jl")                   # tables of a function of one variable (quintic Hermite)
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
 include("models/macro.jl")             # @mrimodel: a model from a function of one observation
 include("models/template.jl")          # newmodel: a model file to edit, blank or from @mrimodel
