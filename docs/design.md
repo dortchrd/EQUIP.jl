@@ -6387,6 +6387,24 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `vary`), designs robust to them (scenarios over B1 × B0 × R1obs, the roadmap's
        conditions), the uncertain maps in `crlb`'s tables for both models, and the other
        assumptions' errors (R1m = 1, the lineshape, T2m for SIR's Sm).
+     - **The tools for map errors, and their gaps** (the owner, 2026-11-26: "Do we have tools for
+       this. We will need for most Mt models"). A map is a fixed parameter, so every error tool
+       takes it by name: `crlb(m, θ; B1 = 1.05)` (a wrong map's bias, through the whole nonlinear
+       fit), `leakage(m, θ)` (dθ̂/dc and elasticities, % per 1% of each fixed value; the
+       pulsed model's, white matter: PSR −1.74 per 1% of B1, +0.81 per 1% of R1obs, −0.035% per
+       Hz of B0; kmf +2.53 per 1% of B1, −0.19 per 1% of R1m), `crlb(...; uncertain = (B1 = 0.03,
+       ...))` (the maps' SDs in the covariance, D·diag(s²)·Dᵀ), `montecarlo(...; uncertain)` (each
+       copy fitted with its own drawn value), sweeps over the truth (`vary = (B1 = ...)`), and
+       robust designs by scenarios over the conditions. Gaps, for the MT models: (1) SIR's B1, B0
+       and T2m are not parameters (they reach it through Sf, fitted, and Sm, fixed): the tools take
+       Sm, and B1's share by the chain rule by hand; proposed, a pulse in QMTSIR's acquisition
+       (optional; Sm then tied to new fixed parameters B1, B0, T2m by `boundsaturation`, as the
+       pulsed model's R1f to R1obs), so that `uncertain = (B1 = 0.03,)` and `leakage` name B1 for
+       SIR too. (2) `uncertain` takes independent SDs, but an R1 map from variable flip angles is
+       made with the B1 map, so their errors are correlated (VFA's R1 moves about twice B1's
+       error): a covariance in `uncertain`, and the R1 map's sensitivity to B1 from its own model
+       (T1MFA's leakage) chained into the MT model's. (3) `uncertain` is refused with Rician noise
+       and in `ProtocolDesign` (robust designs go by scenarios instead).
      - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
        presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
        the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had
