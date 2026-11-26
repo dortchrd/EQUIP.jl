@@ -6448,6 +6448,16 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
          | joint: the image noise only | 6.4% | 0 | 6.4% | 14.3% | 0 | 14.3% |
          | joint: B1 3% | 6.4% | 0 | 6.4% | 16.3% | 0 | 16.3% |
 
+         The owner (2026-11-26): "that maps with publications - yarnykh single point method
+         basically said B1 errors from T1 and qMT go in opposite dirs and cancel out so you dont
+         need it if done together". In numbers: B1 moves PSR −1.74% per 1% directly, and +0.81% ×
+         2.02% = +1.63% per 1% through an R1 map made with the same B1 (VFA's R1 as B1²): net
+         −0.11%, the joint fit's −0.11% too. So the cancellation needs the same B1, right or wrong,
+         in the T1 and the MT parts (not the joint fit itself); it holds for PSR and MPF, not kmf
+         (+2.6% per 1%) or R1f (+2.3%), which the single-point method fixes or takes from the R1
+         map; and an R1 map independent of B1 would leave PSR B1's direct −1.74% per 1%. What the
+         joint fit adds is the end of the single-pool bias (R1obs 14% high on two-pool data, PSR
+         +11.8%).
          Joint, PSR moves −0.11% per 1% of B1 (against −1.74% with R1f tied to R1obs); kmf
          +2.61%, R1f +2.28% (R1f takes B1's error, as a VFA R1 does); R1f's SD 3.4%. So for PSR
          and MPF the joint fit is better on every count: no single-pool bias, B1's error mostly
