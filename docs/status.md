@@ -15,10 +15,11 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
-Branch `tensor-names` (2026-11-26, the owner: "yes"; not merged): `_tensor` written by name, as the
-matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from `_tensorvector`, which
-stays for the signals, where D's order must match the weights' (docs/design.md, item 30). The same
-matrix bit for bit; diffusion and derived tests (547) pass. Before merging: the full `Pkg.test`.
+Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
+name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
+`_tensorvector`, which stays for the signals, where D's order must match the weights' (docs/design.md,
+item 30). The same matrix bit for bit; the full `Pkg.test` (3391) first. The branch is to delete
+(`git push origin --delete tensor-names`).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `weights-arg`, `_tensorweights(g[j])` and
 `_kurtosisweights(g[j])` taking the direction itself; DTI and DKI unpacking `(; S0) = p` and their
