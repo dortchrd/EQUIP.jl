@@ -11,7 +11,7 @@
 # vectors b, gx, gy, gz, made by `diffusionencoding` (from the files, or here from arrays) and
 # passed to any directional model as keywords. The cosine between gradient and fiber, ξ = g·n, is
 # computed in the model, because it joins the acquisition (g) and the parameters (n); the
-# compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = g ⋅ n`
+# compartments take it as a number: `n = fiberdirection(θ, φ)` once per voxel, `ξ = inner(g, n)`
 # (Julia's dot) for each image, g = (gx[j], gy[j], gz[j]). The stick + zeppelin is built in
 # (`StickZeppelin`, src/models/diffusion/multicompartment.jl, since 2026-11-23), written by hand for that
 # reason: written with `@mrimodel`, whose body runs once per image, its sines and cosines are
@@ -35,7 +35,7 @@ acq = diffusionencoding(bval, bvec)                         # (b, g), checked;
                                                             # from files: diffusionencoding("dwi.bval", "dwi.bvec")
 
 # --- 1. stick + zeppelin along one fiber direction n(θ, φ): EQUIP's `StickZeppelin` --------------
-# S0·[vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, (1 − vax)·Dax, ξ)], ξ = g ⋅ n(theta, phi),
+# S0·[vax·stick(b, Dax, ξ) + (1 − vax)·zeppelin(b, Dax, (1 − vax)·Dax, ξ)], ξ = inner(g, n(theta, phi)),
 # n computed once per voxel in its `signal!` (`EQUIP.signal!(out, ::StickZeppelin, p)`).
 
 # the same model with the macro: the body is one image's signal, so n is computed for every image
@@ -43,7 +43,7 @@ acq = diffusionencoding(bval, bvec)                         # (b, g), checked;
                                       vax = Free(start = 0.5, lower = 0, upper = 1),
                                       Dax = Free(start = 2.0e-3, lower = 0, upper = 4.0e-3),
                                       theta = Free(start = 0.5), phi = Free(start = 0.0))
-    ξ = g ⋅ fiberdirection(theta, phi)                              # the cosine, gradient to fiber
+    ξ = inner(g, fiberdirection(theta, phi))                        # the cosine, gradient to fiber
     Dperp = (1 - vax) * Dax                                          # tortuosity
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, Dperp, ξ))
 end
@@ -56,7 +56,7 @@ m = StickZeppelin(; acq...)                                 # `...`: b and g as 
 display(m); println()
 
 # a stick and a zeppelin are tensors: D = D∥·nnᵀ, and D⊥·I + (D∥ − D⊥)·nnᵀ
-n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; ξ5 = gg ⋅ n
+n = SVector(fiberdirection(0.7, 0.3)); gg = g[5]; ξ5 = inner(gg, n)
 Dst = 2e-3 * n * n'; Dzp = 0.8e-3 * I + (2e-3 - 0.8e-3) * n * n'
 println("stick as a tensor:    ", stick(2500.0, 2e-3, ξ5) ≈ exp(-2500.0 * gg' * Dst * gg))
 println("zeppelin as a tensor: ", zeppelin(2500.0, 2e-3, 0.8e-3, ξ5) ≈ exp(-2500.0 * gg' * Dzp * gg))
@@ -79,7 +79,7 @@ function principal(p, i)
 end
 pr = [principal(rd.params, i) for i in 1:nv]
 θd, φd, fa = first.(pr), getindex.(pr, 2), last.(pr)
-angerr(θ1, φ1, i) = acosd(clamp(abs(SVector(sin(θ1) * cos(φ1), sin(θ1) * sin(φ1), cos(θ1)) ⋅ ns[i]), 0, 1))
+angerr(θ1, φ1, i) = acosd(clamp(abs(inner(SVector(sin(θ1) * cos(φ1), sin(θ1) * sin(φ1), cos(θ1)), ns[i])), 0, 1))
 @printf("DTI (b ≤ 1000): FA %.2f, its direction %.1f° from the fibers (median)\n", median(fa), median(angerr.(θd, φd, 1:nv)))
 
 # --- stick + zeppelin: orientation fixed at DTI's, or fitted from it -------------------------------

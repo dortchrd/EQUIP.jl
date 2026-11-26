@@ -422,11 +422,11 @@ end
 # From the cosine itself (a number: a dual one too), or from the gradient direction g (three
 # numbers, an SVector or a tuple), its cosine with the axis made here
 @inline (w::Watson)(ξ::Real) = WatsonView(w, ξ)
-@inline (w::Watson)(g::Union{StaticVector{3},NTuple{3,Real}}) = WatsonView(w, g ⋅ _watsonaxis(w))
+@inline (w::Watson)(g::Union{StaticVector{3},NTuple{3,Real}}) = WatsonView(w, inner(g, _watsonaxis(w)))
 @inline _watsonaxis(w::Watson) = w.μ
 @noinline _watsonaxis(::Watson{T,R,Nothing}) where {T,R} = throw(ArgumentError("this Watson " *
     "distribution has no axis: make it with `watson(κ, μ)` to give it gradient directions, or " *
-    "give it the cosine ξ = g ⋅ μ"))
+    "give it the cosine ξ = inner(g, μ)"))
 
 # The distribution's Legendre coefficients wₗ/w₀
 @inline function _watsoncoeffs(κ)

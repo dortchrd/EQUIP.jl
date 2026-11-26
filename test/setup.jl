@@ -138,7 +138,7 @@ end
                                       vax = Free(start = 0.5, lower = 0, upper = 1),
                                       Dax = Free(start = 2.0e-3, lower = 0), theta = Free(start = 0.6),
                                       phi = Free(start = 0.2))
-    ξ = g ⋅ fiberdirection(theta, phi)
+    ξ = inner(g, fiberdirection(theta, phi))
     S0 * (vax * stick(b, Dax, ξ) + (1 - vax) * zeppelin(b, Dax, (1 - vax) * Dax, ξ))
 end
 

@@ -181,6 +181,21 @@ end
     @test (0.0, 0.0, 1.0) ⋅ fiberdirection(π / 3, 0.4) ≈ 0.5
     tdot(g, n) = @allocated g ⋅ n
     @test (tdot((1.0, 2.0, 3.0), n); tdot((1.0, 2.0, 3.0), n) == 0)
+    # EQUIP's dot product, `inner`: the sum in order, a₁b₁ + a₂b₂ + …, bit for bit (written out
+    # here as the reference), for static vectors and tuples in any mix, plain numbers in both
+    # precisions and dual numbers (a fit's) and nested ones (crlb's); LinearAlgebra's ⋅ to
+    # rounding; nothing allocated; another array, LinearAlgebra's dot; lengths that differ, refused
+    a15 = SVector{15}(randn(MersenneTwister(1), 15)); b15 = SVector{15}(randn(MersenneTwister(2), 15))
+    ordered(a, b) = foldl((s, j) -> s + a[j] * b[j], 2:length(a); init = a[1] * b[1])
+    @test inner(a15, b15) === ordered(a15, b15) && inner(a15, b15) ≈ a15 ⋅ b15
+    @test inner(Float32.(a15), Float32.(b15)) === ordered(Float32.(a15), Float32.(b15))
+    @test inner(Tuple(dirs[3]), n) === inner(dirs[3], SVector(n)) === inner(dirs[3], n)
+    dk(x) = ForwardDiff.derivative(t -> inner(a15, b15 .* t), x)             # a dual through it
+    @test dk(1.3) ≈ inner(a15, b15) && ForwardDiff.derivative(t -> dk(t) * t, 0.7) ≈ inner(a15, b15)
+    ia(a, b) = @allocated inner(a, b)
+    @test (ia(a15, b15); ia(a15, b15) == 0)
+    @test inner(collect(a15), collect(b15)) === dot(collect(a15), collect(b15))
+    @test_throws DimensionMismatch inner(a15, SVector(1.0, 2.0))
     # a directional model on it (the built-in StickZeppelin): its signal is the stick and
     # zeppelin written out, no allocation
     m = StickZeppelin(; acq...)

@@ -2,7 +2,7 @@
 # Directions: a fiber's direction, and gradient direction sets
 #
 #   fiberdirection(θ, φ)    a fiber's unit vector n, from its angles: with Julia's dot, the view
-#                           ξ = g ⋅ n that the directional compartments take (stick, zeppelin)
+#                           ξ = inner(g, n) that the directional compartments take (stick, zeppelin)
 #   directionset(N)         N gradient directions spread evenly over the sphere (electrostatic
 #                           repulsion), to simulate a scanner's scheme
 #   DiffusionDirections     the type of a directional model's `g`: a vector of SVector{3}s
@@ -73,8 +73,9 @@ const _B0THRESHOLD = 50
 The unit vector at polar angle θ (from z) and azimuth φ (from x, in the x–y plane), in
 radians, as a tuple of three numbers: a fiber's direction n. With one image's gradient direction
 g[j] (a model's field `g`, a unit `SVector{3}` per image), the cosine between them is
-ξ = g[j] ⋅ n (Julia's dot product, which EQUIP exports: it takes tuples and static vectors, with
-nothing allocated): the view `ξ` that the compartments
+ξ = inner(g[j], n) (EQUIP's dot product, [`inner`](@ref): tuples and static vectors, nothing
+allocated; LinearAlgebra's `g[j] ⋅ n` gives the same, more slowly on dual numbers): the view `ξ`
+that the compartments
 [`stick`](@ref) and [`zeppelin`](@ref) take for one gradient direction, and for unit vectors
 also the gradient's projection on the fiber. Only ξ² enters their signals, so n and −n are the
 same fiber. Not a compartment: the geometry that gives a directional compartment its view.
@@ -87,7 +88,7 @@ image").
 ```julia
 n = fiberdirection(θ, φ)                                  # once per voxel
 for j in eachindex(out, b, g)
-    ξ = g[j] ⋅ n                                          # the cosine, image j's gradient to fiber
+    ξ = inner(g[j], n)                                    # the cosine, image j's gradient to fiber
     out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
 end
 ```
@@ -119,7 +120,7 @@ function directionset(N::Integer; iterations::Integer = 2000)
                     f += d / norm(d)^3
                 end
             end
-            f -= (f ⋅ g[i]) * g[i]               # along the sphere
+            f -= inner(f, g[i]) * g[i]           # along the sphere
             F[i] = f
             maxf = max(maxf, norm(f))
         end

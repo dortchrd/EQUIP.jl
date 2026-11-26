@@ -404,7 +404,7 @@ cosine comes from two helpers, not compartments themselves:
 |---|---|
 | `fiberdirection(θ, φ)` | a fiber's unit direction n = (sinθ·cosφ, sinθ·sinφ, cosθ), a tuple; once per voxel, before the loop over images |
 | `directionset(N)` | N gradient directions spread evenly over the sphere (electrostatic repulsion), to simulate a scheme |
-| `g[j] ⋅ n` | ξ, the cosine between image j's gradient direction g[j] (a unit `SVector{3}`) and the fiber n: Julia's own dot product (LinearAlgebra's `⋅`, exported by EQUIP too), on static vectors and tuples, nothing allocated |
+| `inner(g[j], n)` | ξ, the cosine between image j's gradient direction g[j] (a unit `SVector{3}`) and the fiber n: EQUIP's dot product, summed in order, inlined, nothing allocated, on static vectors and tuples; LinearAlgebra's `g[j] ⋅ n` (exported by EQUIP too) gives the same, but is slower on the dual numbers of a fit with many parameters and of crlb |
 
 **Dispersed views.** A third kind of view, between one direction and `powder`: the compartment's
 signal averaged over a distribution of fiber directions about an axis. One direction is a Watson
@@ -484,7 +484,7 @@ m = DTI(; acq...)                                     # built in; any model with
 ```
 
 With `@mrimodel`, name the acquisition `b` and `g` and the model is directional: in the body `g`
-is the image's direction (`ξ = g ⋅ fiberdirection(theta, phi)`), and the macro writes the struct
+is the image's direction (`ξ = inner(g, fiberdirection(theta, phi))`), and the macro writes the struct
 as the built-in models': `g` of type `DiffusionDirections` (SVector{3}s), checked by `checkencoding` when
 the model is made (a direction per b-value, unit vectors where b > 50). `newmodel` writes that
 struct out too. A struct written by hand gets the same with two lines:
@@ -508,7 +508,7 @@ on it. Each direction map's sidecar says so (`"DirectionFrame": "bvec"`). A conv
 scanner coordinates is on the roadmap.
 
 With fiber angles, write `signal!` by hand and compute the direction once per voxel,
-`n = fiberdirection(θ, φ)`, then `ξ = g[j] ⋅ n` for each image: an
+`n = fiberdirection(θ, φ)`, then `ξ = inner(g[j], n)` for each image: an
 `@mrimodel` body runs once per image, so its sines and cosines would be computed for every image,
 and the fit takes about twice as long (examples/directional_models.jl times both).
 

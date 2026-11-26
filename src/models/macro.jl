@@ -66,7 +66,7 @@ res = fit(m, data; mask)                    # as any model: crlb, montecarlo, de
     (`R1m = 0.8 * R1f`).
 - **Diffusion directions**: a model whose acquisition is `b` and `g` (b-values and gradient directions,
   as [`diffusionencoding`](@ref) gives them) is directional: in the body, `g` is the
-  observation's direction, an `SVector{3}` (`ξ = g ⋅ n`). The macro writes the struct as the
+  observation's direction, an `SVector{3}` (`ξ = inner(g, n)`). The macro writes the struct as the
   built-in directional models are written, `g` of type [`DiffusionDirections`](@ref) and checked by
   [`checkencoding`](@ref) when the model is made (a direction per b-value, unit vectors where
   b > 50 s/mm²).

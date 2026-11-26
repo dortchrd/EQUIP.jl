@@ -110,7 +110,7 @@ function signal!(out, m::NODDI, p)
     w = watson(_kappa(ODI), μ)                          # the neurites' distribution about μ
     Dpare, Dperpe = watsontensor(Dpar, (1 - vic) * Dpar, w)   # the extra-neurite tensor, averaged
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ μ                                    # the cosine, which the zeppelin along μ
+        ξ = inner(g[j], μ)                              # the cosine, which the zeppelin along μ
         Aic = stick(b[j], Dpar, w(ξ))                   #  takes too: the stick's view from it
         Aec = zeppelin(b[j], Dpare, Dperpe, ξ)
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
@@ -286,7 +286,7 @@ function datastart(m::_BinghamNODDIs, y, p)
     θ, φ = acos(clamp(n[3], -one(T), one(T))), atan(n[2], n[1])
     _, eθ, eφ = _binghamaxes(θ, φ, zero(T))                      # ψ = 0: μβ = e_θ, μ3 = e_φ
     v = U[:, 2]
-    return (theta = θ, phi = φ, psi = mod(atan(v ⋅ eφ, v ⋅ eθ), T(π)))
+    return (theta = θ, phi = φ, psi = mod(atan(inner(v, eφ), inner(v, eθ)), T(π)))
 end
 
 # μ in the upper hemisphere (as the other directional models), and ψ for the same fan: μβ (or −μβ,
@@ -297,5 +297,5 @@ function relabel(::_BinghamNODDIs, θ)
     u = _upperhemisphere(μ)
     t, f = acos(clamp(u[3], -one(u[3]), one(u[3]))), atan(u[2], u[1])
     _, eθ, eφ = _binghamaxes(t, f, zero(t))
-    return merge(θ, (theta = t, phi = f, psi = mod(atan(μβ ⋅ eφ, μβ ⋅ eθ), oftype(t, π))))
+    return merge(θ, (theta = t, phi = f, psi = mod(atan(inner(μβ, eφ), inner(μβ, eθ)), oftype(t, π))))
 end

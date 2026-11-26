@@ -18,7 +18,7 @@
 #
 # The acquisition is DTI's: each image's b and gradient direction, b and g (from a .bval and a
 # .bvec by `diffusionencoding`). The models are written by hand, n once per voxel and
-# ξ = g ⋅ n per image: written with `@mrimodel`, whose body runs once per image, the sines and
+# ξ = inner(g[j], n) per image: written with `@mrimodel`, whose body runs once per image, the sines and
 # cosines are computed for every image, and the fit took about twice as long (examples/
 # directional_models.jl, where these were sketched; docs/design.md, roadmap item 17).
 #
@@ -84,7 +84,7 @@ function signal!(out, m::StickZeppelin, p)
     n = fiberdirection(theta, phi)                          # once per voxel
     Dperp = (1 - vax) * Dax                                 # the tortuosity limit
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ n                                        # the cosine, gradient to fiber
+        ξ = inner(g[j], n)                                        # the cosine, gradient to fiber
         out[j] = S0 * (vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ))
     end
     return out
@@ -145,7 +145,7 @@ function signal!(out, m::StickZeppelinBall, p)
     n = fiberdirection(theta, phi)
     Dperp = (1 - vax) * Dax
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ n
+        ξ = inner(g[j], n)
         tissue = vax * stick(b[j], Dax, ξ) + (1 - vax) * zeppelin(b[j], Dax, Dperp, ξ)
         out[j] = S0 * ((1 - viso) * tissue + viso * iso(b[j], Diso))
     end
@@ -198,7 +198,7 @@ function signal!(out, m::BallStick, p)
     (; S0, f, d, theta, phi) = p
     n = fiberdirection(theta, phi)
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ n
+        ξ = inner(g[j], n)
         out[j] = S0 * ((1 - f) * iso(b[j], d) + f * stick(b[j], d, ξ))
     end
     return out

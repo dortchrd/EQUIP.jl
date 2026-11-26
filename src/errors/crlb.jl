@@ -736,10 +736,10 @@ function _mlnoisebias(c::CRLBCache{F,P,T}, k, σ, moments = _ricianmoments) wher
     C = (C + C') / 2
     HJ = Hi * J'                                             # Q × N: H⁻¹Jᵢ
     CJ = C * J'
-    EVa = [-sum(Cvu[i] * J[i, l] * (J[i, :] ⋅ HJ[:, i]) + Vu[i] * (Hs[i, l, :] ⋅ HJ[:, i])
+    EVa = [-sum(Cvu[i] * J[i, l] * inner(J[i, :], HJ[:, i]) + Vu[i] * inner(Hs[i, l, :], HJ[:, i])
                 for i in 1:N) for l in 1:Q]
-    S = [sum(Ew[i] * J[i, l] * (J[i, :] ⋅ CJ[:, i]) +
-             Ev[i] * (2 * (Hs[i, l, :] ⋅ CJ[:, i]) + J[i, l] * tr(C * Hs[i, :, :])) for i in 1:N)
+    S = [sum(Ew[i] * J[i, l] * inner(J[i, :], CJ[:, i]) +
+             Ev[i] * (2 * inner(Hs[i, l, :], CJ[:, i]) + J[i, l] * tr(C * Hs[i, :, :])) for i in 1:N)
          for l in 1:Q]
     # τ: the third derivatives' term (0 when the model is right)
     s(θ) = (h = hess(θ); sum(Eu[i] * sum(C .* h[i, U, U]) for i in 1:N))
@@ -759,7 +759,7 @@ function _derivednoisebias(g, θ, ∇q, b2, C0)
     all(isfinite, C0) || return fill(NaN, G)
     H2 = reshape(ForwardDiff.jacobian(x -> vec(ForwardDiff.jacobian(qv, x)), x0), G, P, P)
     C = Matrix(C0)
-    return [∇q[q, :] ⋅ b2 + tr(C * H2[q, :, :]) / 2 for q in 1:G]
+    return [inner(∇q[q, :], b2) + tr(C * H2[q, :, :]) / 2 for q in 1:G]
 end
 
 # A derived quantity named as one of the model's parameters would take its place in the

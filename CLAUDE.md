@@ -126,10 +126,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   at the top of each file, comments that say why, equations in the papers' notation, citations
   (author, journal, year, table) for published values.
 - Times in seconds, rates in 1/s.
-- Dot products as `a ⋅ b` (LinearAlgebra's `dot`, the papers' g·n), never `dot(a, b)`; quadratic
-  forms as `g' * D * g` (gᵀDg). One exception, in hot loops summing plain weights against many
-  dual numbers (DTI's and DKI's terms): `_wsum(w, x)`, `sum(w .* x)`, the same arithmetic, as
-  StaticArrays' `⋅` on 22-partial duals took 1.75× as long (dti.jl).
+- Dot products as `inner(a, b)` (EQUIP's, src/inner.jl: in order, inlined; LinearAlgebra's `⋅` is
+  1.75–3× slower on dual numbers of many partials, docs/design.md item 30), never `⋅` or
+  `dot(a, b)` in EQUIP's code; tests may use LinearAlgebra's `⋅` as an independent reference.
+  Quadratic forms as `g' * D * g` (gᵀDg).
 - Naming: "parameters" are the quantities in the signal equation (T1, PSR, M0, B1, ...), fitted
   or fixed; the "acquisition" is the protocol (TI, TE, flip angles, ...), never "parameters".
 - Match the surrounding code; explain Julia idioms (dispatch, type parameters, closures) when

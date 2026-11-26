@@ -26,7 +26,7 @@ module EQUIP
 # function that another package owns. We do that for a few standard function names, so that our
 # `fit` IS StatsBase's `fit` (and our `init` is SciML's `init`): loading those packages together
 # then causes no name clash.
-using LinearAlgebra                        # ⋅ (dot), Diagonal, diag; cholesky (DTI's start)
+using LinearAlgebra                        # dot (inner's fallback), Diagonal, diag; cholesky
 import LinearAlgebra: cond                 # cond(c): a crlb result's condition number
 using StaticArrays                         # SVector / SMatrix: small fixed-size arrays on the stack
 using ForwardDiff: Dual, value, partials   # dual numbers for automatic derivatives
@@ -56,7 +56,8 @@ export datastart, relabel, derived, fromderived                                 
 export @mrimodel, newmodel                                                  # a model in one step; a file
 export iso, stick, zeppelin, powder                                         # compartments, and their spherical-mean view
 export watson, bingham, watsontensor, binghamtensor                         # ... and their dispersed views
-export fiberdirection, ⋅                                                    # a directional view: ξ = g ⋅ n (⋅: LinearAlgebra's)
+export inner                                                                # EQUIP's dot product: ξ = inner(g[j], n)
+export fiberdirection, ⋅                                                    # a directional view (⋅: LinearAlgebra's, kept for models that use it)
 export DiffusionDirections, checkencoding                                   # a directional model's g: its type, its check
 export fit, init, fit!, refit, LM, FitResult, FitStatus, isconverged       # fitting
 export fitted, residuals                                                    # fitted curves
@@ -86,6 +87,7 @@ export MRImage, readimage, writeimage, readvalues, readbvec                 # (f
 # each use models alone); io (data in, maps out) uses fit.
 
 # models: the interface every model implements, and the built-in models
+include("inner.jl")                    # inner: EQUIP's dot product, ordered and inlined
 include("models/interface.jl")         # MRIModel, Free, Fixed, parameters, signal!, signal, nobs
 include("models/macro.jl")             # @mrimodel: a model from a function of one observation
 include("models/template.jl")          # newmodel: a model file to edit, blank or from @mrimodel

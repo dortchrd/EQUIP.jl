@@ -107,8 +107,8 @@ function signal!(out, m::DKI, p)
     S0, D, V = p.S0, _tensorvector(p), _kurtosisvector(p)
     @inbounds for j in eachindex(out, b, g)
         gx, gy, gz = g[j]                               # image j's gradient direction
-        gDg = _wsum(_tensorweights(gx, gy, gz), D)      # gᵀDg (dti.jl)
-        gVg = _wsum(_kurtosisweights(gx, gy, gz), V)    # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
+        gDg = inner(_tensorweights(gx, gy, gz), D)      # gᵀDg (dti.jl)
+        gVg = inner(_kurtosisweights(gx, gy, gz), V)    # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
         out[j] = S0 * exp(-b[j] * gDg + b[j]^2 * gVg / 6)
     end
     return out
@@ -145,7 +145,7 @@ function _kurtosisindices(λa, R, W, MD)
     e1, e2, e3 = R[:, 3], R[:, 2], R[:, 1]
     # W in the eigenframe: Ŵᵢᵢᵢᵢ = W(eᵢ, eᵢ, eᵢ, eᵢ), the quartic form, and Ŵᵢᵢⱼⱼ = W(eᵢ, eᵢ, eⱼ, eⱼ),
     # by polarization of the quartic form: W(u,u,v,v) = [W₄(u+v) + W₄(u−v) − 2W₄(u) − 2W₄(v)]/12
-    W4(n) = _kurtosisweights(n[1], n[2], n[3]) ⋅ W
+    W4(n) = inner(_kurtosisweights(n[1], n[2], n[3]), W)
     Wuuvv(u, v) = (W4(u + v) + W4(u - v) - 2W4(u) - 2W4(v)) / 12
     W1111, W2222, W3333 = W4(e1), W4(e2), W4(e3)
     W1122, W1133, W2233 = Wuuvv(e1, e2), Wuuvv(e1, e3), Wuuvv(e2, e3)
@@ -234,7 +234,7 @@ function _axialkurtosis(Wpar, Wperp, Wpp, n)
     g = directionset(30; iterations = 0)
     A = [_kurtosisweights(x...)[j] for x in g, j in 1:15]
     w = map(g) do x
-        ξ = x ⋅ n
+        ξ = inner(x, n)
         ρ2 = 1 - ξ^2                                  # the directions are unit vectors
         Wpar * ξ^4 + 6Wpp * ξ^2 * ρ2 + Wperp * ρ2^2
     end

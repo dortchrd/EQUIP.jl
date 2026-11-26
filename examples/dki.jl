@@ -62,7 +62,7 @@ function kmin(p, dirs)
                 p.V1122, p.V1133, p.V2233, p.V1123, p.V1223, p.V1233)
     return minimum(dirs) do (x, y, z)
         gDg = x^2 * p.Dxx + y^2 * p.Dyy + z^2 * p.Dzz + 2x * y * p.Dxy + 2x * z * p.Dxz + 2y * z * p.Dyz
-        (EQUIP._kurtosisweights(x, y, z) ⋅ V) / gDg^2
+        inner(EQUIP._kurtosisweights(x, y, z), V) / gDg^2
     end
 end
 neg = count(i -> kmin(map(v -> v[i], r.params), g) < 0, 1:2000)
