@@ -60,8 +60,8 @@ end
     kw::K                  # per image: the 15 products gᵢgⱼgₖgₗ with their multiplicities
 end
 parameters(::Type{<:DKIPrep}) = parameters(DKI)
-dkiprep(acq) = DKIPrep(acq.b, acq.g, [SVector(x^2, y^2, z^2, 2x * y, 2x * z, 2y * z) for (x, y, z) in acq.g],
-                       [_kurtosisweights(x, y, z) for (x, y, z) in acq.g])
+dkiprep(acq) = DKIPrep(acq.b, acq.g, [EQUIP._tensorweights(x) for x in acq.g],
+                       [_kurtosisweights(x) for x in acq.g])
 function signal!(out, m::DKIPrep, p)
     (; b, dw, kw) = m
     (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p

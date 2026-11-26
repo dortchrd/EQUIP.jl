@@ -111,7 +111,7 @@ end
     @test dk.AD ≈ 1.7e-3 rtol = 1e-12
     @test dk.RD ≈ 0.35e-3 rtol = 1e-12
     W = V(θk) ./ dk.MD^2                     # symmetric about n: the same K at each angle to it
-    W4(x) = EQUIP._kurtosisweights(x...) ⋅ W
+    W4(x) = EQUIP._kurtosisweights(x) ⋅ W
     u = normalize(cross(collect(n), [1.0, 0, 0])); w = cross(collect(n), u)
     ring = [W4(cos(0.4) .* collect(n) .+ sin(0.4) .* (cos(φ) .* u .+ sin(φ) .* w)) for φ in 0:0.5:3]
     @test maximum(ring) - minimum(ring) < 1e-10 * maximum(abs, ring)

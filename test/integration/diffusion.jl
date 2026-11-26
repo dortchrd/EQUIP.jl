@@ -645,7 +645,7 @@ end
         g1, g2, g3 = G[:, j]
         X[j, 1] = 1
         X[j, 2:7] = -bv[j] .* [g1^2, g2^2, g3^2, 2g1 * g2, 2g1 * g3, 2g2 * g3]
-        X[j, 8:22] = bv[j]^2 .* EQUIP._kurtosisweights(g1, g2, g3) ./ 6
+        X[j, 8:22] = bv[j]^2 .* EQUIP._kurtosisweights((g1, g2, g3)) ./ 6
     end
     y = Y[1, :]
     u = (X \ log.(y)); w = exp.(X * u); u = (w .* X) \ (w .* log.(y))
@@ -706,7 +706,7 @@ end
     pg = withW(Dl, kt)
     D = Symmetric([Dl[1] Dl[4] Dl[5]; Dl[4] Dl[2] Dl[6]; Dl[5] Dl[6] Dl[3]])
     mdg = tr(D) / 3
-    Kn(n) = mdg^2 * (EQUIP._kurtosisweights(n...) ⋅ collect(kt)) / (n ⋅ (D * n))^2
+    Kn(n) = mdg^2 * (EQUIP._kurtosisweights(n) ⋅ collect(kt)) / (n ⋅ (D * n))^2
     Jg = SymTridiagonal(zeros(64), [k / sqrt(4k^2 - 1) for k in 1:63])
     zg = eigen(Jg); zs, wz = zg.values, 2 .* zg.vectors[1, :] .^ 2
     MKavg = sum(wz[i] * sum(Kn([sqrt(1 - zs[i]^2) * cos(φ), sqrt(1 - zs[i]^2) * sin(φ), zs[i]]) for φ in (0:255) .* (π / 128)) / 256 for i in 1:64) / 2

@@ -92,11 +92,15 @@ parameters(::Type{<:DKI}) = (
 # Σᵢⱼₖₗ gᵢgⱼgₖgₗVᵢⱼₖₗ over all 81 terms is a sum over the 15 distinct elements, each times its
 # monomial and the number of index orders that give it: 1 for V1111, 4 for V1112 (1112, 1121,
 # 1211, 2111), 6 for V1122, 12 for V1123. These are the 15 monomials with their multiplicities, in
-# the order of the parameters above (DIPY's order too). A static vector: no allocation.
-@inline _kurtosisweights(x, y, z) = SVector(x^4, y^4, z^4,
-    4x^3 * y, 4x^3 * z, 4x * y^3, 4y^3 * z, 4x * z^3, 4y * z^3,
-    6x^2 * y^2, 6x^2 * z^2, 6y^2 * z^2,
-    12x^2 * y * z, 12x * y^2 * z, 12x * y * z^2)
+# the order of the parameters above (DIPY's order too). A static vector: no allocation. It takes
+# the direction itself, g = (x, y, z), a static vector or a tuple (as `_tensorweights`, dti.jl).
+@inline function _kurtosisweights(g)
+    x, y, z = g
+    return SVector(x^4, y^4, z^4,
+                   4x^3 * y, 4x^3 * z, 4x * y^3, 4y^3 * z, 4x * z^3, 4y * z^3,
+                   6x^2 * y^2, 6x^2 * z^2, 6y^2 * z^2,
+                   12x^2 * y * z, 12x * y^2 * z, 12x * y * z^2)
+end
 
 # V's fifteen elements, in that order.
 @inline _kurtosisvector(p) = SVector(p.V1111, p.V2222, p.V3333, p.V1112, p.V1113, p.V1222, p.V2223,
@@ -106,9 +110,8 @@ function signal!(out, m::DKI, p)
     (; b, g) = m
     S0, D, V = p.S0, _tensorvector(p), _kurtosisvector(p)
     @inbounds for j in eachindex(out, b, g)
-        gx, gy, gz = g[j]                               # image j's gradient direction
-        gDg = inner(_tensorweights(gx, gy, gz), D)      # gᵀDg (dti.jl)
-        gVg = inner(_kurtosisweights(gx, gy, gz), V)    # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
+        gDg = inner(_tensorweights(g[j]), D)            # image j's gradient direction: gᵀDg (dti.jl)
+        gVg = inner(_kurtosisweights(g[j]), V)          #   and Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
         out[j] = S0 * exp(-b[j] * gDg + b[j]^2 * gVg / 6)
     end
     return out
@@ -145,7 +148,7 @@ function _kurtosisindices(λa, R, W, MD)
     e1, e2, e3 = R[:, 3], R[:, 2], R[:, 1]
     # W in the eigenframe: Ŵᵢᵢᵢᵢ = W(eᵢ, eᵢ, eᵢ, eᵢ), the quartic form, and Ŵᵢᵢⱼⱼ = W(eᵢ, eᵢ, eⱼ, eⱼ),
     # by polarization of the quartic form: W(u,u,v,v) = [W₄(u+v) + W₄(u−v) − 2W₄(u) − 2W₄(v)]/12
-    W4(n) = inner(_kurtosisweights(n[1], n[2], n[3]), W)
+    W4(n) = inner(_kurtosisweights(n), W)
     Wuuvv(u, v) = (W4(u + v) + W4(u - v) - 2W4(u) - 2W4(v)) / 12
     W1111, W2222, W3333 = W4(e1), W4(e2), W4(e3)
     W1122, W1133, W2233 = Wuuvv(e1, e2), Wuuvv(e1, e3), Wuuvv(e2, e3)
@@ -232,7 +235,7 @@ end
 # exact to rounding: the form is a sum of the fifteen monomials.
 function _axialkurtosis(Wpar, Wperp, Wpp, n)
     g = directionset(30; iterations = 0)
-    A = [_kurtosisweights(x...)[j] for x in g, j in 1:15]
+    A = [_kurtosisweights(x)[j] for x in g, j in 1:15]
     w = map(g) do x
         ξ = inner(x, n)
         ρ2 = 1 - ξ^2                                  # the directions are unit vectors
