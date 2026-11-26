@@ -728,6 +728,7 @@ function Base.show(io::IO, ::MIME"text/plain", m::MRIModel)
     end
     print(io, nameof(typeof(m)), n === nothing ? "" : " with $n observation$(n == 1 ? "" : "s")")
     for f in fieldnames(typeof(m))
+        getfield(m, f) === nothing && continue      # an option not given (QMTSIR's pulse)
         print(io, "\n  ", f, " = ", _acqvalue(getfield(m, f)))
     end
     roles = try
