@@ -104,13 +104,11 @@ parameters(::Type{<:DKI}) = (
 
 function signal!(out, m::DKI, p)
     (; b, g) = m
-    (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
-    V = _kurtosisvector(p)
+    S0, D, V = p.S0, _tensorvector(p), _kurtosisvector(p)
     @inbounds for j in eachindex(out, b, g)
         gx, gy, gz = g[j]                               # image j's gradient direction
-        gDg = gx^2 * Dxx + gy^2 * Dyy + gz^2 * Dzz +
-              2gx * gy * Dxy + 2gx * gz * Dxz + 2gy * gz * Dyz
-        gVg = _kurtosisweights(gx, gy, gz) ⋅ V                          # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
+        gDg = _tensorweights(gx, gy, gz) ⋅ D            # gᵀDg (dti.jl)
+        gVg = _kurtosisweights(gx, gy, gz) ⋅ V          # Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
         out[j] = S0 * exp(-b[j] * gDg + b[j]^2 * gVg / 6)
     end
     return out

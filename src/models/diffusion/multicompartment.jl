@@ -228,8 +228,8 @@ function _tensorvectors(m, y)
     r = zero(SVector{7,T})
     @inbounds for j in eachindex(y, b, g)
         y[j] > 0 || continue
-        x, yy, z, bj = T(g[j][1]), T(g[j][2]), T(g[j][3]), T(b[j])
-        row = SVector{7,T}(1, -bj * x * x, -bj * yy * yy, -bj * z * z, -2bj * x * yy, -2bj * x * z, -2bj * yy * z)
+        bj = T(b[j])
+        row = SVector{7,T}(1, (-bj .* _tensorweights(T.(g[j])...))...)   # [1, −b·w(g)]: a B-matrix row (dti.jl)
         w = y[j]^2
         A += w * row * row'
         r += (w * log(y[j])) * row

@@ -89,13 +89,20 @@ parameters(::Type{<:DTI}) = (
     Dxy = Free(start = :loglinear), Dxz = Free(start = :loglinear), Dyz = Free(start = :loglinear),
 )
 
+# gᵀDg over the 9 elements of the symmetric D is a sum over its 6 distinct ones, each times its
+# monomial and the number of index orders that give it (1 for Dxx, 2 for Dxy: Dxy and Dyx), as
+# DKI's `_kurtosisweights` is for W: gᵀDg = _tensorweights(g) ⋅ _tensorvector(p). Times b, the
+# weights are a B-matrix row (the log-linear tensor fit's, `_tensorvectors`; and, for b-tensor
+# encoding later, what a b-tensor replaces). Static vectors: no allocation; the same arithmetic, in
+# the same order, as the sum written out (2gx·gy·Dxy is (2gx·gy)·Dxy).
+@inline _tensorweights(x, y, z) = SVector(x^2, y^2, z^2, 2x * y, 2x * z, 2y * z)
+@inline _tensorvector(p) = SVector(p.Dxx, p.Dyy, p.Dzz, p.Dxy, p.Dxz, p.Dyz)    # D's six, in that order
+
 function signal!(out, m::DTI, p)
     (; b, g) = m
-    (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz) = p
+    S0, D = p.S0, _tensorvector(p)
     @inbounds for j in eachindex(out, b, g)
-        gx, gy, gz = g[j]                               # image j's gradient direction
-        gDg = gx^2 * Dxx + gy^2 * Dyy + gz^2 * Dzz +
-              2gx * gy * Dxy + 2gx * gz * Dxz + 2gy * gz * Dyz
+        gDg = _tensorweights(g[j]...) ⋅ D               # image j's gradient direction, gᵀDg
         out[j] = S0 * exp(-b[j] * gDg)
     end
     return out
