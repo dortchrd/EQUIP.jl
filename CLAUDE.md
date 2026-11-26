@@ -52,8 +52,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   src/models/macro.jl: `@mrimodel` (a model from a
   function of one observation); src/models/template.jl: `newmodel` (a model file to edit, blank
   or written out from an @mrimodel definition); src/models/*/: the built-in models
-  (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor, gᵀDg = `inner(_tensorweights(g),
-  _tensorvector(p))` (the B-matrix row's weights, shared with DKI and the tensor start), with a
+  (src/models/diffusion/dti.jl: `DTI`, the diffusion tensor, gᵀDg = `inner(_tensorweights(g[j]),
+  D)` (the B-matrix row's weights, shared with DKI and the tensor start), with a
   log-linear start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and

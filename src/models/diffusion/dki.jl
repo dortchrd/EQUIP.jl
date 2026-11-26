@@ -102,13 +102,17 @@ parameters(::Type{<:DKI}) = (
                    12x^2 * y * z, 12x * y^2 * z, 12x * y * z^2)
 end
 
-# V's fifteen elements, in that order.
+# V's fifteen elements, in that order (for `derived`, which takes the parameters whole).
 @inline _kurtosisvector(p) = SVector(p.V1111, p.V2222, p.V3333, p.V1112, p.V1113, p.V1222, p.V2223,
                                      p.V1333, p.V2333, p.V1122, p.V1133, p.V2233, p.V1123, p.V1223, p.V1233)
 
 function signal!(out, m::DKI, p)
     (; b, g) = m
-    S0, D, V = p.S0, _tensorvector(p), _kurtosisvector(p)
+    (; S0, Dxx, Dyy, Dzz, Dxy, Dxz, Dyz,
+       V1111, V2222, V3333, V1112, V1113, V1222, V2223, V1333, V2333, V1122, V1133, V2233, V1123, V1223, V1233) = p
+    D = SVector(Dxx, Dyy, Dzz, Dxy, Dxz, Dyz)                       # in _tensorweights' order
+    V = SVector(V1111, V2222, V3333, V1112, V1113, V1222, V2223, V1333, V2333,
+                V1122, V1133, V2233, V1123, V1223, V1233)           # in _kurtosisweights' order
     @inbounds for j in eachindex(out, b, g)
         gDg = inner(_tensorweights(g[j]), D)            # image j's gradient direction: gᵀDg (dti.jl)
         gVg = inner(_kurtosisweights(g[j]), V)          #   and Σ gᵢgⱼgₖgₗ·Vᵢⱼₖₗ
