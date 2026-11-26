@@ -8569,3 +8569,41 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      models' tensor start within 2e-15 ((−b)·(x·x) for ((−b)·x)·x), fits within 2.3e-13 in Float64.
      One voxel's fit, one thread, against main: DTI 14.6 → 14.4 µs, DKI 143.9 → 100.3, the
      others within ±4% (noise).
+   - **Why ⋅ is slow there** (the owner: "Why is dot(w, x) 1.75× slower ... investigate the
+     dispatched methods and generated LLVM"; bench/dot/dot.jl). `w ⋅ x` on two SVectors is
+     StaticArrays' `dot(a::StaticArray, b::StaticArray) = _vecdot(..., dot)`, which (1) starts
+     from a zero term, `ret = dot(0, 0) + dot(0, 0)`, two products and a sum of zero duals for
+     nothing; (2) loops with `@simd`, so the compiler may reorder the sum; (3) calls
+     LinearAlgebra's scalar `dot(x::Number, y::Number) = +(conj(x) * y)` per term, not marked
+     `@inline`: for a dual of 22 partials the inliner declines it (its body, ForwardDiff's
+     product, is too big), and the optimized code keeps six calls, `invoke dot(::Float64,
+     ::Dual{…,22})`, each returning a 23-number struct through memory (LLVM: 6 calls, an alloca),
+     where `sum(w .* x)` and `mapreduce(*, +, w, x)` are inlined to straight vector arithmetic (no
+     call). Conjugation costs nothing (`conj(::Real)` is the identity); muladd is not used by
+     either. `w ⋅ n` with n a tuple (the cosine) is LinearAlgebra's generic `dot` over iterables:
+     a loop calling the same scalar `dot`.
+   - **The matrix** (ns a dot, 0 bytes allocated by every spelling; plain weights against x):
+
+     | x | length | ⋅ (StaticArrays) | sum(w .* x) | mapreduce | written out | ⋅ a tuple | ordered loop |
+     |---|---:|---:|---:|---:|---:|---:|---:|
+     | Float32 | 3 / 6 / 15 | 0.2 / 0.5 / 2.3 | 0.2 / 0.5 / 12.6 | 0.2 / 0.5 / 12.6 | 0.2 / 0.6 / 12.5 | 0.3 / 0.5 / 2.7 | 0.3 / 0.5 / 3.9 |
+     | Float64 | 3 / 6 / 15 | 0.3 / 0.8 / 2.8 | 0.3 / 1.0 / 13.0 | 0.3 / 1.0 / 12.9 | 0.3 / 1.0 / 12.8 | 0.3 / 1.0 / 2.8 | 0.3 / 1.0 / 3.0 |
+     | Dual, 5 partials | 3 / 6 / 15 | 1.2 / 2.5 / 18.1 | 6.3 / 6.8 / 10.6 | 6.6 / 6.7 / 14.7 | 6.2 / 6.7 / 14.6 | 6.2 / 6.7 / 12.2 | 6.3 / 6.7 / 11.6 |
+     | Dual, 22 partials | 3 / 6 / 15 | 19.6 / 35.8 / 86.6 | 10.5 / 13.3 / 27.4 | 10.6 / 13.2 / 26.9 | 10.5 / 13.3 / 27.2 | 29.9 / 50.8 / 126.1 | 9.9 / 13.5 / 29.1 |
+     | nested, 5×5 | 3 / 6 / 15 | 29.5 / 53.4 / 115.5 | 14.8 / 22.1 / 45.4 | 14.8 / 21.7 / 45.4 | 15.2 / 21.6 / 46.0 | 49.8 / 75.9 / 330.5 | 14.9 / 24.2 / 47.1 |
+     | nested, 22×22 | 3 / 6 / 15 | 458 / 829 / 1917 | 330 / 1802 / 4935 | 351 / 1890 / 5324 | 351 / 1878 / 5411 | 469 / 968 / 2461 | 237 / 406 / 1105 |
+
+     Read: the in-order unrolled sums (sum(w .* x), mapreduce, written out: the same code) win on
+     duals of 22 partials and nested duals of 5×5, by 2–3×, but lose on plain numbers at length
+     15 (a chain of 15 dependent additions, where ⋅'s `@simd` reorders into vector lanes) and on
+     the largest nested duals (22×22: 15 products of 529 numbers each live at once, spilled to the
+     stack). ⋅ wins on plain numbers and on small duals (5 partials, lengths 3 and 6) by
+     reordering the sum, which makes its last bits differ from the in-order sum's (the "equal"
+     column: the same results bit for bit only for the larger duals, where ⋅ does not vectorize).
+     The ordered loop (`s = w[1]·x[1]; for j in 2:N; s += w[j]·x[j]; end`, the products inlined,
+     one accumulator, in order) is within 10% of the best in every row but small duals at lengths
+     3 and 6 (⋅'s reordering, 6 against 1.2–2.5 ns) and plain numbers at 15 (3.0–3.9 against
+     2.3–2.8): the fastest by far on the largest nested duals (1105 against 1917 and 4935 ns), no
+     zero term, no reordering (the same bits on every machine and vector width), and no
+     allocation. So not specific to DKI: wherever many-partial or nested duals meet ⋅, in fits of
+     models with many parameters and in crlb's second derivatives.
