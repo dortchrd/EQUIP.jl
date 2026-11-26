@@ -8462,7 +8462,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      one along μ) needs too, and gives the stick `w(ξ)` from it. Results: every model's signals,
      starts, fits (both precisions) and crlb as main's, bit for bit, but the two NODDIs, which
      moved by a unit in the last place (signals within 2e-16, fits 2.3e-13, crlb 2e-14: the
-     compiler's instruction choice for the larger struct).
+     compiler's instruction choice for the larger struct). Speed, one voxel's fit on one thread
+     against main: NODDI 123.6 → 124.8 µs, NODDIConvolved 224.8 → 220.5 (within ±2%, noise).
    - **Non-unit directions, rescaled on request.** Refused now (above b = 50). Some protocols set
      several b-values by the vector's length (b·|g|², which MRtrix rescales by default):
      an option to `diffusionencoding` that rescales b and normalizes g, never by default.
