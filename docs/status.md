@@ -13,8 +13,14 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `gradients-io` | (2026-11-25, the owner: "do 1 and 2 together on one branch now, make sure to have conversion to scanner coordinates on roadmap") `readdata(paths; bval, bvec)`, the files named in place of those beside the data (eddy's rotated directions); each direction map's sidecar says its frame (`"DirectionFrame": "bvec"`, FSL's image axes), the guide explains it; directions in scanner coordinates on the roadmap (item 27); `watson(κ, μ)` and its view `w(g[j])`, as Bingham's; `scaleb` (b-values set by the vectors' lengths, as MRtrix's) in `diffusionencoding`, `readdata` and `--scaleb yes` (the owner: "do both"). The full suite (3384) and the command line's (189) pass; NODDI's speed unchanged (±2%). Waits on the owner's merge. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "Yes merge"): `gradients-io`, `readdata(paths;
+bval, bvec, scaleb)` (the files named in place of those beside the data); each direction map's sidecar
+says its frame (`"DirectionFrame": "bvec"`), the guide explains it, scanner coordinates on the roadmap
+(item 27); `watson(κ, μ)` and `w(g[j])`, as Bingham's view; `scaleb` (b-values set by the vectors'
+lengths, as MRtrix's), `--scaleb yes`. Checked first: the full `Pkg.test` (3384), the command line's
+(189), CI (466a7b3, all six jobs). The branch is to delete (`git push origin --delete gradients-io`).
 
 Merged into `main` (fast-forward, 2026-11-25, the owner: "put on roadmap"): `prepare-proto`, a bench
 only (bench/prepare/prepare.jl) and its measurements in roadmap item 28: preparing the work that does not
