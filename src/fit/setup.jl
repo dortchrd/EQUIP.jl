@@ -166,7 +166,7 @@ function setup(model::MRIModel, ::Type{T} = Float64; weights = nothing, params..
         n === :mask ? "`mask` is for datasets: fit(m, data; mask) with `data` holding many voxels" :
         n in fieldnames(LM) ? "`$n` is a solver setting: solver = LM($n = ...)" :
         "`$n` is neither a parameter of $(nameof(typeof(model))) ($(join(names, ", "))) " *
-        "nor an option ($(join(_RESERVED, ", ")))"))
+        "nor an option ($(join(_RESERVED, ", ")))" * _namehint(model, n)))
     return _spec(model, roles, T, weights)
 end
 

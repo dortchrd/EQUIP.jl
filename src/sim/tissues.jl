@@ -183,7 +183,7 @@ _call(M::Type{<:MRIModel}) = "nominal($(nameof(M))"
 function _nominal(m::_ModelOrType, props::NamedTuple, call, starts::Bool; changes...)
     roles = _roles(m)                            # a model's starts computed for its acquisition
     ch = _fromderived(m, values(changes), keys(roles), props)   # derived quantities → parameters
-    _check_names("nominal(m; ...)", keys(ch), keys(roles))
+    _check_names("nominal(m; ...)", keys(ch), keys(roles), m)
     _reject_roles(ch)
     function pick(n)                             # the keyword's value, the tissue's, the model's
         haskey(ch, n) && return ch[n]

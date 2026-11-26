@@ -6251,13 +6251,60 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      - **The names**: the functions' (`inversionefficiency`, `boundsaturation`, `RFPulse`,
        `gaussian`, ...) are the first choice, to confirm with the owner. `gaussian` may clash with
        DSP.jl's window of that name if both are loaded (Julia then asks for `EQUIP.gaussian`).
-     - **Next** (steps 2 and 3): the two-pool pieces (the 2×2 matrix exponential in closed form,
+     - **Next** (steps 2 and 3, step 2 built: below): the two-pool pieces (the 2×2 matrix exponential in closed form,
        e^τ[cosh δ·I + (sinh δ/δ)(X − τI)], equal to `expm` to 2e-16 and taking dual numbers, where
        the MATLAB's `eig` does not; Henkelman's CW steady state, equal to the 2×2 solve to 1e-16)
        and Yarnykh's SPGR model, the MT-off image fitted as one more observation (not divided
        into the others: its noise would be in every point), B1 and B0 as fixed maps, R1f from an
        observed R1 as a tie (R1f = R1obs − kfm·(R1m − R1obs)/(R1m + kmf − R1obs), the slow
        eigenvalue's, Sled & Pike's); then the names (next bullet).
+   - **Built: `QMTSPGRYarnykh`, pulsed MT with SPGR** (branch `pulsedmt-proto`, 2026-11-26, step 2
+     of 3; src/models/qmt/twopool.jl and qmt_spgr.jl). The owner's choices: the MT pulse in
+     "Both" forms (its power-equivalent amplitude `B1e` (µT) and `tm`, as the MATLAB; or its shape,
+     an `RFPulse`, and a nominal flip angle per image, `mtflip`, from which B1e = (mtflip/net
+     flip)·√(∫ω1²dt/tm)/γ), the name `QMTSPGRYarnykh` (the approximation named from the start, so
+     every SPGR variant names its author), and R1m = 1 s⁻¹ fixed (the pulsed-MT convention).
+     - **The model**, as the lab's yarnykh_pulseMT.m: per TR the excitation (the free pool only,
+       C = diag(cos α, 1)), tr of free recovery, the MT pulse (constant saturation, π·ω1e²·g per
+       pool: the free pool's Lorentzian, the macromolecular pool's `lineshape`, super-Lorentzian by
+       default), ts of free recovery; the steady state just before the excitation in closed form;
+       S = M0f·sin α·Mzf. Every acquisition field one number or one per image (several flip
+       angles or TRs, so R1f can be fitted from the same data). Parameters: PSR, kmf, T2f, T2m,
+       M0f free; R1f tied to `R1obs` (so the pools' slower recovery rate, what a single-pool R1 map
+       measures, is R1obs: R1f = R1obs − kfm·(R1m − R1obs)/(R1m + kmf − R1obs), from
+       det(−A − R1obs·I) = 0), R1obs = 1.0 (a default to replace with the map, as Sm's 0.83 in
+       SIR), R1m = 1, B1 = 1 (the excitation and the MT pulse), B0 = 0 (Hz, moves every offset).
+     - **The MT-off image is an observation** (`B1e = 0`, its offset anything; the lineshape there
+       is not used), fitted with M0f like the others, not divided into them as the MATLAB's Mzn
+       (S/S0) is: that would put its noise into every point, correlated, and bias at low SNR.
+       Normalized data (S/S0 already) are not supported: their denominator depends on the
+       parameters; to come if asked.
+     - **Checked**: against the MATLAB, run in Octave, with the Gaussian and Lorentzian
+       lineshapes (exact in both), Mz and Mz/Mz(MT off) within 7e-15 (γ matched: its 42.58 MHz/T
+       against CODATA's 42.577478518); with its super-Lorentzian 2.3e-4 (its rectangle rule).
+       Against the sequence played TR after TR to its steady state (4000 TRs, LinearAlgebra's
+       `exp`; test/setup.jl), 1e-12; the Ernst equation at PSR = 0 without the MT pulse; the two
+       pulse forms; B1 and B0 as the invariances they are; R1f's tie giving the slower eigenvalue
+       R1obs; the closed-form exponential against `exp` (real, complex and nearly equal
+       eigenvalues); the Jacobian against central differences; no allocation, both precisions
+       (a Float32 fit allocated 143 kB until the series branch of cosh/sinhc kept its type).
+     - **Found in the MATLAB** (to tell the lab): `ga.*B1e.^2` with B1e a row vector, as the
+       offsets are given, expands to a matrix (ga is a column), and `Wa(ii)` then takes its first
+       column, so every offset gets B1e(1)'s power: only a single B1e or a column is right. Its
+       excitation angle is documented in degrees but used in radians (`cos(thetaEX)`).
+     - **Measured** (13 images: 6 offsets, 1–32 kHz, at 4 and 8 µT, and the MT-off image;
+       tm 12 ms, ts 2 ms, TR 30 ms, 10°): one signal 2.0 µs, nothing allocated; one voxel's fit
+       56 µs on one thread (a brain of 300,000 voxels in about 17 s on one thread); noise-free
+       fits from the default starts recover the truth to 4e-8 over PSR 0.05–0.25, kmf 10–40,
+       T2f 20–80 ms, T2m 8–16 µs, R1obs 0.6–1.4 (2000 of 2000); at an MT-off image SNR of 100,
+       all converge, PSR's error median 0.2%, IQR 9.8%; at the nominal truth PSR's SD 6.76% against
+       crlb's 6.85% (kmf 14.2% against 14.3%). Note for simulations: `snr` is relative to M0f, and
+       the images are M0f·sin α·Mzf (an eighth of M0f at 10°), so snr = 800 gives the MT-off
+       image an SNR of 100 (snr = 100 had given 12, and PSR's SD 55%).
+     - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
+       presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
+       the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had
+       compiled for 6 s, its first crlb 15 s).
    - **Names across the field** (the owner, 2026-11-26: "One issue in field - different
      terminology ... henkelman R - directional exchange. And lots of names for PSR and MPF").
      Pool size: PSR = M0m/M0f (SIR), F, M0B with M0A = 1 (Henkelman), the fraction
@@ -6271,6 +6318,16 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      paper's names to EQUIP's (Henkelman 1993, Sled & Pike 2001, Yarnykh 2002 and 2012, Gochberg
      & Gore, Li 2010, Dortch 2011 and 2018, qMRLab); a hint when a fit is given another
      convention's name (`F`: "EQUIP's pool size is PSR; MPF is derived").
+     - **Built (step 3, branch `pulsedmt-proto`, 2026-11-26)**, src/models/qmt/mtnames.jl: as
+       proposed, `derived` MPF = PSR/(1 + PSR) and kfm = kmf·PSR for QMTSIR, QMTSIREqualR1 and
+       QMTSPGRYarnykh (maps beside the parameters', in crlb's and montecarlo's tables by the delta
+       method); `fromderived` (`nominal(m; MPF = 0.13, kfm = 2.0)`: PSR = MPF/(1 − MPF),
+       kmf = kfm/PSR; kfm alone refused, it fixes no parameter without the pool size); a hint
+       table of other conventions' names (F, M0B, f, BPF, MPF, kf, kab, kb, kr, kba, R, T2r, T2B,
+       R1r, R1B, M0A, ...), added to the messages of a fit's unknown keyword and of `nominal`'s
+       (a generic hook, `_namehint(m, n)`, empty for other models). Not built: the per-paper table
+       (which paper writes which name), which needs the papers; the guide gives the conventions by
+       their definitions instead (docs/guide.md, "qMT's names").
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool
      Bloch–McConnell equations under constant off-resonance saturation, in closed form. The
      reference model, and the building block of the pulsed approximations.

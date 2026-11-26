@@ -338,6 +338,7 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `SMTT2(b = ..., TE = ...)` | `SMT` with a T2 per compartment, shells at several echo times (Veraart et al., NeuroImage 2018; McKinnon & Jensen, MRM 2019): vax the volume fraction, not SMT's T2-weighted one | S0, vax, Dax, T2ax, T2ex | |
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 | | `QMTSIREqualR1(TI = ..., TD = ..., magnitude = true)` | `QMTSIR` with its two assumptions built in (R1m = R1f, both pools saturated at the start of TD), so the signal is one line: M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}, with E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), k = kmf·(1 + PSR), a = (Sf + PSR·Sm)/(1 + PSR), b = PSR·(Sf − Sm)/(1 + PSR). Inversion recovery whose inversion efficiency, a + b·E_k, relaxes during TI from Sf toward the pools' weighted mean a at the exchange rate k; TD carries no exchange. The same fits as `QMTSIR`'s defaults in 0.6–0.75 of the time; defined at kmf = 0; the SIR protocols apply | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), Sm = 0.83 |
+| | `QMTSPGRYarnykh(offset = ..., B1e = ..., tm = ..., ts = ..., TR = ..., FA = ...)`, or the MT pulse as `mtpulse = RFPulse(...)`, `mtflip = ...` | pulsed MT with a spoiled gradient echo, Yarnykh's two-pool model (MRM 2002; Yarnykh & Yuan, NeuroImage 2004): each TR an excitation (FA, degrees; the free pool only), free recovery, then an off-resonance MT pulse (`offset`, Hz) of power-equivalent amplitude `B1e` (µT) over `tm`, saturating each pool at π·ω1²·g (the free pool's Lorentzian; the macromolecular pool's `lineshape`, `superlorentzian` by default), `ts` before the next excitation; the steady state in closed form; S = M0f·sin α·Mzf. Include an image without the MT pulse (`B1e = 0`): it is fitted with the others, not divided into them. R1f by default from an observed R1 map, `R1obs = r1map`, so the pools' slower recovery rate is R1obs (or `R1f = Free(start = 1.0)` with images at several flip angles); `B1` scales the excitation and the MT pulse, `B0` (Hz) moves every offset | PSR, kmf, T2f, T2m, M0f | R1m = 1, R1f tied to R1obs = 1.0, B1 = 1, B0 = 0 |
 
 ### SIR's Sf and Sm from the inversion pulse
 
@@ -369,6 +370,41 @@ The lineshapes, g(Δ) in s for an offset Δ in Hz, normalized (∫ g d(2πΔ) = 
 (Sm's default: finite on resonance), `lorentzian(T2, Δ)` (a liquid) and `superlorentzian(T2, Δ)`
 (the macromolecular pool of tissue, for MT pulses off resonance; infinite on resonance, where a
 cutoff is still to come).
+
+### qMT's names
+
+The field writes the same quantities under many names. Every EQUIP qMT model uses one set: the
+free pool f and the macromolecular pool m, `PSR` = M0m/M0f (the pool size ratio), `kmf` (the
+exchange rate from m to f, 1/s; k_xy is always from x to y), `R1f`, `R1m`, `T2f`, `T2m`, `M0f`.
+The other conventions come as derived quantities, maps beside the parameters' with their errors
+in `crlb` and `montecarlo`:
+
+| derived | | also called |
+|---|---|---|
+| `MPF` | M0m/(M0f + M0m) = PSR/(1 + PSR) | the macromolecular (or bound) pool fraction, BPF, f |
+| `kfm` | kmf·PSR, the exchange rate from f to m (kfm·M0f = kmf·M0m) | kf |
+
+Henkelman's R (Henkelman et al., MRM 1993) is not directional: kfm = R·M0m and kmf = R·M0f, so
+with M0f = 1, R is `kmf`. `nominal` takes MPF, with kfm if wanted (`nominal(m; MPF = 0.13,
+kfm = 2.0)`), and a fit or `nominal` given another convention's name (`F`, `f`, `kf`, `kr`, `R`,
+`T2r`, ...) says which of EQUIP's it is.
+
+### Pulsed MT with SPGR
+
+```julia
+offsets = [1e3, 2e3, 4e3, 8e3, 16e3, 32e3]
+m = QMTSPGRYarnykh(offset = [offsets; offsets; 0], B1e = [fill(4.0, 6); fill(8.0, 6); 0],   # µT; 0: MT off
+                   tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+r = fit(m, data; R1obs = r1map, B1 = b1map, B0 = b0map)       # maps from other scans (Hz for B0)
+```
+
+Each acquisition field is one number for every image or one per image (several flip angles or
+TRs are allowed). The MT pulse is given either by its power-equivalent amplitude, `B1e` =
+√(∫B1²dt/tm) in µT, and `tm`, or by its shape and nominal flip angle per image: `mtpulse =
+RFPulse(...)` (pulses.jl's segments; its duration is tm) and `mtflip` (degrees), from which EQUIP
+works out B1e. The macromolecular pool's `lineshape` is any function `(T2, Δ) -> g`. Mind the
+noise level when simulating: `snr` is relative to M0f, and an SPGR image is M0f·sin α·Mzf, about
+an eighth of M0f at 10°, so `snr = 800` gives the image without the MT pulse an SNR of about 100.
 
 ## Writing a model
 

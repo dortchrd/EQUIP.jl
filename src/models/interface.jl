@@ -568,11 +568,14 @@ function _check_tie(n, v::Symbol, vals)
 end
 _check_tie(n, v, vals) = nothing          # not a tie by name
 
-function _check_names(kind, given, known)
+function _check_names(kind, given, known, m = nothing)
     for n in given
-        n in known || throw(ArgumentError("unknown parameter `$n` in `$kind`; the parameters are $known"))
+        n in known || throw(ArgumentError("unknown parameter `$n` in `$kind`; the parameters are $known" * _namehint(m, n)))
     end
 end
+# What a name that is not a parameter may be (another convention's name for one of the model's
+# parameters, as qMT's: src/models/qmt/mtnames.jl), added to the message; none by default
+_namehint(m, n::Symbol) = ""
 
 # Roles are not values: `parameters(m)` says how each parameter is fitted (start, bounds), so
 # passing it, or a `Free(...)`/`Fixed(...)`, where values belong is an easy mistake that would
@@ -758,6 +761,7 @@ function _acqvalue(x::AbstractVector{<:StaticVector})
     length(x) <= 4 && return "[" * join(map(v -> "(" * join(map(c, v), ", ") * ")", x), ", ") * "]"
     return "$(length(x)) directions"
 end
+_acqvalue(x::Function) = string(nameof(x))         # a lineshape, by its name
 _acqvalue(x) = _showvalue(x)
 
 # The parameter table, for the model's display and for `nominal`'s error: one row per parameter

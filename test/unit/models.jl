@@ -194,6 +194,71 @@ end
     @test RFPulse([90, 180, 90], [0, 90, 0], 3e-3).duration == fill(1e-3, 3)
 end
 
+@testset "QMTSPGRYarnykh: the lab's MATLAB, brute force, limits, the two pulse forms, B1 and B0" begin
+    m = QMTSPGRYarnykh(; SPGR_ACQ...)
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.0, B1 = 1.0, B0 = 0.0)
+    # the lab's yarnykh_pulseMT.m (A. Smith, 2013), run in GNU Octave 9 (2026-11-26) with the same
+    # values (kab = kfm = 3, the excitation 10° in radians, as its code takes it; B1e as a column:
+    # given as a row, its `ga.*B1e.^2` expands to a matrix and every offset takes B1e(1)), the
+    # Gaussian lineshape for the macromolecular pool (the MATLAB's super-Lorentzian is a rectangle
+    # rule, 1e-4 off); its γ is 42.58 MHz/T, so B1e scaled to give the same ω1
+    matlab = [0.46211402574358929, 0.50211831922905914, 0.51687069041057643, 0.53534459786136468, 0.59401812191124237,
+              0.70943232855283989, 0.27361348865082347, 0.34007194275486763, 0.36441653179065386, 0.38202376858950554,
+              0.43851954163236384, 0.65700597281971629]
+    mg = QMTSPGRYarnykh(; SPGR_ACQ..., B1e = SPGR_ACQ.B1e .* (42.58 / 42.577478518), lineshape = gaussian)
+    @test signal(mg, θ)[1:12] ./ sind(10) ≈ matlab rtol = 1e-12
+    # against the sequence played TR after TR to its steady state (test/setup.jl), the
+    # super-Lorentzian, every image, the MT-off one too
+    y = signal(m, θ)
+    bf = [spgr_bruteforce(; offset = m.offset[j], B1e = m.B1e[j], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10.0,
+                          lineshape = superlorentzian, θ...) for j in 1:13]
+    @test y ≈ sind(10) .* bf rtol = 1e-12
+    # no macromolecular pool and no MT pulse: the Ernst equation, sin α·(1 − E1)/(1 − cos α·E1)
+    E1 = exp(-1.2 * 0.030)
+    @test signal(m, merge(θ, (PSR = 0.0,)))[13] ≈ sind(10) * (1 - E1) / (1 - cosd(10) * E1) rtol = 1e-13
+    # the MT pulse as its shape and flip angle: a block of flip angle θ over tm has B1e = (θ/tm)/γ
+    θmt = rad2deg(4.0 * 2π * 42.577478518 * 0.012)                    # the flip angle that gives B1e = 4 µT
+    mp = QMTSPGRYarnykh(; offset = SPGR_ACQ.offset[1:6], mtpulse = blockpulse(θmt, 0.012), mtflip = θmt, ts = 0.002, TR = 0.030, FA = 10)
+    @test mp.B1e ≈ fill(4.0, 6) && mp.tm == fill(0.012, 6) && signal(mp, θ) ≈ y[1:6]
+    # ... and a shape: its B1e the root mean square of its amplitude, scaled by mtflip/its own net flip
+    ps = RFPulse([10, 20, 30, 20, 10], [0, 0, 0, 0, 0], 0.010)
+    ms = QMTSPGRYarnykh(; offset = [2e3], mtpulse = ps, mtflip = 450, ts = 0.002, TR = 0.030, FA = 10)
+    @test ms.B1e[1] ≈ (450 / 90) * sqrt(sum(abs2, deg2rad.([10, 20, 30, 20, 10]) ./ 0.002) / 5) / (2π * 42.577478518)
+    # B1 scales the excitation and the MT pulse; B0 moves every offset
+    m11 = QMTSPGRYarnykh(; SPGR_ACQ..., B1e = 1.1 .* SPGR_ACQ.B1e, FA = 11)
+    @test signal(m, merge(θ, (B1 = 1.1,))) ≈ signal(m11, θ) rtol = 1e-13
+    mb0 = QMTSPGRYarnykh(; SPGR_ACQ..., offset = SPGR_ACQ.offset .- 150)
+    @test signal(m, merge(θ, (B0 = 150.0,))) ≈ signal(mb0, θ) rtol = 1e-13
+    # R1f tied to R1obs by default: the two pools' slower recovery rate is R1obs
+    q = resolve(m, merge(nominal(m), (PSR = 0.15, kmf = 20.0, R1obs = 1.1)))
+    kfm = q.kmf * q.PSR
+    @test minimum(eigvals([q.R1f + kfm -q.kmf; -kfm q.R1m + q.kmf])) ≈ 1.1 rtol = 1e-13
+    # the closed-form 2×2 exponential against LinearAlgebra's: real eigenvalues, complex ones,
+    # nearly equal ones (the series), and its derivative (a dual number) against central differences
+    for X in ([-3.0 2.0; 0.5 -40.0], [-1.0 -2.0; 3.0 -0.5], [-2.0 1e-5; 1e-5 -2.0 + 1e-6], [-25.0 0.0; 0.0 -25.0])
+        @test EQUIP._expm2(SMatrix{2,2}(X)) ≈ exp(X) rtol = 1e-13
+    end
+    f(t) = EQUIP._expm2(SMatrix{2,2}([-3.0 2.0; 0.5 -40.0] * t))[1, 2]
+    @test ForwardDiff.derivative(f, 0.03) ≈ (f(0.03 + 1e-7) - f(0.03 - 1e-7)) / 2e-7 rtol = 1e-7
+    # the fit's derivatives against central differences (the super-Lorentzian's table among them)
+    J = jacobian(m, θ)
+    for (k, name) in enumerate((:PSR, :kmf, :T2f, :T2m, :M0f))
+        h = 1e-6 * θ[name]
+        up, dn = signal(m, merge(θ, NamedTuple{(name,)}((θ[name] + h,)))), signal(m, merge(θ, NamedTuple{(name,)}((θ[name] - h,))))
+        @test J[:, k] ≈ (up .- dn) ./ 2h rtol = 1e-6
+    end
+    out = zeros(13); qθ = resolve(m, θ); signal!(out, m, qθ)
+    @test_noalloc @allocated(signal!(out, m, qθ)) == 0
+    # the acquisition's checks: one MT pulse form; one value or one per image; TR ≥ tm + ts
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    base = (offset = [1e3, 2e3], ts = 0.002, TR = 0.030, FA = 10)
+    @test occursin("B1e", msg(() -> QMTSPGRYarnykh(; base...)))
+    @test occursin("not both", msg(() -> QMTSPGRYarnykh(; base..., B1e = 4.0, tm = 0.012, mtpulse = blockpulse(500, 0.012), mtflip = 500)))
+    @test occursin("mtflip", msg(() -> QMTSPGRYarnykh(; base..., mtpulse = blockpulse(500, 0.012))))
+    @test occursin("B1e has 3", msg(() -> QMTSPGRYarnykh(; base..., B1e = [4.0, 4.0, 4.0], tm = 0.012)))
+    @test occursin("TR = 0.01", msg(() -> QMTSPGRYarnykh(; base..., TR = 0.010, B1e = 4.0, tm = 0.012)))
+end
+
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin
     m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
     @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)

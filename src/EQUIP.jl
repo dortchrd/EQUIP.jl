@@ -69,6 +69,7 @@ export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS 
 export StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved, IVIM
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
+export QMTSPGRYarnykh
 export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
 export RFPulse, blockpulse, inversionefficiency, boundsaturation            # pulses: Sf and Sm
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation

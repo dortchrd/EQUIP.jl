@@ -208,6 +208,10 @@ const TD6 = [0.5, 3.0, 1.0, 0.2, 2.0, 0.05]
 const DWI_ACQ = let g = directionset(30)
     diffusionencoding([0.0; fill(1000.0, 30); fill(2500.0, 30)], reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(g); collect.(g)]))
 end
+# A pulsed-MT SPGR protocol: offsets 1 to 32 kHz at two MT powers, and an image without the MT
+# pulse (B1e = 0); a 12-ms MT pulse 2 ms before the excitation, TR 30 ms, 10°
+const SPGR_ACQ = (offset = [1e3, 2e3, 4e3, 8e3, 16e3, 32e3, 1e3, 2e3, 4e3, 8e3, 16e3, 32e3, 0.0],
+                  B1e = [fill(4.0, 6); fill(8.0, 6); 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
 
 # Each case: a model (with its acquisition), and the true values of EVERY parameter.
 const CASES = [
@@ -231,6 +235,8 @@ const CASES = [
      (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
     (QMTSIREqualR1(TI = TI5, TD = TD5), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)),
+    (QMTSPGRYarnykh(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
+                                      R1obs = 1.0, B1 = 1.0, B0 = 0.0)),     # R1obs = R1m: the tie gives R1f = 1.0
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
     (StickZeppelin(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)),
     (StickZeppelinBall(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, viso = 0.1, Dax = 1.9e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)),
@@ -240,6 +246,30 @@ const CASES = [
     (NODDIConvolved(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, theta = 0.7, phi = 0.3, Dpar = 1.7e-3, Diso = 3.0e-3)),
     (BinghamNODDIConvolved(; DWI_ACQ...), (S0 = 1000.0, vic = 0.6, viso = 0.1, ODI = 0.2, betafraction = 0.5, theta = 0.7, phi = 0.3, psi = 0.8, Dpar = 1.7e-3, Diso = 3.0e-3)),
 ]
+
+# Pulsed-MT SPGR by brute force (QMTSPGRYarnykh's independent reference): the sequence played TR
+# after TR, from equilibrium, until it no longer changes (contracting by about e^(−R1·TR)·cos α a
+# TR: 4000 TRs reach the steady state to rounding), with LinearAlgebra's matrix exponentials and
+# the saturated steady state solved as a linear system; one image at a time. Returns the free
+# pool's Mz just before the excitation, in units of M0f (the signal over M0f·sin α).
+function spgr_bruteforce(; offset, B1e, tm, ts, TR, FA, lineshape, PSR, kmf, T2f, T2m, R1f, R1m, B1 = 1.0, B0 = 0.0, _...)
+    kfm = kmf * PSR
+    A = [-(R1f + kfm) kmf; kfm -(R1m + kmf)]
+    M0 = [1.0, PSR]
+    ω1² = (2π * 42.577478518 * B1 * B1e)^2
+    W = B1e == 0 ? zeros(2, 2) : π * ω1² * [lorentzian(T2f, offset - B0) 0; 0 lineshape(T2m, offset - B0)]
+    Mss = (W - A) \ ([R1f 0; 0 R1m] * M0)
+    free(M, t) = exp(A * t) * (M - M0) + M0
+    α = B1 * deg2rad(FA)
+    M = copy(M0)
+    for _ in 1:4000
+        M = [cos(α) * M[1], M[2]]                           # excitation: the free pool only
+        M = free(M, TR - tm - ts)
+        M = exp((A - W) * tm) * (M - Mss) + Mss             # the MT pulse
+        M = free(M, ts)
+    end
+    return M[1]
+end
 
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix
 # exponentials, extended to start TD at Mz = Z·M0 instead of 0, with Z = diag(Mzf_td0, Mzm_td0):

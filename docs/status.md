@@ -20,9 +20,12 @@ then the lab's `absorptionLineShape.m` and `yarnykh_pulseMT.m`, "dont take as go
 lineshapes (`lorentzian`, `gaussian`, `superlorentzian`, the last from a table of one variable,
 45 ns a value, within 1e-13 of the quadrature), the pulses (`RFPulse`, `blockpulse`), SIR's Sf
 (`inversionefficiency`) and Sm (`boundsaturation`, Gaussian on resonance: "We do Gaussian for now");
-the quintic table shared with Watson's (src/tables.jl; NODDI bit for bit, speed unchanged). The
-models tests pass (1397). Next: step 2, the two-pool pieces and Yarnykh's SPGR model; step 3, the
-names (docs/design.md, item 6). Before merging: the full `Pkg.test`.
+the quintic table shared with Watson's (src/tables.jl; NODDI bit for bit, speed unchanged). Step 2:
+`QMTSPGRYarnykh`, pulsed MT with SPGR (the owner: the MT pulse in "Both" forms, B1e and tm or its
+shape and flip angle; the name; R1m = 1 fixed), equal to the lab's MATLAB to 7e-15 (two bugs found
+in it, design.md item 6), in the precompile workload. Next: step 3, the names (MPF, kfm derived;
+the terminology table; hints). Before merging: the full `Pkg.test`, and CI (the precompile
+workload changed).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from

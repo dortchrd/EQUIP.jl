@@ -40,7 +40,9 @@ using PrecompileTools: @setup_workload, @compile_workload
              (ADCKurtosis(b = b), (S0 = 1000.0, ADC = 1e-3, K = 1.0)),
              (IVIM(b = [0.0, 10, 20, 50, 100, 200, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1e-3)),
              (QMTSIR(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)),
-             (QMTSIREqualR1(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)))
+             (QMTSIREqualR1(; SIR_5POINT...), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0)),
+             (QMTSPGRYarnykh(offset = [1e3, 4e3, 16e3, 0.0], B1e = [6.0, 6.0, 6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030,
+                             FA = 10), (PSR = 0.15, M0f = 1000.0)))
     dirs = directionset(15)
     dwib = [0.0; fill(1000.0, 15); fill(2000.0, 15)]
     dwig = reduce(hcat, [[[0.0, 0.0, 0.0]]; collect.(dirs); collect.(dirs)])   # 3 × 31, a .bvec

@@ -59,7 +59,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   _tensorvector(p))` (the B-matrix row's weights, shared with DKI and the tensor start), with a
   log-linear start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/qmt/: `QMTSIR`, `QMTSIREqualR1` (qmt_sir.jl); lineshapes.jl, `lorentzian`,
   `gaussian`, `superlorentzian` (g(Δ), the saturation rate π·ω1²·g); pulses.jl, `RFPulse`,
-  `blockpulse`, `inversionefficiency` (SIR's Sf) and `boundsaturation` (Sm); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  `blockpulse`, `inversionefficiency` (SIR's Sf) and `boundsaturation` (Sm); twopool.jl, the two pools on
+  static 2×2 matrices (A, its exponential in closed form, the saturated steady state); qmt_spgr.jl,
+  `QMTSPGRYarnykh` (pulsed MT with SPGR, Yarnykh 2002); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones
