@@ -8525,3 +8525,28 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **Decided** (the owner, 2026-11-25: "put on roadmap"): kept, low priority. The generic hook
      waits until a second model shows a real gain in a fit; NODDI's 9% (about 1 s a brain) alone
      does not justify it now. The bench stays to measure the next candidate against.
+29. **The Standard Model, as SMI fits it** (the owner, 2026-11-26: "put smi on roadmap"; the
+   discussion of 2026-11-03, "SMT or SMI in disorganized nerve", above). The kernel of one fiber
+   bundle, a stick (intra-axonal, D_a) and a zeppelin (extra-axonal, D_e∥, D_e⊥), with free water
+   optionally, convolved with any fiber ODF (Novikov et al., NeuroImage 2019; SMI: Coelho et al.,
+   NeuroImage 2022). Parameters f, D_a, D_e∥, D_e⊥, f_w, and the ODF's rotational invariants p₂
+   (p₄). Two forms:
+   - **A, rotational invariants (SMI's).** Each shell's data reduced to its orientation-free
+     invariants, S₀(b) (the spherical mean, EQUIP's `sphericalmean`, SMT's) and S₂(b) (the l = 2
+     power: a spherical-harmonic fit per shell, 6 directions at least, more in practice), and the
+     model S_l(b) = S0·p_l·K_l(b): no orientation to fit, a few observations per voxel. The
+     kernel's K_l are the Legendre coefficients the Watson series already makes (the stick's kₗ
+     from the table in β, item 27; the zeppelin's e^(−b·D_e⊥)·kₗ(b·(D_e∥ − D_e⊥)), its β < 0 made
+     exactly), so most of the arithmetic exists.
+   - **B, the whole signal with a Watson ODF**: NODDIConvolved with D_a, D_e∥, D_e⊥ free and free
+     water; easy on the dispersed views, but the ODF assumed Watson. A companion to A, to compare.
+   - **The difficulty**: the Standard Model's degeneracy, two near-equal solutions (D_a > D_e∥
+     and D_a < D_e∥) and a flat likelihood (Jelescu et al., NMR Biomed 2016). SMI answers with
+     machine learning trained on priors; EQUIP's answer would be its own: fits started on both
+     branches (BestOf), crlb to show where a protocol cannot tell them apart, and the protocol
+     designer to find one that can (b-tensor or multi-TE data, items 17 and 27).
+   - **To decide when it is built**: A, B or both (A first, the real SMI form, was the
+     recommendation); free water or not; invariants to l = 2 or l = 4 (more directions per shell);
+     TE dependence (compartment T2s from multi-TE data, SMI's) now or later. To check against:
+     the kernel's K_l by quadrature, simulated Standard Model data, and SMI's MATLAB code's
+     output on the same data.
