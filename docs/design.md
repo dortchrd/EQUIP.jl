@@ -8607,3 +8607,27 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      zero term, no reordering (the same bits on every machine and vector width), and no
      allocation. So not specific to DKI: wherever many-partial or nested duals meet ⋅, in fits of
      models with many parameters and in crlb's second derivatives.
+   - **EQUIP's own dot product, `inner(a, b)`** (the owner: "I just don't like the inconsistency.
+     Maybe create our own dot product function", then "Name suggestion? Inner product?", "Yes";
+     src/inner.jl, exported). The ordered loop of the matrix above: `s = a[1]·b[1]; for j in 2:N;
+     s += a[j]·b[j]; end`, for static vectors and tuples in any mix (tuples as SVectors, so the
+     sum's type is stable), LinearAlgebra's `dot` for other arrays. Every dot product in EQUIP's
+     code is written with it (the models' cosines, DTI's and DKI's weights in place of `_wsum`,
+     the solver's predicted decrease, crlb's sums, `directionset`, the Watson view, the Bingham
+     start); `⋅` stays exported for models that use it, and the tests use it as the independent
+     reference. Tested: the in-order sum bit for bit in both precisions, tuples and SVectors
+     alike, through a dual and a nested dual, no allocation, another array as `dot`, lengths that
+     differ refused.
+   - **Checked against main.** `directionset`'s directions moved by up to 4.6e-6 (its repulsion
+     sums with `inner` now; within its own convergence, which the tests allow 2e-6 for between
+     Julia versions), and with them every simulated directional acquisition, so the directional
+     models were compared on directions held fixed: signals and crlb bit for bit (DKI's signal
+     within 2e-15), starts within 1e-14, Float64 fits within 2e-13 (the ill-conditioned high-b
+     cases: DKI 2e-5, BinghamNODDI 2e-6), Float32 fits within Float32's rounding. The other models
+     of test/setup.jl's CASES: identical, bit for bit, or fits within 1e-11, but the Float32
+     bi-exponentials, chaotic (the solver's predicted decrease now summed in order): 5 of 50
+     voxels moved, the worst from a degenerate minimum (SSE 11145, two equal rates) to a better
+     one (9865); the 50 voxels' SSE summed lower than main's. Speed, one thread, the best of two
+     runs against main: one voxel's fit DTI −3%, DKI −27% (141.8 → 103.8 µs), StickZeppelin −5%,
+     the others within ±5%; crlb with its second-order terms DTI −23%, StickZeppelin −9%, NODDI
+     −5%, DKI and BinghamNODDI within ±10% (run to run).
