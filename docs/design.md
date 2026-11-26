@@ -8454,10 +8454,24 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      obliquely and neurologically), not only on the identity.
    - **One kind of argument for every dispersed view.** Watson's view takes the cosine, `w(ξ)`;
      Bingham's the direction, `B(g)`. Planned: every view takes `g[j]` (Watson holding μ), a
-     bare cosine ξ kept for one fixed direction.
+     bare cosine ξ kept for one fixed direction. **Done (2026-11-26, branch `gradients-io`, the
+     owner: "do both")**: `watson(κ, μ)` holds its axis and `w(g)` makes the cosine g·μ itself;
+     `w(ξ)`, a number, as before, and `watson(κ)` without an axis takes cosines only (a
+     direction given to it, an error naming `watson(κ, μ)`). NODDIConvolved takes `w(g[j])` for
+     its stick and zeppelin; NODDI keeps the cosine, which its tensor-averaged zeppelin (a plain
+     one along μ) needs too, and gives the stick `w(ξ)` from it. Results: every model's signals,
+     starts, fits (both precisions) and crlb as main's, bit for bit, but the two NODDIs, which
+     moved by a unit in the last place (signals within 2e-16, fits 2.3e-13, crlb 2e-14: the
+     compiler's instruction choice for the larger struct).
    - **Non-unit directions, rescaled on request.** Refused now (above b = 50). Some protocols set
      several b-values by the vector's length (b·|g|², which MRtrix rescales by default):
      an option to `diffusionencoding` that rescales b and normalizes g, never by default.
+     **Done (2026-11-26, branch `gradients-io`)**: `scaleb = true` in `diffusionencoding` and
+     `readdata`, `--scaleb yes` on the command line: an image whose vector is not a unit one
+     (outside the check's 1e-2) gets b·|g|² and g/|g| (a zero vector, b = 0); unit vectors and
+     every image at b ≤ 50 (the direction not mattering there) kept as given. Tested: a nominal
+     b = 2500 with the vectors shortened to give 1000 refused as it is, and with `scaleb` the
+     encoding written with the true b; the command line's fit from such files the same maps.
    - **Later:** gradient nonlinearity per voxel (HCP's `grad_dev.nii.gz`: each voxel's own
      b-matrix, an acquisition per voxel, which the fit does not take now), and b-tensor
      encoding (planar, spherical): an SMatrix per image now that `g` holds SVectors, not the

@@ -41,7 +41,7 @@ end
 const _Found = Dict{Symbol,Union{Vector{Float64},Vector{SVector{3,Float64}}}}
 
 """
-    readdata(paths; precision = Float64, bval = nothing, bvec = nothing) -> (data, info)
+    readdata(paths; precision = Float64, bval = nothing, bvec = nothing, scaleb = false) -> (data, info)
 
 The data of one dataset, as a 4-D array with the observations along the 4th dimension, and
 `info` (a [`DataInfo`](@ref)): the geometry to write maps with, and the acquisition values
@@ -70,7 +70,8 @@ The acquisition values found (`info.found`), one per observation, by the models'
 - Or the files named, `bval = "dwi.bval"` and `bvec = "dwi_eddy.eddy_rotated_bvecs"` (eddy's
   rotated directions, say, which have names of their own): in place of those beside the data,
   one value or direction per image of all the files, checked as the files beside are. Either may
-  be given alone: `bvec` with the `.bval` beside the data, `bval` with its `.bvec`.
+  be given alone: `bvec` with the `.bval` beside the data, `bval` with its `.bvec`. `scaleb =
+  true`: b-values set by the vectors' lengths, as [`diffusionencoding`](@ref)'s `scaleb`.
 
 ```julia
 data, info = readdata("sub-01_T2map.nii.gz")      # TE from sub-01_T2map.json
@@ -82,13 +83,13 @@ readdata(path::AbstractString; kwargs...) = readdata([path]; kwargs...)
 function readdata(paths::AbstractVector{<:AbstractString};
                   precision::Type{<:AbstractFloat} = Float64,
                   bval::Union{Nothing,AbstractString} = nothing,
-                  bvec::Union{Nothing,AbstractString} = nothing)
+                  bvec::Union{Nothing,AbstractString} = nothing, scaleb::Bool = false)
     isempty(paths) && throw(ArgumentError("no data files given"))
     if any(MRImages._ismat, paths)
         length(paths) == 1 || throw(ArgumentError("a MATLAB file holds the whole dataset " *
             "(observations last): give one, not $(length(paths)) files"))
         data, info = _loadmat(paths[1], precision)
-        _encoding!(info.found, paths, size(data, 4), bval, bvec)
+        _encoding!(info.found, paths, size(data, 4), bval, bvec, scaleb)
         return data, info
     end
     foreach(_check_nifti, paths)
@@ -109,7 +110,7 @@ function readdata(paths::AbstractVector{<:AbstractString};
            cat((reshape(img.data, spatial..., :) for img in imgs)...; dims = 4)
     size(data, 4) >= 2 || throw(ArgumentError("one image is one observation: give a 4-D file, " *
                                               "or one 3-D file per observation"))
-    found = _found(paths, [img.meta for img in imgs], [size(img, 4) for img in imgs]; bval, bvec)
+    found = _found(paths, [img.meta for img in imgs], [size(img, 4) for img in imgs]; bval, bvec, scaleb)
     return data, DataInfo(collect(paths), imgs[1].header, spatial, collect(spatial), found)
 end
 
@@ -138,7 +139,7 @@ end
 const _BIDS = (EchoTime = :TE, InversionTime = :TI, RepetitionTime = :TR, FlipAngle = :FA)
 
 # The acquisition values beside the files: one per observation, by field name.
-function _found(paths, cars, counts; bval = nothing, bvec = nothing)
+function _found(paths, cars, counts; bval = nothing, bvec = nothing, scaleb = false)
     found = _Found()
     for (key, field) in pairs(_BIDS)
         all(c -> haskey(c, String(key)), cars) || continue
@@ -151,7 +152,7 @@ function _found(paths, cars, counts; bval = nothing, bvec = nothing)
         end
         found[field] = vals
     end
-    _encoding!(found, paths, sum(counts), bval, bvec)
+    _encoding!(found, paths, sum(counts), bval, bvec, scaleb)
     return found
 end
 
@@ -159,7 +160,7 @@ end
 # or else those beside a single data file, with its name (dcm2niix's dwi.bval, dwi.bvec). The
 # directions checked with the b-values by `diffusionencoding` (one per image, unit vectors where
 # b > 50), an error naming the files.
-function _encoding!(found, paths, n, bval, bvec)
+function _encoding!(found, paths, n, bval, bvec, scaleb = false)
     beside(ext) = length(paths) == 1 && !MRImages._ismat(paths[1]) &&
                   isfile(filestem(paths[1]) * ext) ? filestem(paths[1]) * ext : nothing
     bvalfile = something(bval, beside(".bval"), Some(nothing))
@@ -175,12 +176,12 @@ function _encoding!(found, paths, n, bval, bvec)
     bvecfile === nothing && return found
     isfile(bvecfile) || throw(ArgumentError("$bvecfile: no such file"))
     acq = try
-        diffusionencoding(b, readbvec(bvecfile))
+        diffusionencoding(b, readbvec(bvecfile); scaleb)
     catch e                                                # said with the files' names
         e isa Union{ArgumentError,DimensionMismatch} || rethrow()
         throw(ArgumentError("$bvecfile (with $bvalfile): $(e.msg)"))
     end
-    found[:g] = acq.g
+    found[:b], found[:g] = acq.b, acq.g                    # (b scaled by the vectors, with `scaleb`)
     return found
 end
 

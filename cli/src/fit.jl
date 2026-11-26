@@ -44,7 +44,7 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
                                           "data.mat:NAME)"))
 
     precision = _precision(value(a, "precision", "Float64"))
-    data, info = readdata(files; precision)
+    data, info = readdata(files; precision, scaleb = _directional(M) && _scaleb(a))
     m = buildmodel(M, a, info.found; warn = err)
     nobs(m) == size(data, 4) || throw(DimensionMismatch("$model has $(nobs(m)) observations " *
         "($(join(("$k: $(length(getfield(m, k)))" for k in fieldnames(M) if getfield(m, k) isa AbstractVector), ", "))); " *

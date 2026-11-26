@@ -147,6 +147,18 @@ end
     @test occursin("3×N or N×3", msg(() -> diffusionencoding(bv, [G; G[1:1, :]])))
     @test occursin("image 5", msg(() -> diffusionencoding(bv, 2 .* G))) &&
           occursin("unit vectors", msg(() -> diffusionencoding(bv, 2 .* G)))
+    # b-values set by the vectors' lengths (`scaleb`): a nominal b of 2500 for every image, the
+    # vectors shortened to give 1000 (|g|² = 0.4), as some protocols write them: refused as they
+    # are; with scaleb, b·|g|² and unit vectors, the encoding written with the true b; a unit
+    # vector (within 1e-2), and the images at b ≤ 50 (here 0 0 0 at b = 0 and 5), kept as given;
+    # a zero vector at b > 50 set to b = 0
+    Gs = copy(G); Gs[:, 5:34] .*= sqrt(0.4)
+    bs = [bv[1:4]; fill(2500.0, 60)]
+    @test occursin("unit vectors", msg(() -> diffusionencoding(bs, Gs)))
+    as = diffusionencoding(bs, Gs; scaleb = true)
+    @test as.b ≈ bv && all(as.g .≈ acq.g) && as.b[35:end] == bv[35:end] && as.g[1] == acq.g[1]
+    Gz = copy(G); Gz[:, 5] .= 0
+    @test diffusionencoding(bv, Gz; scaleb = true).b[5] == 0
     # the same rule when a model is made from b and g by hand (each directional model's
     # constructor): g must hold SVector{3}s, a direction per b-value, unit vectors where b > 50
     g2 = [SVector{3}(2 .* c) for c in eachcol(G)]

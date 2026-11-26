@@ -20,11 +20,11 @@
 #
 # --- Watson: NODDI (Zhang et al., NeuroImage 2012;61:1000) and NODDIConvolved --------------------
 #
-#   A_ic  = stick(b, D∥, w(ξ))                sticks averaged over W
+#   A_ic  = stick(b, D∥, w(g))                sticks averaged over W
 #   A_ec  = zeppelin(b, D∥ₑ, D⊥ₑ, ξ)          NODDI: a zeppelin along μ with the tensor averaged over W,
 #           (D∥ₑ, D⊥ₑ) = watsontensor(D∥, D⊥, w)    an approximation NODDI makes (Eq. 5)
-#   A_ec  = zeppelin(b, D∥, D⊥, w(ξ))         NODDIConvolved: the zeppelin's signal averaged, as dmipy
-#   w = watson(κ): W(n) ∝ exp(κ·(μ·n)²) about μ(θ, φ),  ξ = g·μ,  ODI = (2/π)·arctan(1/κ)
+#   A_ec  = zeppelin(b, D∥, D⊥, w(g))         NODDIConvolved: the zeppelin's signal averaged, as dmipy
+#   w = watson(κ, μ): W(n) ∝ exp(κ·(μ·n)²) about μ(θ, φ),  ξ = g·μ,  ODI = (2/π)·arctan(1/κ)
 #
 # At κ → ∞ (ODI → 0) NODDI is StickZeppelinBall with Dax = D∥ (multicompartment.jl), at κ = 0
 # (ODI = 1) the sticks' spherical mean with an isotropic tensor.
@@ -107,11 +107,11 @@ function signal!(out, m::NODDI, p)
     (; b, g) = m
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)                      # once per voxel
-    w = watson(_kappa(ODI))                             # the neurites' distribution
+    w = watson(_kappa(ODI), μ)                          # the neurites' distribution about μ
     Dpare, Dperpe = watsontensor(Dpar, (1 - vic) * Dpar, w)   # the extra-neurite tensor, averaged
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ μ
-        Aic = stick(b[j], Dpar, w(ξ))
+        ξ = g[j] ⋅ μ                                    # the cosine, which the zeppelin along μ
+        Aic = stick(b[j], Dpar, w(ξ))                   #  takes too: the stick's view from it
         Aec = zeppelin(b[j], Dpare, Dperpe, ξ)
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
     end
@@ -128,7 +128,7 @@ relabel(::NODDI, θ) = _upperdirection(θ)
 [`NODDI`](@ref) with the extra-neurite zeppelin's *signal* averaged over the Watson distribution,
 as the sticks' is, in place of Zhang's averaged tensor:
 
-    A_ec = zeppelin(b, D∥, D⊥, w(ξ)) = ⟨exp(−b·D⊥ − b·(D∥ − D⊥)·(g·n)²)⟩_W,   D⊥ = (1 − vic)·D∥
+    A_ec = zeppelin(b, D∥, D⊥, w(g)) = ⟨exp(−b·D⊥ − b·(D∥ − D⊥)·(g·n)²)⟩_W,   D⊥ = (1 − vic)·D∥
 
 The same parameters, bounds, starts and fixed diffusivities as NODDI's. Every compartment is then
 averaged the same way, as a voxel's signal is the sum of its parts' (two regions of differently
@@ -150,11 +150,11 @@ function signal!(out, m::NODDIConvolved, p)
     (; S0, vic, viso, ODI, theta, phi, Dpar, Diso) = p
     μ = fiberdirection(theta, phi)
     Dperp = (1 - vic) * Dpar
-    w = watson(_kappa(ODI))                             # the neurites' distribution
+    w = watson(_kappa(ODI), μ)                          # the neurites' distribution about μ
     @inbounds for j in eachindex(out, b, g)
-        ξ = g[j] ⋅ μ
-        Aic = stick(b[j], Dpar, w(ξ))
-        Aec = zeppelin(b[j], Dpar, Dperp, w(ξ))
+        v = w(g[j])                                     # image j's view of it
+        Aic = stick(b[j], Dpar, v)
+        Aec = zeppelin(b[j], Dpar, Dperp, v)
         out[j] = S0 * ((1 - viso) * (vic * Aic + (1 - vic) * Aec) + viso * iso(b[j], Diso))
     end
     return out

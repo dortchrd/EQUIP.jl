@@ -67,6 +67,10 @@
     @test fe[:b] == fd[:b] && fe[:g] == fd[:g]
     @test occursin("give the b-values too", msg(() -> readdata(path("eddy.nii"); bvec = path("dwi.eddy_rotated_bvecs"))))
     @test occursin("dwi.bvec (with", msg(() -> readdata(path("eddy.nii"); bval = path("dwi.bval"), bvec = path("dwi.bvec"))))
+    # b set by the vectors' lengths (scaleb): a nominal b, image 4's vector shortened to give 1000
+    write(path("nominal.bval"), "0 2000 2000 2000\n"); write(path("nominal.bvec"), "0 1 0 0.42426406871192845\n0 0 1 0.565685424949238\n0 0 0 0\n")
+    fs = readdata(path("eddy.nii"); bval = path("nominal.bval"), bvec = path("nominal.bvec"), scaleb = true)[2].found
+    @test fs[:b] ≈ [0, 2000, 2000, 1000] && fs[:g] ≈ fd[:g]
     rm(path("dwi.bvec"))
     # Mistakes
     NIfTI.niwrite(path("other.nii"), NIfTI.NIVolume(Float32.(Y[:, :, :, 1])))

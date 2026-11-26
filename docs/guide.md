@@ -329,7 +329,7 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | | `StickZeppelinBall(b = ..., g = ...)` | StickZeppelin with a ball, free water (CSF) in the voxel: S0·[(1 − viso)·(vax·exp(−b·Dax·ξ²) + (1 − vax)·exp(−b·D⊥ − b·(Dax − D⊥)·ξ²)) + viso·exp(−b·Diso)], D⊥ = (1 − vax)·Dax; `vax` a fraction of the tissue (NODDI's `vic`), `viso` the ball's of the voxel; NODDI without dispersion (ODI → 0), with Dax fitted; two shells or more; the direction as StickZeppelin's; derived: Dperp | S0, vax, viso, Dax (to 4e-3 mm²/s), theta, phi | Diso = 3.0e-3 mm²/s |
 | | `BallStick(b = ..., g = ...)` | ball and stick (Behrens et al., MRM 2003; bedpostx with one fiber): S0·[(1 − f)·exp(−b·d) + f·exp(−b·d·ξ²)], one diffusivity for both; the direction as StickZeppelin's | S0, f, d (to 4e-3 mm²/s), theta, phi | |
 | | `NODDI(b = ..., g = ...)` | neurite orientation dispersion and density (Zhang et al., NeuroImage 2012): S0·[(1 − viso)·(vic·A_ic + (1 − vic)·A_ec) + viso·exp(−b·Diso)], sticks (A_ic) and a zeppelin with the tortuosity limit (A_ec) spread by a Watson distribution about the orientation (theta, phi); `vic` the neurite density index (the toolbox's ficvf), `viso` the CSF fraction (fiso), `ODI` = (2/π)·arctan(1/κ) from 0.01 (κ = 64) to 1 (isotropic); D∥ and Diso fixed at the paper's 1.7e-3 and 3.0e-3 mm²/s; the orientation starts from the voxel's tensor, as StickZeppelin's; derived: kappa; needs two shells or more. The dispersed sticks by their Legendre series up to b·D∥ = 12.75 (b = 7500 at D∥ = 1.7e-3), by quadrature above: a whole brain (about 300,000 voxels) in 12–15 s on 4 threads | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s (0 to 4e-3 when estimated) |
-| | `NODDIConvolved(b = ..., g = ...)` | `NODDI` with the extra-neurite zeppelin's *signal* averaged over the Watson distribution, `zeppelin(b, D∥, D⊥, w(ξ))`, as the sticks' is (as SMT, the Standard Model and dmipy average), in place of Zhang's averaged tensor; the same parameters. The two differ by 2–4% at b = 2500, which the residuals cannot show, and give white matter's vic and ODI about 1.5–2 SDs apart at SNR 100: choose, and report which. About 7 µs a signal at 63 images | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
+| | `NODDIConvolved(b = ..., g = ...)` | `NODDI` with the extra-neurite zeppelin's *signal* averaged over the Watson distribution, `zeppelin(b, D∥, D⊥, w(g))`, as the sticks' is (as SMT, the Standard Model and dmipy average), in place of Zhang's averaged tensor; the same parameters. The two differ by 2–4% at b = 2500, which the residuals cannot show, and give white matter's vic and ODI about 1.5–2 SDs apart at SNR 100: choose, and report which. About 7 µs a signal at 63 images | S0, vic, viso, ODI, theta, phi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
 | | `BinghamNODDI(b = ..., g = ...)` | NODDI with anisotropic dispersion (Tariq et al., NeuroImage 2016): the Bingham distribution exp(κ(μ·n)² + β(μβ·n)²), the neurites fanning toward μβ, at the angle `psi` about the mean orientation; `betafraction` = β/κ from 0 (Watson: NODDI) to 1; ODI as NODDI's (the dispersion across the fan); derived, Tariq's indices (Eqs. 17–22): kappa, beta, ODIP = (2/π)·arctan(1/(κ − β)) (along the primary dispersion orientation, the fan's plane), ODItot = (2/π)·arctan(1/√((κ − β)κ)) (overall), DAB = (2/π)·arctan(β/(κ − β)) (0 for Watson, 1 at β = κ), DAT = (τ2 − τ3)/τ1 (the orientation tensor's planarity), all equal to Tariq's Table 1; the fitted ODI is their ODI_S; the orientations from the voxel's tensor (μ its first eigenvector, the fan its second); the zeppelin by the averaged tensor, as NODDI's (`binghamtensor`); the sticks by quadrature (no series: a whole brain in about 85 s on 4 threads); written with the dispersed views (Compartments, below) | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
 | | `BinghamNODDIConvolved(b = ..., g = ...)` | `BinghamNODDI` with the zeppelin's signal averaged over the Bingham distribution, `zeppelin(b, D∥, D⊥, B(g))` (as `NODDIConvolved` for Watson); the same parameters; two quadratures an image, about twice BinghamNODDI's time | S0, vic, viso, ODI, betafraction, theta, phi, psi | Dpar = 1.7e-3, Diso = 3.0e-3 mm²/s |
 | | `IVIM(b = ..., bsplit = 200)` | intravoxel incoherent motion (Le Bihan et al., Radiology 1988): S0·[f·exp(−b·D*) + (1 − f)·exp(−b·D)], D and D* numbers, not tensors: one image per b-value, the directions combined (the scanner's trace-weighted images); each voxel starts from the segmented fit (D from b ≥ bsplit, f from its intercept, D* from what is left below: faster, and more often at the best minimum, than constant or BestOf starts); the faster component reported as D*; poorly determined at usual SNR (f 0.75% biased even at SNR 200, as crlb's second-order term predicts): check a protocol with crlb; the simplified IVIM: `Dstar = 0.02` fixed | S0, f, Dstar (to 0.2 mm²/s), D (to 4e-3) | |
@@ -413,11 +413,12 @@ distribution with κ → ∞, and `powder` is κ = 0, so the three are one famil
 | view | the signal averaged over |
 |---|---|
 | a cosine `ξ` | one fiber direction |
-| `w(ξ)`, with `w = watson(κ)` | the Watson distribution W(n) ∝ exp(κ·(μ·n)²) about an axis μ, ξ = g·μ (NODDI's; ODI = (2/π)·arctan(1/κ)) |
+| `w(g)`, with `w = watson(κ, μ)` | the Watson distribution W(n) ∝ exp(κ·(μ·n)²) about the axis μ (NODDI's; ODI = (2/π)·arctan(1/κ)); `g` the gradient direction, `g[j]` in a model; `w(ξ)` the same from the cosine ξ = g·μ itself |
 | `B(g)`, with `B = bingham(κ, β, μ, μβ)` | the Bingham distribution exp(κ(μ·n)² + β(μβ·n)²), fanning toward μβ (Bingham–NODDI's); `g` the gradient direction, three components |
 | `powder` | every direction equally (the spherical mean) |
 
-`stick(b, D, w(ξ))` and `zeppelin(b, D∥, D⊥, w(ξ))` take it as they take `powder`. Make the
+`stick(b, D, w(g[j]))` and `zeppelin(b, D∥, D⊥, w(g[j]))` take it as they take `powder`, the two
+distributions alike: each holds its axes and takes the image's gradient direction. Make the
 distribution once per voxel, before the loop over images. Each image then costs a short sum,
 whatever its b-value (the stick's part of the series is tabulated in b·D once, with its first two
 derivatives, and interpolated by quintic Hermite): about 3 µs for a 63-image NODDI signal, the same when the b-values vary by direction as scanners write them. A
@@ -470,7 +471,11 @@ A model with one image per gradient direction (DTI, a stick and a zeppelin along
 two acquisition fields, `b` and `g`, each one value per image: the b-value, and the gradient
 direction as a unit vector (an `SVector{3}`; a model reads image j's as `g[j]`, or its
 components as `gx, gy, gz = g[j]`). `diffusionencoding` makes them from a .bval and a .bvec,
-checked: a direction per b-value, unit vectors where b > 50 s/mm². The built-in models check
+checked: a direction per b-value, unit vectors where b > 50 s/mm². For protocols that set
+several b-values under one nominal b by the vector's length (the .bval's b for every image,
+shorter vectors where b is lower), `diffusionencoding(bval, bvec; scaleb = true)` uses b·|g|² and
+the unit vector, as MRtrix does by default (also `readdata(...; scaleb = true)` and `--scaleb yes`
+on the command line); not the default, so a wrong file is still refused. The built-in models check
 the same when made from `b` and `g` by hand, and refuse a `g` that is not SVector{3}s:
 
 ```julia
@@ -1115,7 +1120,8 @@ equip info sub-01_T2w.nii.gz --find echo                       # the header and 
 - A directional model's b-values and gradient directions come from the `.bval` and `.bvec`
   beside the data, with its name (dcm2niix's); `--bval FILE` and `--bvec FILE` name others, as
   eddy's rotated directions (`--bvec dwi.eddy_rotated_bvecs`); `--b` gives the b-values as
-  numbers.
+  numbers; `--scaleb yes` sets them by the vectors' lengths (b·|g|², for protocols that encode b
+  so).
 - Magnitude data at low SNR: `--likelihood rician --sigma SD` fits the Rician model
   (`fit(m, data; likelihood = :rician, σ, method)`), with `--sigma` the noise SD of each
   channel, a number or a map (`sigma.nii.gz`, or `file.mat:NAME`; voxels where it is 0 or NaN

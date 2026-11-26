@@ -278,6 +278,14 @@ end
         @test r.code == 0 && rawmap(out("f_Dxx.nii.gz")) == rawmap(out("a_Dxx.nii.gz"))
         @test occursin("--bval", bad("fit", "DTI", path("dti.nii.gz"), "--b", "0", "--bval", path("dti.bval")))
         @test occursin("--bvec FILE", bad("fit", "DTI", path("dti.nii.gz"), "--g", "1,0,0"))
+        # b set by the vectors' lengths (--scaleb yes): every image at the nominal b = 2000, the
+        # first shell's vectors shortened to give 1000: the same maps as the true encoding
+        write(path("nominal.bval"), join([0.0; fill(2000.0, 30)], ' ') * "\n")
+        Gs = copy(G); Gs[:, 2:16] .*= sqrt(0.5)
+        write(path("nominal.bvec"), join((join(Gs[i, :], ' ') for i in 1:3), "\n") * "\n")
+        r = run("fit", "DTI", path("nobvec.nii.gz"), "--bval", path("nominal.bval"), "--bvec", path("nominal.bvec"),
+                "--scaleb", "yes", "--out", out("s_"))
+        @test r.code == 0 && isapprox(rawmap(out("s_Dxx.nii.gz")), rawmap(out("a_Dxx.nii.gz")); rtol = 1e-4)
         # the directions checked with the b-values, the file named
         write(path("short.bvec"), "1 0\n0 1\n0 0\n")
         @test occursin("short.bvec", bad("fit", "DTI", path("dti.nii.gz"), "--bvec", path("short.bvec")))

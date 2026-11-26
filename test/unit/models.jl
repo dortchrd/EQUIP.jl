@@ -406,6 +406,11 @@ end
     g = normalize(SVector(0.3, -0.5, 0.8))
     Bw = bingham(6.0, 0.0, μ, μβ)
     @test stick(2500.0, 1.7e-3, Bw(g)) ≈ stick(2500.0, 1.7e-3, watson(6.0)(g ⋅ μ)) rtol = 1e-8
+    # Watson with its axis takes the gradient direction as Bingham does: the view from the cosine
+    # g ⋅ μ, exactly; without an axis, an error naming `watson(κ, μ)`
+    @test stick(2500.0, 1.7e-3, watson(6.0, μ)(g)) == stick(2500.0, 1.7e-3, watson(6.0)(g ⋅ μ))
+    @test stick(2500.0, 1.7e-3, watson(6.0, μ)(Tuple(g))) == stick(2500.0, 1.7e-3, watson(6.0, μ)(g))
+    @test occursin("watson(κ, μ)", sprint(showerror, try watson(6.0)(g) catch e; e end))
     @test zeppelin(2500.0, 2e-3, 0.5e-3, Bw(g)) ≈ zeppelin(2500.0, 2e-3, 0.5e-3, watson(6.0)(g ⋅ μ)) rtol = 1e-8
     @test stick(2500.0, 1.7e-3, bingham(0.0, 0.0, μ, μβ)(g)) ≈ stick(2500.0, 1.7e-3, powder) rtol = 1e-8
     D3 = binghamtensor(2e-3, 0.5e-3, bingham(6.0, 3.0, μ, μβ))

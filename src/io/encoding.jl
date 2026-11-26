@@ -22,7 +22,7 @@
 # =================================================================================================
 
 """
-    diffusionencoding(bval, bvec) -> (b = ..., g = ...)
+    diffusionencoding(bval, bvec; scaleb = false) -> (b = ..., g = ...)
 
 The acquisition of a directional diffusion model from a .bval and a .bvec: the b-value of every
 image (s/mm²), `b`, and its gradient direction, `g`, a unit vector (`SVector{3}`) per image.
@@ -39,21 +39,41 @@ m = DTI(; acq...)                      # `...` passes the two as keywords
 Checked: one direction for every b-value, and a unit vector wherever b > 50 s/mm² (within
 1e-2, as DIPY checks; a direction at b ≤ 50 may be anything, e.g. FSL's 0 0 0 at b = 0): the
 check every directional model's constructor makes too, so a model given `b` and `g` by hand is
-held to the same rule. The values are kept as given (a small b is not set to 0) and copied, so changing
+held to the same rule. The values are kept as given, unless `scaleb = true`: for protocols that
+set several b-values under one nominal b by the gradient vector's length (the .bval's b for
+every image, the .bvec's vectors shorter where b is lower), each image whose vector is not a
+unit vector gets b·|g|² as its b-value and g/|g| as its direction (a zero vector, b = 0), as
+MRtrix does by default; unit vectors (within the check's 1e-2), and every image at b ≤ 50 (where
+the direction does not matter: FSL's 0 0 0 at b = 0), are kept as they are. Not the
+default: a non-unit vector more often means a wrong or mismatched file, which is then refused.
+Nothing else is changed (a small b is not set to 0), and the values are copied, so changing
 the matrix later (rotating directions for motion, flipping an axis) does not change a model
 made from it: make a new one.
 """
-function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:Real})
+function diffusionencoding(bval::AbstractVector{<:Real}, bvec::AbstractMatrix{<:Real}; scaleb::Bool = false)
     G = size(bvec, 1) == 3 ? bvec :                                    # 3 × N, as a .bvec
         size(bvec, 2) == 3 ? permutedims(bvec) :                       # N × 3: transposed
         throw(DimensionMismatch("the directions must be 3×N or N×3 (x, y, z for each image), " *
                                 "got $(join(size(bvec), "×"))"))
     b = Vector{Float64}(bval)
     g = [SVector{3,Float64}(G[1, j], G[2, j], G[3, j]) for j in axes(G, 2)]
+    length(b) == length(g) && scaleb && _scaleb!(b, g)
     return (b = b, g = checkencoding(b, g))      # one per b-value, unit vectors (directions.jl)
 end
 # directions as a vector of 3-vectors (`directionset`'s, or g itself), one per image
-diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}) =
-    diffusionencoding(bval, reduce(hcat, [collect(x) for x in g]))
-diffusionencoding(bvalfile::AbstractString, bvecfile::AbstractString) =
-    diffusionencoding(readvalues(bvalfile), readbvec(bvecfile))
+diffusionencoding(bval::AbstractVector{<:Real}, g::AbstractVector{<:AbstractVector{<:Real}}; kwargs...) =
+    diffusionencoding(bval, reduce(hcat, [collect(x) for x in g]); kwargs...)
+# b scaled by the vector's squared length, and the vector made a unit one, where it is not one
+# (`scaleb`): b·|g|², g/|g|; a zero vector's image gets b = 0. Where b ≤ 50 the direction does
+# not matter (checkencoding's rule; FSL's 0 0 0 at b = 0), and the image is kept as given.
+function _scaleb!(b, g)
+    for j in eachindex(b, g)
+        n = norm(g[j])
+        (abs(n - 1) <= 1e-2 || b[j] <= _B0THRESHOLD) && continue   # kept as given
+        b[j] *= n^2
+        n > 0 && (g[j] = g[j] / n)
+    end
+    return b, g
+end
+diffusionencoding(bvalfile::AbstractString, bvecfile::AbstractString; kwargs...) =
+    diffusionencoding(readvalues(bvalfile), readbvec(bvecfile); kwargs...)

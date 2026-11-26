@@ -14,7 +14,7 @@ const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay,
 # an FSL .bval and .bvec beside the data (as dcm2niix writes them), or from the files the flags
 # --bval and --bvec name (eddy's rotated .bvec, say); --b gives the b-values as numbers too.
 _directional(M) = (:b, :g) ⊆ fieldnames(M)
-const _ENCODING = ("bval", "bvec")              # the directional models' file flags
+const _ENCODING = ("bval", "bvec", "scaleb")    # the directional models' file flags
 # Named protocols (acquisitions), by name, and the models each is for.
 const _SIR = (QMTSIR, QMTSIREqualR1)
 const PROTOCOLS = (; SIR_5POINT = (_SIR, SIR_5POINT), SIR_4POINT = (_SIR, SIR_4POINT),
@@ -88,7 +88,8 @@ function buildmodel(M, a::Args, found; warn::IO = stderr)
             G = readbvec(value(a, "bvec"))
             haskey(vals, :b) || throw(ArgumentError("--bvec $(value(a, "bvec")): give the " *
                 "b-values too, --bval FILE or --b (no .bval beside the data)"))
-            vals[:g] = _checkedencoding(vals[:b], G, value(a, "bvec")).g
+            acq = _checkedencoding(vals[:b], G, value(a, "bvec"); scaleb = _scaleb(a))
+            vals[:b], vals[:g] = acq.b, acq.g
             _warndiffers(warn, found, :g, vals[:g], "--bvec")
         elseif has(a, "bval") && haskey(vals, :g)               # the directions beside the data
             _checkedencoding(vals[:b], vals[:g], value(a, "bval"))
@@ -119,14 +120,17 @@ function _warndiffers(warn, found, k, v, flag)
 end
 _short(f) = length(f) <= 6 ? string(f) : string(length(f), " values")
 # b and the directions checked together (one direction per b-value, unit vectors), naming the file
-function _checkedencoding(b, G, file)
+function _checkedencoding(b, G, file; scaleb = false)
     try
-        return diffusionencoding(b, G)
+        return diffusionencoding(b, G; scaleb)
     catch e
         e isa Union{ArgumentError,DimensionMismatch} || rethrow()
         throw(ArgumentError("$file: $(e.msg)"))
     end
 end
+
+# --scaleb yes: b-values set by the vectors' lengths (`diffusionencoding`'s `scaleb`)
+_scaleb(a) = has(a, "scaleb") && _bool(value(a, "scaleb"), :scaleb)
 
 function _bool(s, k)
     lowercase(s) in ("true", "yes", "1") && return true
@@ -164,6 +168,8 @@ function modelhelp(io::IO, M, cmd)
             println(io, "  --", rpad("bval", 12), "FILE, the b-values (FSL's .bval; or --b, numbers)")
             println(io, "  --", rpad("bvec", 12), "FILE, the gradient directions (FSL's .bvec: " *
                         "eddy's rotated one, say)")
+            println(io, "  --", rpad("scaleb", 12), "yes: b-values set by the vectors' lengths " *
+                        "(b·|g|², g made unit; for protocols that encode b so)")
             continue
         end
         t = fieldtype(M, k) === Bool ? "true or false" : "numbers"

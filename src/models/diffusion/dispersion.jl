@@ -1,9 +1,11 @@
 # =================================================================================================
 # Dispersed views: a compartment's signal averaged over a distribution of fiber directions
 #
-#   w = watson(κ)               the Watson distribution W(n) ∝ exp(κ·(μ·n)²) about an axis μ
-#   stick(b, D, w(ξ))           the stick averaged over W, along a gradient at cosine ξ = g·μ
-#   zeppelin(b, D∥, D⊥, w(ξ))   the zeppelin averaged over W: exp(−b·D⊥)·stick(b, D∥ − D⊥, w(ξ))
+#   w = watson(κ, μ)            the Watson distribution W(n) ∝ exp(κ·(μ·n)²) about the axis μ
+#   stick(b, D, w(g))           the stick averaged over W, along the gradient direction g
+#   zeppelin(b, D∥, D⊥, w(g))   the zeppelin averaged over W: exp(−b·D⊥)·stick(b, D∥ − D⊥, w(g))
+#   w(ξ)                        the same view from the cosine ξ = g·μ itself (w = watson(κ) or
+#                               watson(κ, μ)): one fixed angle, or a cosine the model has already
 #   B = bingham(κ, β, μ, μβ)    the Bingham distribution B(n) ∝ exp(κ(μ·n)² + β(μβ·n)²), 0 ≤ β ≤ κ
 #   stick(b, D, B(g))           the stick averaged over B, along the gradient direction g
 #   zeppelin(b, D∥, D⊥, B(g))   the zeppelin, likewise
@@ -379,36 +381,52 @@ end
 # -------------------------------------------------------------------------------------------------
 
 """
+    watson(κ, μ)
     watson(κ)
 
-The Watson distribution of fiber directions, W(n) ∝ exp(κ·(μ·n)²) about an axis μ (κ ≥ 0: 0 is
-isotropic, a large κ concentrated about μ; NODDI's ODI = (2/π)·arctan(1/κ)), as a compartment's
-view: `w = watson(κ)` once per voxel, then `stick(b, D, w(ξ))` and `zeppelin(b, D∥, D⊥, w(ξ))`
-for an image whose gradient makes the cosine ξ = g·μ with the axis: the compartment's signal
-averaged over the distribution. A short sum per image whatever the b-values (the stick's part
-of the series is tabulated in b·D once, for every model). Accurate (2e-8) for κ up to 64 and
-b·D to 12.75, and by quadrature above.
+The Watson distribution of fiber directions, W(n) ∝ exp(κ·(μ·n)²) about the axis μ (a unit
+vector, `fiberdirection(θ, φ)`; κ ≥ 0: 0 is isotropic, a large κ concentrated about μ; NODDI's
+ODI = (2/π)·arctan(1/κ)), as a compartment's view: `w = watson(κ, μ)` once per voxel, then
+`stick(b, D, w(g))` and `zeppelin(b, D∥, D⊥, w(g))` for an image with gradient direction g (a
+model's `g[j]`): the compartment's signal averaged over the distribution, as
+[`bingham`](@ref)'s view is used. The average depends on the cosine ξ = g·μ alone (the
+distribution is symmetric about μ), which `w(g)` makes; `w(ξ)`, a number, is the same view from
+the cosine itself (one fixed angle, or a cosine the model has made already), and `watson(κ)`,
+without an axis, takes only cosines. A short sum per image whatever the b-values (the stick's
+part of the series is tabulated in b·D once, for every model). Accurate (2e-8) for κ up to 64
+and b·D to 12.75, and by quadrature above.
 
 ```julia
-w = watson(5.0)                          # about an axis μ
-stick(1000.0, 1.7e-3, w(0.8))            # the dispersed stick, the gradient at cosine 0.8 to μ
+μ = fiberdirection(0.7, 0.3)
+w = watson(5.0, μ)                       # about μ
+stick(1000.0, 1.7e-3, w(g))              # the dispersed stick along the gradient direction g
+stick(1000.0, 1.7e-3, w(0.8))            # ... along a gradient at cosine 0.8 to μ
 stick(1000.0, 1.7e-3, watson(0.0)(0.8))  # = stick(1000.0, 1.7e-3, powder): κ = 0 is isotropic
 ```
 """
 function watson end
 
-# The distribution: κ, wₗ/w₀ (l even to 40) and τ = ⟨(μ·n)²⟩, made once per voxel
-struct Watson{T,R}
+# The distribution: κ, wₗ/w₀ (l even to 40), τ = ⟨(μ·n)²⟩ and the axis μ (`nothing` for
+# `watson(κ)`, which takes cosines only), made once per voxel
+struct Watson{T,R,M}
     κ::T
     w::SVector{_WATSON_NL,R}          # (R may be wider than T: Float64 nodes in a Float32 fit)
     τ::T
+    μ::M
 end
 # A view: the distribution, and the cosine between the gradient and its axis
 struct WatsonView{W<:Watson,X}
     dist::W
     ξ::X
 end
-@inline (w::Watson)(ξ) = WatsonView(w, ξ)
+# From the cosine itself (a number: a dual one too), or from the gradient direction g (three
+# numbers, an SVector or a tuple), its cosine with the axis made here
+@inline (w::Watson)(ξ::Real) = WatsonView(w, ξ)
+@inline (w::Watson)(g::Union{StaticVector{3},NTuple{3,Real}}) = WatsonView(w, g ⋅ _watsonaxis(w))
+@inline _watsonaxis(w::Watson) = w.μ
+@noinline _watsonaxis(::Watson{T,R,Nothing}) where {T,R} = throw(ArgumentError("this Watson " *
+    "distribution has no axis: make it with `watson(κ, μ)` to give it gradient directions, or " *
+    "give it the cosine ξ = g ⋅ μ"))
 
 # The distribution's Legendre coefficients wₗ/w₀
 @inline function _watsoncoeffs(κ)
@@ -416,7 +434,8 @@ end
     return w0 / w0[1]
 end
 
-@inline watson(κ) = Watson(κ, _watsoncoeffs(κ), _watsoncos2(κ))
+@inline watson(κ) = Watson(κ, _watsoncoeffs(κ), _watsoncos2(κ), nothing)
+@inline watson(κ, μ) = Watson(κ, _watsoncoeffs(κ), _watsoncos2(κ), μ)
 
 # The stick averaged over W (the header): 1 at b = 0; the series, kₗ from the table; the
 # quadrature above β = 12.75
