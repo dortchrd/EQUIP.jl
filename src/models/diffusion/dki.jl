@@ -219,9 +219,7 @@ function fromderived(::Type{<:DKI}, q::NamedTuple)
     else
         t.RD > _EVALMIN || throw(ArgumentError("nominal(DKI; ...): MK, AK and RK need RD above " *
             "$(_EVALMIN) mm²/s (they are 0 where an eigenvalue is not positive)"))
-        λa, R = _symeigen(SMatrix{3,3}(t.elements.Dxx, t.elements.Dxy, t.elements.Dxz,
-                                       t.elements.Dxy, t.elements.Dyy, t.elements.Dyz,
-                                       t.elements.Dxz, t.elements.Dyz, t.elements.Dzz))
+        λa, R = _symeigen(_tensor(t.elements))       # D's eigenframe, as `derived` makes it
         # MK, AK and RK (in that order) of each of the three shapes: the columns of the map
         col(j) = SVector(_kurtosisindices(λa, R, _axialkurtosis(ntuple(i -> Float64(i == j), 3)..., t.n), t.MD)...)
         A = hcat(col(1), col(2), col(3))

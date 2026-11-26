@@ -100,10 +100,11 @@ parameters(::Type{<:DTI}) = (
     x, y, z = g
     return SVector(x^2, y^2, z^2, 2x * y, 2x * z, 2y * z)
 end
-# D's six elements from the parameters, in the weights' order: the one place their names are
-# listed (beyond `parameters`), for the signal (DTI's, DKI's) and the tensor (`_tensor`, below).
-# The parameters go in whole and the six are picked by name, which costs nothing (a named tuple's
-# fields are known when compiling).
+# D's six elements, in the weights' order, from any named tuple that has them (a model's
+# parameters, S0 and V's among them; or the six alone, `fromderived`'s): the one place their names
+# are listed (beyond `parameters`), for the signal (DTI's, DKI's) and the tensor (`_tensor`,
+# below). The bundle goes in whole and the six are picked by name: the others are not read, and
+# nothing is copied (a named tuple's fields are known when compiling).
 @inline _tensorvector(p) = SVector(p.Dxx, p.Dyy, p.Dzz, p.Dxy, p.Dxz, p.Dyz)
 
 function signal!(out, m::DTI, p)
