@@ -94,15 +94,20 @@ parameters(::Type{<:DTI}) = (
 # DKI's `_kurtosisweights` is for W: gᵀDg = _tensorweights(g) ⋅ _tensorvector(p). Times b, the
 # weights are a B-matrix row (the log-linear tensor fit's, `_tensorvectors`; and, for b-tensor
 # encoding later, what a b-tensor replaces). Static vectors: no allocation; the same arithmetic, in
-# the same order, as the sum written out (2gx·gy·Dxy is (2gx·gy)·Dxy).
+# the same order, as the sum written out (2gx·gy·Dxy is (2gx·gy)·Dxy), summed by `_wsum` below.
 @inline _tensorweights(x, y, z) = SVector(x^2, y^2, z^2, 2x * y, 2x * z, 2y * z)
 @inline _tensorvector(p) = SVector(p.Dxx, p.Dyy, p.Dzz, p.Dxy, p.Dxz, p.Dyz)    # D's six, in that order
+# The weighted sum Σᵢ wᵢ·xᵢ of plain weights and the model's (dual) numbers, as sum(w .* x): the
+# same arithmetic in the same order as w ⋅ x (bit for bit, measured), but StaticArrays' ⋅ on
+# dual numbers took 1.75× as long (6 terms of 22 partials, DKI's in a fit: 1.99 against 1.14 µs
+# per 61 images; sum(w .* x) 1.17, as the sum written out). DTI's and DKI's terms, in the hot loop.
+@inline _wsum(w, x) = sum(w .* x)
 
 function signal!(out, m::DTI, p)
     (; b, g) = m
     S0, D = p.S0, _tensorvector(p)
     @inbounds for j in eachindex(out, b, g)
-        gDg = _tensorweights(g[j]...) ⋅ D               # image j's gradient direction, gᵀDg
+        gDg = _wsum(_tensorweights(g[j]...), D)         # image j's gradient direction, gᵀDg
         out[j] = S0 * exp(-b[j] * gDg)
     end
     return out

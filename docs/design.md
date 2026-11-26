@@ -8550,3 +8550,22 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      TE dependence (compartment T2s from multi-TE data, SMI's) now or later. To check against:
      the kernel's K_l by quadrature, simulated Standard Model data, and SMI's MATLAB code's
      output on the same data.
+30. **gᵀDg's weights, as the kurtosis term's** (the owner, 2026-11-26: "We use kurtosis weights and
+   indices as inline functions and then dot product. We don't do same for diffusion tensor (gᵀDg).
+   Should we?"; done, branch `tensorweights`). `_tensorweights(gx, gy, gz)` = (gx², gy², gz²,
+   2gx·gy, 2gx·gz, 2gy·gz) and `_tensorvector(p)` = D's six, in dti.jl, used by DTI, DKI and the
+   directional models' tensor start (`_tensorvectors`, whose row is [1, −b·w(g)]: the B-matrix
+   row, what a b-tensor will replace) in place of the sum written out three times.
+   - **Found on the way: StaticArrays' ⋅ is slow on many-partial duals.** Bit for bit the same
+     as the sum written out, but on DKI's 22-partial dual numbers (a fit's) 1.99 µs per 61 images
+     for gᵀDg against 1.14 written out; `sum(w .* x)` 1.17. So DTI's and DKI's terms are summed by
+     `_wsum(w, x) = sum(w .* x)` (the style's one exception to `⋅`, CLAUDE.md). DKI had used ⋅
+     for its kurtosis term since it was built: its fit, one voxel on one thread, 143.9 → 100.3 µs
+     (−30%). For the fiber models' cosine g ⋅ n (3 terms, 5–8 partials) the difference is small
+     (StickZeppelin's fit −5%, NODDI's −1%, measured): left as ⋅.
+   - **Checked against main** (scratch gref/, both acquisitions): DTI bit for bit; DKI's signal
+     within 2e-15 (its 15 terms summed in another order), fits as before to rounding (2.6e-5 at
+     the ill-conditioned high-b case, as for any change in its last digit); the directional
+     models' tensor start within 2e-15 ((−b)·(x·x) for ((−b)·x)·x), fits within 2.3e-13 in Float64.
+     One voxel's fit, one thread, against main: DTI 14.6 → 14.4 µs, DKI 143.9 → 100.3, the
+     others within ±4% (noise).
