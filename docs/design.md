@@ -6346,6 +6346,47 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        signal, so the free intervals tr and ts are two scalar exponentials each (once per signal
        when TR, tm and ts are the same for every image), and only the MT interval's own pair per
        image; the same answers, fewer exponentials. Not built yet: the owner to choose.
+     - **Built: the free recoveries shared across images** (the owner, 2026-11-26: "Yes", to sharing
+       them and keeping Yarnykh's matrix form; the scalar SIR-style form not taken, little more
+       to gain once they are shared, and further from the paper's notation; single-point MPF and
+       Ramani's CWPE to come as models of their own, faster by their assumptions). Er and Es are
+       made for the first image and again only where an image's tr or ts differs from the one
+       before: once per signal for one TR, tm and ts. The same results to rounding (1.3e-15:
+       StaticArrays' 2×2 products are muladds, fused or not by the compiler as the code around
+       them allows); tested against the brute force with TR and ts changing between images.
+       Measured in one session against the commit before, best of two (4 threads for a brain):
+       13 images, one signal 1.67 → 1.36 µs, one voxel's fit 43.3 → 32.7 µs, a whole brain
+       3.2 → 2.2 s; 25 images, 2.57 → 2.27 µs, 70.7 → 44.6 µs, 5.7 → 3.9 s (the fits gain more than
+       the plain signal: the exponentials are dearer on dual numbers).
+     - **How errors in the B1, B0 and R1obs maps propagate** (the owner, 2026-11-26: "things to
+       consider before I forget is how errors in b1, bo, and r1obs propagate through these
+       models"; bench/qmt/maperrors.jl, crlb with the fit's value wrong: the noise-free fit's
+       bias through the whole nonlinear fit; `uncertain` for the maps' SDs). QMTSPGRYarnykh, the
+       13-image protocol, white matter (PSR 0.15, kmf 20, T2m 12 µs, R1obs 1.1), relative bias, %:
+
+       | map error | PSR | MPF | kmf | T2f | T2m |
+       |---|---:|---:|---:|---:|---:|
+       | (none: SD at MT-off SNR 100) | 6.9 | 6.0 | 14.3 | 17.0 | 3.4 |
+       | B1 +5% | −8.0 | −7.0 | +13.1 | +6.8 | −0.1 |
+       | B1 −5% | +9.5 | +8.2 | −12.2 | −7.0 | +0.1 |
+       | B0 +50 Hz | −1.7 | −1.5 | +3.0 | +12.9 | −0.1 |
+       | B0 +200 Hz | −6.8 | −5.9 | +12.8 | +69.6 | −0.5 |
+       | R1obs +5% | +4.1 | +3.5 | +0.2 | −3.8 | 0.0 |
+       | R1obs −5% | −4.0 | −3.5 | −0.2 | +4.1 | 0.0 |
+       | uncertain maps (SD B1 3%, B0 20 Hz, R1obs 5%): RMSE | 9.5 | 8.3 | 16.2 | 18.5 | 3.4 |
+
+       A B1 error is the largest: it scales the MT pulse's power (as B1²) and the excitation, and
+       a 5% error biases PSR by more than its noise SD; R1obs reaches PSR almost one for one
+       (through the tie, R1f); B0 mostly T2f (the free pool's direct saturation at the low
+       offsets); T2m is barely touched by any. QMTSIR (5-point, SIR_WM_I, kmf fixed at its true
+       value, Sm from `boundsaturation` with a B1 map off by the error; Sf fitted, so the free
+       pool's part of a B1 error is absorbed): B1 +5% → Sm 0.815 for 0.831, PSR +0.9%; −5%, −0.9%;
+       +10%, +1.9%; true B1 0.9 fitted with Sm = 0.83, +1.9%; R1f unchanged. (A first run had
+       kmf fixed at 12.5 against SIR_WM_I's true 5: PSR −45% whatever the B1 error, the kmf
+       error's, not B1's.) To do: these over tissues and protocols (sweeps over the maps' errors,
+       `vary`), designs robust to them (scenarios over B1 × B0 × R1obs, the roadmap's
+       conditions), the uncertain maps in `crlb`'s tables for both models, and the other
+       assumptions' errors (R1m = 1, the lineshape, T2m for SIR's Sm).
      - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
        presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
        the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had

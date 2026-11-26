@@ -213,6 +213,12 @@ end
     bf = [spgr_bruteforce(; offset = m.offset[j], B1e = m.B1e[j], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10.0,
                           lineshape = superlorentzian, θ...) for j in 1:13]
     @test y ≈ sind(10) .* bf rtol = 1e-12
+    # ... and where TR and ts change between images (the free recoveries, made once and reused
+    # while the timings are the same, made again where they change)
+    mv = QMTSPGRYarnykh(; offset = [1e3, 4e3, 4e3, 16e3, 0.0], B1e = [4.0, 4.0, 8.0, 8.0, 0.0], tm = 0.012,
+                        ts = [0.002, 0.002, 0.004, 0.004, 0.002], TR = [0.030, 0.050, 0.050, 0.030, 0.030], FA = 10)
+    @test signal(mv, θ) ≈ sind(10) .* [spgr_bruteforce(; offset = mv.offset[j], B1e = mv.B1e[j], tm = 0.012, ts = mv.ts[j],
+                                       TR = mv.TR[j], FA = 10.0, lineshape = superlorentzian, θ...) for j in 1:5] rtol = 1e-12
     # no macromolecular pool and no MT pulse: the Ernst equation, sin α·(1 − E1)/(1 − cos α·E1)
     E1 = exp(-1.2 * 0.030)
     @test signal(m, merge(θ, (PSR = 0.0,)))[13] ≈ sind(10) * (1 - E1) / (1 - cosd(10) * E1) rtol = 1e-13

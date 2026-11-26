@@ -163,7 +163,25 @@ function signal!(out, m::QMTSPGRYarnykh, p)
     A = _relaxexchange(R1f, R1m, kfm, kmf)
     M0 = SVector(one(PSR), PSR)                             # equilibrium, in units of M0f
     r = SVector(R1f, R1m * PSR)                             # R1·M0
+    isempty(out) && return out
+    # The free recoveries, Er = exp(A·tr) and Es = exp(A·ts), depend on the parameters and the
+    # timings alone, not on the MT pulse's offset or power: made for the first image, and again
+    # only where an image's tr or ts differs from the one before (once per signal for a protocol
+    # with one TR, tm and ts, as usual; per change for several). Each image then makes only its
+    # MT pulse's exponential, Em. The same numbers as made per image, to rounding (1e-15:
+    # StaticArrays' 2×2 products are muladds, which the compiler fuses or not as the code around
+    # them allows).
+    j1 = firstindex(out)
+    trp, tsp = TR[j1] - tm[j1] - ts[j1], ts[j1]
+    Er, Es = _expm2(A * trp), _expm2(A * tsp)
     @inbounds for j in eachindex(out, offset, B1e, tm, ts, TR, FA)
+        trj = TR[j] - tm[j] - ts[j]
+        if trj != trp
+            Er, trp = _expm2(A * trj), trj
+        end
+        if ts[j] != tsp
+            Es, tsp = _expm2(A * ts[j]), ts[j]
+        end
         α = B1 * deg2rad(FA[j])
         ω1² = (oftype(B1e[j], _GAMMA_H) * B1 * B1e[j])^2   # the MT pulse's, rad²/s² (γ in the acquisition's precision)
         Δ = offset[j] - B0
@@ -171,9 +189,7 @@ function signal!(out, m::QMTSPGRYarnykh, p)
         # no MT pulse (B1e = 0): no saturation, whatever the lineshape gives at its offset
         Wf = iszero(B1e[j]) ? zero(gf) * ω1² : π * ω1² * gf
         Wm = iszero(B1e[j]) ? zero(gm) * ω1² : π * ω1² * gm
-        Er = _expm2(A * (TR[j] - tm[j] - ts[j]))
         Em = _expm2((A - SMatrix{2,2}(Wf, 0, 0, Wm)) * tm[j])
-        Es = _expm2(A * ts[j])
         Mss = _saturatedsteadystate(A, Wf, Wm, r)
         C = SMatrix{2,2}(cos(α), 0, 0, 1)                   # the excitation: the free pool only
         EsEm = Es * Em

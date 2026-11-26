@@ -30,7 +30,10 @@ other conventions' names (F, f, kf, kr, R, T2r, ...); the guide's "qMT's names" 
 parameters (maps, crlb's and montecarlo's tables, the command line's TSVs), as DTI's carry FA: a sum
 over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `ProtocolDesign` is
 unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
-command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload). Ready to merge when the owner says.
+command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload). Ready to merge when the owner says. Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
+the time-averaged form measured (bench/qmt/averaged.jl), and how B1, B0 and R1obs errors propagate
+(bench/qmt/maperrors.jl; design.md item 6): unit tests pass (1721); the full `Pkg.test` again before
+merging.
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
