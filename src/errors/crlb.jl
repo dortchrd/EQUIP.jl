@@ -132,8 +132,12 @@ SD from the derivatives at that fit's answer, first order in the noise.
   and the derived quantities include it: first order in both errors, which are independent
   (another scan). A systematic error is the fixed value itself (`B1 = 1.05` for a map 5% high,
   against the truth's 1.0): crlb's bias, as without `uncertain`. Each must be a parameter the
-  fit holds at a number. Not yet with `likelihood = :rician`, `noise = :rician` or
-  `simulate_with`. [`montecarlo`](@ref) takes the same keyword.
+  fit holds at a number. Inputs whose errors are correlated: one may move with others, its own
+  SD and a slope on each, `uncertain = (B1 = 0.03, R1obs = (sd = 0.02, B1 = 2.2))` (an R1 map made
+  with the B1 map: δR1obs = ε + 2.2·δB1, the slope the R1 map's own `leakage` on B1); the
+  covariance added is then D·V·Dᵀ, V = L·diag(sd²)·Lᵀ (L: the identity and the slopes). Not yet
+  with `likelihood = :rician`, `noise = :rician` or `simulate_with`. [`montecarlo`](@ref) takes
+  the same keyword.
 - `secondorder = true`: add the noise's own bias, to second order. A fit is biased by the noise
   even when nothing fixed is wrong (the signal is curved in its parameters: T1 from VFA at SNR
   100 comes out 2.6% long), which the first order (the default) leaves out. For least squares,
@@ -880,7 +884,11 @@ end
 _print_uncertain(io::IO, ::Nothing) = nothing
 _print_uncertain(io::IO, u::NamedTuple) =
     print(io, "\nuncertain fixed values (SD, independent of the noise; first order): ",
-          join(("$n ± $(_showvalue(x))" for (n, x) in pairs(u)), ", "))
+          join((_inputtext(n, x) for (n, x) in pairs(u)), ", "))
+# an input as given: `B1 ± 0.03`, or with the inputs it moves with, `R1obs ± 0.02 + 2.0·δB1`
+_inputtext(n, x::Real) = "$n ± $(_showvalue(x))"
+_inputtext(n, x::NamedTuple) = "$n ± $(_showvalue(x.sd))" *
+    join(" $(sl < 0 ? "−" : "+") $(_showvalue(abs(sl)))·δ$j" for (j, sl) in pairs(Base.structdiff(x, NamedTuple{(:sd,)})))
 
 # The noise, in words: one σ, σ per observation (its range), or a covariance matrix; with
 # averages, one average's σ (σ·√NEX, the level given) and the averages' range.

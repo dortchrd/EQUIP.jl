@@ -14,6 +14,9 @@ const MODELS = (; T1IR, R1IR, T1IRTD, R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay,
 # an FSL .bval and .bvec beside the data (as dcm2niix writes them), or from the files the flags
 # --bval and --bvec name (eddy's rotated .bvec, say); --b gives the b-values as numbers too.
 _directional(M) = (:b, :g) ⊆ fieldnames(M)
+# The fields the command line gives as flags: every field but a pulse (an RFPulse, which numbers
+# on a command line do not describe: QMTSIR's `pulse`, Julia only for now)
+_flagfields(M) = Tuple(k for k in fieldnames(M) if k !== :pulse)
 const _ENCODING = ("bval", "bvec", "scaleb")    # the directional models' file flags
 # Named protocols (acquisitions), by name, and the models each is for.
 const _SIR = (QMTSIR, QMTSIREqualR1)
@@ -56,7 +59,7 @@ its fields (`--TI 0.01,0.05`; a Bool field, `--magnitude false`; for a direction
 A field the flags give that the files also give differently is reported to `warn`.
 """
 function buildmodel(M, a::Args, found; warn::IO = stderr)
-    fields = fieldnames(M)
+    fields = _flagfields(M)
     vals = Dict{Symbol,Any}()
     for (k, v) in pairs(found)                                # 3. the files
         k in fields && (vals[k] = v)
@@ -140,12 +143,12 @@ end
 
 # The flags a subcommand accepts for model M: its fields, its parameters, the options.
 function _check_flags(a::Args, M, options, cmd)
-    known = Set([String.(fieldnames(M))...; String.(paramnames(M))...; options...;
+    known = Set([String.(_flagfields(M))...; String.(paramnames(M))...; options...;
                  (_directional(M) ? collect(_ENCODING) : String[])...])
     for (name, _) in a.flags
         name in known && continue
         throw(ArgumentError("`--$name` is not a flag of `equip $cmd $(nameof(M))`. Its " *
-            "acquisition: $(join("--" .* String.(fieldnames(M)), ", ")); its parameters: " *
+            "acquisition: $(join("--" .* String.(_flagfields(M)), ", ")); its parameters: " *
             "$(join("--" .* String.(paramnames(M)), ", ")); options: " *
             "$(join("--" .* options, ", ")). `equip $cmd $(nameof(M)) --help` explains them"))
     end
@@ -163,7 +166,7 @@ function modelhelp(io::IO, M, cmd)
                 "start:step:stop, or @file):")
     _directional(M) && println(io, "  (read from the .bval and .bvec beside the data, FSL's, " *
                                "when they are there; the flags override them)")
-    for k in fieldnames(M)
+    for k in _flagfields(M)
         if k === :g && _directional(M)                       # the directions: a file
             println(io, "  --", rpad("bval", 12), "FILE, the b-values (FSL's .bval; or --b, numbers)")
             println(io, "  --", rpad("bvec", 12), "FILE, the gradient directions (FSL's .bvec: " *

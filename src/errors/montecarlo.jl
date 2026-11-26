@@ -105,7 +105,8 @@ its fit, and measure each fitted parameter's bias, SD and RMSE, with standard er
 - `uncertain`: fixed parameters whose values were measured, with the SD of that measurement, as
   for [`crlb`](@ref) (`uncertain = (B1 = 0.03,)`): each copy is fitted with its own value, the
   fit's plus a Gaussian error with that SD (independent of the noise; the same draws for every
-  setting of a sweep), and crlb alongside adds the same to its covariance.
+  setting of a sweep), and crlb alongside adds the same to its covariance. An input that moves
+  with others (`R1obs = (sd = 0.02, B1 = 2.2)`) adds each one's drawn error times its slope.
 - Sweeps, as for `crlb`: `snr = [50, 100, 200]`, `vary = (kmf = 5:2.5:20,)` (true values; the
   fit stays the scenario's, and starts taken from the truth follow it; a derived quantity, `vary
   = :FA => ...`, with the truth given by derived quantities), every combination; the

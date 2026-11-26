@@ -32,7 +32,10 @@ over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `P
 unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
 command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload). Ready to merge when the owner says. Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
 the time-averaged form measured (bench/qmt/averaged.jl), and how B1, B0 and R1obs errors propagate
-(bench/qmt/maperrors.jl; design.md item 6): the full `Pkg.test` passes (3482).
+(bench/qmt/maperrors.jl; design.md item 6): the full `Pkg.test` passes (3482). Then (the owner: "Do 1 and 2"): SIR with its pulse
+(`QMTSIR(...; pulse)`: Sm made from it, B1, B0 and T2m as parameters), correlated uncertain inputs
+(`R1obs = (sd, B1 = slope)`), and T1 and qMT fitted together measured (bench/qmt/joint_r1.jl: PSR's
+RMSE 6.4% against 14.6% with an R1 map); joint models across sequences on the roadmap.
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from

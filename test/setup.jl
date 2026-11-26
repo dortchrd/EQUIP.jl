@@ -235,6 +235,9 @@ const CASES = [
      (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, Sm = 0.83,
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
     (QMTSIREqualR1(TI = TI5, TD = TD5), (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, Sm = 0.83)),
+    (QMTSIR(TI = TI5, TD = TD5, pulse = blockpulse(180, 1e-3)),         # Sm from the pulse: T2m, B1, B0
+     (PSR = 0.12, R1f = 1.0, Sf = -0.95, M0f = 1000.0, kmf = 12.5, R1m = 1.0, T2m = 15e-6, B1 = 1.0, B0 = 0.0,
+      Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
     (QMTSPGRYarnykh(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
                                       R1obs = 1.0, B1 = 1.0, B0 = 0.0)),     # R1obs = R1m: the tie gives R1f = 1.0
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),

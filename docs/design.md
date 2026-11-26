@@ -6405,6 +6405,57 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        error): a covariance in `uncertain`, and the R1 map's sensitivity to B1 from its own model
        (T1MFA's leakage) chained into the MT model's. (3) `uncertain` is refused with Rician noise
        and in `ProtocolDesign` (robust designs go by scenarios instead).
+     - **Built: (1) and (2), and the joint T1 + qMT fit measured** (the owner, 2026-11-26: "Do 1
+       and 2 - also you can fit t1 and qmt model same time. Prob actually better? Need a way to do
+       this at some point").
+       - **(1) SIR with its pulse**: `QMTSIR(...; pulse = blockpulse(180, 1e-3))` (and
+         `QMTSIREqualR1`), a third type parameter, `Nothing` or `RFPulse`; with a pulse, Sm is
+         not a parameter but `boundsaturation(pulse, T2m; B1, Δ = B0)`, and T2m (15 µs), B1 (1)
+         and B0 (0) take its place, fixed. Sf stays fitted. A model type's parameters depending on
+         its type parameter: `parameters(::Type{<:QMTSIR{<:AbstractVector,<:AbstractVector,RFPulse}})`,
+         the bounds written out (with `<:Any`, or `QMTSIR{A,B,RFPulse} where {A,B}`, Julia ranks
+         the general method higher and the pulse's is never called: measured on a toy type). Role
+         lookups go through the instance (`parameters(typeof(m))`), so they follow; the bare type
+         `QMTSIR` keeps Sm (a scenario of a pulse model: `Scenario(m, θ)`, from the model). The
+         command line gives no `--pulse` (not numbers; `_flagfields`); sidecars write its segments.
+         Checked: the signal equal to Sm given that value (both models, B1 0.9, B0 60 Hz, T2m
+         12 µs); PSR's slope on B1 equal to its slope on Sm times dSm/dB1 (the chain rule, 1e-6);
+         a test case (noise-free recovery, both precisions, no allocation). White matter, the
+         5-point scheme: PSR 0.18% per 1% of B1, 0.09% per 1% of T2m; B0's slope 0 on resonance
+         (the Gaussian is even).
+       - **(2) Correlated inputs**: an input may move with others, `R1obs = (sd = 0.02, B1 =
+         2.2)`, δR1obs = ε + 2.2·δB1; crlb adds D·V·Dᵀ, V = L·diag(sd²)·Lᵀ; montecarlo draws each
+         copy's own errors in the order given (the same draws as before for independent inputs)
+         and adds the slopes; one level (an input depends only on inputs given by their SD); shown
+         as "R1obs ± 0.02 + 2.2·δB1". Chosen over a covariance matrix: the slope is what the
+         physics gives (the R1 map's leakage on B1) and reads as the pipeline is. Checked: the
+         covariance against D·V·Dᵀ with D by central differences (1e-5); montecarlo's drawn
+         values correlate as V says (0.956 against 0.957); its SDs against crlb's: M0f within 3
+         standard errors, PSR 5% above (as with independent inputs: crlb's first order against
+         PSR's curvature in B1).
+       - **The joint fit, T1 and qMT together** (bench/qmt/joint_r1.jl: white matter, MT-off SNR
+         100, the 13 MT images, VFA 3, 10, 20° at TR 15 ms; the same σ in every image). The R1
+         map (R1MFA at R1 = 1.1): SD 4.2%, slope on B1 2.02% per 1% (R1 as B1²), and on two-pool
+         data the single-pool fit reports 1.258 s⁻¹ for the slower rate 1.100 (+14.3%, the bias
+         Mossahebi, Yarnykh & Samsonov, MRM 2014, studied). PSR and kmf, relative:
+
+         | approach | PSR SD | PSR bias | PSR RMSE | kmf SD | kmf bias | kmf RMSE |
+         |---|---:|---:|---:|---:|---:|---:|
+         | separate: the image noise only | 6.9% | 0 | 6.9% | 14.3% | 0 | 14.3% |
+         | separate: B1 3%, R1obs its noise (independent) | 9.3% | 0 | 9.3% | 16.2% | 0 | 16.2% |
+         | separate: B1 3%, R1obs its noise + slope on B1 | 7.7% | 0 | 7.7% | 16.3% | 0 | 16.3% |
+         | separate: as above, R1obs from the single-pool fit | 8.6% | +11.8% | 14.6% | 16.3% | +0.5% | 16.3% |
+         | joint: the image noise only | 6.4% | 0 | 6.4% | 14.3% | 0 | 14.3% |
+         | joint: B1 3% | 6.4% | 0 | 6.4% | 16.3% | 0 | 16.3% |
+
+         Joint, PSR moves −0.11% per 1% of B1 (against −1.74% with R1f tied to R1obs); kmf
+         +2.61%, R1f +2.28% (R1f takes B1's error, as a VFA R1 does); R1f's SD 3.4%. So for PSR
+         and MPF the joint fit is better on every count: no single-pool bias, B1's error mostly
+         cancelled, and a little more precise. It needs no new code for SPGR data (the VFA images
+         are the model's own, `B1e = 0`). **Roadmap: joint models across sequences** (SIR with
+         VFA, an MT scan with an IR-T1 scan): one model from several, observations concatenated,
+         parameters shared by name (each model's own fixed ones kept apart where they differ: M0
+         per sequence, say), fitted, crlb'd and designed as one.
      - **Not yet**: the command line (its acquisition holds a function and two pulse forms), tissue
        presets (Yarnykh's and Sled & Pike's values, to check from the papers), a protocol constant,
        the derived quantities (MPF, kfm: step 3). In the precompile workload (its first fit had

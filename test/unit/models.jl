@@ -192,6 +192,27 @@ end
     @test occursin("phase (1)", msg(() -> RFPulse([90, 90], [0], [1e-3, 1e-3])))
     @test occursin("-0.001", msg(() -> blockpulse(180, -1e-3)))
     @test RFPulse([90, 180, 90], [0, 90, 0], 3e-3).duration == fill(1e-3, 3)
+    # SIR with its inversion pulse: Sm not a parameter but made from it, T2m, B1 and B0 in its
+    # place; the same signal as Sm given that value, in both SIR models; without the pulse, the
+    # models (and the type's parameters) as before; tissue presets still apply (their Sm unused)
+    for M in (QMTSIR, QMTSIREqualR1)
+        mp, m0 = M(TI = TI5, TD = TD5, pulse = blk), M(TI = TI5, TD = TD5)
+        @test keys(parameters(mp)) == Tuple(Iterators.flatten(n === :Sm ? (:T2m, :B1, :B0) : (n,) for n in keys(parameters(m0))))
+        θp = merge(nominal(mp, :SIR_WM_I), (B1 = 0.9, B0 = 60.0, T2m = 12e-6))
+        θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = boundsaturation(blk, 12e-6; B1 = 0.9, Δ = 60.0),))
+        @test signal(mp, θp) == signal(m0, θ0)
+        @test :Sm in keys(parameters(M)) && !(:B1 in keys(parameters(M)))
+    end
+    # its errors by name: PSR's slope on B1 is its slope on Sm times dSm/dB1 (the chain rule; the
+    # slope on Sm from the model without the pulse, dSm/dB1 by central differences)
+    mp, m0 = QMTSIR(; SIR_5POINT..., pulse = blk), QMTSIR(; SIR_5POINT...)
+    θp = nominal(mp, :SIR_WM_I)
+    θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = boundsaturation(blk, 15e-6),))
+    dSm = (boundsaturation(blk, 15e-6; B1 = 1 + 1e-6) - boundsaturation(blk, 15e-6; B1 = 1 - 1e-6)) / 2e-6
+    @test leakage(mp, θp).absolute.B1.PSR ≈ leakage(m0, θ0).absolute.Sm.PSR * dSm rtol = 1e-6
+    @test crlb(mp, θp; snr = 200, uncertain = (B1 = 0.05,)).sd.PSR > crlb(mp, θp; snr = 200).sd.PSR
+    @test occursin("RFPulse(1 segment, 1.0 ms)", sprint(show, MIME"text/plain"(), mp))
+    @test EQUIP._jsonvalue(blk) == Dict("flip" => [180.0], "phase" => [0.0], "duration" => [1e-3])
 end
 
 @testset "QMTSPGRYarnykh: the lab's MATLAB, brute force, limits, the two pulse forms, B1 and B0" begin

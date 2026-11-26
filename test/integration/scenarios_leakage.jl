@@ -218,6 +218,32 @@ end
                     n = 20_000, rng = MersenneTwister(1))
     @test mc.crlb.sd == cu.sd
     @test all(p -> abs(mc.sd[p] - cu.sd[p]) < 3 * mc.se_sd[p], (:M0, :T1))
+    # Correlated inputs: R1obs moving with B1's error (an R1 map made with the B1 map), `R1obs =
+    # (sd = s, B1 = k)`: δR1obs = ε + k·δB1. The covariance adds D·V·Dᵀ with V = L·diag(sd²)·Lᵀ,
+    # D by central differences of crlb's noise-free fits, V written out
+    off = [1e3, 4e3, 16e3]
+    ms = QMTSPGRYarnykh(offset = [off; off; 0.0], B1e = [fill(4.0, 3); fill(8.0, 3); 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    θs = merge(nominal(ms), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1obs = 1.1))
+    s0 = crlb(ms, θs; snr = 800)
+    sc = crlb(ms, θs; snr = 800, uncertain = (B1 = 0.03, R1obs = (sd = 0.02, B1 = 2.2)))
+    F = (:PSR, :kmf, :T2f, :T2m, :M0f)
+    dfit(k, h) = [(crlb(ms, θs; snr = 800, NamedTuple{(k,)}((θs[k] + h,))...).fit[p] -
+                   crlb(ms, θs; snr = 800, NamedTuple{(k,)}((θs[k] - h,))...).fit[p]) / 2h for p in F]   # the fit's value moved, the truth kept
+    D = hcat(dfit(:B1, 1e-4), dfit(:R1obs, 1e-4))          # (h = 1e-4: the noise-free fits converge to about 1e-9)
+    V = [0.03^2 2.2 * 0.03^2; 2.2 * 0.03^2 0.02^2 + 2.2^2 * 0.03^2]
+    @test sc.cov ≈ s0.cov + D * V * D' rtol = 1e-5
+    @test occursin("R1obs ± 0.02 + 2.2·δB1", sprint(show, MIME"text/plain"(), sc))
+    # montecarlo: each copy's R1obs moves with its own B1, so the drawn values correlate as V
+    # says (0.957); M0f's SD as crlb predicts, within 3 standard errors; PSR's within 8%, its SD
+    # 5% above crlb's as with independent inputs (0.0179 against 0.0171), crlb's first order in
+    # the inputs against PSR's curvature in B1 (−8% at B1 +5%, +9.5% at −5%; design.md item 6)
+    msc = montecarlo(ms, θs; snr = 800, noise = :gaussian, uncertain = (B1 = 0.03, R1obs = (sd = 0.02, B1 = 2.2)),
+                     n = 4000, rng = MersenneTwister(2))
+    @test cor(msc.result.fixed.B1, msc.result.fixed.R1obs) ≈ 2.2 * 0.03 / sqrt(0.02^2 + 2.2^2 * 0.03^2) atol = 0.01
+    @test abs(msc.sd.M0f - sc.sd.M0f) < 3 * msc.se_sd.M0f && abs(msc.sd.PSR / sc.sd.PSR - 1) < 0.08
+    @test occursin("`B1 = ...`", msg(() -> crlb(ms, θs; snr = 800, uncertain = (R1obs = (sd = 0.02, B1 = 2.2),))))
+    @test occursin("slope of `R1obs` on `B1`", msg(() -> crlb(ms, θs; snr = 800, uncertain = (B1 = 0.03, R1obs = (sd = 0.02, B1 = Inf)))))
+    @test occursin("as `sd`", msg(() -> crlb(ms, θs; snr = 800, uncertain = (B1 = 0.03, R1obs = (B1 = 2.2,)))))
     # Mistakes, and what is not yet
     θq = nominal(QMTSIR, :SIR_WM_I)
     @test occursin("`M0` is estimated", msg(() -> crlb(m, θ; snr = 1000, uncertain = (M0 = 10.0,))))

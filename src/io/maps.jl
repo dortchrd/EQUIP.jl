@@ -135,7 +135,8 @@ end
 # precision; the weights), and EQUIP's version.
 function _provenance(@nospecialize(res::FitResult))
     m = res.model
-    acq = Dict{String,Any}(String(k) => _jsonvalue(getfield(m, k)) for k in fieldnames(typeof(m)))
+    acq = Dict{String,Any}(String(k) => _jsonvalue(getfield(m, k)) for k in fieldnames(typeof(m))
+                           if getfield(m, k) !== nothing)          # (QMTSIR's pulse, when not given)
     fit = Dict{String,Any}()
     for (k, v) in pairs(res.settings)
         k === :mask && continue
@@ -179,4 +180,5 @@ end
 _jsonvalue(v::Union{Real,AbstractString,Symbol}) = v isa Symbol ? String(v) : v
 _jsonvalue(v::AbstractVector{<:Real}) = collect(v)
 _jsonvalue(v::AbstractVector{<:StaticVector}) = [collect(x) for x in v]    # g: [x, y, z] per image
+_jsonvalue(p::RFPulse) = Dict("flip" => p.flip, "phase" => p.phase, "duration" => p.duration)   # its segments
 _jsonvalue(v) = repr(v)

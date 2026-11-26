@@ -149,10 +149,10 @@ function _errors_command(cmd, words, extra, run; io::IO, err::IO)
     vary = _vary(a, paramnames(M))
     several && (vary = merge(truthaxes, vary))              # --vary wins for a parameter in both
     if has(a, "save")
-        acq = [String(k) => _valuestring(getfield(m, k)) for k in fieldnames(M)]
+        acq = [String(k) => _valuestring(getfield(m, k)) for k in _flagfields(M)]
         flags = [["model" => model]; acq;
                  [f for f in lastflags(a) if !(first(f) in ("model", "save", "help", "protocol",
-                                                          String.(fieldnames(M))...))]]
+                                                          String.(_flagfields(M))...))]]
         saveconfig(value(a, "save"), flags, "equip $cmd, saved $(Dates.today()) with EQUIP " *
                    "$(pkgversion(EQUIP))\nrun again: equip $cmd --config $(value(a, "save"))")
     end

@@ -54,7 +54,7 @@ function cmd_design(words; io::IO = stdout, err::IO = stderr)
     haskey(lvl, :snr) && lvl.snr isa AbstractVector &&
         throw(ArgumentError("`equip design` takes one noise level (--snr 200)"))
     has(a, "acquisition") || throw(ArgumentError("give what to optimize, with its bounds: " *
-        "--acquisition $(join(("$k=lower..upper" for k in fieldnames(M) if fieldtype(M, k) !== Bool), ","))"))
+        "--acquisition $(join(("$k=lower..upper" for k in _flagfields(M) if fieldtype(M, k) !== Bool), ","))"))
     acquisition = _bounds(value(a, "acquisition"), M)
     shared = has(a, "shared") ? Tuple(Symbol.(split(value(a, "shared"), ','))) : ()
     scantime = _scantime(a, M)
@@ -65,10 +65,10 @@ function cmd_design(words; io::IO = stdout, err::IO = stderr)
         throw(ArgumentError("`--aggregate`: max or mean, got `$agg`"))
     cov = Symbol(value(a, "cov", "sandwich"))
     if has(a, "save")
-        acq = [String(k) => _valuestring(getfield(m, k)) for k in fieldnames(M)]
+        acq = [String(k) => _valuestring(getfield(m, k)) for k in _flagfields(M)]
         flags = [["model" => model]; acq;
                  [f for f in lastflags(a) if !(first(f) in ("model", "save", "help", "protocol",
-                                                          String.(fieldnames(M))...))]]
+                                                          String.(_flagfields(M))...))]]
         saveconfig(value(a, "save"), flags, "equip design, saved $(Dates.today()) with EQUIP " *
                    "$(pkgversion(EQUIP))\nrun again: equip design --config $(value(a, "save"))")
     end
@@ -86,7 +86,7 @@ function cmd_design(words; io::IO = stdout, err::IO = stderr)
     println(io, "  the rounded protocol's value is ", round(100 * (1 - res.rounded_value / start); digits = 2),
             "% below the start's")
     if has(a, "out")
-        flags = [["model" => model]; [String(k) => _valuestring(getfield(res.rounded, k)) for k in fieldnames(M)]]
+        flags = [["model" => model]; [String(k) => _valuestring(getfield(res.rounded, k)) for k in _flagfields(M)]]
         saveconfig(value(a, "out"), flags, "equip design: $model optimized, Eq. 5 value " *
                    "$(round(res.rounded_value; sigdigits = 6)) (start $(round(start; sigdigits = 6)))\n" *
                    "fit data acquired with it: equip fit --config $(value(a, "out")) DATA.nii.gz")
@@ -103,8 +103,8 @@ function _bounds(s, M)
         r = split(v, "..")
         (eq && length(r) == 2) || throw(ArgumentError("`--acquisition`: give NAME=lower..upper, " *
                                                      "e.g. TI=0.01..10; got `$item`"))
-        Symbol(k) in fieldnames(M) || throw(ArgumentError("`--acquisition`: `$k` is not a field " *
-            "of $(nameof(M)) ($(join(fieldnames(M), ", ")))"))
+        Symbol(k) in _flagfields(M) || throw(ArgumentError("`--acquisition`: `$k` is not a field " *
+            "of $(nameof(M)) ($(join(_flagfields(M), ", ")))"))
         push!(out, Symbol(k) => (_number(r[1], "acquisition"), _number(r[2], "acquisition")))
     end
     return (; out...)
@@ -114,14 +114,14 @@ end
 function _scantime(a, M)
     has(a, "scantime") && return _expression(M, value(a, "scantime"), "scantime")
     if has(a, "readout")
-        (:TI in fieldnames(M) && :TD in fieldnames(M)) || throw(ArgumentError("`--readout` is " *
+        (:TI in _flagfields(M) && :TD in _flagfields(M)) || throw(ArgumentError("`--readout` is " *
             "for a protocol of TI and TD (Σ(TI + TD + readout)); give --scantime EXPR for $(nameof(M))"))
         r = _number(value(a, "readout"), "readout")
         return m -> sum(m.TI .+ m.TD .+ r)
     end
     throw(ArgumentError("give the scan time: --readout SECONDS (Σ(TI + TD + readout), SIR-FSE) " *
         "or --scantime EXPR, a Julia expression of $(nameof(M))'s fields " *
-        "($(join(fieldnames(M), ", "))), e.g. \"sum(TI .+ TD .+ 0.3)\""))
+        "($(join(_flagfields(M), ", "))), e.g. \"sum(TI .+ TD .+ 0.3)\""))
 end
 
 # A Julia expression of the model's fields, as a function of the protocol (run as given: the
@@ -130,7 +130,7 @@ function _expression(M, s, what)
     ex = Meta.parse(s; raise = false)
     ex isa Expr && ex.head in (:error, :incomplete) &&
         throw(ArgumentError("`--$what`: `$s` is not a Julia expression"))
-    lets = [:($k = getfield(m, $(QuoteNode(k)))) for k in fieldnames(M)]
+    lets = [:($k = getfield(m, $(QuoteNode(k)))) for k in _flagfields(M)]
     f = Core.eval(@__MODULE__, :(m -> let $(lets...); $ex; end))
     return m -> Base.invokelatest(f, m)
 end

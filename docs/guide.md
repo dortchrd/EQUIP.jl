@@ -366,6 +366,13 @@ Both neglect relaxation and exchange during the pulse (the pulse short against T
 Sm assumes T2m far shorter than the pulse. `B1` is a B1 map's relative value, `Δ` the offset in
 Hz (a B0 map's).
 
+Or give the models the pulse, and Sm is made from it in every voxel: `QMTSIR(; SIR_5POINT...,
+pulse = blockpulse(180, 1e-3))` (also `QMTSIREqualR1`). Sm is then not a parameter: `T2m`
+(15 µs), `B1` (1) and `B0` (0 Hz) take its place, fixed, so maps go in by name (`fit(m, data;
+B1 = b1map)`) and their errors reach crlb, montecarlo and `leakage` by name too (`crlb(m, θ;
+snr, uncertain = (B1 = 0.03,))`). Sf stays fitted, and takes the free pool's part of a B1 or B0
+error: PSR moves about 0.18% per 1% of B1 (white matter, the 5-point scheme), through Sm alone.
+
 The lineshapes, g(Δ) in s for an offset Δ in Hz, normalized (∫ g d(2πΔ) = 1): `gaussian(T2, Δ)`
 (Sm's default: finite on resonance), `lorentzian(T2, Δ)` (a liquid) and `superlorentzian(T2, Δ)`
 (the macromolecular pool of tissue, for MT pulses off resonance; infinite on resonance, where a
@@ -402,7 +409,24 @@ Each acquisition field is one number for every image or one per image (several f
 TRs are allowed). The MT pulse is given either by its power-equivalent amplitude, `B1e` =
 √(∫B1²dt/tm) in µT, and `tm`, or by its shape and nominal flip angle per image: `mtpulse =
 RFPulse(...)` (pulses.jl's segments; its duration is tm) and `mtflip` (degrees), from which EQUIP
-works out B1e. The macromolecular pool's `lineshape` is any function `(T2, Δ) -> g`. Mind the
+works out B1e. The macromolecular pool's `lineshape` is any function `(T2, Δ) -> g`.
+
+**T1 and qMT together.** Variable-flip-angle images are SPGR images without the MT pulse, so they
+go in the same acquisition (`B1e = 0` at their flip angles and TR) and the fit takes R1f from
+them, `R1f = Free(start = 1.0)`, in place of an R1 map:
+
+```julia
+m = QMTSPGRYarnykh(offset = [offsets; offsets; 0; 0; 0; 0], B1e = [fill(4.0, 6); fill(8.0, 6); 0; 0; 0; 0],
+                   TR = [fill(0.030, 13); fill(0.015, 3)], FA = [fill(10, 13); 3; 10; 20], tm = 0.012, ts = 0.002)
+r = fit(m, data; R1f = Free(start = 1.0), B1 = b1map)
+```
+
+Better than an R1 map, measured (white matter, MT-off SNR 100, a B1 map with a 3% SD;
+bench/qmt/joint_r1.jl): PSR's RMSE 6.4% against 14.6% with R1obs from a single-pool VFA fit
+(its noise, its B1 error and its bias: on two-pool data it reports 1.258 s⁻¹ for the two pools'
+slower rate 1.100, +14%), and PSR moves −0.11% per 1% of B1 against −1.74% (R1f and kmf take
+B1's error instead). Data from different sequences fitted together (SIR with VFA, say) need a
+joint model: on the roadmap. Mind the
 noise level when simulating: `snr` is relative to M0f, and an SPGR image is M0f·sin α·Mzf, about
 an eighth of M0f at 10°, so `snr = 800` gives the image without the MT pulse an SNR of about 100.
 
@@ -980,6 +1004,22 @@ fixed in the fit: kmf = 12.5 (true 5.0), R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, M
   measured over 20,000 copies; the image noise alone gives 0.0223. Several at once, each
   independent of the others: QMTSIR's `uncertain = (kmf = 2.0, Sm = 0.05)`. Not yet with
   `likelihood = :rician`, `noise = :rician`, `simulate_with` or a protocol design.
+- **Correlated inputs: a map made with another map.** An R1 map from variable flip angles is
+  computed with the B1 map, so a B1 error moves it too (R1 goes as B1²: 2% per 1%). Give the
+  input its own SD and its slope on the other: `uncertain = (B1 = 0.03, R1obs = (sd = σR1, B1 =
+  slope))`, δR1obs = ε + slope·δB1. The R1 map's own model gives both:
+
+  ```julia
+  mr = R1MFA(FA = [3, 10, 20], TR = 0.015); θr = (M0 = 1000.0, R1 = 1.1, B1 = 1.0)
+  σR1 = crlb(mr, θr; snr = 800).sd.R1                        # its noise
+  slope = leakage(mr, θr).absolute.B1.R1                     # its slope on B1 (1/s per unit B1)
+  crlb(m, θ; snr = 800, uncertain = (B1 = 0.03, R1obs = (sd = σR1, B1 = slope)))
+  ```
+
+  crlb adds D·V·Dᵀ with V the inputs' covariance (L·diag(sd²)·Lᵀ, L the identity and the
+  slopes); montecarlo draws each copy's B1 and moves its R1obs with it. For pulsed MT the
+  correlation helps: B1 pulls PSR one way directly and the other way through R1obs (PSR's
+  SD 7.7% against 9.3% with the two taken as independent; bench/qmt/joint_r1.jl).
 - **Fast, and in named pieces.** `crlb` makes a `CRLBCache` (the scenario's fit, once) and calls
   `crlb!`; reuse the cache for many noise levels or truths (sweeps do; the fit stays the
   cache's):

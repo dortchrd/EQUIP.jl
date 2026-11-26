@@ -11,7 +11,7 @@
 # =================================================================================================
 
 """
-    QMTSIR(; TI, TD, magnitude = true)
+    QMTSIR(; TI, TD, magnitude = true, pulse = nothing)
 
 Selective inversion recovery (SIR), a quantitative magnetization transfer (qMT) model with two
 pools that exchange magnetization: free water (f) and macromolecules (m). For each observation:
@@ -41,6 +41,11 @@ default.
 - acquisition: `TI` (s), one per observation; `TD` (s), one number for all observations or
   one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
+- option: `pulse`, the inversion pulse (an [`RFPulse`](@ref), e.g. `blockpulse(180, 1e-3)`):
+  given, `Sm` is not a parameter but made from it, `boundsaturation(pulse, T2m; B1, Δ = B0)`,
+  and `T2m` (15 µs), `B1` (1) and `B0` (0 Hz) take its place, fixed: give the maps
+  (`fit(m, data; B1 = b1map)`), and their errors reach crlb, montecarlo and `leakage` by name
+  (`uncertain = (B1 = 0.03,)`). Sf stays fitted
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
 - fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`, ≥ 0),
@@ -57,14 +62,15 @@ m = QMTSIR(TI = [0.010, 0.050, 0.056, 0.277, 0.843], TD = [3.270, 4.489, 1.652, 
 m = QMTSIR(TI = [0.010, 0.050, 0.277, 1.0], TD = 2.5)        # one TD for all
 ```
 """
-@kwdef struct QMTSIR{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+@kwdef struct QMTSIR{A<:AbstractVector,B<:AbstractVector,P<:Union{Nothing,RFPulse}} <: MRIModel
     TI::A                               # inversion times (s)
     TD::B                               # delays between readout and inversion (s)
     magnitude::Bool = true
+    pulse::P = nothing                  # the inversion pulse: given, Sm is made from it (below)
 end
 
 # One TD for every TI (the same pattern as the single-TR method of T1MFA).
-QMTSIR(TI, TD::Real, magnitude) = QMTSIR(TI, fill(TD, length(TI)), magnitude)
+QMTSIR(TI, TD::Real, magnitude, pulse = nothing) = QMTSIR(TI, fill(TD, length(TI)), magnitude, pulse)
 
 parameters(::Type{<:QMTSIR}) = (
     PSR = Free(start = 0.1, lower = 0, upper = 1),
@@ -76,6 +82,30 @@ parameters(::Type{<:QMTSIR}) = (
     Sm = Fixed(0.83),
     Mzf_td0 = Fixed(0.0),               # each pool's Mz at the start of TD, as a fraction of its
     Mzm_td0 = Fixed(0.0),               # equilibrium value: 0 = saturated by the readout
+)
+
+# With the inversion pulse given (`pulse = blockpulse(180, 1e-3)`), Sm is not a parameter: it is
+# the pulse's saturation of the macromolecular pool, `boundsaturation(pulse, T2m; B1, Δ = B0)`
+# (pulses.jl: exp(−π·g(Δ)·B1²·∫ω1²dt), the Gaussian lineshape on resonance), and T2m, B1 and B0
+# take its place, fixed: maps, whose errors then reach the fit by name (`leakage`, crlb's
+# `uncertain = (B1 = 0.03,)`). Sf stays fitted: it takes the free pool's part of a B1 or B0 error.
+# T2m = 15 µs gives Sm = 0.831 for the 1-ms block, Dortch et al. 2018's 0.83. (A model type's
+# parameters can depend on its type parameters: this method is the more specific one for a
+# QMTSIR whose third type parameter, the pulse's, is an RFPulse. Written with the other two's
+# bounds, `<:AbstractVector`: with `<:Any`, or as `QMTSIR{A,B,RFPulse} where {A,B}`, Julia ranks
+# the general method above it.)
+parameters(::Type{<:QMTSIR{<:AbstractVector,<:AbstractVector,RFPulse}}) = (
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),
+    kmf = Fixed(12.5; lower = 0),
+    R1m = Fixed(:R1f),
+    T2m = Fixed(15e-6; lower = 0),      # s: the macromolecular pool's T2, for Sm
+    B1 = Fixed(1.0; lower = 0),         # relative: scales the inversion pulse (Sm)
+    B0 = Fixed(0.0),                    # Hz: the pulse's offset from the resonance (Sm)
+    Mzf_td0 = Fixed(0.0),
+    Mzm_td0 = Fixed(0.0),
 )
 
 # How the code computes the signal (Li et al. 2010, without matrices).
@@ -100,7 +130,8 @@ parameters(::Type{<:QMTSIR}) = (
 # solution of Li's Eq. 2, and finite-difference derivatives (see test/runtests.jl).
 function signal!(out, m::QMTSIR, p)
     (; TI, TD, magnitude) = m
-    (; PSR, R1f, Sf, M0f, kmf, R1m, Sm, Mzf_td0, Mzm_td0) = p
+    (; PSR, R1f, Sf, M0f, kmf, R1m, Mzf_td0, Mzm_td0) = p
+    Sm = _sirSm(m, p)                                   # the parameter, or made from the pulse
     kfm = kmf * PSR                                     # exchange rate f→m (mass balance)
 
     # 1. The fast and slow recovery rates (Li Eq. 4; -R1⁺ and -R1⁻ are the eigenvalues of A).
@@ -171,7 +202,7 @@ const SIR_16POINT = (TI = [round.(exp.(range(log(0.010), log(2.0); length = 15))
 
 
 """
-    QMTSIREqualR1(; TI, TD, magnitude = true)
+    QMTSIREqualR1(; TI, TD, magnitude = true, pulse = nothing)
 
 [`QMTSIR`](@ref) with its two default assumptions built in, so that the signal is one line:
 the macromolecular pool relaxes as the free pool does (R1m = R1f), and the readout leaves both
@@ -196,6 +227,11 @@ hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
 - acquisition: `TI` (s), one per observation; `TD` (s), one number for all observations or
   one per observation; the SIR protocols apply (`QMTSIREqualR1(; SIR_5POINT...)`)
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
+- option: `pulse`, the inversion pulse (an [`RFPulse`](@ref), e.g. `blockpulse(180, 1e-3)`):
+  given, `Sm` is not a parameter but made from it, `boundsaturation(pulse, T2m; B1, Δ = B0)`,
+  and `T2m` (15 µs), `B1` (1) and `B0` (0 Hz) take its place, fixed: give the maps
+  (`fit(m, data; B1 = b1map)`), and their errors reach crlb, montecarlo and `leakage` by name
+  (`uncertain = (B1 = 0.03,)`). Sf stays fitted
 - free by default: `PSR` (pool size ratio M0m/M0f), `R1f` (1/s), `Sf` (free-pool inversion
   efficiency, -1 = perfect inversion), `M0f`
 - fixed by default: `kmf = 12.5` 1/s (exchange rate m→f; estimate it with `kmf = Free()`, ≥ 0),
@@ -207,13 +243,14 @@ r = fit(m, data; mask)                                    # kmf fixed at 12.5
 r = fit(QMTSIREqualR1(; SIR_5POINT...), data; mask, kmf = Free())    # kmf estimated
 ```
 """
-@kwdef struct QMTSIREqualR1{A<:AbstractVector,B<:AbstractVector} <: MRIModel
+@kwdef struct QMTSIREqualR1{A<:AbstractVector,B<:AbstractVector,P<:Union{Nothing,RFPulse}} <: MRIModel
     TI::A                               # inversion times (s)
     TD::B                               # delays between readout and inversion (s)
     magnitude::Bool = true
+    pulse::P = nothing                  # the inversion pulse: given, Sm is made from it (as QMTSIR's)
 end
 
-QMTSIREqualR1(TI, TD::Real, magnitude) = QMTSIREqualR1(TI, fill(TD, length(TI)), magnitude)
+QMTSIREqualR1(TI, TD::Real, magnitude, pulse = nothing) = QMTSIREqualR1(TI, fill(TD, length(TI)), magnitude, pulse)
 
 # QMTSIR's parameters without R1m (= R1f) and the start values of TD (0), with the same roles.
 parameters(::Type{<:QMTSIREqualR1}) = (
@@ -224,6 +261,23 @@ parameters(::Type{<:QMTSIREqualR1}) = (
     kmf = Fixed(12.5; lower = 0),       # ≥ 0 when estimated, as QMTSIR's
     Sm = Fixed(0.83),
 )
+# With the inversion pulse: Sm made from it, T2m, B1 and B0 in its place (as QMTSIR's, above)
+parameters(::Type{<:QMTSIREqualR1{<:AbstractVector,<:AbstractVector,RFPulse}}) = (
+    PSR = Free(start = 0.1, lower = 0, upper = 1),
+    R1f = Free(start = 1.0, lower = 0.05, upper = 10),
+    Sf = Free(start = -0.95, lower = -1.2, upper = 0),
+    M0f = Free(start = :scale, lower = 0),
+    kmf = Fixed(12.5; lower = 0),
+    T2m = Fixed(15e-6; lower = 0),
+    B1 = Fixed(1.0; lower = 0),
+    B0 = Fixed(0.0),
+)
+
+# Sm: the parameter, without a pulse; with one, the pulse's saturation of the macromolecular pool
+# (the type parameter says which when compiling, so neither model pays for the other's case)
+@inline _sirSm(::Union{QMTSIR{<:AbstractVector,<:AbstractVector,Nothing},
+                        QMTSIREqualR1{<:AbstractVector,<:AbstractVector,Nothing}}, p) = p.Sm
+@inline _sirSm(m::Union{QMTSIR,QMTSIREqualR1}, p) = boundsaturation(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)
 
 # Where the one line comes from (Li et al. 2010, in its notation; derived 2026-11-20).
 #
@@ -258,7 +312,8 @@ parameters(::Type{<:QMTSIREqualR1}) = (
 # with dual numbers.
 function signal!(out, m::QMTSIREqualR1, p)
     (; TI, TD, magnitude) = m
-    (; PSR, R1f, Sf, M0f, kmf, Sm) = p
+    (; PSR, R1f, Sf, M0f, kmf) = p
+    Sm = _sirSm(m, p)                       # the parameter, or made from the pulse
     k = kmf * (1 + PSR)                     # kfm + kmf: the rate at which exchange evens out the pools
     a = (Sf + PSR * Sm) / (1 + PSR)         # the pools' weighted mean inversion, where it relaxes to
     b = PSR * (Sf - Sm) / (1 + PSR)         # the part that exchange takes away (a + b = Sf)

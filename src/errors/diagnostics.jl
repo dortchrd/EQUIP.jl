@@ -283,14 +283,27 @@ end
 # high: VFA's T1 goes as 1/B1²). montecarlo takes the same keyword and draws each copy's value.
 # -------------------------------------------------------------------------------------------------
 
+# Inputs whose errors are correlated: an input's error may include other inputs' errors, each
+# times a slope, `R1obs = (sd = 0.02, B1 = 2.0)`: δR1obs = ε + 2.0·δB1, ε its own error (SD 0.02),
+# δB1 B1's (an R1 map made with the B1 map: from variable flip angles, R1 moves with B1, its slope
+# the R1 map's own `leakage`). The fixed values' errors are then δc = L·ε, with ε the inputs' own
+# errors (independent, SDs as given) and L the identity plus the slopes (row: the input, column:
+# the one it depends on), so their covariance is V = L·diag(sd²)·Lᵀ: the covariance crlb adds is
+# D·V·Dᵀ, and montecarlo draws each copy's ε and adds the slopes. An input may depend only on
+# inputs given by their SD alone (one level).
+#
 # What crlb carries for the uncertain inputs: the scenario's leakage cache (made once, used at
-# every truth of a sweep), each fixed number's input variance in that cache's order (0 for those
-# not listed), and the SDs as given (kept in the result).
-struct _Uncertain{L<:LeakageCache,K,U<:NamedTuple}
+# every truth of a sweep), the fixed numbers' input covariance V in that cache's order (0 for
+# those not listed), and the inputs as given (kept in the result).
+struct _Uncertain{L<:LeakageCache,K,U<:NamedTuple,KK}
     lc::L
-    var::SVector{K,Float64}
+    V::SMatrix{K,K,Float64,KK}
     sd::U
 end
+_inputsd(x::Real) = x
+_inputsd(x::NamedTuple) = x.sd
+_inputslopes(x::Real) = (;)
+_inputslopes(x::NamedTuple) = Base.structdiff(x, NamedTuple{(:sd,)})
 _fixednames(::LeakageCache{C}) where {C} = C
 
 # `uncertain` checked against the scenario and made into an `_Uncertain`; `nothing` for none.
@@ -312,13 +325,31 @@ function _uncertain(m::MRIModel, s::Scenario, u; noise = :gaussian, simulate_wit
         (r isa Fixed && r.value isa Real) || throw(ArgumentError("`uncertain`: `$n` is " *
             (r isa Free ? "estimated by the fit" : "tied to another parameter") * "; an " *
             "uncertain input is a parameter the fit holds at a measured number (`$n = value`)"))
-        (x isa Real && isfinite(x) && x >= 0) || throw(ArgumentError("`uncertain`: the SD of " *
-            "`$n` must be a number ≥ 0 (in $n's units), got $(repr(x))"))
+        if x isa NamedTuple                          # its own SD, and slopes on other inputs
+            haskey(x, :sd) || throw(ArgumentError("`uncertain`: `$n = (sd = ..., B1 = slope, ...)`: " *
+                "give its own SD as `sd`, and a slope for each input its error moves with"))
+            for (j, sl) in pairs(_inputslopes(x))
+                haskey(u, j) && u[j] isa Real || throw(ArgumentError("`uncertain`: `$n` moves with " *
+                    "`$j`, which must be an uncertain input given by its SD (`$j = ...`)"))
+                (sl isa Real && isfinite(sl)) || throw(ArgumentError("`uncertain`: the slope of " *
+                    "`$n` on `$j` must be a finite number ($n's units per $j's), got $(repr(sl))"))
+            end
+        end
+        sd = _inputsd(x)
+        (sd isa Real && isfinite(sd) && sd >= 0) || throw(ArgumentError("`uncertain`: the SD of " *
+            "`$n` must be a number ≥ 0 (in $n's units), got $(repr(sd))"))
     end
     lc = _LeakageCache(m, s)
     C = _fixednames(lc)
-    var = SVector{length(C),Float64}(map(n -> haskey(u, n) ? Float64(u[n])^2 : 0.0, C))
-    return _Uncertain(lc, var, map(Float64, u))
+    K = length(C)
+    var = [haskey(u, n) ? Float64(_inputsd(u[n]))^2 : 0.0 for n in C]
+    L = Matrix{Float64}(I, K, K)
+    for (i, n) in enumerate(C), (j, c) in enumerate(C)
+        haskey(u, n) && haskey(_inputslopes(u[n]), c) && (L[i, j] = Float64(_inputslopes(u[n])[c]))
+    end
+    V = SMatrix{K,K,Float64}(L * Diagonal(var) * L')
+    given = map(x -> x isa NamedTuple ? map(Float64, x) : Float64(x), u)
+    return _Uncertain(lc, V, given)
 end
 
 # crlb's covariance with the inputs' added, D·diag(s²)·Dᵀ, D at the noise-free fit for truth `t`
@@ -326,7 +357,7 @@ end
 function _withinputs(u::_Uncertain, t, cov::SMatrix{P,P,Float64}) where {P}
     all(isfinite, cov) || return cov
     D = _leakage!(u.lc, u.lc.crlb.mT, t).D
-    return cov + D * Diagonal(u.var) * D'
+    return cov + D * u.V * D'
 end
 
 # Each copy's own value of each uncertain input, for montecarlo: the fit's value plus a Gaussian
@@ -335,8 +366,12 @@ end
 # numbers, as for the noise). A fixed map over the copies, as a B1 map is over voxels.
 function _inputdraws(s::Scenario, u::NamedTuple, n::Integer, seed)
     rng = Xoshiro(hash(seed, hash(:uncertain)))
-    return NamedTuple{keys(u)}(Tuple(Float64(s.roles[k].value) .+ Float64(u[k]) .* randn(rng, n)
-                                     for k in keys(u)))
+    value(k) = Float64(s.roles[k].value)
+    # each input's own errors, in the order given (the same draws as before correlated inputs)
+    own = NamedTuple{keys(u)}(Tuple(value(k) .+ Float64(_inputsd(u[k])) .* randn(rng, n) for k in keys(u)))
+    # an input that moves with others: plus each one's error times its slope, copy by copy
+    moved(k) = foldl((d, (j, sl)) -> d .+ Float64(sl) .* (own[j] .- value(j)), pairs(_inputslopes(u[k])); init = own[k])
+    return NamedTuple{keys(u)}(Tuple(moved(k) for k in keys(u)))
 end
 
 # At the REPL: the relative slopes (in %) and the elasticities (a ratio, % per %), one row per

@@ -61,10 +61,10 @@ function cmd_fit(words; io::IO = stdout, err::IO = stderr)
 
     # The command as a config file, before fitting: a record even if the fit is stopped.
     if has(a, "save")
-        acq = [String(k) => _valuestring(getfield(m, k)) for k in fieldnames(M)]
+        acq = [String(k) => _valuestring(getfield(m, k)) for k in _flagfields(M)]
         flags = [["model" => model, "data" => join(files, ',')]; acq;
                  [f for f in lastflags(a) if !(first(f) in ("model", "data", "save", "help",
-                                                          "protocol", String.(fieldnames(M))...))]]
+                                                          "protocol", String.(_flagfields(M))...))]]
         saveconfig(value(a, "save"), flags, "equip fit, saved $(Dates.today()) with EQUIP " *
                    "$(pkgversion(EQUIP))\nrun again: equip fit --config $(value(a, "save"))")
     end
