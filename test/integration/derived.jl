@@ -289,3 +289,29 @@ end
     @test occursin("not yet", msg(() -> propagate(crlb(m, θ; snr = 100, B1 = 1.05, secondorder = true,
                                                         uncertain = (B1 = 0.03,)), g -> g.T1)))
 end
+
+@testset "qMT's names: MPF and kfm derived, truths by them, other conventions' names as hints" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    # MPF = PSR/(1 + PSR) and kfm = kmf·PSR in crlb, by the delta method against their derivatives
+    # written out (kmf estimated, so kfm carries PSR's and kmf's covariance)
+    m = QMTSIR(; SIR_5POINT...)
+    θ = nominal(m, :SIR_WM_I)
+    c = crlb(m, θ; snr = 200, kmf = Free())
+    @test keys(c.sd)[end-1:end] == (:MPF, :kfm)
+    @test c.fit.MPF ≈ θ.PSR / (1 + θ.PSR) && c.fit.kfm ≈ θ.kmf * θ.PSR
+    @test c.sd.MPF ≈ c.sd.PSR / (1 + θ.PSR)^2 rtol = 1e-10
+    V, n = vcov(c), keys(c.sd)
+    i, k = findfirst(==(:PSR), n), findfirst(==(:kmf), n)
+    @test c.sd.kfm ≈ sqrt(θ.kmf^2 * V[i, i] + θ.PSR^2 * V[k, k] + 2 * θ.kmf * θ.PSR * V[i, k]) rtol = 1e-10
+    # nominal takes them, back to the parameters, for every MT model (QMTSPGRYarnykh's here)
+    q = nominal(QMTSPGRYarnykh(; SPGR_ACQ...); MPF = 0.13, kfm = 2.5)
+    @test q.PSR ≈ 0.13 / 0.87 && q.kmf ≈ 2.5 / q.PSR
+    d = derived(QMTSPGRYarnykh(; SPGR_ACQ...), resolve(QMTSPGRYarnykh(; SPGR_ACQ...), q))
+    @test d.MPF ≈ 0.13 && d.kfm ≈ 2.5
+    @test occursin("MPF", msg(() -> nominal(m; kfm = 2.0)))                 # kfm alone: no pool size
+    @test occursin("MPF = 1.2", msg(() -> nominal(m; MPF = 1.2)))
+    # another convention's name, in a fit's keywords and in nominal's: which of EQUIP's it is
+    @test occursin("`PSR`", msg(() -> fit(m, signal(m, θ); F = Fixed(0.1))))
+    @test occursin("`kmf` is R", msg(() -> nominal(m; R = 12.0)))
+    @test !occursin("EQUIP's names for qMT", msg(() -> fit(T2Decay(TE = [0.01, 0.02]), [1.0, 0.5]; F = 1.0)))
+end
