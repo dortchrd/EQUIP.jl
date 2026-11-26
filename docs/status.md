@@ -26,9 +26,11 @@ shape and flip angle; the name; R1m = 1 fixed), equal to the lab's MATLAB to 7e-
 in it, design.md item 6), in the precompile workload. Step 3, the names: MPF and kfm derived for
 the three MT models (QMTSIR's maps and crlb tables gain them), `nominal(m; MPF, kfm)`, hints for
 other conventions' names (F, f, kf, kr, R, T2r, ...); the guide's "qMT's names" by definitions
-(a per-paper table needs the papers: the owner). Unit (1720), integration (1742, before step 3) and
-derived (147) pass. Before merging: the full `Pkg.test`, the command line's, and CI (the precompile
-workload changed).
+(a per-paper table needs the papers: the owner). QMTSIR's results now carry MPF and kfm after the
+parameters (maps, crlb's and montecarlo's tables, the command line's TSVs), as DTI's carry FA: a sum
+over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `ProtocolDesign` is
+unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
+command line's (189). Before merging: the full `Pkg.test`, and CI (the precompile workload changed).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from

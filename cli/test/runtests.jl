@@ -385,13 +385,13 @@ end
         c = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200, kmf = 12.5)
         @test r.code == 0 && occursin("crlb for QMTSIR", r.out) && occursin("wrote", r.out)
         t = table(tsv)
-        @test length(t) == 4 && [x["parameter"] for x in t] == ["PSR", "R1f", "Sf", "M0f"]
+        @test length(t) == 6 && [x["parameter"] for x in t] == ["PSR", "R1f", "Sf", "M0f", "MPF", "kfm"]   # MPF, kfm derived
         @test parse(Float64, t[1]["sd"]) == c.sd.PSR && parse(Float64, t[1]["bias"]) == c.bias.PSR
         # several tissues and an SNR sweep: one row per setting and parameter, crlb's numbers
         r = run("crlb", "QMTSIR", "--protocol", "SIR_4POINT", "--tissue", "SIR_WM_I,SIR_GM,SIR_lesion",
                 "--snr", "100,200", "--kmf", "12.5", "--out", tsv)
         t = table(tsv)
-        @test r.code == 0 && length(t) == 3 * 2 * 4
+        @test r.code == 0 && length(t) == 3 * 2 * 6
         cs = crlb(m4, scenarios(QMTSIR, [:SIR_WM_I, :SIR_GM, :SIR_lesion]; kmf = 12.5); snr = [100, 200])
         @test [parse(Float64, x["sd"]) for x in t] == [x.sd for x in cs.rows]
         @test t[1]["snr"] == "100" && t[1]["tissue"] == "SIR_WM_I"
@@ -415,7 +415,7 @@ end
         @test parse(Float64, table(tsv)[1]["sd"]) == mc.sd.PSR && parse(Float64, table(tsv)[1]["crlb_sd"]) == mc.crlb.sd.PSR
         @test run("montecarlo", sir..., "--tissue", "SIR_WM_I,SIR_lesion", "--noise", "rician", "--n", "100",
                   "--seed", "1", "--starts", "model", "--out", tsv).code == 0
-        @test length(table(tsv)) == 2 * 4
+        @test length(table(tsv)) == 2 * 6
         # uncertain inputs: a B1 map 5% high whose values have an SD of 0.03, crlb's and
         # montecarlo's numbers (the same seed); the display names it
         mfa = ("T1MFA", "--FA", "2,5,10,15,20,30", "--TR", "0.015", "--truth", "M0=1000,T1=1", "--B1", "1.05",
