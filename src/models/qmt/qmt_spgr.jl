@@ -36,6 +36,9 @@
 # and the signal is the free pool's Mz excited: S = M0f·sin α·Mzf (M in units of M0f).
 # =================================================================================================
 
+# How many distinct MT offsets one signal keeps the lineshapes of (signal!, below)
+const _NSEEN = 16
+
 # The proton's gyromagnetic ratio, γ/2π = 42.577478518 MHz/T (CODATA 2018), as rad/s per µT
 # (the MATLAB's 42.58·2π differs by 5e-5)
 const _GAMMA_H = 2π * 42.577478518
@@ -174,6 +177,16 @@ function signal!(out, m::QMTSPGRYarnykh, p)
     j1 = firstindex(out)
     trp, tsp = TR[j1] - tm[j1] - ts[j1], ts[j1]
     Er, Es = _expm2(A * trp), _expm2(A * tsp)
+    # The lineshapes depend on T2f, T2m and the offset alone (B0 is one for every image): an
+    # image at an offset met before in this signal (the same offset at several MT powers) takes
+    # the values made there, from a cache on the stack of up to _NSEEN offsets (past that, each
+    # image makes its own). The same numbers as made per image, so the same signal.
+    gf1, gm1 = lorentzian(T2f, offset[j1] - B0), lineshape(T2m, offset[j1] - B0)
+    seen = MVector{_NSEEN,eltype(offset)}(undef)
+    gfs = MVector{_NSEEN,typeof(gf1)}(undef)
+    gms = MVector{_NSEEN,typeof(gm1)}(undef)
+    seen[1], gfs[1], gms[1] = offset[j1], gf1, gm1
+    nseen = 1
     @inbounds for j in eachindex(out, offset, B1e, tm, ts, TR, FA)
         trj = TR[j] - tm[j] - ts[j]
         if trj != trp
@@ -185,7 +198,22 @@ function signal!(out, m::QMTSPGRYarnykh, p)
         α = B1 * deg2rad(FA[j])
         ω1² = (oftype(B1e[j], _GAMMA_H) * B1 * B1e[j])^2   # the MT pulse's, rad²/s² (γ in the acquisition's precision)
         Δ = offset[j] - B0
-        gf, gm = lorentzian(T2f, Δ), lineshape(T2m, Δ)
+        k = 0
+        for i in 1:nseen                                    # the offset met before?
+            if seen[i] == offset[j]
+                k = i
+                break
+            end
+        end
+        if k > 0
+            gf, gm = gfs[k], gms[k]
+        else
+            gf, gm = lorentzian(T2f, Δ), lineshape(T2m, Δ)
+            if nseen < _NSEEN
+                nseen += 1
+                seen[nseen], gfs[nseen], gms[nseen] = offset[j], gf, gm
+            end
+        end
         # no MT pulse (B1e = 0): no saturation, whatever the lineshape gives at its offset
         Wf = iszero(B1e[j]) ? zero(gf) * ω1² : π * ω1² * gf
         Wm = iszero(B1e[j]) ? zero(gm) * ω1² : π * ω1² * gm
