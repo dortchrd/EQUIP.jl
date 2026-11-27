@@ -6394,6 +6394,17 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        against 14.3%. Speed: one signal 0.59 against 1.17 µs, one voxel's fit 9.5 against 29.1 µs,
        a whole brain 0.8 against 2.4 s (4 threads; 8.3 and 8.1 iterations). In the precompile
        workload and the test cases (noise-free recovery, no allocation, both precisions).
+       The owner (2026-11-27): "i think this is known. and yarnykh is biased for smaller offsets".
+       Ramani's excitation bias is known; and Yarnykh's model is itself approximate near
+       resonance (its abstract: "far from resonance"; the simplified CRI form, Δ > 2.5 kHz,
+       Mossahebi et al. 2014): the free pool's direct saturation as a rate (valid where the offset
+       is large against ω1 and 1/T2f; near resonance the free pool rotates under the pulse), and
+       the shaped MT pulse as a rectangle of its energy. None of our checks can see it (the lab's
+       MATLAB, the brute force and EQUIP's model make the same approximations). **Next for pulsed
+       MT: the exact reference** (this item's "full coupled equations"): the free pool by the full
+       Bloch equations (Mx, My, Mz) through the shaped MT pulse segment by segment, the bound pool
+       saturated per segment, the excitations and spoiling as played; then Yarnykh's and Ramani's
+       bias offset by offset, and which offsets a protocol should leave out (ours starts at 1 kHz).
      - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
        "would it be more efficient for lineshape to take all deltas at same time and calc once",
        then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about
