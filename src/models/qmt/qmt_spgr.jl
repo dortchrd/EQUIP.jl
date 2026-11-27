@@ -250,3 +250,119 @@ function signal!(out, m::QMTSPGRRamani, p)
     end
     return out
 end
+
+# --- Portnoy & Stanisz's minimal approximation (MAMT) ----------------------------------------------
+# The two-pool Bloch equations with no approximation but the two pools (Portnoy & Stanisz, Magn
+# Reson Med 2007;58:144-155, Eqs. 1a-1d, in EQUIP's notation: A the free pool, B the
+# macromolecular; their R = kmf with M0A = 1, M0B = PSR, so R·M0B = kfm):
+#
+#   dMx/dt  = −Δω·My − R2f·Mx                                   (1a)
+#   dMy/dt  =  Δω·Mx − ω1·Mzf − R2f·My                           (1b)
+#   dMzf/dt =  ω1·My + R1f·(1 − Mzf) − kfm·Mzf + kmf·Mzm         (1c)
+#   dMzm/dt =  R1m·(PSR − Mzm) − (Wm + kmf)·Mzm + kfm·Mzf        (1d)
+#
+# Wm = π·ω1²·gm(Δ) (Eq. 2), Δω = 2π·Δ. The free pool's direct saturation is its own rotation and
+# relaxation (Yarnykh's model has it as a rate, π·ω1²·gf: right only far from resonance; the
+# paper: Yarnykh's overestimates MAMT below about 2 kHz). The shaped MT pulse as segments of
+# constant amplitude (the paper's 50 µs), each solved exactly, M(τ) = e^{Λτ}M(0) + Λ⁻¹(e^{Λτ} − I)βM0
+# (Eq. 6), here one exponential of a 5×5 matrix, with 1 as a fifth coordinate carrying the
+# recovery terms. One TR, ideal spoiling (the transverse magnetization gone before each
+# excitation and after the MT pulse), in Yarnykh's order: the excitation C, free recovery tr, the
+# MT pulse (Gzz, g: its map on (Mzf, Mzm)), free recovery ts; the steady state one 2×2 solve,
+#
+#   Mz = (I − Es·Gzz·Er·C)⁻¹ · {Es·[Gzz·(I − Er)·M0 + g] + (I − Es)·M0}
+#
+# (with Gzz = Em and g = (I − Em)·Mss, Yarnykh's own formula). The excitation a hard pulse on the
+# free pool alone (the macromolecular pool's saturation by it neglected, as in Yarnykh's model).
+
+"""
+    QMTSPGRPortnoy(; offset, B1e, tm, ts, TR, FA, mtshape = nothing, lineshape = superlorentzian)
+    QMTSPGRPortnoy(; offset, mtpulse, mtflip, ts, TR, FA, lineshape = superlorentzian)
+
+Pulsed MT with a spoiled gradient echo, by the two-pool Bloch equations with no further
+approximation: Portnoy & Stanisz's minimal approximation (MAMT; Magn Reson Med 2007). The free
+pool's magnetization (Mx, My, Mz) follows the MT pulse exactly, its direct saturation included;
+the macromolecular pool's Mz is saturated at π·ω1²·g(Δ); the shaped pulse is taken segment by
+segment, each an exact matrix exponential. Ideal spoiling. The reference for
+[`QMTSPGRYarnykh`](@ref) and [`QMTSPGRRamani`](@ref), whose acquisition it takes, with the MT
+pulse's shape: a block by default; `mtshape`, an [`RFPulse`](@ref) of equal segments (its
+amplitudes, real: phases 0 or 180°), scaled to the power-equivalent amplitude `B1e` and stretched
+to each image's `tm`; or `mtpulse` and `mtflip`, as for Yarnykh's. The parameters:
+`QMTCWHenkelman`'s. A block pulse costs one 5×5 exponential an image, a shape one a segment.
+"""
+struct QMTSPGRPortnoy{A<:AbstractVector,S<:AbstractVector,L} <: MRIModel
+    offset::A           # the MT pulse's offset from water (Hz)
+    B1e::A              # its power-equivalent amplitude (µT): √(∫B1²dt/tm); 0, no MT pulse
+    tm::A               # its duration (s)
+    ts::A               # from its end to the excitation (s)
+    TR::A               # repetition time (s)
+    FA::A               # the excitation's flip angle (degrees)
+    shape::S            # its amplitude per segment, relative (root mean square 1); equal segments
+    lineshape::L        # the macromolecular pool's lineshape, (T2, Δ) -> g
+end
+function QMTSPGRPortnoy(; mtshape = nothing, mtpulse = nothing, kw...)
+    f = _pulsedspgr(QMTSPGRPortnoy; mtpulse, kw...)
+    shape = _mtshape(mtpulse !== nothing ? mtpulse : mtshape)
+    return QMTSPGRPortnoy(f[1:6]..., shape, f[7])
+end
+
+# The MT pulse's shape as relative amplitudes, root mean square 1 (so that ω1 = γ·B1·B1e·shape
+# keeps the power equivalent B1e): a block, or an RFPulse's segments (equal durations; real
+# amplitudes, the phase 0 or 180°: the sign)
+function _mtshape(p)
+    p === nothing && return [1.0]
+    p isa RFPulse || throw(ArgumentError("QMTSPGRPortnoy: `mtshape` is an RFPulse (its segments), got $(typeof(p))"))
+    all(≈(p.duration[1]), p.duration) ||
+        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's segments must be of equal duration"))
+    all(φ -> isapprox(mod(φ, 180), 0; atol = 1e-9) || isapprox(mod(φ, 180), 180; atol = 1e-9), p.phase) ||
+        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's phases must be 0 or 180° (a real amplitude)"))
+    a = deg2rad.(p.flip) .* cosd.(p.phase) ./ p.duration
+    r = sqrt(sum(abs2, a) / length(a))
+    r > 0 || throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's shape is zero"))
+    return a ./ r
+end
+
+# The parameters: QMTCWHenkelman's, as the other pulsed models
+parameters(::Type{<:QMTSPGRPortnoy}) = parameters(QMTCWHenkelman)
+
+function signal!(out, m::QMTSPGRPortnoy, p)
+    (; offset, B1e, tm, ts, TR, FA, shape, lineshape) = m
+    (; PSR, kmf, T2f, T2m, M0f, R1f, R1m, B1, B0) = p
+    kfm = kmf * PSR                                         # exchange f→m
+    A = SMatrix{2,2}(-(R1f + kfm), kfm, kmf, -(R1m + kmf))  # longitudinal relaxation and exchange, by column
+    M0 = SVector(one(PSR), PSR)                             # equilibrium, in units of M0f
+    R2f = 1 / T2f
+    K = length(shape)
+    @inbounds for j in eachindex(out, offset, B1e, tm, ts, TR, FA)
+        α = B1 * deg2rad(FA[j])
+        Δ = offset[j] - B0
+        Δω = 2 * oftype(B1e[j], π) * Δ
+        ω1e = oftype(B1e[j], _GAMMA_H) * B1 * B1e[j]        # the pulse's power-equivalent amplitude (rad/s)
+        gm = lineshape(T2m, Δ)
+        τ = tm[j] / K
+        # One segment of the MT pulse: Eqs. 1a-1d as a 5×5 generator, (Mx, My, Mzf, Mzm, 1)
+        segment(k) = begin
+            ω1 = ω1e * shape[k]
+            Wm = iszero(B1e[j]) ? zero(gm) * ω1 : π * ω1^2 * gm
+            H = @SMatrix [-R2f -Δω    0              0                 0
+                           Δω  -R2f  -ω1             0                 0
+                           0    ω1   -(R1f + kfm)    kmf               R1f
+                           0    0     kfm           -(R1m + kmf + Wm)  R1m * PSR
+                           0    0     0              0                 0]
+            exp(H * τ)
+        end
+        G = segment(1)
+        for k in 2:K
+            G = segment(k) * G                              # the segments in the order played
+        end
+        Gzz = SMatrix{2,2}(G[3, 3], G[4, 3], G[3, 4], G[4, 4])   # the pulse's map on (Mzf, Mzm) ...
+        g = SVector(G[3, 5], G[4, 5])                            # ... from no transverse magnetization
+        Er = _expm2(A * (TR[j] - tm[j] - ts[j]))
+        Es = _expm2(A * ts[j])
+        C = SMatrix{2,2}(cos(α), 0, 0, 1)                    # the excitation: the free pool only
+        q = Es * (Gzz * ((I - Er) * M0) + g) + (I - Es) * M0
+        Mz = (I - Es * Gzz * Er * C) \ q                     # just before the excitation
+        out[j] = M0f * sin(α) * Mz[1]
+    end
+    return out
+end

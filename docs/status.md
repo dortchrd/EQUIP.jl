@@ -404,6 +404,15 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   Style; bit for bit, speed unchanged); design.md item 6. Checked first: the full `Pkg.test`
   (3548), the command line's (189), the validation group (76), CI (4979f04). The branch is to
   delete (`git push origin --delete cwmt-proto`).
+- On `mamt-proto` (2026-11-27, off `mtr`; work in progress, NOT verified): `QMTSPGRPortnoy`,
+  Portnoy & Stanisz's minimal-approximation two-pool model (MAMT; Magn Reson Med 2007;58:144,
+  Eqs. 1a-1d, 6): the free pool's (Mx, My, Mz) and the bound pool's Mz through the MT pulse,
+  segment by segment, each a 5x5 matrix exponential (StaticArrays' `exp`: `_expm2` is the 2x2
+  closed form for the longitudinal pair alone, which Yarnykh's model needs; MAMT keeps the
+  transverse magnetization, a 4x4 system, no such closed form; `_expm2` still does tr and ts);
+  ideal spoiling; Yarnykh's acquisition plus the pulse's shape. Next: check it against an RK4
+  integration of Eqs. 1a-1d (scratch script written, its first run failed before reporting) and
+  against Yarnykh's far from resonance; tests; then the MTR design example with it.
 - On `mtr` (2026-11-27): MTR, steps 1 and 2 of 4: `mtr(S, Sref)` from two matched arrays, and
   `mtr(m, θ)`, `mtr(m, data)` with a qMT acquisition (references found and paired), written by
   `writemaps` as one `MTRmap` (each volume's offset, power and references in its sidecar);

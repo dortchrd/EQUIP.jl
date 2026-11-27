@@ -75,18 +75,18 @@ end
 # Acquisition values are compared exactly: they are the protocol's numbers, not measurements.
 
 # The models whose acquisitions give each image's MT offset and power
-const _MTRMODELS = Union{QMTSPGRYarnykh,QMTSPGRRamani,QMTCWHenkelman}
+const _MTRMODELS = Union{QMTSPGRYarnykh,QMTSPGRRamani,QMTSPGRPortnoy,QMTCWHenkelman}
 
 # Each image's MT power, by the model's own name for it (µT)
-_mtpowername(::Union{QMTSPGRYarnykh,QMTSPGRRamani}) = :B1e
+_mtpowername(::Union{QMTSPGRYarnykh,QMTSPGRRamani,QMTSPGRPortnoy}) = :B1e
 _mtpowername(::QMTCWHenkelman) = :B1cw
 _mtpower(m, j) = getfield(m, _mtpowername(m))[j]
 
 # Two images acquired the same way but for the offset (the same MT pulse, TR and excitation), or
 # with the same readout (TR and flip angle: what an MT-off reference must share with an MT image)
-_samereadout(m::Union{QMTSPGRYarnykh,QMTSPGRRamani}, j, k) = m.TR[j] == m.TR[k] && m.FA[j] == m.FA[k]
+_samereadout(m::Union{QMTSPGRYarnykh,QMTSPGRRamani,QMTSPGRPortnoy}, j, k) = m.TR[j] == m.TR[k] && m.FA[j] == m.FA[k]
 _samereadout(::QMTCWHenkelman, j, k) = true
-_sameacquisition(m::Union{QMTSPGRYarnykh,QMTSPGRRamani}, j, k) =
+_sameacquisition(m::Union{QMTSPGRYarnykh,QMTSPGRRamani,QMTSPGRPortnoy}, j, k) =
     m.B1e[j] == m.B1e[k] && m.tm[j] == m.tm[k] && m.ts[j] == m.ts[k] && _samereadout(m, j, k)
 _sameacquisition(m::QMTCWHenkelman, j, k) = m.B1cw[j] == m.B1cw[k]
 

@@ -69,7 +69,7 @@ export ADCDecay, ADCKurtosis, DTI, DKI, SMT, SMTFreeWater, SMTT2, SMT_PROTOCOLS 
 export StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, BinghamNODDI, BinghamNODDIConvolved, IVIM
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
-export QMTSPGRYarnykh, QMTSPGRRamani, QMTCWHenkelman
+export QMTSPGRYarnykh, QMTSPGRRamani, QMTSPGRPortnoy, QMTCWHenkelman
 export mtr, MTRResult, ImagePropagation, ImageMonteCarlo                         # MTR from images; its errors
 export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
 export RFPulse, blockpulse, inversionefficiency, saturationefficiency            # pulses: Sf and Sm
