@@ -15,7 +15,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
 | `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
-Branch `pulsedmt-proto` (2026-11-26, not merged; MT, step 1 of 3, the owner: "lets move on to mt",
+Merged into `main` (fast-forward, 2026-11-27, the owner: "merge into main once tests and CI pass"): `pulsedmt-proto` (from 2026-11-26; MT, step 1 of 3, the owner: "lets move on to mt",
 then the lab's `absorptionLineShape.m` and `yarnykh_pulseMT.m`, "dont take as gospel"): the
 lineshapes (`lorentzian`, `gaussian`, `superlorentzian`, the last from a table of one variable,
 45 ns a value, within 1e-13 of the quadrature), the pulses (`RFPulse`, `blockpulse`), SIR's Sf
@@ -30,12 +30,15 @@ MPF alone), `nominal(m; MPF)`, hints for other conventions' names (F, f, kf, kr,
 parameters (maps, crlb's and montecarlo's tables, the command line's TSVs), as DTI's carry FA: a sum
 over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `ProtocolDesign` is
 unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
-command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload). Ready to merge when the owner says. Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
+command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload).  Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
 the time-averaged form measured (bench/qmt/averaged.jl), and how B1, B0 and R1obs errors propagate
 (bench/qmt/maperrors.jl; design.md item 6): the full `Pkg.test` passes (3482). Then (the owner: "Do 1 and 2"): SIR with its pulse
 (`QMTSIR(...; pulse)`: Sm made from it, B1, B0 and T2m as parameters), correlated uncertain inputs
 (`R1obs = (sd, B1 = slope)`), and T1 and qMT fitted together measured (bench/qmt/joint_r1.jl: PSR's
-RMSE 6.4% against 14.6% with an R1 map); joint models across sequences on the roadmap.
+RMSE 6.4% against 14.6% with an R1 map); joint models across sequences on the roadmap. Names
+(the owner): `MPF` the one derived quantity, `saturationefficiency` for Sm. Checked before the merge:
+the full `Pkg.test` (3507), the command line's (189), the validation group (76), CI (5603e14). The
+branch is to delete (`git push origin --delete pulsedmt-proto`).
 
 Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
 name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
