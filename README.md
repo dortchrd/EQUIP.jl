@@ -4,12 +4,19 @@ This branch holds prototypes that were tried and not merged into `main`. Their o
 recorded in `main`'s docs/design.md. They are kept so the code can be looked at or picked up
 again.
 
-Each archiving is one commit whose parents are the prototypes' last commits, so every commit of
+Each archiving is one commit whose parents are the archive before it and the prototypes' last commits, so every commit of
 every prototype is still here, exactly as it was. A commit's own content is only this file: the
 prototypes were not merged into each other (they change the solver at different points in its
 history, so merging them would mean resolving conflicts in code that nobody wants).
 
-## Archived 2026-11-23 (this branch's last commit; its parents)
+## Archived 2026-11-27 (this branch's last commit; its parents)
+
+| parent | was branch | last commit | made from `main` at | what it tried, and what came of it |
+|---|---|---|---|---|
+| 1 | (the archive of 2026-11-23, below) | 4b47226 | | the seven earlier prototypes |
+| 2 | `lineshape-cache` | d822550 (2026-11-27), 2 commits | a7bb930 | QMTSPGRYarnykh's lineshapes made once per distinct MT offset: a cache on the stack in `signal!` (up to 16 offsets), the same offset at several MT powers taking the values made there. Bit for bit; a signal 15–20% faster and a whole brain about 10% where offsets repeat, 2–4% slower where they do not (bench/qmt/lineshape_cache.jl). Not adopted (the owner, 2026-11-27: "worry about very specialized code for marginal benefit"): about 25 lines of cache in place of one line of physics. design.md item 6: "The lineshapes once per distinct offset". |
+
+## Archived 2026-11-23 (the commit 4b47226, this branch's first parent; its parents)
 
 | parent | was branch | last commit | made from `main` at | what it tried, and what came of it |
 |---|---|---|---|---|
@@ -31,10 +38,11 @@ history, so merging them would mean resolving conflicts in code that nobody want
 
 ```
 git fetch origin experiments
-git log --oneline experiments^2                # stopping-proto's commits (^3 geodesic, ^4 combined)
-git switch -c stopping-proto experiments^2      # a local branch, exactly as it was
-git log --oneline experiments^1^2              # the earlier ones: step-proto (^1^1 varpro, ^1^3 sens, ^1^4 deadzone)
-git switch -c step-proto experiments^1^2
+git log --oneline experiments^2                # lineshape-cache's commits
+git switch -c lineshape-cache experiments^2     # a local branch, exactly as it was
+git log --oneline experiments^1^2              # the 2026-11-23 ones: stopping-proto (^1^3 geodesic, ^1^4 combined)
+git switch -c stopping-proto experiments^1^2
+git log --oneline experiments^1^1^2            # the 2026-11-08 ones: step-proto (^1^1^1 varpro, ^1^1^3 sens, ^1^1^4 deadzone)
 git push -u origin stopping-proto               # and on GitHub again, if wanted
 ```
 
