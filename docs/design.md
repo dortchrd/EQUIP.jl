@@ -6106,6 +6106,18 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        we would not know reference"), `mtr(S, Sref; mask)`, broadcast (a stack of MT images
        against one reference), NaN where the reference is 0, negative or not finite (the owner:
        "need to check for divide by zero"), no threshold, nothing clamped. Built (step 1).
+     - **From a qMT acquisition, predicted or from data** (step 2, built): `mtr(m, θ)` (the model's
+       noise-free signals) and `mtr(m, data)` (the images along the last dimension, as for
+       `fit`), with the pairing above, for QMTSPGRYarnykh, QMTSPGRRamani and QMTCWHenkelman;
+       a named tuple, `mtr` and per MT image `image`, `offset`, the power (`B1e`, `B1cw`) and
+       `reference`. One case the rules had not said: under `:maxoffset`, a power's only image
+       (or a ±offset pair alone) would be its own reference, leaving the power no MT image, so
+       the rule applies only where the power also has images nearer resonance; such an image
+       stays an MT image and falls back to the MT-off reference (found by the test written for
+       the rule). Acquisition values compared exactly (the protocol's numbers). Checked: the
+       CW prediction against an independent 2×2 steady state (1e-12), the data version against
+       the prediction voxel by voxel. Writing the maps (`writemaps` takes a fit's result; the
+       sidecar to record each map's offset, power and reference) and the command line: next.
      - **Its errors from the images, not from a fit.** `propagate(c, g)` takes crlb's covariance
        of a fit's parameters; an MTR protocol (a reference and a few MT images) has no qMT fit to
        take it from (it gives MTR's error only when a fit has exactly as many free parameters as

@@ -302,6 +302,9 @@ end
         return ((Diagonal([Wf, Wm]) - A) \ [1.2, 1.0 * 0.15])[1]
     end
     @test signal(mc, θ) ≈ steadystate.(off, b1) rtol = 1e-12
+    # MTR predicted, against the image without irradiation (Mzf/M0f = 1): 1 − Mzf, from the same
+    # independent steady state
+    @test mtr(mc, θ).mtr ≈ 1 .- steadystate.(off[1:6], b1[1:6]) rtol = 1e-12
     # the free pool alone (PSR = 0): the Bloch equations' steady state under CW irradiation,
     # Mz/M0 = (1 + (ΔωT2)²)/(1 + (ΔωT2)² + ω1²·T1·T2)
     ω1², Δω = (2π * 42.577478518 * 0.95 * 2.0)^2, 2π * (1e3 - 30.0)
@@ -345,6 +348,48 @@ end
     Mm = mtr(stack, ref; mask)
     @test all(isnan, Mm[2, 2, :]) && Mm[1, :, :] == M[1, :, :]
     @test_throws DimensionMismatch mtr(stack, ref; mask = trues(3, 2))
+end
+
+@testset "mtr from a qMT acquisition: which images are references, and the pairing" begin
+    # two MT powers, each with a reference at 100 kHz (at 4 µT also one at −100 kHz), an image with
+    # the MT pulse off, and a third power with no reference of its own
+    off = [2e3, 8e3, 100e3, 2e3, 8e3, 100e3, 0.0, 4e3, -100e3]
+    m = QMTSPGRYarnykh(offset = off, B1e = [4, 4, 4, 8, 8, 8, 0, 6, 4], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.0, B1 = 1.0, B0 = 0.0)
+    S = signal(m, θ)
+    # by default only the MT-off image (7) is a reference: every other image against it
+    p = mtr(m, θ)
+    @test p.image == [1, 2, 3, 4, 5, 6, 8, 9] && all(==([7]), p.reference)
+    @test p.mtr ≈ 1 .- S[p.image] ./ S[7] && p.offset == off[p.image] && p.B1e == m.B1e[p.image]
+    # :maxoffset: at each power its largest |offset| (±100 kHz at 4 µT, averaged); the 6 µT image,
+    # its power's only one, is not made its own reference (it was, before the rule required images
+    # nearer resonance too) and falls back to the MT-off image
+    p = mtr(m, θ; reference = :maxoffset)
+    @test p.image == [1, 2, 4, 5, 8] && p.reference == [[3, 9], [3, 9], [6], [6], [7]]
+    @test p.mtr[1] ≈ 1 - S[1] / ((S[3] + S[9]) / 2) && p.mtr[3] ≈ 1 - S[4] / S[6]
+    @test mtr(m, θ; reference = [3, 6, 9]) == p == mtr(m, θ; reference = abs.(off) .== 100e3)
+    # from data: one map per MT image, the same as predicted voxel by voxel (each voxel a tissue)
+    psr = [0.05 0.1 0.15; 0.2 0.25 0.3]
+    data = zeros(2, 3, 9)
+    for i in 1:2, j in 1:3
+        data[i, j, :] = signal(m, merge(θ, (PSR = psr[i, j],)))
+    end
+    M = mtr(m, data; reference = :maxoffset)
+    @test size(M.mtr) == (2, 3, 5) && M.reference == p.reference
+    @test M.mtr[2, 3, :] ≈ mtr(m, merge(θ, (PSR = 0.3,)); reference = :maxoffset).mtr
+    @test eltype(mtr(m, Float32.(data)).mtr) == Float32
+    @test all(isnan, mtr(m, data; mask = [1 1 1; 1 1 0]).mtr[2, 3, :])
+    @test mtr(m, S).mtr ≈ mtr(m, θ).mtr                      # one voxel: a vector
+    # the error paths, each naming what it is about
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    nooff = QMTSPGRYarnykh(offset = [2e3, 100e3], B1e = 4, tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    @test occursin("reference = :maxoffset", msg(() -> mtr(nooff, θ)))        # no reference: how to name one
+    @test occursin(":max`", msg(() -> mtr(m, θ; reference = :max)))
+    @test occursin("reference image 12", msg(() -> mtr(m, θ; reference = [12])))
+    other = QMTSPGRYarnykh(offset = [2e3, 0.0], B1e = [4, 0], tm = 0.012, ts = 0.002, TR = 0.030, FA = [10, 5])
+    @test occursin("image 1 ", msg(() -> mtr(other, θ)))                     # the MT-off image at another FA
+    @test_throws DimensionMismatch mtr(m, data[:, :, 1:8])
+    @test_throws DimensionMismatch mtr(m, θ; reference = trues(4))
 end
 
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin

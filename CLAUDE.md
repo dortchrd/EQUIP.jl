@@ -67,7 +67,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `parameters(::Type{<:QMTSPGRYarnykh}) = parameters(QMTCWHenkelman)`); qmt_spgr.jl, the pulsed
   models with SPGR, `QMTSPGRYarnykh` (Yarnykh 2002) and `QMTSPGRRamani` (by its CW power
   equivalent, Ramani 2002), one acquisition (`_pulsedspgr`); mtr.jl, `mtr(S, Sref)`, MTR
-  calculated from images (not a model; NaN where the reference cannot divide); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  calculated from images (not a model; NaN where the reference cannot divide), and `mtr(m, θ)`,
+  `mtr(m, data)` with a qMT acquisition (the references found and paired, `_mtrpairs`); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones

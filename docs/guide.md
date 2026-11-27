@@ -460,9 +460,32 @@ M = mtr(mtstack, ref; mask = brain)       # x × y × z × n MT images, one refe
 `NaN` where there is no answer: a reference that is 0 (outside the field of view, a resampled
 image's edge), negative or not finite, and outside `mask`. Nothing is clamped: in a voxel with
 no MT effect (CSF), noise makes MTR negative about half the time, and keeping those values keeps
-a region's mean unbiased. Next (docs/design.md, roadmap item 5): the reference found from a qMT
-acquisition, MTR predicted for a tissue from a qMT model's signals, and its errors from the
-images' noise, for choosing a protocol by MTR's SNR or CNR efficiency.
+a region's mean unbiased.
+
+With a qMT acquisition (`QMTSPGRYarnykh`, `QMTSPGRRamani`, `QMTCWHenkelman`), `mtr` finds the
+references and gives one MTR for every MT image, from data (the images along the last dimension,
+as for `fit`) or predicted for a tissue from the model's noise-free signals:
+
+```julia
+M = mtr(m, data; reference = :maxoffset, mask = brain)   # M.mtr[:, :, :, k]: image M.image[k]
+p = mtr(m, θ; reference = :maxoffset)                    # predicted: p.mtr, p.offset, p.B1e
+```
+
+- **Which images are references**: an image with the MT pulse off always is one. Others only
+  when named: `reference = :maxoffset` (at each power, the images at the largest |offset|, e.g.
+  ±100 kHz; not a power's only image), their indices (`reference = [13, 26]`), or a Bool per
+  image (`reference = m.offset .>= 50e3`). Not the largest offset by default: in a protocol
+  without a reference it is a data point (a Z-spectrum ending at 16 kHz is 15% saturated there at
+  8 µT, in white matter).
+- **Pairing**: each MT image is divided by the mean of its references acquired as it was but for
+  the offset (the same MT pulse, TR and flip angle: one reference per power, as sequence
+  constraints often make them); if it has none, by those with the MT pulse off at its TR and flip
+  angle; if none, it is an error naming the image.
+- The result is a named tuple: `mtr` (the values or maps), and per MT image `image` (its index),
+  `offset`, its power (`B1e`, or `B1cw`) and `reference` (the images it was divided by).
+
+Next (docs/design.md, roadmap item 5): MTR's errors from the images' noise, and choosing a
+protocol by MTR's SNR or CNR efficiency.
 
 ## Writing a model
 

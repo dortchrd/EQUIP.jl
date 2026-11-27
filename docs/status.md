@@ -404,9 +404,10 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   Style; bit for bit, speed unchanged); design.md item 6. Checked first: the full `Pkg.test`
   (3548), the command line's (189), the validation group (76), CI (4979f04). The branch is to
   delete (`git push origin --delete cwmt-proto`).
-- On `mtr` (2026-11-27): MTR, step 1 of 4, `mtr(S, Sref)` from two matched arrays; decided with
-  the owner: MTR a calculation (not a model), fractions everywhere, the reference rules; next the
-  references from a qMT acquisition and `mtr(m, θ)`, then MTR's errors from the images, then
+- On `mtr` (2026-11-27): MTR, steps 1 and 2 of 4: `mtr(S, Sref)` from two matched arrays, and
+  `mtr(m, θ)`, `mtr(m, data)` with a qMT acquisition (references found and paired); decided with
+  the owner: MTR a calculation (not a model), fractions everywhere, the reference rules. Next:
+  writing MTR maps (sidecars with offset, power, reference), MTR's errors from the images, then
   `design` for MTR's CNR efficiency (design.md item 5). `qmt-family` merged (18974d4); the
   branch is to delete (`git push origin --delete qmt-family`).
 - Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
