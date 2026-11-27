@@ -6490,7 +6490,13 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        kmf = kfm/PSR; kfm alone refused, it fixes no parameter without the pool size); a hint
        table of other conventions' names (F, M0B, f, BPF, MPF, kf, kab, kb, kr, kba, R, T2r, T2B,
        R1r, R1B, M0A, ...), added to the messages of a fit's unknown keyword and of `nominal`'s
-       (a generic hook, `_namehint(m, n)`, empty for other models). Not built: the per-paper table
+       (a generic hook, `_namehint(m, n)`, empty for other models). **Revised 2026-11-27** (the
+       owner: "we really dont ever care [about] kfm or R. Occasionally we care about MPF...but that
+       name is confusing since we already have PSR. It basically [is] do we normalize via molar or
+       molal....I call it f and it helps to look at things like variation with gel concentration
+       where we assume linear with f with zero offset"): one derived quantity, `f` = PSR/(1 + PSR),
+       and `nominal(m; f = ...)`; kfm no longer derived (MPF, BPF, kfm and R kept as hints; the
+       tables above, measured before, still say MPF for f). Not built: the per-paper table
        (which paper writes which name), which needs the papers; the guide gives the conventions by
        their definitions instead (docs/guide.md, "qMT's names").
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool

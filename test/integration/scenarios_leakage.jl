@@ -326,7 +326,7 @@ end
     c = crlb(mm, two; snr = 200)
     @test c isa Sweep && length(c) == 6 && c.settings == two.settings
     @test all(i -> c[i].sd == crlb(mm, two[i]; snr = 200).sd && c[i].bias == crlb(mm, two[i]; snr = 200).bias, 1:6)
-    @test length(c.rows) == 6 * 6 && c.rows[7].tissue === :SIR_WM_I && c.rows[7].Sm == 0.83   # 4 parameters, MPF, kfm
+    @test length(c.rows) == 6 * 5 && c.rows[6].tissue === :SIR_WM_I && c.rows[6].Sm == 0.83   # 4 parameters and f
     c2 = crlb(mm, two; snr = [100, 200], cov = :biased)
     @test length(c2) == 12 && c2.settings[1] == (snr = 100, tissue = :SIR_WM_I, Sm = 0.78)
     @test c2[8].sd == crlb(mm, two[2]; snr = 200, cov = :biased).sd

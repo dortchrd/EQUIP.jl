@@ -23,7 +23,7 @@
     d4 = ProtocolDesign(m4, s4; snr = 200, acquisition = space, scantime = st, constraints = g)
     d5 = ProtocolDesign(m5, s5; snr = 200, acquisition = space, scantime = st, constraints = g)
     # the objective: Eq. 5 at the Table 2 schemes, as crlb gives it, both covariances
-    # (over the parameters: QMTSIR's derived MPF and kfm, after them in crlb's tables, left out)
+    # (over the parameters: QMTSIR's derived f, after them in crlb's tables, left out)
     eq5(m, ss; cov = :sandwich) = maximum(sum(abs2, values(params_only(c, c.relrmse))) for c in (crlb(m, s; snr = 200, cov) for s in ss)) * st(m)
     @test d4(m4) ≈ 0.243395 rtol = 2e-6
     @test d4(m4) ≈ eq5(m4, s4) rtol = 1e-12

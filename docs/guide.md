@@ -381,20 +381,19 @@ cutoff is still to come).
 ### qMT's names
 
 The field writes the same quantities under many names. Every EQUIP qMT model uses one set: the
-free pool f and the macromolecular pool m, `PSR` = M0m/M0f (the pool size ratio), `kmf` (the
-exchange rate from m to f, 1/s; k_xy is always from x to y), `R1f`, `R1m`, `T2f`, `T2m`, `M0f`.
-The other conventions come as derived quantities, maps beside the parameters' with their errors
-in `crlb` and `montecarlo`:
+free pool f and the macromolecular pool m, `PSR` = M0m/M0f (the pool size ratio, per free-water
+proton, as a molality), `kmf` (the exchange rate from m to f, 1/s; k_xy is always from x to y),
+`R1f`, `R1m`, `T2f`, `T2m`, `M0f`. One quantity comes derived, a map beside the parameters' with
+its errors in `crlb` and `montecarlo`:
 
-| derived | | also called |
-|---|---|---|
-| `MPF` | M0m/(M0f + M0m) = PSR/(1 + PSR) | the macromolecular (or bound) pool fraction, BPF, f |
-| `kfm` | kmf·PSR, the exchange rate from f to m (kfm·M0f = kmf·M0m) | kf |
+- `f` = M0m/(M0f + M0m) = PSR/(1 + PSR), the macromolecular fraction of all protons (as a mole
+  fraction): linear in the macromolecular concentration with no offset (a gel series is plotted
+  against it). Yarnykh's MPF, others' BPF. `derived(r).f` for a fit, `c.sd.f` from crlb, and
+  `nominal(m; f = 0.12)` makes a truth from it.
 
-Henkelman's R (Henkelman et al., MRM 1993) is not directional: kfm = R·M0m and kmf = R·M0f, so
-with M0f = 1, R is `kmf`. `nominal` takes MPF, with kfm if wanted (`nominal(m; MPF = 0.13,
-kfm = 2.0)`), and a fit or `nominal` given another convention's name (`F`, `f`, `kf`, `kr`, `R`,
-`T2r`, ...) says which of EQUIP's it is.
+A fit or `nominal` given another convention's name (`F`, `MPF`, `BPF`, `kf`, `kr`, `R`, `T2r`, ...)
+says which of EQUIP's it is: kfm = kmf·PSR is the rate from f to m (often kf), and Henkelman's R
+(MRM 1993) is not directional, kmf = R·M0f and kfm = R·M0m, so with M0f = 1, R is `kmf`.
 
 ### Pulsed MT with SPGR
 

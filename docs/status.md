@@ -23,10 +23,10 @@ lineshapes (`lorentzian`, `gaussian`, `superlorentzian`, the last from a table o
 the quintic table shared with Watson's (src/tables.jl; NODDI bit for bit, speed unchanged). Step 2:
 `QMTSPGRYarnykh`, pulsed MT with SPGR (the owner: the MT pulse in "Both" forms, B1e and tm or its
 shape and flip angle; the name; R1m = 1 fixed), equal to the lab's MATLAB to 7e-15 (two bugs found
-in it, design.md item 6), in the precompile workload. Step 3, the names: MPF and kfm derived for
-the three MT models (QMTSIR's maps and crlb tables gain them), `nominal(m; MPF, kfm)`, hints for
-other conventions' names (F, f, kf, kr, R, T2r, ...); the guide's "qMT's names" by definitions
-(a per-paper table needs the papers: the owner). QMTSIR's results now carry MPF and kfm after the
+in it, design.md item 6), in the precompile workload. Step 3, the names: `f` = PSR/(1 + PSR) derived for
+the three MT models (QMTSIR's maps and crlb tables gain it; MPF and kfm until 2026-11-27, the
+owner: f alone), `nominal(m; f)`, hints for other conventions' names (F, MPF, kf, kr, R, T2r, ...); the guide's "qMT's names" by definitions
+(a per-paper table needs the papers: the owner). QMTSIR's results now carry f after the
 parameters (maps, crlb's and montecarlo's tables, the command line's TSVs), as DTI's carry FA: a sum
 over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `ProtocolDesign` is
 unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the

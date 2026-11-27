@@ -65,7 +65,7 @@
     @test occursin(r"^montecarlo for QMTSIR, 4 observations, σ = 0.005, gaussian noise: 4000 noisy copies, [0-9.]+% converged", s)
     @test occursin("fixed in the fit: kmf = 12.5 (true 5.0)", s)
     @test occursin(r"\n  parameter +true +mean +rel bias +crlb +SD +crlb +SD/crlb +rel RMSE +crlb\n", s)
-    @test repr(mq) == "MonteCarloResult(QMTSIR: PSR, R1f, Sf, M0f, MPF, kfm; n = 4000)"
+    @test repr(mq) == "MonteCarloResult(QMTSIR: PSR, R1f, Sf, M0f, f; n = 4000)"
     # mistakes
     @test occursin("at least 2", msg(() -> montecarlo(mt, θt; noise = :rician, σ = 10.0, n = 1)))
     @test occursin("one voxel", msg(() -> montecarlo(mt, (S0 = fill(1000.0, 3), T2 = 0.08); noise = :rician, σ = 10.0)))
@@ -94,7 +94,7 @@ end
     @test st[1].bias == crlb(m4, (; θ..., R1m = 1.0); snr = 200, R1m = 1.0, vary = (R1m = [θ.R1f],)).results[1].bias
     @test st[2].sd == crlb!(CRLBCache(m4, (; θ..., R1m = 1.0)), (; θ..., R1m = 1.2); snr = 200).sd
     @test [r.fixed.kmf for r in s] == fill(12.5, 7)               # the fit never changes
-    @test length(s.rows) == 7 * 6 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR    # 4 parameters, MPF, kfm
+    @test length(s.rows) == 7 * 5 && s.rows[1].kmf == 5.0 && s.rows[1].parameter === :PSR    # 4 parameters and f
     @test s.rows[1].truth == 0.12 && s.rows[1].relbias == s[1].relbias.PSR
     # over the SNR: the SD scales as 1/SNR (first order in σ), the bias not at all
     t = crlb(m4, θ; snr = [100, 200, 400], kmf = 12.5)
@@ -155,7 +155,7 @@ end
     s = crlb(m5, fs; snr = 200)
     @test s.settings == [(fit = :fixed,), (fit = :free,)]
     @test s[1].bias == crlb(m5, θ; snr = 200, kmf = 12.5).bias && s[2].sd == crlb(m5, fs.free; snr = 200).sd
-    @test keys(s[2].fit) == (:PSR, :R1f, :Sf, :M0f, :kmf, :MPF, :kfm) && s.rows[end].fit === :free
+    @test keys(s[2].fit) == (:PSR, :R1f, :Sf, :M0f, :kmf, :f) && s.rows[end].fit === :free
     t = crlb(m5, fs; snr = [100, 200])
     @test t.settings[1:2] == [(snr = 100, fit = :fixed), (snr = 100, fit = :free)]
     # montecarlo: the same noisy copies fitted each way (a paired comparison): each equals

@@ -251,7 +251,7 @@ const CASES = [
 ]
 
 # The parameters' part of a crlb or montecarlo result's named tuple (`c.fit`, `c.sd`, ...): the
-# model's derived quantities come after the parameters (QMTSIR's MPF and kfm, DTI's FA, ...), and
+# model's derived quantities come after the parameters (QMTSIR's f, DTI's FA, ...), and
 # `c.cov` is over the parameters alone, so its size says how many there are
 params_only(c, x) = NamedTuple{keys(x)[1:size(c.cov, 1)]}(x)
 
