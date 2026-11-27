@@ -153,11 +153,11 @@ end
     # gives Sm², and B1 = 1.1, 1.21 times −ln Sm
     blk = blockpulse(180, 1e-3)
     cmp = RFPulse([90, 180, 90], [0, 90, 0], [0.5e-3, 1e-3, 0.5e-3])
-    Sm = boundsaturation(blk, 15e-6)
+    Sm = saturationfraction(blk, 15e-6)
     @test Sm ≈ 0.83 atol = 0.005
-    @test boundsaturation(cmp, 15e-6) ≈ Sm^2 rtol = 1e-12
-    @test log(boundsaturation(blk, 15e-6; B1 = 1.1)) ≈ 1.21 * log(Sm) rtol = 1e-12
-    @test boundsaturation(blk, 12e-6; Δ = 2e3, lineshape = superlorentzian) ≈ exp(-π * superlorentzian(12e-6, 2e3) * π^2 / 1e-3)
+    @test saturationfraction(cmp, 15e-6) ≈ Sm^2 rtol = 1e-12
+    @test log(saturationfraction(blk, 15e-6; B1 = 1.1)) ≈ 1.21 * log(Sm) rtol = 1e-12
+    @test saturationfraction(blk, 12e-6; Δ = 2e3, lineshape = superlorentzian) ≈ exp(-π * superlorentzian(12e-6, 2e3) * π^2 / 1e-3)
     # SIR's Sf, the free pool's Mz after the pulse: a block on resonance, cos(B1·180°); off
     # resonance, the Rabi formula, (Δω² + ω1²·cos(ωτ))/ω²; the composite against a product of
     # matrix exponentials of the rotations' generators (Ω×), and its tolerance of B1 errors
@@ -181,10 +181,10 @@ end
     # dual numbers (a fitted B1 or T2m), against central differences; nothing allocated
     @test ForwardDiff.derivative(b -> inversionefficiency(cmp; B1 = b), 0.9) ≈
           (inversionefficiency(cmp; B1 = 0.9 + 1e-6) - inversionefficiency(cmp; B1 = 0.9 - 1e-6)) / 2e-6 rtol = 1e-6
-    @test ForwardDiff.derivative(t -> boundsaturation(blk, t; Δ = 2e3, lineshape = superlorentzian), 12e-6) ≈
-          (boundsaturation(blk, 12e-6 + 1e-11; Δ = 2e3, lineshape = superlorentzian) -
-           boundsaturation(blk, 12e-6 - 1e-11; Δ = 2e3, lineshape = superlorentzian)) / 2e-11 rtol = 1e-5
-    inversionefficiency(cmp; B1 = 0.9); boundsaturation(cmp, 15e-6)
+    @test ForwardDiff.derivative(t -> saturationfraction(blk, t; Δ = 2e3, lineshape = superlorentzian), 12e-6) ≈
+          (saturationfraction(blk, 12e-6 + 1e-11; Δ = 2e3, lineshape = superlorentzian) -
+           saturationfraction(blk, 12e-6 - 1e-11; Δ = 2e3, lineshape = superlorentzian)) / 2e-11 rtol = 1e-5
+    inversionefficiency(cmp; B1 = 0.9); saturationfraction(cmp, 15e-6)
     @test_noalloc @allocated(inversionefficiency(cmp; B1 = 0.9)) == 0
     @test_noalloc @allocated(superlorentzian(12e-6, 2e3)) == 0
     # a pulse's segments: one flip, phase and duration each; durations > 0; a number split evenly
@@ -199,7 +199,7 @@ end
         mp, m0 = M(TI = TI5, TD = TD5, pulse = blk), M(TI = TI5, TD = TD5)
         @test keys(parameters(mp)) == Tuple(Iterators.flatten(n === :Sm ? (:T2m, :B1, :B0) : (n,) for n in keys(parameters(m0))))
         θp = merge(nominal(mp, :SIR_WM_I), (B1 = 0.9, B0 = 60.0, T2m = 12e-6))
-        θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = boundsaturation(blk, 12e-6; B1 = 0.9, Δ = 60.0),))
+        θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = saturationfraction(blk, 12e-6; B1 = 0.9, Δ = 60.0),))
         @test signal(mp, θp) == signal(m0, θ0)
         @test :Sm in keys(parameters(M)) && !(:B1 in keys(parameters(M)))
     end
@@ -207,8 +207,8 @@ end
     # slope on Sm from the model without the pulse, dSm/dB1 by central differences)
     mp, m0 = QMTSIR(; SIR_5POINT..., pulse = blk), QMTSIR(; SIR_5POINT...)
     θp = nominal(mp, :SIR_WM_I)
-    θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = boundsaturation(blk, 15e-6),))
-    dSm = (boundsaturation(blk, 15e-6; B1 = 1 + 1e-6) - boundsaturation(blk, 15e-6; B1 = 1 - 1e-6)) / 2e-6
+    θ0 = merge(nominal(m0, :SIR_WM_I), (Sm = saturationfraction(blk, 15e-6),))
+    dSm = (saturationfraction(blk, 15e-6; B1 = 1 + 1e-6) - saturationfraction(blk, 15e-6; B1 = 1 - 1e-6)) / 2e-6
     @test leakage(mp, θp).absolute.B1.PSR ≈ leakage(m0, θ0).absolute.Sm.PSR * dSm rtol = 1e-6
     @test crlb(mp, θp; snr = 200, uncertain = (B1 = 0.05,)).sd.PSR > crlb(mp, θp; snr = 200).sd.PSR
     @test occursin("RFPulse(1 segment, 1.0 ms)", sprint(show, MIME"text/plain"(), mp))

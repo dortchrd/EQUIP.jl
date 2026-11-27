@@ -38,7 +38,7 @@ RFPulse(flips, phases, 4e-3)                                     # a shaped puls
 ```
 
 What it does to each pool: [`inversionefficiency`](@ref) (the free pool's Sf) and
-[`boundsaturation`](@ref) (the macromolecular pool's Sm).
+[`saturationfraction`](@ref) (the macromolecular pool's Sm).
 """
 struct RFPulse
     flip::Vector{Float64}       # degrees, per segment (at B1 = 1)
@@ -66,9 +66,11 @@ Base.show(io::IO, p::RFPulse) = print(io, "RFPulse(", length(p.flip), length(p.f
 _rfenergy(p::RFPulse) = sum(((α, τ),) -> deg2rad(α)^2 / τ, zip(p.flip, p.duration))
 
 """
-    boundsaturation(pulse, T2m; B1 = 1, Δ = 0, lineshape = gaussian)
+    saturationfraction(pulse, T2m; B1 = 1, Δ = 0, lineshape = gaussian)
 
-The macromolecular pool's Mz/M0 after `pulse` (an [`RFPulse`](@ref)), from Mz = M0: SIR's `Sm`.
+The fraction of the macromolecular pool's Mz left after `pulse` (an [`RFPulse`](@ref)), Mz/M0
+from Mz = M0 (1: untouched; 0: fully saturated): SIR's `Sm`, as [`inversionefficiency`](@ref)
+is its `Sf`.
 Saturated at the rate π·ω1²·g(Δ), so Sm = exp(−π·g(Δ)·B1²·∫ω1² dt), with g the pool's
 lineshape (`gaussian`, finite on resonance; [`lorentzian`](@ref); `superlorentzian` off
 resonance only) for its T2, `T2m` (s), at the pulse's offset `Δ` (Hz) from the pool's resonance
@@ -77,11 +79,11 @@ exchange during the pulse are neglected. Dortch et al., Magn Reson Med 2018: the
 inversion gives Sm = 0.83 at T2m = 15 µs.
 
 ```julia
-boundsaturation(blockpulse(180, 1e-3), 15e-6)                 # 0.831
-Sm = [boundsaturation(p, 15e-6; B1 = b) for b in b1map]      # a map, for fit(...; Sm = Sm)
+saturationfraction(blockpulse(180, 1e-3), 15e-6)                 # 0.831
+Sm = [saturationfraction(p, 15e-6; B1 = b) for b in b1map]      # a map, for fit(...; Sm = Sm)
 ```
 """
-boundsaturation(p::RFPulse, T2m; B1 = 1, Δ = 0, lineshape = gaussian) =
+saturationfraction(p::RFPulse, T2m; B1 = 1, Δ = 0, lineshape = gaussian) =
     exp(-π * lineshape(T2m, Δ) * B1^2 * _rfenergy(p))
 
 """

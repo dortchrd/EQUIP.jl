@@ -42,7 +42,7 @@ default.
   one per observation
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - option: `pulse`, the inversion pulse (an [`RFPulse`](@ref), e.g. `blockpulse(180, 1e-3)`):
-  given, `Sm` is not a parameter but made from it, `boundsaturation(pulse, T2m; B1, Δ = B0)`,
+  given, `Sm` is not a parameter but made from it, `saturationfraction(pulse, T2m; B1, Δ = B0)`,
   and `T2m` (15 µs), `B1` (1) and `B0` (0 Hz) take its place, fixed: give the maps
   (`fit(m, data; B1 = b1map)`), and their errors reach crlb, montecarlo and `leakage` by name
   (`uncertain = (B1 = 0.03,)`). Sf stays fitted
@@ -85,7 +85,7 @@ parameters(::Type{<:QMTSIR}) = (
 )
 
 # With the inversion pulse given (`pulse = blockpulse(180, 1e-3)`), Sm is not a parameter: it is
-# the pulse's saturation of the macromolecular pool, `boundsaturation(pulse, T2m; B1, Δ = B0)`
+# the pulse's saturation of the macromolecular pool, `saturationfraction(pulse, T2m; B1, Δ = B0)`
 # (pulses.jl: exp(−π·g(Δ)·B1²·∫ω1²dt), the Gaussian lineshape on resonance), and T2m, B1 and B0
 # take its place, fixed: maps, whose errors then reach the fit by name (`leakage`, crlb's
 # `uncertain = (B1 = 0.03,)`). Sf stays fitted: it takes the free pool's part of a B1 or B0 error.
@@ -228,7 +228,7 @@ hold (R1m fitted or fixed apart from R1f, Mz left by the readout): `QMTSIR`.
   one per observation; the SIR protocols apply (`QMTSIREqualR1(; SIR_5POINT...)`)
 - option: `magnitude` (true: fit |S| for magnitude images; false: signed S)
 - option: `pulse`, the inversion pulse (an [`RFPulse`](@ref), e.g. `blockpulse(180, 1e-3)`):
-  given, `Sm` is not a parameter but made from it, `boundsaturation(pulse, T2m; B1, Δ = B0)`,
+  given, `Sm` is not a parameter but made from it, `saturationfraction(pulse, T2m; B1, Δ = B0)`,
   and `T2m` (15 µs), `B1` (1) and `B0` (0 Hz) take its place, fixed: give the maps
   (`fit(m, data; B1 = b1map)`), and their errors reach crlb, montecarlo and `leakage` by name
   (`uncertain = (B1 = 0.03,)`). Sf stays fitted
@@ -277,7 +277,7 @@ parameters(::Type{<:QMTSIREqualR1{<:AbstractVector,<:AbstractVector,RFPulse}}) =
 # (the type parameter says which when compiling, so neither model pays for the other's case)
 @inline _sirSm(::Union{QMTSIR{<:AbstractVector,<:AbstractVector,Nothing},
                         QMTSIREqualR1{<:AbstractVector,<:AbstractVector,Nothing}}, p) = p.Sm
-@inline _sirSm(m::Union{QMTSIR,QMTSIREqualR1}, p) = boundsaturation(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)
+@inline _sirSm(m::Union{QMTSIR,QMTSIREqualR1}, p) = saturationfraction(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)
 
 # Where the one line comes from (Li et al. 2010, in its notation; derived 2026-11-20).
 #

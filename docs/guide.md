@@ -349,18 +349,18 @@ inversion pulse and the conditions it plays out in (B1, B0, T2m):
 ```julia
 blk = blockpulse(180, 1e-3)                                          # the 1-ms block
 cmp = RFPulse([90, 180, 90], [0, 90, 0], [0.5e-3, 1e-3, 0.5e-3])     # composite 90x-180y-90x
-boundsaturation(blk, 15e-6)              # Sm = 0.831 (Gaussian lineshape, on resonance)
-boundsaturation(cmp, 15e-6)              # 0.690: twice the RF energy, Sm squared
+saturationfraction(blk, 15e-6)              # Sm = 0.831 (Gaussian lineshape, on resonance)
+saturationfraction(cmp, 15e-6)              # 0.690: twice the RF energy, Sm squared
 inversionefficiency(cmp; B1 = 0.9)       # Sf = −0.999, where the block gives −0.951
 inversionefficiency(blk; Δ = 100)        # −0.921, 100 Hz off resonance
-Sm = [boundsaturation(blk, 15e-6; B1 = b) for b in b1map]            # a map, from a B1 map
+Sm = [saturationfraction(blk, 15e-6; B1 = b) for b in b1map]            # a map, from a B1 map
 r = fit(QMTSIR(; SIR_5POINT...), data; Sm = Sm)
 ```
 
 An `RFPulse` is segments of constant amplitude: per segment a flip angle (degrees), a phase
 (degrees: 0 along x, 90 along y) and a duration (s), or one duration for the whole pulse, split
 evenly among its segments (a shaped pulse's samples). `inversionefficiency(pulse; B1, Δ)`
-rotates the free pool about each segment's effective field; `boundsaturation(pulse, T2m; B1, Δ,
+rotates the free pool about each segment's effective field; `saturationfraction(pulse, T2m; B1, Δ,
 lineshape)` saturates the macromolecular pool at the rate π·ω1²·g(Δ), so Sm = exp(−π·g(Δ)·∫ω1²dt).
 Both neglect relaxation and exchange during the pulse (the pulse short against T1 and 1/kmf), and
 Sm assumes T2m far shorter than the pulse. `B1` is a B1 map's relative value, `Δ` the offset in

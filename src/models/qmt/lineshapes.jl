@@ -58,7 +58,7 @@ saturates the pool at the rate W = π·ω1²·g(Δ) (1/s).
   resonance (Δ = 0), so for MT pulses off resonance
 
 They take dual numbers (a fitted T2m; a B0 map's offsets), and are what a model's `lineshape`
-holds: `boundsaturation(pulse, T2m; lineshape = superlorentzian)`.
+holds: `saturationfraction(pulse, T2m; lineshape = superlorentzian)`.
 
 ```julia
 gaussian(15e-6, 0.0)               # 5.98e-6 s: T2m/√(2π)
