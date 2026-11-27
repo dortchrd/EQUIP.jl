@@ -6061,7 +6061,18 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        T2DecayOffset on `:loglinear` (the owner: not now); the second pass from the linear
        prediction.
 5. **MT ratio, MTsat, B1 and B0 maps**: mostly closed-form estimators (a formula on as many
-   images as unknowns), brought in as ordinary models.
+   images as unknowns), brought in as ordinary models where a physical parameter stands behind
+   the number (B1, B0; MTsat to decide), and MTR as a calculation (below).
+   - **Measured: the solver started at the closed form** (2026-11-27; a scratch MTR model and
+     DAM at 60°, 1 million voxels at SNR 100, 4 threads): the map equal to the formula in every
+     voxel (the largest difference 0.0); 0 or 1 iterations (at the exact answer the residual is
+     rounding, and with as many images as unknowns the gradient test cannot tell rounding from a
+     misfit, so one step is tried, changes nothing, and the fit stops); 0.03 s for MTR, 0.06–0.10
+     s for DAM, against 0.01 and 0.02 s for the formula on one thread. Where the formula has no
+     answer (DAM's arccos of a ratio above 1: 283 of 1000 background voxels) the start is NaN and
+     the fit stops at once, `Failed`. A data start is clamped to the bounds, so a calculated
+     quantity takes none (502 of 1000 voxels with MTR 0 came out negative; a bound at 0 would
+     have raised a low-MTR region's mean).
    - **Approach: models whose data start is the exact answer.** Each method is a normal model
      (acquisition struct, `parameters`, `signal!`) whose `datastart` returns the closed-form
      solution. With as many images as parameters the start already fits exactly, and LM stops after
@@ -6070,10 +6081,45 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      form. Masks, threads, maps, `FitResult`, B1 as a fixed map, and (because `signal!` exists)
      `simulate`, Monte Carlo and CRLB come for free. A solver-free path only if measurement shows
      it matters. Names follow the convention, quantity first then method (e.g. `B1DAM`, `B1AFI`).
-   - **MTR**: images with and without the MT pulse (e.g. `MTR(mt = [false, true])`). Parameters M0
-     (`:scale`) and MTR; signal M0 for the reference images, M0·(1 − MTR) for the MT ones; data
-     start (S_ref − S_MT)/S_ref. qMRLab exports MTR only when the MT- and PD-weighted TRs match;
-     the model can check that.
+   - **MTR: a calculation, not a model** (decided with the owner, 2026-11-27: "there are no
+     parameters or physics. It's just a percent diff. So how do you optimize etc. it really is
+     more a derived quantity for the qMT experiment ... you get one for every offset and power
+     assuming you have a ref scan"). MTR = 1 − S/S_ref, one per MT image. The physics is in the
+     qMT models (Yarnykh's for now; "better options later (ODEs, MAMT)"): what MTR a tissue shows
+     under a protocol is their noise-free signals' MTR.
+     - **A fraction**, as every fraction in EQUIP (the owner: "fraction for all MTR, PSR, BPF, f
+       in diffusion. this should be the standard across all of equip"; CLAUDE.md, Style).
+     - **References** (the owner: "a ref sometimes has a nonzero b1 but is very far off resonance
+       - say 100kHz ish"; "sometimes we have multiple references ... like one large offset per
+       power due to pulse sequence constraints"). In a qMT fit nothing changes: a far-off
+       reference is an image at its own offset and power, its small saturation in the model
+       (white matter, PSR 0.15, 12-ms pulse: 1 − S/S(no pulse) 0.002% at 100 kHz and 4 µT, 0.007%
+       at 8 µT; 0.03% at 50 kHz; but 0.6% at 32 kHz and 15% at 16 kHz, 8 µT). For MTR from an
+       acquisition: an image with the MT pulse off is always a reference; others only when named,
+       `reference = :maxoffset` (at each power, the image at the largest offset: the owner's
+       rule) or `reference = [indices]`. Not max offset by default: in a protocol without a
+       reference the largest offset is a data point (a Z-spectrum ending at 16 kHz). Each MT image
+       is divided by the mean of its references: those at its TR, flip angle and MT power; else
+       the MT-off ones at its TR and flip angle; else an error naming it. The sidecar records
+       which. (The owner: "agree on reference".)
+     - **From data: two matched arrays** (the owner: "between two matched arrays ... otherwise
+       we would not know reference"), `mtr(S, Sref; mask)`, broadcast (a stack of MT images
+       against one reference), NaN where the reference is 0, negative or not finite (the owner:
+       "need to check for divide by zero"), no threshold, nothing clamped. Built (step 1).
+     - **Its errors from the images, not from a fit.** `propagate(c, g)` takes crlb's covariance
+       of a fit's parameters; an MTR protocol (a reference and a few MT images) has no qMT fit to
+       take it from (it gives MTR's error only when a fit has exactly as many free parameters as
+       images: the images' delta method in disguise). The images' own: MTR = 1 − S/S_ref, so to
+       first order SD = (σ/S_ref)·√(1 + (S/S_ref)²), S and S_ref the qMT model's noise-free
+       signals; the ratio's bias at low SNR to second order, and Monte Carlo with Rician noise;
+       `uncertain = (B1 = ...)` for MTR's B1 dependence through the model. Then a protocol by
+       MTR's SNR or CNR efficiency (the owner: "we often want to optimize SNR efficiency or CNR
+       efficiency for MTR for a given pulse sequence"): CNR = |MTR₁ − MTR₂|/√(SD₁² + SD₂²)
+       between two tissues, per √(scan time), searched by `design` given any objective.
+     - **Order**: 1. `mtr(S, Sref)`; 2. the references found from a qMT acquisition, MTR
+       predicted, `mtr(m, θ)`, and `mtr(m, data)` with the same pairing; 3. the errors from the
+       images (first and second order, Monte Carlo, uncertain inputs), checked against each
+       other; 4. `design` over any objective, and MTR's CNR efficiency with QMTSPGRYarnykh.
    - **MTsat** (Helms et al., MRM 2008), with the inputs of qMRLab's `mt_sat`: MT-, T1- and
      PD-weighted SPGR images, a flip angle and TR per image, a B1 map and a mask. Parameters the
      apparent amplitude A (`:scale`), R1 (or T1) and MTsat; signal the SPGR equation with the MT
@@ -6099,11 +6145,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      the data's grid stays outside EQUIP; the I/O layer can check that sizes match.
    - **Needed in EQUIP**:
      1. **Derived outputs**: a hook computing extra maps per voxel after the fit, from the fitted
-        and fixed values: MTsat's empirical B1 correction, MTR from the MTsat images, R1 alongside
-        T1, QMTSIR's bound pool fraction BPF = PSR/(1 + PSR). (`relabel` sees only the fitted
-        values, so it cannot.)
+        and fixed values: MTsat's empirical B1 correction, R1 alongside T1, the qMT models' MPF.
+        Built (`derived`, item 19; MPF, item 6).
      2. The statistics of item 3 for as many images as parameters: zero residual degrees of
-        freedom, so σ̂ and the standard errors are NaN, not nonsense.
+        freedom, so σ̂ and the standard errors are NaN, not nonsense. Built (`residualsd`, AIC,
+        BIC: NaN when N = P).
      3. Complex or phase data, for B0 and Bloch–Siegert.
    - Order: MTR and MTsat, with derived outputs; then the B1 maps (DAM, AFI, the multi-angle fit);
      then B0, with complex data and the I/O layer.

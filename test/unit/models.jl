@@ -324,6 +324,29 @@ end
     @test occursin("B1cw has 2", msg(() -> QMTCWHenkelman(offset = [1e3, 2e3, 0.0], B1cw = [1.0, 2.0])))
 end
 
+@testset "mtr: MTR from an MT image and its reference" begin
+    # MTR = (S_ref − S)/S_ref, the definition written the other way round
+    @test mtr(700.0, 1000.0) ≈ (1000.0 - 700.0) / 1000.0
+    @test mtr(1000.0, 1000.0) == 0 && mtr(0.0, 1000.0) == 1
+    @test mtr(1100.0, 1000.0) ≈ -0.1                  # noise can make S > S_ref: kept, not clamped
+    # no answer, NaN: the reference 0 (outside the field of view), negative or not finite, or S not finite
+    @test all(isnan, (mtr(500.0, 0.0), mtr(500.0, -3.0), mtr(500.0, Inf), mtr(500.0, NaN), mtr(Inf, 1000.0), mtr(NaN, 1.0)))
+    # a scanner's integers give floating point; Float32 stays Float32
+    @test mtr(UInt16(700), UInt16(1000)) isa Float64 && mtr(UInt16(700), UInt16(1000)) ≈ 0.3
+    @test mtr(0.7f0, 1.0f0) isa Float32 && eltype(mtr(Float32[0.7, 0.5], Float32[1, 1])) == Float32
+    # a stack of MT images against one reference: one map per image, each the two-image MTR
+    ref = [1000.0 800.0; 0.0 900.0]                    # one voxel outside the field of view
+    stack = cat([700.0 600.0; 5.0 450.0], [900.0 760.0; 5.0 855.0]; dims = 3)
+    M = mtr(stack, ref)
+    @test size(M) == (2, 2, 2)
+    @test isequal(M[:, :, 2], mtr(stack[:, :, 2], ref)) && M[1, 2, 1] ≈ 0.25 && isnan(M[2, 1, 1])   # isequal: NaN equals NaN
+    # the mask: zero or false outside, as fit's, the size of one image of the stack
+    mask = [1 1; 1 0]
+    Mm = mtr(stack, ref; mask)
+    @test all(isnan, Mm[2, 2, :]) && Mm[1, :, :] == M[1, :, :]
+    @test_throws DimensionMismatch mtr(stack, ref; mask = trues(3, 2))
+end
+
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin
     m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
     @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)

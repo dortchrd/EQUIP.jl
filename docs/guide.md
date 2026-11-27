@@ -444,6 +444,26 @@ joint model: on the roadmap. Mind the
 noise level when simulating: `snr` is relative to M0f, and an SPGR image is M0f·sin α·Mzf, about
 an eighth of M0f at 10°, so `snr = 800` gives the image without the MT pulse an SNR of about 100.
 
+### MTR
+
+The magnetization transfer ratio is calculated from images, not fitted: MTR = 1 − S/S_ref, an
+image with the MT pulse against a reference acquired the same way without the MT effect (the MT
+pulse off, or far off resonance: 100 kHz saturates white matter by less than 0.01% at 8 µT), one
+MTR for every MT image, so for every offset and power. A fraction, as every fraction in EQUIP
+(MPF, the diffusion models' volume fractions): ×100 for percent units.
+
+```julia
+M = mtr(mt, ref)                          # two images of the same size: one map
+M = mtr(mtstack, ref; mask = brain)       # x × y × z × n MT images, one reference: n maps
+```
+
+`NaN` where there is no answer: a reference that is 0 (outside the field of view, a resampled
+image's edge), negative or not finite, and outside `mask`. Nothing is clamped: in a voxel with
+no MT effect (CSF), noise makes MTR negative about half the time, and keeping those values keeps
+a region's mean unbiased. Next (docs/design.md, roadmap item 5): the reference found from a qMT
+acquisition, MTR predicted for a tissue from a qMT model's signals, and its errors from the
+images' noise, for choosing a protocol by MTR's SNR or CNR efficiency.
+
 ## Writing a model
 
 ### In one step: `@mrimodel`

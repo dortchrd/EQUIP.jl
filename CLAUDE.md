@@ -66,7 +66,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   defaults and R1f tie, `_r1ffromobserved`, that the pulsed models take by delegating,
   `parameters(::Type{<:QMTSPGRYarnykh}) = parameters(QMTCWHenkelman)`); qmt_spgr.jl, the pulsed
   models with SPGR, `QMTSPGRYarnykh` (Yarnykh 2002) and `QMTSPGRRamani` (by its CW power
-  equivalent, Ramani 2002), one acquisition (`_pulsedspgr`); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  equivalent, Ramani 2002), one acquisition (`_pulsedspgr`); mtr.jl, `mtr(S, Sref)`, MTR
+  calculated from images (not a model; NaN where the reference cannot divide); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones
@@ -146,6 +147,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   For qMT especially: minimize helpers; a short formula written out in each of two models beats
   one shared through a helper.
 - Times in seconds, rates in 1/s.
+- Fractions as fractions, 0 to 1, never percent (the owner, 2026-11-27: "fraction for all MTR,
+  PSR, BPF, f in diffusion ... the standard across all of equip"): MTR, MPF, volume fractions
+  (f, fiso, vax, ...); PSR, a ratio, likewise. Percent only in printed summaries.
 - Dot products as `inner(a, b)` (EQUIP's, src/inner.jl: in order, inlined; LinearAlgebra's `⋅` is
   1.75–3× slower on dual numbers of many partials, docs/design.md item 30), never `⋅` or
   `dot(a, b)` in EQUIP's code; tests may use LinearAlgebra's `⋅` as an independent reference.

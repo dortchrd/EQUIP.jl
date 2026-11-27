@@ -404,9 +404,11 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   Style; bit for bit, speed unchanged); design.md item 6. Checked first: the full `Pkg.test`
   (3548), the command line's (189), the validation group (76), CI (4979f04). The branch is to
   delete (`git push origin --delete cwmt-proto`).
-- On `qmt-family` (2026-11-27, not merged): `QMTCWHenkelman` the family's model (the owner: "the
-  cw henkelman is the mother model"), holding the parameters and the R1f tie; both pulsed SPGR
-  models in qmt_spgr.jl, their parameters Henkelman's; bit for bit (design.md item 6).
+- On `mtr` (2026-11-27): MTR, step 1 of 4, `mtr(S, Sref)` from two matched arrays; decided with
+  the owner: MTR a calculation (not a model), fractions everywhere, the reference rules; next the
+  references from a qMT acquisition and `mtr(m, θ)`, then MTR's errors from the images, then
+  `design` for MTR's CNR efficiency (design.md item 5). `qmt-family` merged (18974d4); the
+  branch is to delete (`git push origin --delete qmt-family`).
 - Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
   VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.
 - SAGE (item 25, 2026-11-20): R2* and R2 from spin- and gradient-echo data (Keeling et al.,

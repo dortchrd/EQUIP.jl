@@ -115,3 +115,4 @@ include("qmt/twopool.jl")                # two pools on 2×2 static matrices: th
 include("qmt/qmt_cw.jl")                 # QMTCWHenkelman: two pools under CW saturation; the family's parameters
 include("qmt/qmt_spgr.jl")               # QMTSPGRYarnykh, QMTSPGRRamani: pulsed MT with SPGR, Henkelman's parameters
 include("qmt/mtnames.jl")                # the MT models' names: MPF derived; other conventions' names as hints
+include("qmt/mtr.jl")                    # MTR, calculated from images (not a model)
