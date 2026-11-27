@@ -6424,8 +6424,12 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        exponential, a mathematical tool as `inner` is; `_r1ffromobserved`, the R1f tie (a tie is
        a function); `_pulsedspgr`, the acquisition two models share; `_b1eperdegree`, the pulse's
        scale, in the constructor. Every qMT model's signal and Jacobian bit for bit, both
-       precisions, with and without the SIR pulse; the signals' speed unchanged (the helpers were
-       inlined by the compiler before).
+       precisions, with and without the SIR pulse; the speed unchanged (the helpers were inlined by
+       the compiler before). Measured (the owner: "and benchmark these changes"; bench/qmt/speed.jl,
+       against 008ed13, the best of two alternating runs; helpers → inlined): one signal, a fit's
+       dual-number signal, one voxel's fit and a whole brain within the noise for every qMT model
+       (QMTSIR 0.18 → 0.18 s a brain, with its pulse 0.17 → 0.17, QMTSIREqualR1 0.14 → 0.13,
+       QMTSPGRYarnykh 2.38 → 2.22, QMTSPGRRamani 0.85 → 0.89, QMTCWHenkelman 0.91 → 0.85 s).
        The owner (2026-11-27): "i think this is known. and yarnykh is biased for smaller offsets".
        Ramani's excitation bias is known; and Yarnykh's model is itself approximate near
        resonance (its abstract: "far from resonance"; the simplified CRI form, Δ > 2.5 kHz,
