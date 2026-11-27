@@ -15,6 +15,8 @@ objectives as recipes on what exists.
 
 **What exists, by branch:**
 
+- **Start a session on `mamt-proto`** (it holds `mtr`'s work too): `git checkout mamt-proto`; `main`
+  has none of the below. The owner holds the merges for now (2026-11-27).
 - `main` (18974d4, CI passed): the qMT models, Henkelman's the family's (`QMTCWHenkelman` holds
   the parameters and the R1f tie; `QMTSPGRYarnykh`, `QMTSPGRRamani` take them).
 - `mtr` (500951f, CI passed; not merged): MTR, a calculation, not a model. `mtr(S, Sref)`;
@@ -53,7 +55,8 @@ objectives as recipes on what exists.
    SAR (B1e²·tm/TR as a constraint); `tm` searched too.
 5. Merge `mtr`, then `mamt-proto`: the full Pkg.test, then CI.
 
-**Open, the owner's to decide:** the excitation's saturation of the bound pool (neglected now;
+**Open, the owner's to decide:** the new model's name (`QMTSPGRPortnoy`, chosen by Claude by
+the convention of naming after the paper's author; not yet confirmed); the excitation's saturation of the bound pool (neglected now;
 matters at high flip angles and short TR); the sequence's structure (an MT pulse every TR, as
 now, or every N excitations, or MT-prepared TSE); the lab's MT pulse shapes (as samples); MTsat,
 a model or not; which B1 and B0 methods the lab acquires. Remote branches to delete (merged or

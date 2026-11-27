@@ -173,6 +173,11 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 ## Working agreements
 
 - Ask before starting a long run (benchmarks, large simulations).
+- Keep it simple and tied to the goal (the owner, 2026-11-27: "i fear you are going into
+  overengineering territory. remember goals and keep it simple"): the smallest change that serves
+  the goal; no new framework or API until the same need has come up twice. Discuss the
+  architecture of a larger piece before implementing it, and say why a technical choice is made
+  (a numerical method, a data structure) before writing the code, not after.
 - Prototypes go on their own branch (e.g. `varpro-proto`), not on `main`, until they are
   accepted.
 - When refactoring, check that results are unchanged (starts and fits of every model, both
@@ -201,6 +206,12 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   assertions on it, not an assertion per voxel.
 - Error messages: one check per error path, matching the name or value the message is about, not
   its prose.
+- Pitfalls met: `@test a ≈ b rtol = x` takes one comparison (with `&&` it is a parse error: split
+  it, or `isapprox(a, b; rtol)`); a model's or a result struct's `==` compares identity, not
+  values (compare fields); arrays with NaN compare with `isequal`; EQUIP does not export
+  `sidecarpath` (`EQUIP.MRImages.sidecarpath`); every vector field of a model must have one value
+  per image (a pulse shape is held as an `RFPulse`, as QMTSIR's pulse); a new qMT model joins the
+  unions `_MTMODELS` (mtnames.jl) and `_MTRMODELS` (mtr.jl).
 - Run the file or group being changed while developing (`julia -t auto --project=test
   test/runtests.jl <file or group>`); the full suite (Pkg.test) before committing to a branch to
   be merged; the validation group before merging into `main` when the change touches what it
