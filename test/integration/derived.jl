@@ -290,6 +290,53 @@ end
                                                         uncertain = (B1 = 0.03,)), g -> g.T1)))
 end
 
+@testset "propagate and montecarlo from the images: a quantity calculated, not fitted (MTR)" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    # two MT images and one reference (the MT pulse off), the same noise σ in each
+    m = QMTSPGRYarnykh(offset = [2e3, 8e3, 0.0], B1e = [6.0, 6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.1, B1 = 1.0, B0 = 0.0)
+    g(y) = mtr(m, y).mtr
+    S = signal(m, θ)
+    R, σ = S[3], 1.0 / 400                                   # snr = 400: σ = M0f/400
+    e = propagate(m, θ, g; snr = 400, secondorder = true)
+    # MTR = 1 − S/R by hand: SD (σ/R)·√(1 + (S/R)²); the ratio's bias −S·σ²/R³ (E[1/R] ≈
+    # (1 + σ²/R²)/R); and the two MT images' covariance through their one reference, S₁S₂σ²/R⁴
+    @test e.truth ≈ 1 .- S[1:2] ./ R
+    @test e.sd ≈ (σ / R) .* sqrt.(1 .+ (S[1:2] ./ R) .^ 2) rtol = 1e-12
+    @test e.bias ≈ -S[1:2] .* σ^2 ./ R^3 rtol = 1e-10
+    @test e.noisebias == e.bias
+    @test e.cov[1, 2] ≈ S[1] * S[2] * σ^2 / R^4 rtol = 1e-12
+    @test propagate(m, θ, g; snr = 400).bias == [0.0, 0.0]            # first order: no bias
+    # how MTR moves with the truth's parameters, against central differences of the prediction
+    h = 1e-6
+    fd(k) = (mtr(m, merge(θ, NamedTuple{(k,)}((θ[k] + h,)))).mtr .- mtr(m, merge(θ, NamedTuple{(k,)}((θ[k] - h,)))).mtr) ./ (2h)
+    @test e.sensitivity.PSR ≈ fd(:PSR) rtol = 1e-7
+    @test e.sensitivity.B1 ≈ fd(:B1) rtol = 1e-7
+    # a parameter of the truth known to within an SD adds its spread, (∂MTR/∂B1)²·sd²; one that
+    # moves with it (PSR's error 0.2 per unit of B1's, as crlb's correlated inputs) adds through L
+    s1, s2 = e.sensitivity.B1, e.sensitivity.PSR
+    @test propagate(m, θ, g; snr = 400, uncertain = (B1 = 0.05,)).sd ≈ sqrt.(e.sd .^ 2 .+ (0.05 .* s1) .^ 2) rtol = 1e-12
+    eu = propagate(m, θ, g; snr = 400, uncertain = (B1 = 0.05, PSR = (sd = 0.01, B1 = 0.2)))
+    @test eu.sd ≈ sqrt.(e.sd .^ 2 .+ (0.05 .* (s1 .+ 0.2 .* s2)) .^ 2 .+ (0.01 .* s2) .^ 2) rtol = 1e-12
+    # g's value in its own shape: a number, or by name
+    @test propagate(m, θ, y -> mtr(y[1], y[3]); snr = 400).sd ≈ e.sd[1] rtol = 1e-12
+    en = propagate(m, θ, y -> (low = mtr(y[1], y[3]), high = mtr(y[2], y[3])); snr = 400)
+    @test en.sd.high ≈ e.sd[2] rtol = 1e-12
+    @test en.sensitivity.PSR.low ≈ e.sensitivity.PSR[1] rtol = 1e-12
+    @test occursin("propagate for QMTSPGRYarnykh's images", sprint(show, MIME("text/plain"), e))
+    # montecarlo: g on each noisy copy, the prediction alongside; copies with no answer (the
+    # reference ≤ 0, at a reference SNR near 1) counted out (the agreement itself: validation)
+    mc = montecarlo(m, θ, g; snr = 400, noise = :gaussian, n = 2000, rng = Xoshiro(1))
+    @test size(mc.values) == (2, 2000) && mc.finite == 2000 && mc.predicted.sd == e.sd
+    @test mc.mean ≈ vec(sum(mc.values; dims = 2)) ./ 2000 && mc.se ≈ mc.sd ./ sqrt(2000)
+    low = montecarlo(m, θ, g; snr = 8, noise = :gaussian, n = 2000, rng = Xoshiro(1))
+    @test 0 < low.finite < 2000 && all(isfinite, low.sd)
+    @test montecarlo(m, θ, g; snr = 400, noise = :rician, n = 200, rng = Xoshiro(1)).n == 200
+    # the error paths
+    @test occursin("`g` returns", msg(() -> propagate(m, θ, y -> "MTR"; snr = 400)))
+    @test occursin("`T1`", msg(() -> propagate(m, θ, g; snr = 400, uncertain = (T1 = 0.1,))))
+end
+
 @testset "qMT's names: MPF derived, truths by it, other conventions' names as hints" begin
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     # MPF = PSR/(1 + PSR) in crlb, after the parameters, by the delta method: its SD PSR's over

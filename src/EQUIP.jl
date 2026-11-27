@@ -70,7 +70,7 @@ export StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, Bingh
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
 export QMTSPGRYarnykh, QMTSPGRRamani, QMTCWHenkelman
-export mtr, MTRResult                                                             # MTR from images
+export mtr, MTRResult, ImagePropagation, ImageMonteCarlo                         # MTR from images; its errors
 export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
 export RFPulse, blockpulse, inversionefficiency, saturationefficiency            # pulses: Sf and Sm
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
@@ -126,6 +126,7 @@ include("errors/montecarlo.jl")        # montecarlo: the same measured, with crl
 include("errors/compare.jl")           # compare: the same measured on a dataset (maps)
 include("errors/diagnostics.jl")       # cond, cor, leakage: where the errors come from
 include("errors/propagate.jl")         # propagate: crlb's errors for any function of the parameters
+include("errors/images.jl")            # a quantity calculated from the images (MTR): its errors from their noise
 include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise levels and truths
 
 # design: protocols chosen by their predicted errors (uses errors)

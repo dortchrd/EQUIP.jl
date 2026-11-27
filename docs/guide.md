@@ -488,8 +488,35 @@ p = mtr(m, θ; reference = :maxoffset)                    # predicted: p.mtr, p.
   the acquisition, the references' rule and, per volume (`"Volumes"`), the image, its offset, its
   power and the references it was divided by. For MATLAB data, `MTRmap.mat` and `MTRmap.json`.
 
-Next (docs/design.md, roadmap item 5): MTR's errors from the images' noise, and choosing a
-protocol by MTR's SNR or CNR efficiency.
+**MTR's errors, from the images.** MTR is not fitted, so its errors come from the images' own
+noise, not from a fit's covariance: `propagate` and `montecarlo` take a model, a tissue and any
+function `g` of one voxel's images, and give that function's errors.
+
+```julia
+g(y) = mtr(m, y; reference = :maxoffset).mtr          # every MT image's MTR, from one voxel's images
+e = propagate(m, θ, g; snr = 800)                     # e.truth, e.sd, e.cov (between MT images)
+e.sensitivity.PSR                                     # ∂MTR/∂PSR, each MT image's: the physics
+propagate(m, θ, g; snr = 800, secondorder = true)     # the ratio's bias too
+propagate(m, θ, g; snr = 800, uncertain = (B1 = 0.05,))   # B1 across a region, uncorrected
+mc = montecarlo(m, θ, g; snr = 800, noise = :rician, n = 20_000)   # measured: mc.bias, mc.se, mc.predicted
+```
+
+- By the delta method: SD and covariance ∇g·Σ·∇gᵀ, Σ the noise model's (`snr` relative to M0f,
+  `σ`, `Σ`, `averages`). For one MT image against one reference, SD = (σ/S_ref)·√(1 + (S/S_ref)²).
+  MTRs sharing a reference are correlated, which `cov` gives (an MTR asymmetry's error, a CNR
+  across offsets).
+- `secondorder = true`: the noise's own bias, ½·tr(∇²g·Σ); for MTR, −S·σ²/S_ref³ (a ratio's).
+  Measured against 100,000 copies at a reference SNR of 25: within 1.1 standard errors; at a
+  reference SNR of 5 it falls short (−0.018 predicted, −0.021 measured), and with Rician noise
+  the magnitude floor adds more (−0.057): there, `montecarlo` is the reference.
+- `sensitivity`: ∂g/∂p for every parameter of the tissue given as a number, through the model
+  (how MTR moves with PSR, with B1).
+- `uncertain`: a parameter of the tissue known only to within an SD, B1 across a region with no
+  correction, adds (∂g/∂B1)²·sd² (correlated inputs as for `crlb`). Not the same as `crlb`'s
+  uncertain inputs (a value the fit assumes, measured with an error): MTR assumes nothing, so the
+  SD is how much what the scan measures moves with the true B1.
+
+Next (docs/design.md, roadmap item 5): choosing a protocol by MTR's SNR or CNR efficiency.
 
 ## Writing a model
 

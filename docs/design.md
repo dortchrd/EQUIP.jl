@@ -6126,6 +6126,25 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        `MTRmap.mat` and its JSON. The fit's writer and this one share the acquisition record
        and the geometry and compression choice (`_acquisitiondict`, `_geometry`). The command
        line (`equip mtr`): later, with CI (it touches the command line).
+     - **Its errors from the images** (step 3, built; the owner: "Yes" to the shape). A function
+       of one voxel's images, any `g`: `propagate(m, θ, g; snr)` (an `ImagePropagation`) and
+       `montecarlo(m, θ, g; snr, noise)` (an `ImageMonteCarlo`, the prediction alongside), in
+       src/errors/images.jl. By the delta method from the noise model's Σ (`noisecovariance`):
+       g at the noise-free images, ∇g·Σ·∇gᵀ (the covariance between MTRs sharing a reference),
+       and with `secondorder = true` ½·tr(∇²g·Σ). `sensitivity`: ∂g/∂p through the model, for
+       every parameter given as a number. `uncertain`: a parameter of the truth known to within
+       an SD (B1 across a region, uncorrected) adds Sᵤ·V·Sᵤᵀ, V as crlb's (correlated inputs
+       too); not crlb's meaning (a value the fit assumes, measured), since g assumes nothing.
+       Checked (test/integration/derived.jl): SD, the second-order bias −S·σ²/R³ and the
+       covariance S₁S₂σ²/R⁴ against MTR's closed forms (1e-12), the sensitivity against central
+       differences (1e-7), the uncertain terms against their sums. Measured (validation,
+       agreement.jl; two MT images and an MT-off reference, 100,000 copies, Gaussian noise): at
+       a reference SNR of 25 the ratio's bias resolved (z −4.1 and −5.9 from 0) and the second
+       order's (z 1.1 and 1.0), the SDs within 0.6%, the covariance within 3% (2 standard
+       errors); at a reference SNR of 5 the second order falls short (bias −0.0208 measured,
+       −0.0179 predicted; SD 0.238 against 0.217), and Rician noise triples the bias (−0.057:
+       the magnitude floor lifts the MT image more than the reference). 100,000 copies take
+       about 9 s (`mtr(m, y)` finds the pairs again for every copy; to measure if it matters).
      - **Its errors from the images, not from a fit.** `propagate(c, g)` takes crlb's covariance
        of a fit's parameters; an MTR protocol (a reference and a few MT images) has no qMT fit to
        take it from (it gives MTR's error only when a fit has exactly as many free parameters as

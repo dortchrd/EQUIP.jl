@@ -21,6 +21,9 @@
 #      −18.9% against −15.9% predicted, its SD 0.95 of crlb's); the 5-point with kmf fitted (five
 #      parameters from five points) agrees from SNR 800, not at 200 (PSR's SD 1.28 of crlb's, z
 #      31; 1.04 at 400). Below those, montecarlo is the reference, as crlb's docstring says.
+#   4. A quantity calculated from the images, not fitted (MTR, `propagate(m, θ, g)` against
+#      `montecarlo(m, θ, g)`): the ratio's bias to second order and the SDs, at a reference SNR of
+#      25, 100,000 copies.
 #
 # Moved from bench/agreement.jl (its printout, made assertions). Part of EQUIP's validation group,
 # run apart (about a minute):
@@ -67,4 +70,18 @@ end
     @test all(mc -> _zmax(mc) < 4, five.results[3:4])                   # SNR 800 and 1600
     r200 = five.results[1]
     @test r200.sd.PSR / r200.crlb.sd.PSR > 1.15                         # SNR 200: PSR's SD
+end
+
+@testset "agreement: a quantity calculated from the images (MTR), the delta method to second order" begin
+    # Two MT images against one reference at a reference SNR of 25 (snr = 200 on M0f), Gaussian
+    # noise: the ratio's bias, −S·σ²/R³, is resolved (|z| > 3 from 0 with 100,000 copies) and is
+    # the second order's; the SDs within 2% (measured 2026-11-27: z 1.1 and 1.0; SD ratios 0.995,
+    # 1.006). At a reference SNR of 5 the second order falls short (bias −0.0208 measured against
+    # −0.0179), as for a fit's: montecarlo is the reference there.
+    m = QMTSPGRYarnykh(offset = [2e3, 8e3, 0.0], B1e = [6.0, 6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.1, B1 = 1.0, B0 = 0.0)
+    mc = montecarlo(m, θ, y -> mtr(m, y).mtr; snr = 200, noise = :gaussian, n = 100_000, rng = Xoshiro(3))
+    @test all(abs.((mc.bias .- mc.predicted.bias) ./ mc.se) .< 4)
+    @test all(mc.bias ./ mc.se .< -3)
+    @test all(abs.(mc.sd ./ mc.predicted.sd .- 1) .< 0.02)
 end

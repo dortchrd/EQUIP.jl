@@ -34,7 +34,7 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - The validation group (expensive statistical checks, run apart; CI runs it nightly):
   `julia -t auto --project=test test/runtests.jl validation` (about 5 minutes), or a file:
   `agreement` (Monte Carlo against crlb, z in Monte Carlo standard errors: T2, Dortch 2018
-  Fig. 1, SNR sweeps; was bench/agreement.jl), `rician_fits` (the Rician fits per model),
+  Fig. 1, SNR sweeps, MTR from the images; was bench/agreement.jl), `rician_fits` (the Rician fits per model),
   `secondorder`
 - First setup: `julia --project=. -e 'using Pkg; Pkg.instantiate()'` (Manifest.toml is not committed),
   and for the direct test command `julia --project=test -e 'using Pkg; Pkg.instantiate()'`
@@ -95,7 +95,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   alongside; derived quantities from each copy's fit); compare.jl, `compare` (the same measured on a dataset fit, e.g. simulated maps);
   diagnostics.jl, `cond`, `cor` and `leakage` (where the errors come from: dθ̂/dc of each
   fixed parameter, from a joint cache with the fixed numbers seeded too); propagate.jl,
-  `propagate(c, g)` (crlb's errors for any function of the parameters); sweep.jl:
+  `propagate(c, g)` (crlb's errors for any function of the parameters); images.jl,
+  `propagate(m, θ, g)` and `montecarlo(m, θ, g)` (a quantity calculated from the images, not
+  fitted, MTR: its errors from their noise, the delta method to second order, `sensitivity`,
+  `uncertain` truth parameters; `ImagePropagation`, `ImageMonteCarlo`); sweep.jl:
   crlb or montecarlo over noise levels and true values (`snr = [...]`, `vary = (...)`),
   returning a `Sweep`, and `scenarios` (a set of `Scenario`s: tissues, boxes of true values,
   or both; calcVmax's modes; a `Sweep` whose results are the scenarios), which `crlb` and
