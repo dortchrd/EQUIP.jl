@@ -22,10 +22,11 @@
 
 What [`design`](@ref) returns:
 
-- `protocol`: the best protocol found, a model (points sorted by the first varied field), and
-  `value`, the objective there
-- `rounded` and `rounded_value`: the same protocol rounded (to the ms by default) and its
-  objective: of the ways to round each value down or up, the best, since rounding each to the
+- `protocol`: the best protocol found, a model (for `ProtocolDesign`, points sorted by the
+  first varied field; for an objective of your own, the images in their order), and `value`,
+  the objective there
+- `rounded` and `rounded_value`: the same protocol rounded (to the ms by default for a fit's
+  errors, `ProtocolDesign`; as `round` says for an objective of your own) and its objective: of the ways to round each value down or up, the best, since rounding each to the
   nearest step can raise one of the scenarios that tie at the optimum
 - `x`: the best values as the search saw them (the varied fields one after the other)
 - `starts`: every start's best value, in order, so their spread shows how reliable the search
@@ -62,7 +63,8 @@ line's `equip design`.)
 - `popsize`: the population of each start (default 10 per variable); `generations`: at most
   this many, fewer when the population has converged (its values within 1e-6 of each other).
 - `polish`: Nelder–Mead after differential evolution.
-- `round`: the step the result is rounded to (s), or `nothing`.
+- `round`: the step the result is rounded to (s), or `nothing`; or steps by field,
+  `(TI = 0.001, TD = 0.005)`.
 
 ```julia
 r = design(d; starts = 24, rng = MersenneTwister(1))
@@ -70,10 +72,10 @@ r.protocol, r.value            # the best protocol and its Eq. 5
 r.rounded, r.rounded_value     # rounded to the ms
 ```
 """
-function design(d::ProtocolDesign; starts::Integer = 2 * Threads.nthreads(),
+function design(d::Union{ProtocolDesign,ObjectiveDesign}; starts::Integer = 2 * Threads.nthreads(),
                 rng::AbstractRNG = Random.default_rng(),
                 popsize::Integer = 10 * length(d.lower), generations::Integer = 1000,
-                polish::Bool = true, round = 0.001)
+                polish::Bool = true, round = _defaultround(d))
     starts >= 1 || throw(ArgumentError("`starts` must be at least 1"))
     popsize >= 4 || throw(ArgumentError("`popsize` must be at least 4 (a trial uses three others)"))
     t0 = time()
@@ -97,6 +99,40 @@ function design(m::MRIModel, scenarios; starts::Integer = 2 * Threads.nthreads()
                 rng::AbstractRNG = Random.default_rng(), popsize = nothing,
                 generations::Integer = 1000, polish::Bool = true, round = 0.001, kwargs...)
     d = ProtocolDesign(m, scenarios; kwargs...)
+    return design(d; starts, rng, popsize = something(popsize, 10 * length(d.lower)),
+                  generations, polish, round)
+end
+
+"""
+    design(f, m; acquisition, shared = (), constraints = nothing, starts, rng, popsize,
+           generations = 1000, polish = true, round = nothing) -> DesignResult
+
+Search the protocol that minimizes an objective of your own, `f(p)` for a candidate protocol
+`p` (a model like `m`, its `acquisition` fields varied: [`ObjectiveDesign`](@ref)), with the
+same search as for a fit's errors: differential evolution, then Nelder–Mead, `starts` starts on
+threads. `round`: the result's step per field, `(offset = 100, B1e = 0.1)` (Hz, µT), or one for
+every variable; `nothing` (the default) keeps the values as found. The protocol's images keep
+their order.
+
+```julia
+# MTR's CNR between white matter and a lesion, per √(scan time): one MT image, its reference
+# with the MT pulse off, TR and the flip angle shared, a SAR limit
+m = QMTSPGRYarnykh(offset = [2e3, 0.0], B1e = [6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+function f(p)
+    g(y) = mtr(p, y).mtr[1]
+    a, b = propagate(p, wm, g; snr = 800), propagate(p, lesion, g; snr = 800)
+    return -abs(a.truth - b.truth) / sqrt(a.sd^2 + b.sd^2) / sqrt(sum(p.TR))
+end
+r = design(f, m; acquisition = (offset = [(1e3, 20e3), 0.0], B1e = [(1.0, 12.0), 0.0],
+                                TR = (0.02, 0.1), FA = (3.0, 30.0)), shared = (:TR, :FA),
+           constraints = p -> 25.6 - p.B1e[1]^2 * p.tm[1] / p.TR[1], round = (offset = 100, B1e = 0.1))
+r.rounded, -r.rounded_value        # the protocol, its CNR per √s
+```
+"""
+function design(f::Function, m::MRIModel; acquisition = nothing, shared = (), constraints = nothing,
+                starts::Integer = 2 * Threads.nthreads(), rng::AbstractRNG = Random.default_rng(),
+                popsize = nothing, generations::Integer = 1000, polish::Bool = true, round = nothing)
+    d = ObjectiveDesign(f, m; acquisition, shared, constraints)
     return design(d; starts, rng, popsize = something(popsize, 10 * length(d.lower)),
                   generations, polish, round)
 end
@@ -225,13 +261,16 @@ end
 # improves. Why not the nearest step: at a minimax optimum the worst scenarios tie, and rounding
 # each value to the nearest ms can raise one of them (4-point SIR: WM I and the lesion tie, and
 # the nearest ms raised the maximum by 0.3%, past Table 2's own rounded scheme).
-function _rounded(d, x, step)
+function _rounded(d, x, round)
     lo, hi = d.lower, d.upper
-    k = inv(step)                                   # values as k-ths: 1000 for the ms
-    grid(v, j) = clamp(v / k, lo[j], hi[j])
-    down = [grid(floor(x[j] * k), j) for j in eachindex(x)]
-    up = [grid(ceil(x[j] * k), j) for j in eachindex(x)]
-    best = [grid(Base.round(x[j] * k), j) for j in eachindex(x)]
+    steps = _roundsteps(d, round)
+    # each value as k-ths of its step (1000 for the ms); a variable without a step is kept
+    k = [s === nothing ? 0.0 : inv(s) for s in steps]
+    grid(v, j) = clamp(v / k[j], lo[j], hi[j])
+    on(r, j) = steps[j] === nothing ? x[j] : grid(r(x[j] * k[j]), j)
+    down = [on(floor, j) for j in eachindex(x)]
+    up = [on(ceil, j) for j in eachindex(x)]
+    best = [on(Base.round, j) for j in eachindex(x)]
     sbest = _rank(d, best)
     n, D = 1, length(x)
     if D <= 12
@@ -250,8 +289,9 @@ function _rounded(d, x, step)
     while improved
         improved = false
         for j in 1:D, δ in (-1, 1)
+            steps[j] === nothing && continue
             y = copy(best)
-            y[j] = grid(Base.round(y[j] * k) + δ, j)
+            y[j] = grid(Base.round(y[j] * k[j]) + δ, j)
             s = _rank(d, y); n += 1
             if isless(s, sbest)
                 best = y; sbest = s; improved = true
@@ -260,6 +300,24 @@ function _rounded(d, x, step)
     end
     return best, sbest, n
 end
+
+# Each variable's rounding step from `round`: one number for all, or by field (a named tuple:
+# the fields not named are kept as found)
+function _roundsteps(d, round)
+    F = _varfields(d)
+    step(s, f) = s isa Real && isfinite(s) && s > 0 ? Float64(s) :
+        throw(ArgumentError("`round`: the step of `$f` must be a number > 0, got $(repr(s))"))
+    round isa Real && return Union{Nothing,Float64}[step(round, f) for f in F]
+    round isa NamedTuple || throw(ArgumentError("`round`: a step (one number for every value), " *
+        "steps by field, `(offset = 100, B1e = 0.1)`, or `nothing`"))
+    for f in keys(round)
+        f in F || throw(ArgumentError("`round`: `$f` is not a varied field ($(join(unique(F), ", ")))"))
+    end
+    return Union{Nothing,Float64}[haskey(round, f) ? step(round[f], f) : nothing for f in F]
+end
+# Each variable's field, for ProtocolDesign: its varied fields, one value per point unless shared
+_varfields(d::ProtocolDesign{N,V}) where {N,V} = reduce(vcat, (fill(f, d.shared[j] ? 1 : N) for (j, f) in enumerate(V)))
+_defaultround(::ProtocolDesign) = 0.001
 
 # -------------------------------------------------------------------------------------------------
 # The result: the protocol as a plain model, points sorted
@@ -278,7 +336,7 @@ end
 function Base.show(io::IO, ::MIME"text/plain", r::DesignResult)
     d = r.design
     f(x) = string(round(x; sigdigits = 6))
-    good = count(v -> v <= r.value * 1.01, r.starts)
+    good = count(v -> v - r.value <= 0.01 * abs(r.value), r.starts)    # (a negative value too: a maximum, negated)
     print(io, "DesignResult for ", nameof(typeof(r.protocol)), ", ", nobs(r.protocol), " points: ",
           "value ", f(r.value), " (rounded: ", f(r.rounded_value), "); ", length(r.starts),
           " starts, ", good, " within 1% of the best; ", r.evaluations, " evaluations, ",

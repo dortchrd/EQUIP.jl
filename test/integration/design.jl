@@ -85,3 +85,39 @@
     @test occursin("is 0 in a scenario's truth", msg(() -> ProtocolDesign(m4, [Scenario(QMTSIR, nominal(QMTSIR, :SIR_WM_I; PSR = 0.0))];
                                                                           snr = 200, acquisition = space, scantime = st)))
 end
+
+@testset "design for an objective of your own: known optima, kept entries, shared, rounding" begin
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    m = QMTSPGRYarnykh(offset = [2e3, 8e3, 0.0], B1e = [6.0, 6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    # a bowl with its minimum at offset₁ = 7 kHz, B1e₁ = 3.3 µT, TR = 45 ms: where the search must land
+    bowl(p) = ((p.offset[1] - 7e3) / 1e3)^2 + (p.B1e[1] - 3.3)^2 + ((p.TR[1] - 0.045) / 0.01)^2
+    acq = (offset = [(1e3, 20e3), 9e3, 0.0], B1e = [(1.0, 12.0), 6.0, 0.0], TR = (0.02, 0.1))
+    r = design(bowl, m; acquisition = acq, shared = (:TR,), starts = 2, rng = MersenneTwister(1),
+               round = (offset = 100, B1e = 0.1))
+    p = r.protocol
+    @test p.offset[1] ≈ 7e3 rtol = 1e-6
+    @test p.B1e[1] ≈ 3.3 rtol = 1e-6
+    @test all(≈(0.045; rtol = 1e-6), p.TR)                                # shared: one TR, every image
+    @test p.offset[2:3] == [9e3, 0.0] && p.B1e[2:3] == [6.0, 0.0]          # kept, at the values given
+    @test r.rounded.offset[1] == 7e3 && r.rounded.B1e[1] ≈ 3.3 && r.rounded.TR == p.TR   # TR not rounded
+    @test r.value ≈ bowl(p) && r.rounded_value ≈ bowl(r.rounded)
+    # a maximum searched as a negative minimum: the starts near the best are counted (the count
+    # was written for Eq. 5's positive values, `v ≤ 1.01·value`, and gave 0 here)
+    rn = design(p -> bowl(p) - 10, m; acquisition = acq, shared = (:TR,), starts = 2, rng = MersenneTwister(1))
+    @test occursin("2 starts, 2 within 1% of the best", sprint(show, MIME("text/plain"), rn))
+    # a constraint moves the optimum onto it: offset₁ ≤ 5 kHz
+    rc = design(bowl, m; acquisition = acq, shared = (:TR,), constraints = p -> 5e3 - p.offset[1],
+                starts = 2, rng = MersenneTwister(2))
+    @test rc.protocol.offset[1] ≈ 5e3 rtol = 1e-5
+    @test rc.rounded.offset == rc.protocol.offset && rc.rounded_value == rc.value  # round = nothing
+    # NaN where a protocol is no good reads as Inf; a broken constraint is Inf
+    d = ObjectiveDesign(p -> p.B1e[1] > 10 ? NaN : bowl(p), m; acquisition = acq)
+    @test d([7e3, 11.0, 0.045, 0.045, 0.045]) == Inf
+    @test d(m) == bowl(m)                                  # a protocol given as a model
+    @test startswith(sprint(show, d), "ObjectiveDesign(QMTSPGRYarnykh, 3 images: offset[1] ∈ [1000.0, 20000.0]")
+    # the error paths, each naming what it is about
+    @test occursin("give `acquisition`", msg(() -> design(bowl, m)))
+    @test occursin("`lineshape` is not a per-image", msg(() -> design(bowl, m; acquisition = (lineshape = (0, 1),))))
+    @test occursin("`offset`'s entry 2", msg(() -> design(bowl, m; acquisition = (offset = [(1e3, 2e3), (5e3, 1e3), 0.0],))))
+    @test occursin("`round`: `TR`", msg(() -> design(bowl, m; acquisition = (offset = (1e3, 2e4),), round = (TR = 0.001,))))
+end

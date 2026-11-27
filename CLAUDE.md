@@ -24,7 +24,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `examples/one_free_parameter.jl` (one parameter fitted, the others known; about 25 s);
   `examples/compartments.jl` (six models written with `@mrimodel` and the compartments, fitted; about 30 s);
   `examples/directional_models.jl` (stick + zeppelin per image, with DTI's direction; about 30 s);
-  `examples/dki.jl` (the built-in DKI, its indices and the K ≥ 0 check; about 15 s)
+  `examples/dki.jl` (the built-in DKI, its indices and the K ≥ 0 check; about 15 s);
+  `examples/mtr_design.jl` (an MTR protocol by its CNR per √s, `design(f, m)`; about 30 s)
 - One example per part (each under a minute): `examples/fit_maps.jl` (files to maps),
   `examples/crlb.jl`, `examples/montecarlo.jl`, `examples/protocol_design.jl` (Dortch 2018 Table 2)
 - Benchmark vs LsqFit, NonlinearSolve and FastLevenbergMarquardt over the test cases in bench/cases.jl (`CASES` picks which): `julia -t auto --project=bench bench/solvers.jl`
@@ -105,8 +106,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `montecarlo` also take
 - src/design/: design.jl, `ProtocolDesign` (the objective of a protocol search, Eq. 5 by
   default, made once from scenarios: one cache per fit, the kernel per scenario, allocation-free);
+  objective.jl, `ObjectiveDesign` (an objective of your own, `design(f, m; acquisition)`: bounds
+  per image, a number to keep an entry, `shared`, `constraints`; MTR's CNR efficiency);
   search.jl, `design` (differential evolution, then Nelder–Mead, starts on threads;
-  the result rounded to the ms by a search of its own)
+  the result rounded, to the ms by default, by a search of its own; `round` by field too)
 - src/io/: data files in, maps out, on MRImages: encoding.jl (`diffusionencoding`: a .bval
   and a .bvec as a directional model's b and g (an SVector{3} per image), checked), data.jl (`readdata`,
   `readmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to

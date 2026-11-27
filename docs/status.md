@@ -408,9 +408,11 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   `mtr(m, θ)`, `mtr(m, data)` with a qMT acquisition (references found and paired), written by
   `writemaps` as one `MTRmap` (each volume's offset, power and references in its sidecar);
   decided with the owner: MTR a calculation (not a model), fractions everywhere, the reference
-  rules. Step 3 too: MTR's errors from the images, `propagate(m, θ, g)` and `montecarlo(m, θ,
-  g)` for any function of the images. Next: `design` for MTR's CNR efficiency, and `equip mtr`
-  (design.md item 5). `qmt-family` merged (18974d4); the
+  rules. Steps 3 and 4 too: MTR's errors from the images, `propagate(m, θ, g)` and
+  `montecarlo(m, θ, g)` for any function of the images; `design(f, m)` for an objective of your
+  own (examples/mtr_design.jl: MTR's CNR per √s, +21% over a common protocol). Before merging:
+  the full Pkg.test, and CI first (the precompile workload runs `design`). Next: `equip mtr`;
+  then MTsat (a model or not: the owner's to decide), B1 and B0 maps (design.md item 5). `qmt-family` merged (18974d4); the
   branch is to delete (`git push origin --delete qmt-family`).
 - Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
   VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.

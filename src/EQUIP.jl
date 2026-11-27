@@ -80,7 +80,7 @@ export ricianmean, ricianvar, ricianinformation, RicianMean, ricianbound   # Ric
 export sandwich, biasedcrlb
 export cond, cor, leakage, LeakageResult                                    # diagnostics
 export propagate, Propagation                                               # functions of the parameters
-export ProtocolDesign, design, DesignResult                                 # protocol design
+export ProtocolDesign, ObjectiveDesign, design, DesignResult                # protocol design
 export informationmatrix, vcov, stderror                                    # StatsAPI's names
 export readdata, readmap, DataInfo, writemaps, writetable                  # data in, maps out
 export diffusionencoding                                                    # .bval + .bvec -> b, gx, gy, gz
@@ -131,6 +131,7 @@ include("errors/sweep.jl")             # Sweep: crlb or montecarlo over noise le
 
 # design: protocols chosen by their predicted errors (uses errors)
 include("design/design.jl")            # ProtocolDesign: the objective (Eq. 5), made once
+include("design/objective.jl")         # ObjectiveDesign: a search for an objective of your own
 include("design/search.jl")            # design: the search (differential evolution, Nelder–Mead)
 
 # io: data files in, maps out (MRImages reads and writes the files; here, what fitting needs)

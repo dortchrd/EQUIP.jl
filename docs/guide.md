@@ -1229,6 +1229,37 @@ r.rounded, r.rounded_value      # to the ms: 0.243312
   Table 2 optima (4-point 0.2433, 5-point 1.6020) in seconds; docs/design.md has the
   comparison with simulated annealing and a genetic algorithm.
 
+### An objective of your own: MTR's CNR efficiency
+
+`ProtocolDesign` judges a protocol by a fit's errors. For a quantity calculated from the images
+(MTR), or anything else, give the objective yourself: `design(f, m; acquisition, ...)` searches
+`f(p)` (a number to minimize) over candidate protocols `p`, with the same search. Each varied
+field takes its bounds for every image, `(lo, hi)`, or one entry per image, a range to vary or
+a number to keep, so that an MTR protocol's reference stays where it is; `shared` gives a
+field's varied entries one value; `constraints` as above; `round` by field (none by default).
+The images keep their order.
+
+```julia
+# MTR's CNR between white matter and a lesion per √(scan time): one MT image and its MT-off
+# reference, TR and the flip angle shared (the reference's readout the MT image's), a SAR limit
+function cnrefficiency(p)
+    g(y) = mtr(p, y).mtr[1]
+    a, b = propagate(p, wm, g; snr = 800), propagate(p, lesion, g; snr = 800)
+    return abs(a.truth - b.truth) / sqrt(a.sd^2 + b.sd^2) / sqrt(2 * p.TR[1])
+end
+m = QMTSPGRYarnykh(offset = [2e3, 0.0], B1e = [6.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+r = design(p -> -cnrefficiency(p), m;                 # a maximum, searched as a negative minimum
+           acquisition = (offset = [(2e3, 20e3), 0.0], B1e = [(1.0, 12.0), 0.0], TR = (0.02, 0.1), FA = (3.0, 30.0)),
+           shared = (:TR, :FA), constraints = p -> 25.6 - p.B1e[1]^2 * p.tm[1] / p.TR[1],
+           round = (offset = 100, B1e = 0.1, TR = 0.001, FA = 0.5))
+```
+
+examples/mtr_design.jl runs it (illustrative tissues; 3 s): 2 kHz, 6.5 µT, TR 20 ms, 13°, at
+the SAR limit, a CNR per √s of 31.0 against 25.6 for 2 kHz, 6 µT, TR 30 ms, 10°. The offset and
+TR end on their lower bounds; allowed down to 1 kHz the search goes there (32.1), where
+Yarnykh's model is least exact. The objective is called from several threads at once (a start
+each): it must not share buffers between calls.
+
 ## Data files
 
 `using EQUIP` reads and writes NIfTI files with their BIDS sidecars, through

@@ -6145,6 +6145,29 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        −0.0179 predicted; SD 0.238 against 0.217), and Rician noise triples the bias (−0.057:
        the magnitude floor lifts the MT image more than the reference). 100,000 copies take
        about 9 s (`mtr(m, y)` finds the pairs again for every copy; to measure if it matters).
+     - **A protocol by MTR's CNR efficiency: `design(f, m)`** (step 4, built; the owner: "Yes,
+       build step 4"). ProtocolDesign's objective is Eq. 5 (a fit's errors, crlb's kernel);
+       `ObjectiveDesign` takes any `f(p)` of a candidate protocol, and `design` searches either
+       with the same code (src/design/objective.jl; the search needs only the bounds, `_rank`
+       and the protocol from x). New with it: bounds per image, a number to keep an entry (an
+       MTR protocol's reference stays put); `shared`; `round` per variable, by field or one for
+       all (ProtocolDesign keeps its 1 ms by default, none for an objective of your own); the
+       images not sorted (an objective may depend on their order, a reference by index). Not
+       allocation-free: the objective is the user's code. Checked: ProtocolDesign's search bit
+       for bit before and after (the 4-point SIR, a fixed seed: the protocol, the values, the
+       rounded result, every start, the evaluations); an objective with a known minimum found,
+       kept entries kept, shared values shared, the rounding steps, a constraint moving the
+       optimum onto itself (test/integration/design.jl). Fixed with it: the result's display
+       counted the starts within 1% of the best as `v ≤ 1.01·value`, so for a maximum searched
+       as a negative minimum it said 0 of 8 (regression test). Measured (examples/mtr_design.jl,
+       illustrative tissues: white matter, PSR 0.15, against a lesion, PSR 0.08, longer T1 and
+       T2f; one MT image and an MT-off reference, tm 12 ms; offset, power, TR and flip angle
+       searched, TR and FA shared; a SAR limit, B1e²·tm/TR ≤ 25.6 µT²; snr = 800 on M0f; 8
+       starts, 81,490 evaluations, 3.2 s, 40 µs each): from 2 kHz, 2 kHz, 6.5 µT, TR 20 ms, 13°,
+       CNR per √s 31.0 against 25.6 for 2 kHz, 6 µT, TR 30 ms, 10° (+21%); from 1 kHz, 1 kHz,
+       10.9 µT, TR 56 ms, 23.5°, 32.1. Both on the offset's lower bound and at the SAR limit;
+       near resonance Yarnykh's model is least exact, so the exact two-pool equations (item 6's
+       next step) are what to judge that corner by.
      - **Its errors from the images, not from a fit.** `propagate(c, g)` takes crlb's covariance
        of a fit's parameters; an MTR protocol (a reference and a few MT images) has no qMT fit to
        take it from (it gives MTR's error only when a fit has exactly as many free parameters as
