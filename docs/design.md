@@ -8950,3 +8950,28 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
      model's parameters (fixed by `parameters`; a misspelt one is an error at once), so writing
      them again costs nothing. The same matrix bit for bit (Float64, Float32, mixed types, duals,
      `fromderived`'s six alone), nothing allocated.
+31. **Joint models: several scans fitted as one** (the owner, 2026-11-27: "put joint models on the
+   roadmap"; first raised 2026-11-26: "you can fit t1 and qmt model same time. Prob actually
+   better? Need a way to do this at some point"). A model made from other models, each part's
+   observations concatenated and their parameters merged by name: those the scans share
+   estimated once from all the data (PSR, kmf, R1f, R1m, B1), those of one scan kept apart (each
+   scan's M0, which receive gain and the sequence scale differently; each scan's noise level).
+   An ordinary `MRIModel`, so `fit`, `crlb`, `montecarlo`, `leakage`, `uncertain` and protocol
+   design take it unchanged; design then also divides the scan time between the sequences.
+   - **Why**: measured for pulsed MT, where the VFA images already fit inside one model (item 6,
+     "The joint fit", bench/qmt/joint_r1.jl): PSR's RMSE 6.4% against 14.6% with an R1 map (no
+     map noise to propagate; no single-pool R1, 14% off on two-pool tissue; B1's error largely
+     cancelling in PSR when the same B1 enters every part, Yarnykh's single-point argument).
+     Joint models give the same to scans whose signal equations differ: SIR with VFA, MT-SPGR with
+     an IR T1 scan, either with a B1 mapping scan.
+   - **A first form** (a sketch): `joint(QMTSIR(; SIR_5POINT...), QMTSPGRYarnykh(offset =
+     zeros(3), B1e = zeros(3), TR = 0.015, FA = [3, 10, 20], tm = 0.012, ts = 0.002); separate =
+     (:M0f,))`, its data the scans' images side by side.
+   - **To decide**: (1) what is "the same parameter": names must mean the same physics, so each
+     part is written with the same pools (a single-pool T1MFA's R1 is not the two-pool R1f: the
+     VFA part two-pool); renames where names differ (`shared = (R1 = :R1f,)`?); (2) a parameter
+     per scan (`separate`), its name in the joint model (`M0f_1`, `M0f_2`?); (3) the noise, a σ
+     per part (weights, or `σ` per observation, which crlb already takes); (4) data from several
+     files and geometries (`readdata` per part, then stacked; registration outside EQUIP); (5) the
+     command line and sidecars (a provenance per part). First case, when built: SIR with a
+     two-pool VFA (the owner's data).

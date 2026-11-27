@@ -394,6 +394,8 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   The two directional ones start from DTI's principal direction.
 - Then: MTR, MTsat, B1 and B0 maps (item 5); pulsed qMT (item 6); NODDI (item 7); free-water
   DTI; DKI's constraints (K ≥ 0 in every direction) imposed, not only checked.
+- Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
+  VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.
 - SAGE (item 25, 2026-11-20): R2* and R2 from spin- and gradient-echo data (Keeling et al.,
   MRI 2024), the paper's Eq. 1 with δ = S0ᴵ/S0ᴵᴵ (three- or four-parameter as δ fixed or free),
   fixed starts. Prototyped and measured (design.md item 25); to decide: rates/times, R2* ≥ R2,
