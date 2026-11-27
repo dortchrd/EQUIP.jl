@@ -6441,6 +6441,20 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        Bloch equations (Mx, My, Mz) through the shaped MT pulse segment by segment, the bound pool
        saturated per segment, the excitations and spoiling as played; then Yarnykh's and Ramani's
        bias offset by offset, and which offsets a protocol should leave out (ours starts at 1 kHz).
+     - **Henkelman's model is the family's** (the owner, 2026-11-27: "why is QMTSPGRRamani in the
+       cw file? ... i would say the cw henkelman is the mother model if you will and the two spgr
+       approx and other should inherit from it rather than using yarnykh"). The two-pool model
+       under saturation is the physics the pulsed models approximate, so it holds what they
+       share: qmt_cw.jl has `QMTCWHenkelman` with the parameter table (free, fixed, bounds,
+       starts), the R1f tie `_r1ffromobserved` and γ; qmt_spgr.jl has both pulsed models,
+       `QMTSPGRYarnykh` and `QMTSPGRRamani` (one acquisition, `_pulsedspgr`), each with
+       `parameters(::Type{<:...}) = parameters(QMTCWHenkelman)`. Julia has no subclasses of a
+       concrete type (a struct cannot extend another), so "inherits" is this delegation: one
+       method that returns the other's; an abstract family type (`abstract type TwoPoolMT`) would
+       do the same for many models with one method, not needed for two. Moved, not changed:
+       every qMT model's signal and Jacobian bit for bit, both precisions; the compiled code the
+       same (the table is a constant either way). With it, `_b1eperdegree`'s message names the
+       model it was given to (it said QMTSPGRYarnykh for Ramani's too).
      - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
        "would it be more efficient for lineshape to take all deltas at same time and calc once",
        then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about

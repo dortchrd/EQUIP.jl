@@ -111,7 +111,7 @@ include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the seg
 include("qmt/lineshapes.jl")             # absorption lineshapes: lorentzian, gaussian, superlorentzian
 include("qmt/pulses.jl")                 # RFPulse, blockpulse; inversionefficiency (Sf), saturationefficiency (Sm)
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery
-include("qmt/twopool.jl")                # two pools on 2×2 static matrices: exchange, exponential, saturated steady state
-include("qmt/qmt_spgr.jl")               # QMTSPGRYarnykh: pulsed MT with SPGR
-include("qmt/qmt_cw.jl")                 # QMTCWHenkelman (continuous wave), QMTSPGRRamani (its pulsed approximation)
+include("qmt/twopool.jl")                # two pools on 2×2 static matrices: the equations (in each model), the 2×2 exponential
+include("qmt/qmt_cw.jl")                 # QMTCWHenkelman: two pools under CW saturation; the family's parameters
+include("qmt/qmt_spgr.jl")               # QMTSPGRYarnykh, QMTSPGRRamani: pulsed MT with SPGR, Henkelman's parameters
 include("qmt/mtnames.jl")                # the MT models' names: MPF derived; other conventions' names as hints

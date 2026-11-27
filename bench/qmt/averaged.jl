@@ -6,7 +6,7 @@ import EQUIP: MRIModel, parameters, signal!
 struct AvgSPGR{M} <: MRIModel
     m::M
 end
-parameters(::Type{<:AvgSPGR}) = parameters(QMTSPGRYarnykh)
+parameters(::Type{<:AvgSPGR}) = parameters(QMTCWHenkelman)
 EQUIP.nobs(a::AvgSPGR) = nobs(a.m)
 function signal!(out, a::AvgSPGR, p)
     (; offset, B1e, tm, TR, FA, lineshape) = a.m

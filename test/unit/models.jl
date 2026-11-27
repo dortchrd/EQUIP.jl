@@ -312,9 +312,15 @@ end
     s = sqrt(SPGR_ACQ.tm / SPGR_ACQ.TR)
     @test signal(mr, θ) ≈ signal(QMTCWHenkelman(offset = SPGR_ACQ.offset, B1cw = s .* SPGR_ACQ.B1e), θ) rtol = 1e-14
     @test signal(QMTSPGRRamani(; SPGR_ACQ..., FA = 30, ts = 0.004), θ) == signal(mr, θ)
-    @test keys(parameters(mr)) == keys(parameters(QMTSPGRYarnykh)) == keys(parameters(mc))
+    # the family's parameters: Henkelman's, which the pulsed models take
+    @test parameters(QMTSPGRYarnykh) == parameters(QMTSPGRRamani) == parameters(QMTCWHenkelman)
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
     @test occursin("QMTSPGRRamani: TR", msg(() -> QMTSPGRRamani(; SPGR_ACQ..., TR = 0.010)))
+    # an MT pulse's shape with no net flip angle (a 1-1̄ binomial; in floating point its sum is
+    # 1e-14°, not 0, which had passed and given a B1e 10¹⁶ too large) is refused, the message
+    # naming the model it was given to
+    @test occursin("QMTSPGRRamani: the MT pulse", msg(() -> QMTSPGRRamani(offset = [1e3, 0], ts = 0.002, TR = 0.030,
+        FA = 10, mtpulse = RFPulse([90, 90], [0, 180], 1e-3), mtflip = [600, 0])))
     @test occursin("B1cw has 2", msg(() -> QMTCWHenkelman(offset = [1e3, 2e3, 0.0], B1cw = [1.0, 2.0])))
 end
 

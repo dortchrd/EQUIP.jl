@@ -1,6 +1,6 @@
 # =================================================================================================
 # Two-pool (qMT) relaxation and exchange on static 2×2 matrices: the equations the models write
-# in their own signals (qmt_spgr.jl, qmt_cw.jl), and the one piece they share, the 2×2 matrix
+# in their own signals (qmt_cw.jl, qmt_spgr.jl), and the one piece they share, the 2×2 matrix
 # exponential in closed form (a mathematical tool, as `inner`; the physics stays in each model).
 #
 # The longitudinal magnetizations of the free (f) and macromolecular (m) pools, M = [Mzf, Mzm], in

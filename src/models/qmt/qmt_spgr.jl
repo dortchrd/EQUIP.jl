@@ -4,6 +4,14 @@
 #   QMTSPGRYarnykh   Yarnykh's model: the MT pulse as a rectangular pulse of the same energy over
 #                    its duration (its power-equivalent amplitude B1e), each pool saturated at a
 #                    constant rate during it; the sequence's steady state in closed form
+#   QMTSPGRRamani    Ramani's: the MT pulse replaced by continuous-wave saturation of the same
+#                    power averaged over TR (its continuous-wave power equivalent, CWPE), the
+#                    excitations neglected (Ramani et al., Magn Reson Imaging 2002;20:721-731):
+#                    Henkelman's CW steady state (qmt_cw.jl) at that amplitude
+#
+# Both approximate the two-pool model under saturation, QMTCWHenkelman (qmt_cw.jl), and take its
+# parameters. Their acquisition is one (a shared constructor, `_pulsedspgr`), so they compare on
+# one protocol.
 #
 # References:
 #   Yarnykh, Magn Reson Med 2002;47:929-939             the model (pulsed Z-spectroscopy)
@@ -36,10 +44,6 @@
 # and the signal is the free pool's Mz excited: S = M0f·sin α·Mzf (M in units of M0f).
 # =================================================================================================
 
-# The proton's gyromagnetic ratio, γ/2π = 42.577478518 MHz/T (CODATA 2018), as rad/s per µT
-# (the MATLAB's 42.58·2π differs by 5e-5)
-const _GAMMA_H = 2π * 42.577478518
-
 """
     QMTSPGRYarnykh(; offset, B1e, tm, ts, TR, FA, lineshape = superlorentzian)
     QMTSPGRYarnykh(; offset, mtpulse, mtflip, ts, TR, FA, lineshape = superlorentzian)
@@ -67,17 +71,15 @@ state under saturation (Henkelman et al., MRM 1993).
   - `FA` (degrees): the excitation's flip angle
 - an image without the MT pulse: `B1e = 0` (or `mtflip = 0`), its offset anything. Include
   one: it fixes M0f, and is fitted as any other image (not divided into the others)
-- option: `lineshape`, the macromolecular pool's (`superlorentzian`, the default, for tissue;
-  `gaussian`, `lorentzian`, or a function `(T2, Δ) -> g` of your own); the free pool's is
-  Lorentzian
-- free by default: `PSR` (pool size ratio M0m/M0f), `kmf` (1/s, exchange m→f; kfm = kmf·PSR),
-  `T2f` (s), `T2m` (s), `M0f`
-- fixed by default: `R1m = 1` 1/s; `R1f` tied to `R1obs`, the R1 a separate (single-pool) R1 map
-  measures, so that the two pools' slower recovery rate is R1obs:
-  R1f = R1obs − kfm·(R1m − R1obs)/(R1m + kmf − R1obs); `R1obs = 1.0` 1/s: give your map,
-  `fit(m, data; R1obs = r1map)`, or fit R1f, `R1f = Free(start = 1.0)` (images at several
-  flip angles or TRs determine it); `B1 = 1` (relative: scales the excitation and the MT pulse),
-  `B0 = 0` (Hz: the local water resonance's shift, which moves every offset)
+- option: `lineshape`, the macromolecular pool's, as [`QMTCWHenkelman`](@ref)'s
+  (`superlorentzian` by default)
+- the parameters: `QMTCWHenkelman`'s, the two-pool model under saturation. Free by default:
+  `PSR` (pool size ratio M0m/M0f), `kmf` (1/s, exchange m→f; kfm = kmf·PSR), `T2f` (s), `T2m`
+  (s), `M0f`. Fixed by default: `R1m = 1` 1/s; `R1f` tied to `R1obs`, the R1 a separate
+  (single-pool) R1 map measures (`fit(m, data; R1obs = r1map)`), or fitted,
+  `R1f = Free(start = 1.0)` (images at several flip angles or TRs determine it); `B1 = 1`
+  (relative: scales the excitation and the MT pulse), `B0 = 0` (Hz: the local water
+  resonance's shift, which moves every offset)
 
 ```julia
 offsets = [1e3, 2e3, 4e3, 8e3, 16e3, 32e3]
@@ -102,7 +104,7 @@ QMTSPGRYarnykh(; kw...) = QMTSPGRYarnykh(_pulsedspgr(QMTSPGRYarnykh; kw...)...)
 # A pulsed-MT SPGR acquisition from its keywords, checked, as the fields in order (offset, B1e,
 # tm, ts, TR, FA, lineshape): the MT pulse as B1e and tm, or as its shape and flip angle; each
 # field one number for every image or one per image. Shared by QMTSPGRYarnykh and QMTSPGRRamani
-# (qmt_cw.jl), `M` naming the model in the messages.
+# (below), `M` naming the model in the messages.
 function _pulsedspgr(M; offset, ts, TR, FA, B1e = nothing, tm = nothing, mtpulse = nothing, mtflip = nothing,
                      lineshape = superlorentzian)
     name = nameof(M)
@@ -120,7 +122,7 @@ function _pulsedspgr(M; offset, ts, TR, FA, B1e = nothing, tm = nothing, mtpulse
             throw(ArgumentError("$name: the MT pulse as `mtpulse` and `mtflip`, or as `B1e` and `tm`, not both"))
         mtflip === nothing && throw(ArgumentError("$name: `mtpulse` needs `mtflip`, its flip angle per image (degrees)"))
         t = fill(sum(mtpulse.duration), n)
-        b = per(mtflip, :mtflip) .* _b1eperdegree(mtpulse)
+        b = per(mtflip, :mtflip) .* _b1eperdegree(mtpulse, name)
     end
     tsv, TRv = per(ts, :ts), per(TR, :TR)
     for j in 1:n
@@ -136,32 +138,20 @@ end
 # An MT pulse's power-equivalent amplitude per degree of its nominal flip angle (µT/degree): its
 # shape, as given, has ∫ω1²dt = Σ αₖ²/τₖ over its duration tm (pulses.jl) and the net flip angle
 # |Σ αₖ·e^(iφₖ)| (its rotation on resonance); scaled to flip angle θ, ω1e = (θ/net)·√(∫ω1²dt/tm),
-# and B1e = ω1e/γ
-function _b1eperdegree(p::RFPulse)
+# and B1e = ω1e/γ (`name`, the model's, for the message). A shape whose segments cancel (a 1-1̄
+# binomial, 90° at 0° then 90° at 180°) has no net flip angle; in floating point its sum is not
+# exactly 0 (cis(π) = −1 + 1.2e-16i), so the test is relative to the flip angles' total
+function _b1eperdegree(p::RFPulse, name)
     net = abs(sum(((α, φ),) -> α * cis(deg2rad(φ)), zip(p.flip, p.phase)))
-    net > 0 || throw(ArgumentError("QMTSPGRYarnykh: the MT pulse's shape has no net flip angle, so `mtflip` cannot scale it; give B1e and tm"))
+    net > sqrt(eps()) * sum(abs, p.flip) ||
+        throw(ArgumentError("$name: the MT pulse's shape has no net flip angle, so `mtflip` cannot scale it; give B1e and tm"))
     return sqrt(_rfenergy(p) / sum(p.duration)) / _GAMMA_H / net
 end
 
-parameters(::Type{<:QMTSPGRYarnykh}) = (
-    PSR = Free(start = 0.15, lower = 0, upper = 1),
-    kmf = Free(start = 20.0, lower = 0),            # 1/s; kfm = kmf·PSR
-    T2f = Free(start = 0.04, lower = 1e-3, upper = 0.5),
-    T2m = Free(start = 12e-6, lower = 1e-6, upper = 50e-6),
-    M0f = Free(start = :scale, lower = 0),
-    R1f = Fixed(_r1ffromobserved),                  # tie: the slower recovery rate is R1obs
-    R1m = Fixed(1.0; lower = 0),                    # 1/s, the pulsed-MT convention
-    R1obs = Fixed(1.0),                             # 1/s: an R1 map's value (give the map)
-    B1 = Fixed(1.0; lower = 0),                     # relative: the excitation and the MT pulse
-    B0 = Fixed(0.0),                                # Hz: the local water resonance's shift
-)
-
-# R1f from the observed R1: the two pools' slower recovery rate (the smaller eigenvalue of −A,
-# what a single-pool R1 map measures) set to R1obs. From det(−A − R1obs·I) = 0,
-# (R1f + kfm − R1obs)·(R1m + kmf − R1obs) = kfm·kmf, so
-#   R1f = R1obs − kfm·(R1m − R1obs)/(R1m + kmf − R1obs)
-# (R1m = R1obs: R1f = R1obs, whatever the exchange)
-_r1ffromobserved(p) = p.R1obs - p.kmf * p.PSR * (p.R1m - p.R1obs) / (p.R1m + p.kmf - p.R1obs)
+# The parameters, their roles and the R1f tie: QMTCWHenkelman's (qmt_cw.jl), the two-pool model
+# under saturation that the pulsed models approximate (the method delegates: Julia's way to share
+# a definition between concrete types)
+parameters(::Type{<:QMTSPGRYarnykh}) = parameters(QMTCWHenkelman)
 
 function signal!(out, m::QMTSPGRYarnykh, p)
     (; offset, B1e, tm, ts, TR, FA, lineshape) = m
@@ -203,6 +193,60 @@ function signal!(out, m::QMTSPGRYarnykh, p)
         rhs = (EsEm * (I - Er) + I - Es) * M0 + Es * ((I - Em) * Mss)
         Mz = (I - EsEm * Er * C) \ rhs                      # just before the excitation
         out[j] = M0f * sin(α) * Mz[1]
+    end
+    return out
+end
+
+# --- Ramani's approximation ---------------------------------------------------------------------
+# The CWPE amplitude: ω1,CWPE² = (1/TR)·∫ω1²dt over the MT pulse = (tm/TR)·ω1e², with ω1e the
+# pulse's power-equivalent amplitude over its own duration (Yarnykh's B1e). Its approximations
+# against Yarnykh's model (the same acquisition): the saturation spread over the whole TR (exact
+# only for TR short against the exchange and relaxation), and the excitations' effect on the free
+# pool left out (small for small flip angles; the MT-off image then gives M0f). So its images are
+# all at one flip angle and TR: VFA images in the same fit (as QMTSPGRYarnykh takes) are not for it.
+
+"""
+    QMTSPGRRamani(; offset, B1e, tm, ts, TR, FA, lineshape = superlorentzian)
+    QMTSPGRRamani(; offset, mtpulse, mtflip, ts, TR, FA, lineshape = superlorentzian)
+
+Pulsed MT with a spoiled gradient echo, Ramani et al.'s approximation (Magn Reson Imaging 2002):
+the MT pulse replaced by continuous-wave saturation of the same power averaged over TR, its
+continuous-wave power equivalent ω1,CWPE² = (tm/TR)·(γ·B1·B1e)², and the excitations neglected,
+so the signal is [`QMTCWHenkelman`](@ref)'s steady state at that amplitude: S = M0f·Mzf. The
+acquisition as [`QMTSPGRYarnykh`](@ref)'s (the same keywords; `ts` and `FA` taken and unused:
+the approximation leaves them out), so the two compare on one protocol. Its images are at one
+flip angle and TR, with an image without the MT pulse (`B1e = 0`) for M0f; VFA images in the
+same fit, as `QMTSPGRYarnykh` takes them, are not for it. The parameters: `QMTCWHenkelman`'s.
+No exponentials: a 2×2 solve an image.
+"""
+struct QMTSPGRRamani{A<:AbstractVector,L} <: MRIModel
+    offset::A           # the MT pulse's offset from water (Hz)
+    B1e::A              # its power-equivalent amplitude over its duration (µT); 0, no MT pulse
+    tm::A               # its duration (s)
+    ts::A               # from its end to the excitation (s): not used (Ramani's approximation)
+    TR::A               # repetition time (s)
+    FA::A               # the excitation's flip angle (degrees): not used
+    lineshape::L        # the macromolecular pool's lineshape, (T2, Δ) -> g
+end
+QMTSPGRRamani(; kw...) = QMTSPGRRamani(_pulsedspgr(QMTSPGRRamani; kw...)...)
+
+# The parameters: QMTCWHenkelman's, as QMTSPGRYarnykh's
+parameters(::Type{<:QMTSPGRRamani}) = parameters(QMTCWHenkelman)
+
+# Henkelman's steady state (QMTCWHenkelman's, qmt_cw.jl) at the continuous-wave power equivalent,
+# ω1² = (tm/TR)·ω1e²: the MT pulse's power spread over TR
+function signal!(out, m::QMTSPGRRamani, p)
+    (; offset, B1e, tm, TR, lineshape) = m
+    (; PSR, kmf, T2f, T2m, M0f, R1f, R1m, B1, B0) = p
+    kfm = kmf * PSR                                         # exchange f→m
+    @inbounds for j in eachindex(out, offset, B1e, tm, TR)
+        ω1² = (tm[j] / TR[j]) * (oftype(B1e[j], _GAMMA_H) * B1 * B1e[j])^2   # the CWPE: the power over TR
+        Δ = offset[j] - B0
+        gf, gm = lorentzian(T2f, Δ), lineshape(T2m, Δ)
+        Wf = iszero(ω1²) ? zero(gf) * ω1² : π * ω1² * gf     # each pool's saturation rate
+        Wm = iszero(ω1²) ? zero(gm) * ω1² : π * ω1² * gm
+        Mzf = (kfm * R1m + R1f * (R1m + kmf + Wm)) / (kfm * (R1m + Wm) + (R1f + Wf) * (R1m + kmf + Wm))
+        out[j] = M0f * Mzf
     end
     return out
 end
