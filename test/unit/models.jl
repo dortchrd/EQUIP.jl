@@ -290,18 +290,18 @@ end
     θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.0, B1 = 0.95, B0 = 30.0)
     off, b1 = [0.5e3, 1e3, 2e3, 4e3, 8e3, 16e3, 0.0], [fill(2.0, 6); 0.0]
     mc = QMTCWHenkelman(offset = off, B1cw = b1)
-    # Henkelman et al. 1993's closed form, R = kmf (M0f = 1), M0B = PSR, R_A = R1f, R_B = R1m, its
-    # free-pool term (ω1/2πΔ)²/(R_A·T2A) the Lorentzian rate far from resonance, here in full
-    # (Wf/R1f); the irradiation scaled by B1, the offsets moved by B0
-    function henkelman(o, b)
+    # The model is Henkelman et al. 1993's closed form; against the two-pool steady state as the
+    # linear system it solves, (W − A)·Mss = R1·M0, solved by LinearAlgebra (kfm = kmf·PSR; the
+    # irradiation scaled by B1, the offsets moved by B0)
+    function steadystate(o, b)
+        b == 0 && return 1.0
         ω1² = (2π * 42.577478518 * 0.95 * b)^2
         Δ = o - 30.0
         Wf, Wm = π * ω1² * lorentzian(0.04, Δ), π * ω1² * superlorentzian(12e-6, Δ)
-        q = 20.0 * 0.15 / 1.2                                     # R·M0B/R_A
-        b == 0 && return 1.0
-        return (1.0 * q + Wm + 1.0 + 20.0) / (q * (1.0 + Wm) + (1 + Wf / 1.2) * (Wm + 1.0 + 20.0))
+        A = [-(1.2 + 20.0 * 0.15) 20.0; 20.0 * 0.15 -(1.0 + 20.0)]
+        return ((Diagonal([Wf, Wm]) - A) \ [1.2, 1.0 * 0.15])[1]
     end
-    @test signal(mc, θ) ≈ henkelman.(off, b1) rtol = 1e-12
+    @test signal(mc, θ) ≈ steadystate.(off, b1) rtol = 1e-12
     # the free pool alone (PSR = 0): the Bloch equations' steady state under CW irradiation,
     # Mz/M0 = (1 + (ΔωT2)²)/(1 + (ΔωT2)² + ω1²·T1·T2)
     ω1², Δω = (2π * 42.577478518 * 0.95 * 2.0)^2, 2π * (1e3 - 30.0)

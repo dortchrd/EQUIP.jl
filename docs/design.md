@@ -6394,6 +6394,23 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        against 14.3%. Speed: one signal 0.59 against 1.17 µs, one voxel's fit 9.5 against 29.1 µs,
        a whole brain 0.8 against 2.4 s (4 threads; 8.3 and 8.1 iterations). In the precompile
        workload and the test cases (noise-free recovery, no allocation, both precisions).
+       **Henkelman's closed form in the code** (the owner, 2026-11-27: "henkelman provides a closed
+       form analytic expression - why not use?", then "benchmark both - i would think simple forward
+       model faster"). The 2×2 solve was that form already (equal to 1e-12; StaticArrays solves
+       a 2×2 system by Cramer's rule, one division by the determinant); the CW models need only
+       the free pool, so their code is now his formula, times R1f top and bottom so it divides
+       once: Mzf/M0f = [kfm·R1m + R1f·(R1m + kmf + Wm)] / [kfm·(R1m + Wm) + (R1f + Wf)·(R1m + kmf +
+       Wm)]. Equal to the solve to rounding (signals 4.5e-16, Jacobians 4.2e-15 a column), and
+       exact on the image without the MT pulse (1, derivatives 0, where the solve left 1e-13).
+       Measured (bench/qmt/cw_form.jl, 13 images, the best of three alternating runs; ±10–20% run
+       to run): as written by Henkelman, three divisions, a fit's signal (dual numbers, 5
+       partials) 1.5× the solve's (1203 against 817 ns), a whole brain 1.08 against 0.77 s (each
+       division of duals is the quotient rule for every partial); with one, plain signals the same
+       (471 against 458 ns), dual ones still 1.5× (1120–1212 against 760–778 ns: the solve's
+       arithmetic vectorizes better), one voxel's fit 5–20% slower (9.7–11.7 against 9.2–9.7 µs),
+       a whole brain the same within the noise (0.81–0.84 against 0.80–0.86 s). Kept the formula,
+       for reading against the paper: the owner's "clean, readable forward models over marginal
+       performance gains". Yarnykh's model keeps the solve (it needs both pools' steady state).
        The owner (2026-11-27): "i think this is known. and yarnykh is biased for smaller offsets".
        Ramani's excitation bias is known; and Yarnykh's model is itself approximate near
        resonance (its abstract: "far from resonance"; the simplified CRI form, Δ > 2.5 kHz,
