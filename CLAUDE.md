@@ -66,8 +66,10 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `QMTCWHenkelman` (CW saturation, Henkelman 1993: the family's model, holding the parameters,
   defaults and R1f tie, `_r1ffromobserved`, that the pulsed models take by delegating,
   `parameters(::Type{<:QMTSPGRYarnykh}) = parameters(QMTCWHenkelman)`); qmt_spgr.jl, the pulsed
-  models with SPGR, `QMTSPGRYarnykh` (Yarnykh 2002) and `QMTSPGRRamani` (by its CW power
-  equivalent, Ramani 2002), one acquisition (`_pulsedspgr`); mtr.jl, `mtr(S, Sref)`, MTR
+  models with SPGR, `QMTSPGRYarnykh` (Yarnykh 2002), `QMTSPGRRamani` (by its CW power
+  equivalent, Ramani 2002) and, on branch `mamt-proto`, `QMTSPGRPortnoy` (Portnoy & Stanisz
+  2007's MAMT: the two-pool Bloch equations through the shaped MT pulse, the reference for the
+  other two), one acquisition (`_pulsedspgr`); mtr.jl, `mtr(S, Sref)`, MTR
   calculated from images (not a model; NaN where the reference cannot divide), and `mtr(m, θ)`,
   `mtr(m, data)` with a qMT acquisition (the references found and paired, `_mtrpairs`; an
   `MTRResult`, which `writemaps` writes as `MTRmap`); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a

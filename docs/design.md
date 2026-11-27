@@ -6563,6 +6563,27 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        every qMT model's signal and Jacobian bit for bit, both precisions; the compiled code the
        same (the table is a constant either way). With it, `_b1eperdegree`'s message names the
        model it was given to (it said QMTSPGRYarnykh for Ramani's too).
+     - **The exact reference: Portnoy & Stanisz's MAMT** (2026-11-27, branch `mamt-proto`; the
+       owner pointed to it: "look at MAMT", Portnoy & Stanisz, Magn Reson Med 2007;58:144).
+       `QMTSPGRPortnoy`: the two-pool Bloch equations with no approximation but the two pools
+       (their Eqs. 1a-1d): the free pool's (Mx, My, Mz), so its direct saturation is its own
+       rotation (Yarnykh's has it as a rate), the bound pool's Mz saturated at π·ω1²·g; the shaped
+       MT pulse as segments, each exact (their Eq. 6) as one 5×5 exponential with 1 as a fifth
+       coordinate; ideal spoiling (the owner: "ideal spoiling for now"); the steady state one 2×2
+       solve, Yarnykh's formula with the pulse's map in place of Em and (I − Em)·Mss. The 5×5
+       exponential is StaticArrays' (dual numbers fine; 0.4 µs plain, 6.6 µs with 10 partials,
+       no allocation): `_expm2`'s closed form is for 2×2 (the longitudinal pair), and a 4×4 with
+       complex eigenvalues has none as simple. Not used: MRIgeneralizedBloch.jl (Assländer et
+       al., MIT; its fast linear approximation takes rectangular pulses only, its derivatives are
+       its own, not ForwardDiff, and it depends on DifferentialEquations, DelayDiffEq, ApproxFun
+       and more). Verified (bench/qmt/mamt_rk4.jl) against an RK4 integration of Eqs. 1a-1d (no
+       exponential): 3.6e-10 (block), 6.3e-13 (a 64-segment Gaussian). Yarnykh's signal against
+       it (white matter, 12-ms block, TR 30 ms, 10°): +20% and +79% at 1 kHz (4 and 8 µT), +9%
+       and +5% at 2 kHz, +2% and +4% at 5 kHz, +0.6% and +1.6% at 10 kHz, under 0.1% from 50 kHz;
+       the MT-off images equal. So the MTR design's optima at 1-2 kHz (item 5) were found where
+       Yarnykh's model is wrong: to redo with this model. The excitation's saturation of the
+       bound pool is neglected, as in Yarnykh's (open: it matters at high flip angles and short
+       TR).
      - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
        "would it be more efficient for lineshape to take all deltas at same time and calc once",
        then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about

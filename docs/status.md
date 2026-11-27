@@ -1,7 +1,64 @@
-# Where we are (2026-11-25)
+# Where we are (2026-11-27)
 
 The map to read first when coming back: what is where, and what is left. The reasons and the
 measurements behind each item are in docs/design.md (roadmap items by number).
+
+## Start here (2026-11-27): MT protocol optimization
+
+**The goal** (the owner): optimize conventional MT acquisitions (TR, excitation flip angle, MT
+power, offset, perhaps the MT pulse's duration): predict the MT-weighted and reference signals
+from tissue properties, MTR and its noise, with EQUIP's simulation, derivatives and design.
+Objectives: MTR's SNR, its sensitivity to PSR (also per noise), tissue CNR, robustness to B1 and
+R1, with scan time and SAR. **Keep it simple** (the owner: "i fear you are going into
+overengineering territory. remember goals and keep it simple"): no MTR-specific framework; the
+objectives as recipes on what exists.
+
+**What exists, by branch:**
+
+- `main` (18974d4, CI passed): the qMT models, Henkelman's the family's (`QMTCWHenkelman` holds
+  the parameters and the R1f tie; `QMTSPGRYarnykh`, `QMTSPGRRamani` take them).
+- `mtr` (500951f, CI passed; not merged): MTR, a calculation, not a model. `mtr(S, Sref)`;
+  `mtr(m, data)` and `mtr(m, θ)` with a qMT acquisition (references: MT-off always, others named,
+  `reference = :maxoffset` or indices; paired per power); `writemaps` (one 4-D `MTRmap`);
+  `propagate(m, θ, g)` and `montecarlo(m, θ, g)` for any function `g` of the images (the delta
+  method to second order, `sensitivity`, `uncertain`); `design(f, m)` for any objective
+  (`ObjectiveDesign`: bounds per image, a number keeps an entry, `shared`, `round` by field);
+  examples/mtr_design.jl (MTR's CNR per √s, +21% over a common protocol, but its optima at 1-2
+  kHz are where Yarnykh's model is wrong: below). Merging needs the full Pkg.test, then CI
+  (the precompile workload runs `design`).
+- `mamt-proto` (off `mtr`; not merged): `QMTSPGRPortnoy`, Portnoy & Stanisz's minimal
+  approximation (MAMT; Magn Reson Med 2007;58:144, Eqs. 1a-1d and 6; the paper in the owner's
+  uploads, portnoy2007.pdf): the free pool's (Mx, My, Mz) and the bound pool's Mz through the
+  MT pulse, segment by segment, each a 5×5 matrix exponential (StaticArrays' `exp`, dual
+  numbers fine, 0.4 µs plain, 6.6 µs with 10 partials; `_expm2` is the 2×2 closed form for the
+  longitudinal pair alone, enough for Yarnykh's model, not for the transverse magnetization
+  MAMT keeps; it still does tr and ts); ideal spoiling (the owner: "ideal spoiling for now");
+  Yarnykh's acquisition plus `mtshape`, an RFPulse (a block by default; held as an RFPulse, as
+  QMTSIR's pulse, since the interface checks every vector field has one value per image).
+  **Verified** against an independent RK4 integration of Eqs. 1a-1d (bench/qmt/mamt_rk4.jl):
+  within 3.6e-10 (block) and 6.3e-13 (64-segment Gaussian). Yarnykh's signal against it (white
+  matter, 12-ms block, TR 30 ms, 10°): 1 kHz +20% (4 µT), +79% (8 µT); 2 kHz +9%, +5%; 5 kHz +2%,
+  +4%; 10 kHz +0.6%, +1.6%; 50 kHz under 0.1%; MT-off images equal. Portnoy & Stanisz report the
+  same direction (Yarnykh's above MAMT below about 2 kHz).
+
+**Next, in order** (each small):
+
+1. Tests for `QMTSPGRPortnoy` in test/unit/models.jl: the RK4 reference (bench/qmt/mamt_rk4.jl's
+   `rk4_signal` into test/setup.jl), Yarnykh's far from resonance, MT-off images equal,
+   derivatives against central differences, Float32; a guide row.
+2. Its speed against Yarnykh's (a block: one exponential an image; a shape: one a segment).
+3. examples/mtr_design.jl again with `QMTSPGRPortnoy`: do the 1-2 kHz optima hold?
+4. The owner's objectives as recipes on `propagate` (no new API): MTR's SNR, ∂MTR/∂PSR, per
+   noise, CNR, B1 and R1 robustness (`uncertain`, or the worst case over a grid), scan time,
+   SAR (B1e²·tm/TR as a constraint); `tm` searched too.
+5. Merge `mtr`, then `mamt-proto`: the full Pkg.test, then CI.
+
+**Open, the owner's to decide:** the excitation's saturation of the bound pool (neglected now;
+matters at high flip angles and short TR); the sequence's structure (an MT pulse every TR, as
+now, or every N excitations, or MT-prepared TSE); the lab's MT pulse shapes (as samples); MTsat,
+a model or not; which B1 and B0 methods the lab acquires. Remote branches to delete (merged or
+archived): `cwmt-proto`, `lineshape-cache`, `pulsedmt-proto`, `qmt-family`. Testing on the
+owner's computer is still blocked (no Remote Control folder).
 
 ## Branches
 
@@ -404,15 +461,6 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   Style; bit for bit, speed unchanged); design.md item 6. Checked first: the full `Pkg.test`
   (3548), the command line's (189), the validation group (76), CI (4979f04). The branch is to
   delete (`git push origin --delete cwmt-proto`).
-- On `mamt-proto` (2026-11-27, off `mtr`; work in progress, NOT verified): `QMTSPGRPortnoy`,
-  Portnoy & Stanisz's minimal-approximation two-pool model (MAMT; Magn Reson Med 2007;58:144,
-  Eqs. 1a-1d, 6): the free pool's (Mx, My, Mz) and the bound pool's Mz through the MT pulse,
-  segment by segment, each a 5x5 matrix exponential (StaticArrays' `exp`: `_expm2` is the 2x2
-  closed form for the longitudinal pair alone, which Yarnykh's model needs; MAMT keeps the
-  transverse magnetization, a 4x4 system, no such closed form; `_expm2` still does tr and ts);
-  ideal spoiling; Yarnykh's acquisition plus the pulse's shape. Next: check it against an RK4
-  integration of Eqs. 1a-1d (scratch script written, its first run failed before reporting) and
-  against Yarnykh's far from resonance; tests; then the MTR design example with it.
 - On `mtr` (2026-11-27): MTR, steps 1 and 2 of 4: `mtr(S, Sref)` from two matched arrays, and
   `mtr(m, θ)`, `mtr(m, data)` with a qMT acquisition (references found and paired), written by
   `writemaps` as one `MTRmap` (each volume's offset, power and references in its sidecar);

@@ -290,49 +290,45 @@ amplitudes, real: phases 0 or 180°), scaled to the power-equivalent amplitude `
 to each image's `tm`; or `mtpulse` and `mtflip`, as for Yarnykh's. The parameters:
 `QMTCWHenkelman`'s. A block pulse costs one 5×5 exponential an image, a shape one a segment.
 """
-struct QMTSPGRPortnoy{A<:AbstractVector,S<:AbstractVector,L} <: MRIModel
+struct QMTSPGRPortnoy{A<:AbstractVector,L} <: MRIModel
     offset::A           # the MT pulse's offset from water (Hz)
     B1e::A              # its power-equivalent amplitude (µT): √(∫B1²dt/tm); 0, no MT pulse
     tm::A               # its duration (s)
     ts::A               # from its end to the excitation (s)
     TR::A               # repetition time (s)
     FA::A               # the excitation's flip angle (degrees)
-    shape::S            # its amplitude per segment, relative (root mean square 1); equal segments
+    mtshape::RFPulse    # its shape: equal segments, real amplitudes (scaled to B1e, stretched to tm)
     lineshape::L        # the macromolecular pool's lineshape, (T2, Δ) -> g
 end
 function QMTSPGRPortnoy(; mtshape = nothing, mtpulse = nothing, kw...)
     f = _pulsedspgr(QMTSPGRPortnoy; mtpulse, kw...)
-    shape = _mtshape(mtpulse !== nothing ? mtpulse : mtshape)
+    shape = mtpulse !== nothing ? mtpulse : mtshape === nothing ? blockpulse(90, 1e-3) : mtshape
+    shape isa RFPulse || throw(ArgumentError("QMTSPGRPortnoy: `mtshape` is an RFPulse (its segments), got $(typeof(shape))"))
+    # (a shape, not one value per image: held as an RFPulse, as QMTSIR holds its inversion pulse)
+    all(≈(shape.duration[1]), shape.duration) ||
+        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's segments must be of equal duration"))
+    all(φ -> isapprox(mod(φ, 180), 0; atol = 1e-9), shape.phase) ||
+        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's phases must be 0 or 180° (a real amplitude)"))
+    any(!iszero, shape.flip) || throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's shape is zero"))
     return QMTSPGRPortnoy(f[1:6]..., shape, f[7])
 end
 
-# The MT pulse's shape as relative amplitudes, root mean square 1 (so that ω1 = γ·B1·B1e·shape
-# keeps the power equivalent B1e): a block, or an RFPulse's segments (equal durations; real
-# amplitudes, the phase 0 or 180°: the sign)
-function _mtshape(p)
-    p === nothing && return [1.0]
-    p isa RFPulse || throw(ArgumentError("QMTSPGRPortnoy: `mtshape` is an RFPulse (its segments), got $(typeof(p))"))
-    all(≈(p.duration[1]), p.duration) ||
-        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's segments must be of equal duration"))
-    all(φ -> isapprox(mod(φ, 180), 0; atol = 1e-9) || isapprox(mod(φ, 180), 180; atol = 1e-9), p.phase) ||
-        throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's phases must be 0 or 180° (a real amplitude)"))
-    a = deg2rad.(p.flip) .* cosd.(p.phase) ./ p.duration
-    r = sqrt(sum(abs2, a) / length(a))
-    r > 0 || throw(ArgumentError("QMTSPGRPortnoy: the MT pulse's shape is zero"))
-    return a ./ r
-end
+# Segment k's amplitude relative to the pulse's root mean square (so that ω1 = γ·B1·B1e·a_k
+# keeps the power equivalent B1e): its flip over its duration, signed by its phase (0 or 180°).
+# Equal durations, so the duration cancels.
+_mtamplitude(p::RFPulse, k) = p.flip[k] * cosd(p.phase[k]) / sqrt(sum(abs2, p.flip) / length(p.flip))
 
 # The parameters: QMTCWHenkelman's, as the other pulsed models
 parameters(::Type{<:QMTSPGRPortnoy}) = parameters(QMTCWHenkelman)
 
 function signal!(out, m::QMTSPGRPortnoy, p)
-    (; offset, B1e, tm, ts, TR, FA, shape, lineshape) = m
+    (; offset, B1e, tm, ts, TR, FA, mtshape, lineshape) = m
     (; PSR, kmf, T2f, T2m, M0f, R1f, R1m, B1, B0) = p
     kfm = kmf * PSR                                         # exchange f→m
     A = SMatrix{2,2}(-(R1f + kfm), kfm, kmf, -(R1m + kmf))  # longitudinal relaxation and exchange, by column
     M0 = SVector(one(PSR), PSR)                             # equilibrium, in units of M0f
     R2f = 1 / T2f
-    K = length(shape)
+    K = length(mtshape.flip)
     @inbounds for j in eachindex(out, offset, B1e, tm, ts, TR, FA)
         α = B1 * deg2rad(FA[j])
         Δ = offset[j] - B0
@@ -342,7 +338,7 @@ function signal!(out, m::QMTSPGRPortnoy, p)
         τ = tm[j] / K
         # One segment of the MT pulse: Eqs. 1a-1d as a 5×5 generator, (Mx, My, Mzf, Mzm, 1)
         segment(k) = begin
-            ω1 = ω1e * shape[k]
+            ω1 = ω1e * oftype(ω1e, _mtamplitude(mtshape, k))
             Wm = iszero(B1e[j]) ? zero(gm) * ω1 : π * ω1^2 * gm
             H = @SMatrix [-R2f -Δω    0              0                 0
                            Δω  -R2f  -ω1             0                 0
