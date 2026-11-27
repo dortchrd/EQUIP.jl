@@ -6385,8 +6385,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        solver and the Jacobian's other terms, untouched). Not adopted: about 25 lines of cache
        (mutable stack arrays, a search, a limit of 16 and a second path past it) in place of one
        line that reads as the physics, for 0.2 s a brain; the shared free recoveries, by contrast,
-       gave 31% for an `if` around two lines. No cleaner form: the lineshape depends on T2m,
-       fitted, so it cannot be made once with the model.
+       gave 31% for an `if` around two lines. The values cannot be made once with the model (they
+       depend on T2m, fitted), but the structure can (the owner: "the unique offsets and their
+       corresponding image indices could be determined at model construction ... a more general
+       optimization applicable to other models as well"): roadmap item 28. The owner's priority:
+       "clean, readable forward models over marginal performance gains".
      - **How errors in the B1, B0 and R1obs maps propagate** (the owner, 2026-11-26: "things to
        consider before I forget is how errors in b1, bo, and r1obs propagate through these
        models"; bench/qmt/maperrors.jl, crlb with the fit's value wrong: the noise-free fit's
@@ -8853,6 +8856,18 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
    - **Decided** (the owner, 2026-11-25: "put on roadmap"): kept, low priority. The generic hook
      waits until a second model shows a real gain in a fit; NODDI's 9% (about 1 s a brain) alone
      does not justify it now. The bench stays to measure the next candidate against.
+   - **The acquisition's structure, made once with the model** (the owner, 2026-11-27, after the
+     pulsed-MT lineshape cache was measured and not adopted, item 6): which images share a value
+     that a costly, parameter-dependent part of the signal depends on (QMTSIR's or a pulsed-MT
+     model's distinct MT offsets, a diffusion scheme's distinct b-values or shells, distinct TEs
+     or TIs), found when the model is made: the distinct values and each image's index into them.
+     Each signal then makes the costly part once per distinct value, with no search and no fixed
+     limit, and the forward model still reads as the physics. Generic: a model declares the field
+     its costly part depends on, and the interface keeps the structure. To decide: where the
+     per-signal values live (they depend on the parameters, so not in the model, which every
+     thread shares: a per-thread work area of the fit's cache, as `prepare` would have); and
+     whether it pays (measured for the lineshapes: about 10% a brain, 2026-11-27).
+
 29. **The Standard Model, as SMI fits it** (the owner, 2026-11-26: "put smi on roadmap"; the
    discussion of 2026-11-03, "SMT or SMI in disorganized nerve", above). The kernel of one fiber
    bundle, a stick (intra-axonal, D_a) and a zeppelin (extra-axonal, D_e∥, D_e⊥), with free water
