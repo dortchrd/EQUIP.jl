@@ -385,7 +385,7 @@ end
         c = crlb(m4, nominal(m4, :SIR_WM_I); snr = 200, kmf = 12.5)
         @test r.code == 0 && occursin("crlb for QMTSIR", r.out) && occursin("wrote", r.out)
         t = table(tsv)
-        @test length(t) == 5 && [x["parameter"] for x in t] == ["PSR", "R1f", "Sf", "M0f", "f"]   # f derived
+        @test length(t) == 5 && [x["parameter"] for x in t] == ["PSR", "R1f", "Sf", "M0f", "MPF"]   # MPF derived
         @test parse(Float64, t[1]["sd"]) == c.sd.PSR && parse(Float64, t[1]["bias"]) == c.bias.PSR
         # several tissues and an SNR sweep: one row per setting and parameter, crlb's numbers
         r = run("crlb", "QMTSIR", "--protocol", "SIR_4POINT", "--tissue", "SIR_WM_I,SIR_GM,SIR_lesion",

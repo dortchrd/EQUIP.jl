@@ -6236,7 +6236,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        segment or the whole, split evenly: a shaped pulse's samples), `blockpulse(flip, duration)`;
        `inversionefficiency(pulse; B1, Δ)`, the free pool's Mz/M0 after it (Sf), rotations about
        each segment's effective field (Rodrigues; equal to matrix exponentials of the generator to
-       1e-13); `saturationfraction(pulse, T2m; B1, Δ, lineshape = gaussian)`, the macromolecular
+       1e-13); `saturationefficiency(pulse, T2m; B1, Δ, lineshape = gaussian)`, the macromolecular
        pool's, exp(−π·g(Δ)·B1²·∫ω1²dt) (Sm). Both neglect relaxation and exchange during the pulse
        (the pulse short against T1 and 1/kmf), and Sm assumes the rate approximation (T2m far
        shorter than the pulse). Checked: the 1-ms block gives Sm = 0.831 at T2m = 15 µs (Dortch
@@ -6245,12 +6245,13 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        design section: −0.999 against −0.951 at B1 0.9, −0.931 against −0.921 at 100 Hz)
        reproduced. Nothing allocated; dual numbers through both (a fitted B1 or T2m).
      - **QMTSIR unchanged**: Sf and Sm stay its parameters, and these functions give their values
-       (a B1 map gives an Sm map, fixed in the fit: `Sm = [saturationfraction(p, 15e-6; B1 = b) for
+       (a B1 map gives an Sm map, fixed in the fit: `Sm = [saturationefficiency(p, 15e-6; B1 = b) for
        b in b1map]`), as the roadmap's conditions → Sf, Sm planned, rather than new parameters
        (T2m, B1) in the model. Scenarios over B1 × B0 × T2m (robust designs) from them: to come.
-     - **The names** (`saturationfraction` was `boundsaturation` until 2026-11-27, the owner: "how
-       about saturationfraction to match inversionefficiency?"; EQUIP says macromolecular, not
-       bound): the functions' (`inversionefficiency`, `saturationfraction`, `RFPulse`,
+     - **The names** (`saturationefficiency` was `boundsaturation` until 2026-11-27: the owner, "how
+       about saturationfraction to match inversionefficiency? ... or saturationefficiency", then
+       "yes for saturationefficiency": the pair Sf, Sm, each Mz/M0 after the pulse; EQUIP says
+       macromolecular, not bound): the functions' (`inversionefficiency`, `saturationefficiency`, `RFPulse`,
        `gaussian`, ...) are the first choice, to confirm with the owner. `gaussian` may clash with
        DSP.jl's window of that name if both are loaded (Julia then asks for `EQUIP.gaussian`).
      - **Next** (steps 2 and 3, step 2 built: below): the two-pool pieces (the 2×2 matrix exponential in closed form,
@@ -6381,7 +6382,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        a 5% error biases PSR by more than its noise SD; R1obs reaches PSR almost one for one
        (through the tie, R1f); B0 mostly T2f (the free pool's direct saturation at the low
        offsets); T2m is barely touched by any. QMTSIR (5-point, SIR_WM_I, kmf fixed at its true
-       value, Sm from `saturationfraction` with a B1 map off by the error; Sf fitted, so the free
+       value, Sm from `saturationefficiency` with a B1 map off by the error; Sf fitted, so the free
        pool's part of a B1 error is absorbed): B1 +5% → Sm 0.815 for 0.831, PSR +0.9%; −5%, −0.9%;
        +10%, +1.9%; true B1 0.9 fitted with Sm = 0.83, +1.9%; R1f unchanged. (A first run had
        kmf fixed at 12.5 against SIR_WM_I's true 5: PSR −45% whatever the B1 error, the kmf
@@ -6400,7 +6401,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        robust designs by scenarios over the conditions. Gaps, for the MT models: (1) SIR's B1, B0
        and T2m are not parameters (they reach it through Sf, fitted, and Sm, fixed): the tools take
        Sm, and B1's share by the chain rule by hand; proposed, a pulse in QMTSIR's acquisition
-       (optional; Sm then tied to new fixed parameters B1, B0, T2m by `saturationfraction`, as the
+       (optional; Sm then tied to new fixed parameters B1, B0, T2m by `saturationefficiency`, as the
        pulsed model's R1f to R1obs), so that `uncertain = (B1 = 0.03,)` and `leakage` name B1 for
        SIR too. (2) `uncertain` takes independent SDs, but an R1 map from variable flip angles is
        made with the B1 map, so their errors are correlated (VFA's R1 moves about twice B1's
@@ -6412,7 +6413,7 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        this at some point").
        - **(1) SIR with its pulse**: `QMTSIR(...; pulse = blockpulse(180, 1e-3))` (and
          `QMTSIREqualR1`), a third type parameter, `Nothing` or `RFPulse`; with a pulse, Sm is
-         not a parameter but `saturationfraction(pulse, T2m; B1, Δ = B0)`, and T2m (15 µs), B1 (1)
+         not a parameter but `saturationefficiency(pulse, T2m; B1, Δ = B0)`, and T2m (15 µs), B1 (1)
          and B0 (0) take its place, fixed. Sf stays fitted. A model type's parameters depending on
          its type parameter: `parameters(::Type{<:QMTSIR{<:AbstractVector,<:AbstractVector,RFPulse}})`,
          the bounds written out (with `<:Any`, or `QMTSIR{A,B,RFPulse} where {A,B}`, Julia ranks
@@ -6496,9 +6497,11 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        owner: "we really dont ever care [about] kfm or R. Occasionally we care about MPF...but that
        name is confusing since we already have PSR. It basically [is] do we normalize via molar or
        molal....I call it f and it helps to look at things like variation with gel concentration
-       where we assume linear with f with zero offset"): one derived quantity, `f` = PSR/(1 + PSR),
-       and `nominal(m; f = ...)`; kfm no longer derived (MPF, BPF, kfm and R kept as hints; the
-       tables above, measured before, still say MPF for f). Not built: the per-paper table
+       where we assume linear with f with zero offset"): one derived quantity, PSR/(1 + PSR), and
+       kfm no longer derived (kfm and R kept as hints). Its name: `f` (the owner's), then `fm`
+       (f clashes with the free pool's subscript: R1f, M0f), PSF ("pool size fraction", to pair
+       with PSR; refused: point spread function), and `MPF` (the owner: "MPF is fine"):
+       `nominal(m; MPF = ...)`, `f`, `BPF` and `PSF` as hints. Not built: the per-paper table
        (which paper writes which name), which needs the papers; the guide gives the conventions by
        their definitions instead (docs/guide.md, "qMT's names").
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool

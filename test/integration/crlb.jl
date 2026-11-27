@@ -31,7 +31,7 @@
     c = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4...)
     e3 = crlb(m4, θ; snr = 200, kmf = 12.5, bounds4..., cov = :biased)
     @test collect(values(c.sd)) ≈ collect(values(e3.sd)) rtol = 1e-10
-    F = keys(params_only(c, c.fit))                              # the parameters (f derived after them)
+    F = keys(params_only(c, c.fit))                              # the parameters (MPF derived after them)
     g(x) = signal(m4, merge(θ, NamedTuple{F}(Tuple(x)), (kmf = 12.5,)))
     J0 = FD.jacobian(g, collect(values(params_only(c, c.fit))))
     @test collect(values(params_only(c, c.sd))) ≈ sqrt.(diag(inv(J0' * J0))) .* (1 / 200) rtol = 1e-8
@@ -146,7 +146,7 @@
     @test occursin(r"\n  PSR +0.2 +0.1718 +-0.02818 +-14.1% ", s)
     @test occursin("on a bound in the noise-free fit (held there, SD 0): Sf",
                    sprint(show, MIME"text/plain"(), cb))
-    @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f, f)"
+    @test repr(c) == "CRLBResult(QMTSIR: PSR, R1f, Sf, M0f, MPF)"
     # Mistakes
     @test occursin("`snr`, `σ` or `Σ`", msg(() -> crlb(m4, θ)))
     # `noise` is the data's: crlb takes it (:gaussian, the default; :rician, magnitude data:

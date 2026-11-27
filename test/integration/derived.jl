@@ -290,24 +290,24 @@ end
                                                         uncertain = (B1 = 0.03,)), g -> g.T1)))
 end
 
-@testset "qMT's names: f derived, truths by it, other conventions' names as hints" begin
+@testset "qMT's names: MPF derived, truths by it, other conventions' names as hints" begin
     msg(f) = try f(); "" catch e; sprint(showerror, e) end
-    # f = PSR/(1 + PSR) in crlb, after the parameters, by the delta method: its SD PSR's over
+    # MPF = PSR/(1 + PSR) in crlb, after the parameters, by the delta method: its SD PSR's over
     # (1 + PSR)², the derivative written out
     m = QMTSIR(; SIR_5POINT...)
     θ = nominal(m, :SIR_WM_I)
     c = crlb(m, θ; snr = 200, kmf = Free())
-    @test keys(c.sd)[end] === :f && c.fit.f ≈ θ.PSR / (1 + θ.PSR)
-    @test c.sd.f ≈ c.sd.PSR / (1 + θ.PSR)^2 rtol = 1e-10
+    @test keys(c.sd)[end] === :MPF && c.fit.MPF ≈ θ.PSR / (1 + θ.PSR)
+    @test c.sd.MPF ≈ c.sd.PSR / (1 + θ.PSR)^2 rtol = 1e-10
     # nominal takes it, back to PSR, for every MT model (QMTSPGRYarnykh's here)
     ms = QMTSPGRYarnykh(; SPGR_ACQ...)
-    q = nominal(ms; f = 0.13)
-    @test q.PSR ≈ 0.13 / 0.87 && derived(ms, resolve(ms, q)).f ≈ 0.13
-    @test occursin("f = 1.2", msg(() -> nominal(m; f = 1.2)))
+    q = nominal(ms; MPF = 0.13)
+    @test q.PSR ≈ 0.13 / 0.87 && derived(ms, resolve(ms, q)).MPF ≈ 0.13
+    @test occursin("MPF = 1.2", msg(() -> nominal(m; MPF = 1.2)))
     # another convention's name, in a fit's keywords and in nominal's: which of EQUIP's it is
-    # (MPF and kfm among them: not derived, the owner: f alone)
+    # (f, the owner's, and kfm among them: not derived)
     @test occursin("`PSR`", msg(() -> fit(m, signal(m, θ); F = Fixed(0.1))))
-    @test occursin("is `f`", msg(() -> nominal(m; MPF = 0.12)))
+    @test occursin("is `MPF`", msg(() -> nominal(m; f = 0.12)))
     @test occursin("`kmf` is R", msg(() -> nominal(m; R = 12.0)))
     @test !occursin("EQUIP's names for qMT", msg(() -> fit(T2Decay(TE = [0.01, 0.02]), [1.0, 0.5]; F = 1.0)))
 end

@@ -349,18 +349,18 @@ inversion pulse and the conditions it plays out in (B1, B0, T2m):
 ```julia
 blk = blockpulse(180, 1e-3)                                          # the 1-ms block
 cmp = RFPulse([90, 180, 90], [0, 90, 0], [0.5e-3, 1e-3, 0.5e-3])     # composite 90x-180y-90x
-saturationfraction(blk, 15e-6)              # Sm = 0.831 (Gaussian lineshape, on resonance)
-saturationfraction(cmp, 15e-6)              # 0.690: twice the RF energy, Sm squared
+saturationefficiency(blk, 15e-6)              # Sm = 0.831 (Gaussian lineshape, on resonance)
+saturationefficiency(cmp, 15e-6)              # 0.690: twice the RF energy, Sm squared
 inversionefficiency(cmp; B1 = 0.9)       # Sf = −0.999, where the block gives −0.951
 inversionefficiency(blk; Δ = 100)        # −0.921, 100 Hz off resonance
-Sm = [saturationfraction(blk, 15e-6; B1 = b) for b in b1map]            # a map, from a B1 map
+Sm = [saturationefficiency(blk, 15e-6; B1 = b) for b in b1map]            # a map, from a B1 map
 r = fit(QMTSIR(; SIR_5POINT...), data; Sm = Sm)
 ```
 
 An `RFPulse` is segments of constant amplitude: per segment a flip angle (degrees), a phase
 (degrees: 0 along x, 90 along y) and a duration (s), or one duration for the whole pulse, split
 evenly among its segments (a shaped pulse's samples). `inversionefficiency(pulse; B1, Δ)`
-rotates the free pool about each segment's effective field; `saturationfraction(pulse, T2m; B1, Δ,
+rotates the free pool about each segment's effective field; `saturationefficiency(pulse, T2m; B1, Δ,
 lineshape)` saturates the macromolecular pool at the rate π·ω1²·g(Δ), so Sm = exp(−π·g(Δ)·∫ω1²dt).
 Both neglect relaxation and exchange during the pulse (the pulse short against T1 and 1/kmf), and
 Sm assumes T2m far shorter than the pulse. `B1` is a B1 map's relative value, `Δ` the offset in
@@ -386,12 +386,13 @@ proton, as a molality), `kmf` (the exchange rate from m to f, 1/s; k_xy is alway
 `R1f`, `R1m`, `T2f`, `T2m`, `M0f`. One quantity comes derived, a map beside the parameters' with
 its errors in `crlb` and `montecarlo`:
 
-- `f` = M0m/(M0f + M0m) = PSR/(1 + PSR), the macromolecular fraction of all protons (as a mole
-  fraction): linear in the macromolecular concentration with no offset (a gel series is plotted
-  against it). Yarnykh's MPF, others' BPF. `derived(r).f` for a fit, `c.sd.f` from crlb, and
-  `nominal(m; f = 0.12)` makes a truth from it.
+- `MPF` = M0m/(M0f + M0m) = PSR/(1 + PSR), the macromolecular proton fraction, of all protons
+  (as a mole fraction; PSR is the ratio, MPF the fraction): linear in the macromolecular
+  concentration with no offset (a gel series is plotted against it). Yarnykh's name; others'
+  BPF, or f. `derived(r).MPF` for a fit, `c.sd.MPF` from crlb, and `nominal(m; MPF = 0.12)` makes
+  a truth from it.
 
-A fit or `nominal` given another convention's name (`F`, `MPF`, `BPF`, `kf`, `kr`, `R`, `T2r`, ...)
+A fit or `nominal` given another convention's name (`F`, `f`, `BPF`, `kf`, `kr`, `R`, `T2r`, ...)
 says which of EQUIP's it is: kfm = kmf·PSR is the rate from f to m (often kf), and Henkelman's R
 (MRM 1993) is not directional, kmf = R·M0f and kfm = R·M0m, so with M0f = 1, R is `kmf`.
 

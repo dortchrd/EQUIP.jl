@@ -109,8 +109,8 @@ include("diffusion/noddi.jl")           # NODDI, NODDIConvolved, BinghamNODDI, B
                                         #   sticks and a zeppelin dispersed (Watson, Bingham), a ball
 include("diffusion/ivim.jl")            # IVIM: perfusion and diffusion, the segmented start
 include("qmt/lineshapes.jl")             # absorption lineshapes: lorentzian, gaussian, superlorentzian
-include("qmt/pulses.jl")                 # RFPulse, blockpulse; inversionefficiency (Sf), saturationfraction (Sm)
+include("qmt/pulses.jl")                 # RFPulse, blockpulse; inversionefficiency (Sf), saturationefficiency (Sm)
 include("qmt/qmt_sir.jl")               # QMTSIR: selective inversion recovery
 include("qmt/twopool.jl")                # two pools on 2×2 static matrices: exchange, exponential, saturated steady state
 include("qmt/qmt_spgr.jl")               # QMTSPGRYarnykh: pulsed MT with SPGR
-include("qmt/mtnames.jl")                # the MT models' names: f derived; other conventions' names as hints
+include("qmt/mtnames.jl")                # the MT models' names: MPF derived; other conventions' names as hints

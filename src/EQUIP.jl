@@ -71,7 +71,7 @@ export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
 export QMTSPGRYarnykh
 export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
-export RFPulse, blockpulse, inversionefficiency, saturationfraction            # pulses: Sf and Sm
+export RFPulse, blockpulse, inversionefficiency, saturationefficiency            # pulses: Sf and Sm
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation
 export Scenario, scenarios, crlb, crlb!, CRLBCache, CRLBResult, montecarlo, MonteCarloResult, Sweep
 export noisecovariance, noisefree, bias, jacobian, hessian, biasgradient    # crlb's pieces
