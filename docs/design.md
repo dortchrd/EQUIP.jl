@@ -6361,6 +6361,32 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        13 images, one signal 1.67 → 1.36 µs, one voxel's fit 43.3 → 32.7 µs, a whole brain
        3.2 → 2.2 s; 25 images, 2.57 → 2.27 µs, 70.7 → 44.6 µs, 5.7 → 3.9 s (the fits gain more than
        the plain signal: the exponentials are dearer on dual numbers).
+     - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
+       "would it be more efficient for lineshape to take all deltas at same time and calc once",
+       then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about
+       very specialized code for marginal benefit"; archived in `experiments`, 02e5f22, its second
+       parent the branch `lineshape-cache`). All at once is the same work (one value an offset);
+       the saving is in offsets repeated at several MT powers. Measured first: the lineshape is
+       50% of a signal in plain numbers (54 ns an image), 39% with a fit's dual numbers (127 ns).
+       Built: a cache on the stack in `signal!` (up to 16 distinct offsets, then per image),
+       signals and Jacobians bit for bit (four protocols, one past 16), nothing allocated.
+       Against main (bench/qmt/lineshape_cache.jl, in the archive; the best of two alternating
+       runs; this machine ±10–20% run to run):
+
+       | protocol | one signal | one signal, dual | one voxel's fit | whole brain, 4 threads |
+       |---|---:|---:|---:|---:|
+       | 13 images, 6 offsets × 2 powers | 1.15 → 0.92 µs | 3.16 → 2.77 µs | 28.6 → 29.0 µs | 2.2 → 2.0 s |
+       | 25 images, 12 offsets × 2 powers | 2.26 → 1.87 µs | 6.13 → 6.08 µs | 52.2 → 41.6 µs | 3.9 → 3.5 s |
+       | 41 images, 20 offsets × 2 powers | 3.90 → 3.31 µs | 10.87 → 8.96 µs | 85.2 → 64.4 µs | 6.3 → 5.5 s |
+       | 13 images, 12 offsets distinct | 1.18 → 1.22 µs | 3.22 → 3.34 µs | 59.0 → 46.7 µs (noise) | 4.1 → 4.2 s |
+
+       A signal 15–20% faster and a whole brain about 10% where offsets repeat, 2–4% slower where
+       they do not; less than the 20–25% the lineshape's share suggested (the rest of a fit, the
+       solver and the Jacobian's other terms, untouched). Not adopted: about 25 lines of cache
+       (mutable stack arrays, a search, a limit of 16 and a second path past it) in place of one
+       line that reads as the physics, for 0.2 s a brain; the shared free recoveries, by contrast,
+       gave 31% for an `if` around two lines. No cleaner form: the lineshape depends on T2m,
+       fitted, so it cannot be made once with the model.
      - **How errors in the B1, B0 and R1obs maps propagate** (the owner, 2026-11-26: "things to
        consider before I forget is how errors in b1, bo, and r1obs propagate through these
        models"; bench/qmt/maperrors.jl, crlb with the fit's value wrong: the noise-free fit's

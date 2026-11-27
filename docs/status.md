@@ -13,7 +13,7 @@ again 2026-11-17, after deleting the finished ones: "kept rest"):
 | `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
 | `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
 | `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
-| `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+| `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto; 2026-11-27, 02e5f22, with 4b47226 its first parent: lineshape-cache). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
 
 Merged into `main` (fast-forward, 2026-11-27, the owner: "merge into main once tests and CI pass"): `pulsedmt-proto` (from 2026-11-26; MT, step 1 of 3, the owner: "lets move on to mt",
 then the lab's `absorptionLineShape.m` and `yarnykh_pulseMT.m`, "dont take as gospel"): the
@@ -394,6 +394,9 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
   The two directional ones start from DTI's principal direction.
 - Then: MTR, MTsat, B1 and B0 maps (item 5); pulsed qMT (item 6); NODDI (item 7); free-water
   DTI; DKI's constraints (K ≥ 0 in every direction) imposed, not only checked.
+- Pulsed MT's lineshapes once per distinct offset: measured on `lineshape-cache` (about 10% a brain
+  where offsets repeat), not adopted (specialized code for a marginal gain), archived in
+  `experiments` (02e5f22); the branch is to delete (`git push origin --delete lineshape-cache`).
 - Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
   VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.
 - SAGE (item 25, 2026-11-20): R2* and R2 from spin- and gradient-echo data (Keeling et al.,
