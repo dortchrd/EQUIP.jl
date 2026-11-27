@@ -137,10 +137,43 @@ function _mtrpairs(m, reference)
     return images, refs
 end
 
-# The result: the MTR values (or maps, along the last dimension), and which image each is, its
-# offset and power (the model's name: B1e, B1cw), and the references it was divided by
-_mtrresult(m, v, images, refs) = NamedTuple{(:mtr, :image, :offset, _mtpowername(m), :reference)}(
-    (v, images, m.offset[images], getfield(m, _mtpowername(m))[images], refs))
+"""
+    MTRResult
+
+What [`mtr`](@ref) gives with a qMT acquisition: `mtr`, the MTR values (predicted for a tissue)
+or maps (from data, one per MT image along the last dimension), and per MT image `image` (its
+index in the acquisition), `offset` (Hz), its power by the model's name (`B1e`, or `B1cw`; also
+`power`), and `reference` (the images it was divided by); `model`, the acquisition's model, and
+`given`, the `reference` keyword as given. [`writemaps`](@ref) writes the maps.
+"""
+struct MTRResult{V<:AbstractArray,M<:MRIModel}
+    mtr::V                          # the values, or the maps (the MT images along the last dimension)
+    image::Vector{Int}              # per MT image: its index in the acquisition,
+    offset::Vector{Float64}         #   its offset (Hz),
+    power::Vector{Float64}          #   its MT power (µT: B1e, or B1cw),
+    reference::Vector{Vector{Int}}  #   and the reference images it was divided by
+    model::M
+    given::Any                      # the `reference` keyword as given (for the sidecar)
+end
+# `r.B1e` (or `r.B1cw`): the power by the model's own name for it. Julia's dot syntax calls
+# `getproperty`, so this method makes that name a synonym of the field `power`.
+Base.getproperty(r::MTRResult, s::Symbol) =
+    s === _mtpowername(getfield(r, :model)) ? getfield(r, :power) : getfield(r, s)
+Base.propertynames(r::MTRResult) = (:mtr, :image, :offset, _mtpowername(getfield(r, :model)), :power,
+                                    :reference, :model, :given)
+function Base.show(io::IO, ::MIME"text/plain", r::MTRResult)
+    p, maps = _mtpowername(r.model), ndims(r.mtr) > 1
+    print(io, "MTRResult: ", nameof(typeof(r.model)), ", ", length(r.image), " MT images, ",
+          maps ? "maps " * join(size(r.mtr)[1:end-1], "×") : "predicted")
+    println(io); print(io, "  image  offset (Hz)  $p (µT)  reference", maps ? "" : "      MTR")
+    for (i, j) in enumerate(r.image)
+        println(io)
+        print(io, lpad(j, 7), lpad(round(r.offset[i]; digits = 1), 13), lpad(r.power[i], 9 + length(String(p))),
+              "  ", rpad(join(r.reference[i], ", "), 12), maps ? "" : lpad(round(r.mtr[i]; digits = 4), 8))
+    end
+end
+_mtrresult(m, v, images, refs, given) =
+    MTRResult(v, images, m.offset[images], getfield(m, _mtpowername(m))[images], refs, m, given)
 
 """
     mtr(m, θ; reference = nothing)
@@ -161,8 +194,9 @@ finite). The references:
   (the same MT pulse, TR and flip angle: one per power); else of those with the MT pulse off at
   its TR and flip angle; else it is an error
 
-A named tuple: `mtr` (the values, or the maps), and per MT image `image` (its index), `offset`,
-its power (`B1e`, or `B1cw`), and `reference` (the images it was divided by).
+An [`MTRResult`](@ref): `mtr` (the values, or the maps), and per MT image `image` (its index),
+`offset`, its power (`B1e`, or `B1cw`), and `reference` (the images it was divided by);
+[`writemaps`](@ref) writes the maps.
 
 ```julia
 m = QMTSPGRYarnykh(offset = [offsets; 100e3; offsets; 100e3], B1e = [fill(4.0, 7); fill(8.0, 7)],
@@ -176,7 +210,7 @@ function mtr(m::_MTRMODELS, θ::NamedTuple; reference = nothing)
     images, refs = _mtrpairs(m, reference)
     S = signal(m, θ)
     v = [_mtr(S[j], sum(k -> S[k], r) / length(r)) for (j, r) in zip(images, refs)]
-    return _mtrresult(m, v, images, refs)
+    return _mtrresult(m, v, images, refs, reference)
 end
 function mtr(m::_MTRMODELS, data::AbstractArray{<:Real}; reference = nothing, mask = nothing)
     d, n = ndims(data), nobs(m)
@@ -192,5 +226,5 @@ function mtr(m::_MTRMODELS, data::AbstractArray{<:Real}; reference = nothing, ma
         selectdim(out, d, i) .= _mtr.(selectdim(data, d, j), Sref)
     end
     mask === nothing || (out .= ifelse.(iszero.(mask), eltype(out)(NaN), out))   # one mask, every map
-    return _mtrresult(m, out, images, refs)
+    return _mtrresult(m, out, images, refs, reference)
 end

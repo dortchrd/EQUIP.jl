@@ -6116,8 +6116,16 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        stays an MT image and falls back to the MT-off reference (found by the test written for
        the rule). Acquisition values compared exactly (the protocol's numbers). Checked: the
        CW prediction against an independent 2×2 steady state (1e-12), the data version against
-       the prediction voxel by voxel. Writing the maps (`writemaps` takes a fit's result; the
-       sidecar to record each map's offset, power and reference) and the command line: next.
+       the prediction voxel by voxel.
+     - **Writing the maps** (built): the result is an `MTRResult` (a type, as `FitResult`, so
+       that `writemaps` takes it and it carries the model for the sidecar; `r.B1e` or `r.B1cw`,
+       the model's name for the power, through `getproperty`). One file, `MTRmap` (BIDS qMRI's
+       name), a volume per MT image (3-D for one): one quantity, and a Z-spectrum's MTRs read as
+       a series. The sidecar: the model, the acquisition, the references' rule as given, and
+       `"Volumes"`, per volume the image, offset, power and references. For MATLAB data,
+       `MTRmap.mat` and its JSON. The fit's writer and this one share the acquisition record
+       and the geometry and compression choice (`_acquisitiondict`, `_geometry`). The command
+       line (`equip mtr`): later, with CI (it touches the command line).
      - **Its errors from the images, not from a fit.** `propagate(c, g)` takes crlb's covariance
        of a fit's parameters; an MTR protocol (a reference and a few MT images) has no qMT fit to
        take it from (it gives MTR's error only when a fit has exactly as many free parameters as

@@ -185,6 +185,31 @@
     @test occursin("give one", msg(() -> readdata([path("data.mat:S"), path("data.mat:S")])))
     @test occursin("the data's images are 60", msg(() -> readmap(path("data4.mat:S"), im)))
 
+    # MTR maps: one file, a volume per MT image, in the data's geometry; the pairing in its sidecar
+    mq = QMTSPGRYarnykh(offset = [2e3, 8e3, 100e3, 0.0], B1e = [4, 4, 4, 0], tm = 0.012, ts = 0.002,
+                        TR = 0.030, FA = 10)
+    Q = Float32.(500 .+ 400 .* rand(MersenneTwister(2), 6, 5, 2, 4))
+    niwrite(path("mt.nii.gz"), Q)
+    dq, iq = readdata(path("mt.nii.gz"))
+    M = mtr(mq, dq; reference = :maxoffset)                   # images 1 and 2, each against 3
+    fq = writemaps(path("mtr/sub-01_"), M, iq; sidecar = Dict("Data" => "mt.nii.gz"))
+    @test basename.(fq) == ["sub-01_MTRmap.nii.gz"]
+    mi = readimage(fq[1])
+    @test size(mi) == (6, 5, 2, 2) && isequal(mi.data, Float64.(Float32.(M.mtr)))
+    @test samegeometry(mi, readimage(path("mt.nii.gz")))
+    car = JSON.parsefile(EQUIP.MRImages.sidecarpath(fq[1]))
+    @test car["Model"] == "QMTSPGRYarnykh" && startswith(car["References"], "maxoffset") && car["Data"] == "mt.nii.gz"
+    @test car["Volumes"][2] == Dict("Image" => 2, "Offset" => 8000.0, "B1e" => 4.0, "Reference" => [3])
+    # one MT image: a 3-D map; a prediction (or one voxel's) has no maps
+    @test size(readimage(writemaps(path("mtr1/x_"), mtr(mq, dq; reference = [2, 3]), iq)[1])) == (6, 5, 2)
+    @test occursin("no maps", msg(() -> writemaps(path("x_"), mtr(mq, dq[1, 1, 1, :]), iq)))
+    # from MATLAB data: one .mat file, the maps in the data's own shape
+    writemat(path("mt.mat"), Dict("S" => reshape(Float64.(Q), 60, 4)))
+    dqm, iqm = readdata(path("mt.mat"))
+    outq = writemaps(path("mtrmat/x_"), mtr(mq, dqm; reference = :maxoffset), iqm)
+    @test outq == [path("mtrmat/x_MTRmap.mat")] && isfile(path("mtrmat/x_MTRmap.json"))
+    @test isequal(readmat(outq[1])["MTRmap"], Float32.(reshape(M.mtr, 60, 2)))
+
     # writetable: rows as TSV
     rows = [(name = "WM", PSR = 0.1, n = 3), (name = "GM", PSR = 0.05, n = 4)]
     f = writetable(path("tables/t.tsv"), rows)

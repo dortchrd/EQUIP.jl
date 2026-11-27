@@ -70,7 +70,7 @@ export StickZeppelin, StickZeppelinBall, BallStick, NODDI, NODDIConvolved, Bingh
 export sphericalmean, directionset
 export QMTSIR, QMTSIREqualR1, SIR_5POINT, SIR_4POINT, SIR_16POINT           # qMT models
 export QMTSPGRYarnykh, QMTSPGRRamani, QMTCWHenkelman
-export mtr                                                                        # MTR from images
+export mtr, MTRResult                                                             # MTR from images
 export lorentzian, gaussian, superlorentzian                                # absorption lineshapes
 export RFPulse, blockpulse, inversionefficiency, saturationefficiency            # pulses: Sf and Sm
 export simulate, TISSUES, tissue, nominal, compare, Comparison              # simulation

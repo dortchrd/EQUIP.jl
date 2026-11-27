@@ -68,7 +68,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   models with SPGR, `QMTSPGRYarnykh` (Yarnykh 2002) and `QMTSPGRRamani` (by its CW power
   equivalent, Ramani 2002), one acquisition (`_pulsedspgr`); mtr.jl, `mtr(S, Sref)`, MTR
   calculated from images (not a model; NaN where the reference cannot divide), and `mtr(m, θ)`,
-  `mtr(m, data)` with a qMT acquisition (the references found and paired, `_mtrpairs`); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  `mtr(m, data)` with a qMT acquisition (the references found and paired, `_mtrpairs`; an
+  `MTRResult`, which `writemaps` writes as `MTRmap`); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones
@@ -107,7 +108,8 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   and a .bvec as a directional model's b and g (an SVector{3} per image), checked), data.jl (`readdata`,
   `readmap`, `DataInfo`: files stacked into observations, sidecar keys, .bval and .bvec to
   model fields, beside the data or named: `bval = ...`, `bvec = ...`), maps.jl (`writemaps`: BIDS
-  names, a provenance sidecar per map, a direction map's frame in it; one .mat file for MATLAB data), tables.jl (`writetable`);
+  names, a provenance sidecar per map, a direction map's frame in it; one .mat file for MATLAB data;
+  MTR maps too, one 4-D `MTRmap` with each volume's offset, power and references), tables.jl (`writetable`);
   ext/EQUIPMATExt.jl: only a precompile workload for .mat files (loaded with MAT; StaticArrays
   invalidates MRImages' own, docs/design.md)
 - MRImages/: a package of its own (in this repository for now): MRI images in and out of files,

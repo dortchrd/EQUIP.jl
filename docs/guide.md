@@ -481,8 +481,12 @@ p = mtr(m, θ; reference = :maxoffset)                    # predicted: p.mtr, p.
   the offset (the same MT pulse, TR and flip angle: one reference per power, as sequence
   constraints often make them); if it has none, by those with the MT pulse off at its TR and flip
   angle; if none, it is an error naming the image.
-- The result is a named tuple: `mtr` (the values or maps), and per MT image `image` (its index),
+- The result, an `MTRResult`: `mtr` (the values or maps), and per MT image `image` (its index),
   `offset`, its power (`B1e`, or `B1cw`) and `reference` (the images it was divided by).
+- `writemaps(prefix, M, info)` writes the maps as one file, `prefix * "MTRmap.nii.gz"` (BIDS
+  qMRI's name), a volume per MT image, in the data's geometry. Its sidecar records the model,
+  the acquisition, the references' rule and, per volume (`"Volumes"`), the image, its offset, its
+  power and the references it was divided by. For MATLAB data, `MTRmap.mat` and `MTRmap.json`.
 
 Next (docs/design.md, roadmap item 5): MTR's errors from the images' noise, and choosing a
 protocol by MTR's SNR or CNR efficiency.

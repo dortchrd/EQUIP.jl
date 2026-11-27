@@ -102,23 +102,76 @@ function _writemaps(prefix::String, @nospecialize(res::FitResult), info::DataInf
         _directional(res.model) && any(m -> first(m) in _DIRECTIONMAPS, maps) && (car = merge(_DIRECTIONFRAME, car))
         return _savemat(prefix, maps, info, car)
     end
-    geometry = like !== nothing ? like.header : info.header
-    if like !== nothing
-        size(like)[1:3] == info.spatial || throw(DimensionMismatch("`like` is " *
-            "$(join(size(like), "×")); the maps are $(join(info.spatial, "×"))"))
-    end
-    if compress === nothing                  # as the data's file (MATLAB data's: `like`'s)
-        src = info.header === nothing && like !== nothing ? like.path : first(info.files)
-        compress = endswith(lowercase(src), ".gz")
-    end
+    geometry, ext = _geometry(info, like, compress)
     files = String[]
     for (name, a) in maps
         frame = _directional(res.model) && name in _DIRECTIONMAPS ? _DIRECTIONFRAME : Dict{String,Any}()
         meta = merge(Dict{String,Any}("Map" => name), frame, car)        # `sidecar`'s entries win
         img = MRImage(a, geometry; meta, descrip = "EQUIP " * name)
-        push!(files, writeimage(prefix * name * (compress ? ".nii.gz" : ".nii"), img))
+        push!(files, writeimage(prefix * name * ext, img))
     end
     return files
+end
+
+# The maps' geometry (the data's, or `like`'s, checked) and file extension: gzipped as the data's
+# file was (MATLAB data's: `like`'s), unless `compress` says
+function _geometry(info::DataInfo, like::Union{Nothing,MRImage}, compress::Union{Nothing,Bool})
+    if like !== nothing
+        size(like)[1:3] == info.spatial || throw(DimensionMismatch("`like` is " *
+            "$(join(size(like), "×")); the maps are $(join(info.spatial, "×"))"))
+    end
+    if compress === nothing
+        src = info.header === nothing && like !== nothing ? like.path : first(info.files)
+        compress = endswith(lowercase(src), ".gz")
+    end
+    return like !== nothing ? like.header : info.header, compress ? ".nii.gz" : ".nii"
+end
+
+"""
+    writemaps(prefix, M::MTRResult, info; sidecar = Dict(), like = nothing, format = :auto,
+              compress = nothing) -> Vector{String}
+
+Write MTR maps (`M` from `mtr(m, data)`, `info` from [`readdata`](@ref)): one file,
+`prefix * "MTRmap.nii.gz"` (BIDS qMRI's name), a volume per MT image (3-D for one), NaN where
+there is no answer. Its sidecar records how: the model and its acquisition, the references'
+rule as given, and per volume (`"Volumes"`) the image's index, offset (Hz), MT power and the
+reference images it was divided by; EQUIP's version; `sidecar`'s entries added (and win).
+`format`, `like` and `compress` as for a fit's maps; `format = :mat` writes `prefix * "MTRmap.mat"`
+(the maps in the data's own shape) and `prefix * "MTRmap.json"`.
+"""
+function writemaps(prefix::AbstractString, M::MTRResult, info::DataInfo; sidecar::AbstractDict = Dict{String,Any}(),
+                   like::Union{Nothing,MRImage} = nothing, format::Symbol = :auto,
+                   compress::Union{Nothing,Bool} = nothing)
+    a = M.mtr
+    ndims(a) == 4 && size(a)[1:3] == info.spatial || throw(DimensionMismatch("writemaps: the MTR maps are " *
+        "$(join(size(a), "×")); the data were $(join(info.spatial, "×")) with the images along a 4th dimension" *
+        (ndims(a) == 1 ? " (this MTR is predicted, or one voxel's: no maps)" : "")))
+    format === :auto && (format = info.header === nothing && like === nothing ? :mat : :nifti)
+    format in (:nifti, :mat) || throw(ArgumentError("format: :nifti or :mat, got :$format"))
+    p = String(_mtpowername(M.model))
+    g = M.given
+    rule = g === nothing ? "the images with the MT pulse off" :
+           g === :maxoffset ? "maxoffset: the MT-off images, and at each power the images at the largest |offset|" :
+           "given: " * join(g isa AbstractVector{Bool} ? findall(g) : collect(g), ", ") * ", and the MT-off images"
+    car = merge(Dict{String,Any}("Map" => "MTRmap", "Model" => string(nameof(typeof(M.model))),
+            "Acquisition" => _acquisitiondict(M.model),
+            "Quantity" => "MTR = 1 - S/S_ref, a fraction: each MT image against the mean of its references",
+            "References" => rule,
+            "Volumes" => [Dict{String,Any}("Image" => M.image[i], "Offset" => M.offset[i], p => M.power[i],
+                                           "Reference" => M.reference[i]) for i in eachindex(M.image)],
+            "Software" => "EQUIP $(pkgversion(EQUIP))"), Dict{String,Any}(sidecar))
+    dir = dirname(prefix)
+    isempty(dir) || mkpath(dir)
+    v = Float32.(size(a, 4) == 1 ? dropdims(a; dims = 4) : a)
+    if format === :mat
+        f = prefix * "MTRmap.mat"
+        writemat(f, Dict{String,Any}("MTRmap" => reshape(v, info.shape..., size(a, 4))))
+        writesidecar(prefix * "MTRmap.json", car)
+        return [f]
+    end
+    geometry, ext = _geometry(info, like, compress)
+    img = MRImage(v, geometry; meta = car, descrip = "EQUIP MTRmap")
+    return [writeimage(prefix * "MTRmap" * ext, img)]
 end
 
 # The maps in one MATLAB file, each in the data's own shape (as the array was stored), and the
@@ -135,8 +188,7 @@ end
 # precision; the weights), and EQUIP's version.
 function _provenance(@nospecialize(res::FitResult))
     m = res.model
-    acq = Dict{String,Any}(String(k) => _jsonvalue(getfield(m, k)) for k in fieldnames(typeof(m))
-                           if getfield(m, k) !== nothing)          # (QMTSIR's pulse, when not given)
+    acq = _acquisitiondict(m)
     fit = Dict{String,Any}()
     for (k, v) in pairs(res.settings)
         k === :mask && continue
@@ -148,6 +200,11 @@ function _provenance(@nospecialize(res::FitResult))
                             "ParameterNames" => [String(n) for n in keys(parameters(m))],
                             "Software" => "EQUIP $(pkgversion(EQUIP))")
 end
+
+# A model's acquisition for a sidecar: its fields, by name (those not given, `nothing`, left out:
+# QMTSIR's pulse)
+_acquisitiondict(@nospecialize(m::MRIModel)) =
+    Dict{String,Any}(String(k) => _jsonvalue(getfield(m, k)) for k in fieldnames(typeof(m)) if getfield(m, k) !== nothing)
 
 # Every parameter as the fit used it, for the sidecar's "Parameters" ("ParameterNames" holds
 # their order, the model's: a JSON object keeps none): the model's own roles with

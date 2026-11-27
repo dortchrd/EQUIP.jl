@@ -367,7 +367,10 @@ end
     p = mtr(m, θ; reference = :maxoffset)
     @test p.image == [1, 2, 4, 5, 8] && p.reference == [[3, 9], [3, 9], [6], [6], [7]]
     @test p.mtr[1] ≈ 1 - S[1] / ((S[3] + S[9]) / 2) && p.mtr[3] ≈ 1 - S[4] / S[6]
-    @test mtr(m, θ; reference = [3, 6, 9]) == p == mtr(m, θ; reference = abs.(off) .== 100e3)
+    for q in (mtr(m, θ; reference = [3, 6, 9]), mtr(m, θ; reference = abs.(off) .== 100e3))
+        @test q.mtr == p.mtr && q.reference == p.reference            # the same, named another way
+    end
+    @test occursin("MTRResult: QMTSPGRYarnykh, 5 MT images, predicted", sprint(show, MIME("text/plain"), p))
     # from data: one map per MT image, the same as predicted voxel by voxel (each voxel a tissue)
     psr = [0.05 0.1 0.15; 0.2 0.25 0.3]
     data = zeros(2, 3, 9)
