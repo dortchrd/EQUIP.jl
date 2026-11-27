@@ -1,6 +1,7 @@
 # =================================================================================================
-# Two-pool (qMT) pieces on static 2×2 matrices: relaxation and exchange, their exponential, and the
-# steady state under saturation. Shared by the pulsed-MT models (qmt_spgr.jl).
+# Two-pool (qMT) relaxation and exchange on static 2×2 matrices: the equations the models write
+# in their own signals (qmt_spgr.jl, qmt_cw.jl), and the one piece they share, the 2×2 matrix
+# exponential in closed form (a mathematical tool, as `inner`; the physics stays in each model).
 #
 # The longitudinal magnetizations of the free (f) and macromolecular (m) pools, M = [Mzf, Mzm], in
 # units of the free pool's equilibrium M0f (so M0 = [1, PSR]), follow the Bloch–McConnell equations
@@ -30,11 +31,6 @@
 # `eig`, which has no method for dual numbers.
 # =================================================================================================
 
-# The relaxation-and-exchange matrix A, column by column
-@inline function _relaxexchange(R1f, R1m, kfm, kmf)
-    return SMatrix{2,2}(-(R1f + kfm), kfm, kmf, -(R1m + kmf))
-end
-
 # cosh δ and sinh(δ)/δ as functions of q = δ²: by cos and sin for q < 0 (δ = i·√−q), by their
 # series near 0 (to q³; the next term, q⁴/8! or q⁴/9!, below 3e-29 for |q| < 1e-6)
 @inline function _coshsinhc(q)
@@ -59,7 +55,3 @@ end
     e = exp(τ)
     return SMatrix{2,2}(e * (ch + sh * (a - τ)), e * (sh * c), e * (sh * b), e * (ch + sh * (d - τ)))
 end
-
-# The steady state under constant saturation W = diag(Wf, Wm): (A − W)·Mss + R1·M0 = 0
-# (Henkelman et al. 1993's, written as the 2×2 solve; equal to its closed form to 1e-16)
-@inline _saturatedsteadystate(A, Wf, Wm, r) = (SMatrix{2,2}(Wf, 0, 0, Wm) - A) \ r

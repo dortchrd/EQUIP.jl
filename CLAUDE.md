@@ -59,8 +59,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   _tensorvector(p))` (the B-matrix row's weights, shared with DKI and the tensor start), with a
   log-linear start; dki.jl: `DKI` in V = MD²·W, with MK, AK, RK, MKT derived as DIPY's; multicompartment.jl: `StickZeppelin`, `StickZeppelinBall`, `BallStick` (multi-compartment models: compartments added together), the fiber's direction started from the voxel's own tensor and reported with z ≥ 0; noddi.jl: the four NODDIs, `NODDI` (Zhang's: the zeppelin's tensor averaged, `watsontensor`) and `NODDIConvolved` (its signal averaged), `BinghamNODDI` and `BinghamNODDIConvolved` (Tariq 2016), all written with the dispersed views; ivim.jl: `IVIM`, started from the segmented fit; src/models/qmt/: `QMTSIR`, `QMTSIREqualR1` (qmt_sir.jl); lineshapes.jl, `lorentzian`,
   `gaussian`, `superlorentzian` (g(Δ), the saturation rate π·ω1²·g); pulses.jl, `RFPulse`,
-  `blockpulse`, `inversionefficiency` (SIR's Sf) and `saturationefficiency` (Sm); twopool.jl, the two pools on
-  static 2×2 matrices (A, its exponential in closed form, the saturated steady state); qmt_spgr.jl,
+  `blockpulse`, `inversionefficiency` (SIR's Sf) and `saturationefficiency` (Sm); twopool.jl, the two pools'
+  relaxation and exchange on static 2×2 matrices (the equations; `_expm2`, the exponential in
+  closed form); qmt_spgr.jl,
   `QMTSPGRYarnykh` (pulsed MT with SPGR, Yarnykh 2002); qmt_cw.jl, `QMTCWHenkelman` (CW
   saturation, Henkelman 1993) and `QMTSPGRRamani` (pulsed SPGR by its CW power equivalent, Ramani
   2002); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
@@ -135,6 +136,13 @@ StaticArrays. The owner is an MRI physicist learning Julia.
 - Readable and heavily commented, so the code can be checked against the papers: a header block
   at the top of each file, comments that say why, equations in the papers' notation, citations
   (author, journal, year, table) for published values.
+- Forward models self-contained (the owner, 2026-11-27): a model's equations written in its own
+  `signal!` (and `derived`), readable there against the paper, not behind helper functions. A helper
+  only for what is genuinely shared: pieces several models use and their derived quantities too
+  (DTI's and DKI's tensor weights and `_tensorvector`), a mathematical tool (`inner`, the 2×2
+  exponential `_expm2`), a tie's function, or the acquisition's construction (`_pulsedspgr`).
+  For qMT especially: minimize helpers; a short formula written out in each of two models beats
+  one shared through a helper.
 - Times in seconds, rates in 1/s.
 - Dot products as `inner(a, b)` (EQUIP's, src/inner.jl: in order, inlined; LinearAlgebra's `⋅` is
   1.75–3× slower on dual numbers of many partials, docs/design.md item 30), never `⋅` or

@@ -167,7 +167,7 @@ function signal!(out, m::QMTSPGRYarnykh, p)
     (; offset, B1e, tm, ts, TR, FA, lineshape) = m
     (; PSR, kmf, T2f, T2m, M0f, R1f, R1m, B1, B0) = p
     kfm = kmf * PSR                                         # exchange f→m (mass balance)
-    A = _relaxexchange(R1f, R1m, kfm, kmf)
+    A = SMatrix{2,2}(-(R1f + kfm), kfm, kmf, -(R1m + kmf))  # relaxation and exchange, by column (twopool.jl)
     M0 = SVector(one(PSR), PSR)                             # equilibrium, in units of M0f
     r = SVector(R1f, R1m * PSR)                             # R1·M0
     isempty(out) && return out
@@ -197,7 +197,7 @@ function signal!(out, m::QMTSPGRYarnykh, p)
         Wf = iszero(B1e[j]) ? zero(gf) * ω1² : π * ω1² * gf
         Wm = iszero(B1e[j]) ? zero(gm) * ω1² : π * ω1² * gm
         Em = _expm2((A - SMatrix{2,2}(Wf, 0, 0, Wm)) * tm[j])
-        Mss = _saturatedsteadystate(A, Wf, Wm, r)
+        Mss = (SMatrix{2,2}(Wf, 0, 0, Wm) - A) \ r           # the steady state under the MT pulse, (W − A)·Mss = R1·M0
         C = SMatrix{2,2}(cos(α), 0, 0, 1)                   # the excitation: the free pool only
         EsEm = Es * Em
         rhs = (EsEm * (I - Er) + I - Es) * M0 + Es * ((I - Em) * Mss)

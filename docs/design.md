@@ -6411,6 +6411,21 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        a whole brain the same within the noise (0.81–0.84 against 0.80–0.86 s). Kept the formula,
        for reading against the paper: the owner's "clean, readable forward models over marginal
        performance gains". Yarnykh's model keeps the solve (it needs both pools' steady state).
+       **Self-contained forward models** (the owner, 2026-11-27: "i also want to avoid helper
+       functions ... the reason i did for dti and dki is that 1) helper functions used in derived
+       formulas and 2) consistency (mostly because dki and dti shared elements). i want to avoid
+       this for qmt where possible, doesnt have to be all if shared but need to minimize and have
+       self contained functions where possible except where shared elements"; the rule in
+       CLAUDE.md, Style). Inlined, each into the signals that used it: `_cwfree` (the CW formula,
+       now written in QMTCWHenkelman's and QMTSPGRRamani's own signals), `_relaxexchange` (A, by
+       column) and `_saturatedsteadystate` (one line, `(W − A) \ r`) in QMTSPGRYarnykh's, `_sirSm`
+       (`Sm = m.pulse === nothing ? p.Sm : saturationefficiency(...)`, the branch known when
+       compiling) in both SIR models'. Kept: `_expm2` (and its `_coshsinhc`), the 2×2 matrix
+       exponential, a mathematical tool as `inner` is; `_r1ffromobserved`, the R1f tie (a tie is
+       a function); `_pulsedspgr`, the acquisition two models share; `_b1eperdegree`, the pulse's
+       scale, in the constructor. Every qMT model's signal and Jacobian bit for bit, both
+       precisions, with and without the SIR pulse; the signals' speed unchanged (the helpers were
+       inlined by the compiler before).
        The owner (2026-11-27): "i think this is known. and yarnykh is biased for smaller offsets".
        Ramani's excitation bias is known; and Yarnykh's model is itself approximate near
        resonance (its abstract: "far from resonance"; the simplified CRI form, Δ > 2.5 kHz,

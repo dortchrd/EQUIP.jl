@@ -131,7 +131,9 @@ parameters(::Type{<:QMTSIR{<:AbstractVector,<:AbstractVector,RFPulse}}) = (
 function signal!(out, m::QMTSIR, p)
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf, R1m, Mzf_td0, Mzm_td0) = p
-    Sm = _sirSm(m, p)                                   # the parameter, or made from the pulse
+    # Sm: the parameter, or, with the inversion pulse given, made from it (`m.pulse === nothing`
+    # is known when compiling, from the model's type: the other branch is not compiled)
+    Sm = m.pulse === nothing ? p.Sm : saturationefficiency(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)
     kfm = kmf * PSR                                     # exchange rate f→m (mass balance)
 
     # 1. The fast and slow recovery rates (Li Eq. 4; -R1⁺ and -R1⁻ are the eigenvalues of A).
@@ -273,11 +275,6 @@ parameters(::Type{<:QMTSIREqualR1{<:AbstractVector,<:AbstractVector,RFPulse}}) =
     B0 = Fixed(0.0),
 )
 
-# Sm: the parameter, without a pulse; with one, the pulse's saturation of the macromolecular pool
-# (the type parameter says which when compiling, so neither model pays for the other's case)
-@inline _sirSm(::Union{QMTSIR{<:AbstractVector,<:AbstractVector,Nothing},
-                        QMTSIREqualR1{<:AbstractVector,<:AbstractVector,Nothing}}, p) = p.Sm
-@inline _sirSm(m::Union{QMTSIR,QMTSIREqualR1}, p) = saturationefficiency(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)
 
 # Where the one line comes from (Li et al. 2010, in its notation; derived 2026-11-20).
 #
@@ -313,7 +310,7 @@ parameters(::Type{<:QMTSIREqualR1{<:AbstractVector,<:AbstractVector,RFPulse}}) =
 function signal!(out, m::QMTSIREqualR1, p)
     (; TI, TD, magnitude) = m
     (; PSR, R1f, Sf, M0f, kmf) = p
-    Sm = _sirSm(m, p)                       # the parameter, or made from the pulse
+    Sm = m.pulse === nothing ? p.Sm : saturationefficiency(m.pulse, p.T2m; B1 = p.B1, Δ = p.B0)   # as QMTSIR's
     k = kmf * (1 + PSR)                     # kfm + kmf: the rate at which exchange evens out the pools
     a = (Sf + PSR * Sm) / (1 + PSR)         # the pools' weighted mean inversion, where it relaxes to
     b = PSR * (Sf - Sm) / (1 + PSR)         # the part that exchange takes away (a + b = Sf)
