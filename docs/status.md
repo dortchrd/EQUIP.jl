@@ -397,6 +397,10 @@ the command line, `equip_setup`, `equip`, matlab/README.md for a user without Ju
 - Pulsed MT's lineshapes once per distinct offset: measured on `lineshape-cache` (about 10% a brain
   where offsets repeat), not adopted (specialized code for a marginal gain), archived in
   `experiments` (02e5f22); the branch is to delete (`git push origin --delete lineshape-cache`).
+- Branch `cwmt-proto` (2026-11-27, not merged): `QMTCWHenkelman` and `QMTSPGRRamani` (the owner:
+  "Ramani's continuous-wave approx model, and henkelman model for cw"); Ramani's 3× faster, and
+  biased where the excitation matters (PSR −29% at 10°, −8% at 5°; design.md item 6). Before
+  merging: the full `Pkg.test`, the command line's, CI (the precompile workload changed).
 - Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
   VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.
 - SAGE (item 25, 2026-11-20): R2* and R2 from spin- and gradient-echo data (Keeling et al.,

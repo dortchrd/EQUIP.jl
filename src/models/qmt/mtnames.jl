@@ -28,7 +28,7 @@
 # says which of EQUIP's it is (`_namehint`).
 # =================================================================================================
 
-const _MTMODELS = Union{QMTSIR,QMTSIREqualR1,QMTSPGRYarnykh}
+const _MTMODELS = Union{QMTSIR,QMTSIREqualR1,QMTSPGRYarnykh,QMTSPGRRamani,QMTCWHenkelman}
 
 # MPF, from the parameters (`derived`'s rules: no allocation, any number type)
 derived(::_MTMODELS, p) = (MPF = p.PSR / (1 + p.PSR),)

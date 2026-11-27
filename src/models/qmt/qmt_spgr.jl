@@ -97,33 +97,40 @@ struct QMTSPGRYarnykh{A<:AbstractVector,L} <: MRIModel
     lineshape::L        # the macromolecular pool's lineshape, (T2, Δ) -> g
 end
 
-function QMTSPGRYarnykh(; offset, ts, TR, FA, B1e = nothing, tm = nothing, mtpulse = nothing, mtflip = nothing,
-                        lineshape = superlorentzian)
+QMTSPGRYarnykh(; kw...) = QMTSPGRYarnykh(_pulsedspgr(QMTSPGRYarnykh; kw...)...)
+
+# A pulsed-MT SPGR acquisition from its keywords, checked, as the fields in order (offset, B1e,
+# tm, ts, TR, FA, lineshape): the MT pulse as B1e and tm, or as its shape and flip angle; each
+# field one number for every image or one per image. Shared by QMTSPGRYarnykh and QMTSPGRRamani
+# (qmt_cw.jl), `M` naming the model in the messages.
+function _pulsedspgr(M; offset, ts, TR, FA, B1e = nothing, tm = nothing, mtpulse = nothing, mtflip = nothing,
+                     lineshape = superlorentzian)
+    name = nameof(M)
     n = length(offset)
     # one number for every image, or one per image
-    per(x, name) = x isa Real ? fill(Float64(x), n) : length(x) == n ? Float64.(collect(x)) :
-        throw(DimensionMismatch("QMTSPGRYarnykh: $name has $(length(x)) values for $n offsets (one number, or one per image)"))
+    per(x, k) = x isa Real ? fill(Float64(x), n) : length(x) == n ? Float64.(collect(x)) :
+        throw(DimensionMismatch("$name: $k has $(length(x)) values for $n offsets (one number, or one per image)"))
     if mtpulse === nothing
         (B1e === nothing || tm === nothing) &&
-            throw(ArgumentError("QMTSPGRYarnykh: give the MT pulse as `B1e` and `tm`, or as `mtpulse` and `mtflip`"))
-        mtflip === nothing || throw(ArgumentError("QMTSPGRYarnykh: `mtflip` goes with `mtpulse`; with `B1e` and `tm`, leave it out"))
+            throw(ArgumentError("$name: give the MT pulse as `B1e` and `tm`, or as `mtpulse` and `mtflip`"))
+        mtflip === nothing || throw(ArgumentError("$name: `mtflip` goes with `mtpulse`; with `B1e` and `tm`, leave it out"))
         b, t = per(B1e, :B1e), per(tm, :tm)
     else
         (B1e === nothing && tm === nothing) ||
-            throw(ArgumentError("QMTSPGRYarnykh: the MT pulse as `mtpulse` and `mtflip`, or as `B1e` and `tm`, not both"))
-        mtflip === nothing && throw(ArgumentError("QMTSPGRYarnykh: `mtpulse` needs `mtflip`, its flip angle per image (degrees)"))
+            throw(ArgumentError("$name: the MT pulse as `mtpulse` and `mtflip`, or as `B1e` and `tm`, not both"))
+        mtflip === nothing && throw(ArgumentError("$name: `mtpulse` needs `mtflip`, its flip angle per image (degrees)"))
         t = fill(sum(mtpulse.duration), n)
         b = per(mtflip, :mtflip) .* _b1eperdegree(mtpulse)
     end
-    m = QMTSPGRYarnykh(Float64.(collect(offset)), b, t, per(ts, :ts), per(TR, :TR), per(FA, :FA), lineshape)
+    tsv, TRv = per(ts, :ts), per(TR, :TR)
     for j in 1:n
-        m.TR[j] >= m.tm[j] + m.ts[j] ||
-            throw(ArgumentError("QMTSPGRYarnykh: TR must hold the MT pulse and ts, TR ≥ tm + ts; image $j: " *
-                                "TR = $(m.TR[j]), tm + ts = $(m.tm[j] + m.ts[j])"))
-        m.tm[j] > 0 && m.ts[j] >= 0 && m.B1e[j] >= 0 ||
-            throw(ArgumentError("QMTSPGRYarnykh: image $j needs tm > 0, ts ≥ 0 and B1e ≥ 0"))
+        TRv[j] >= t[j] + tsv[j] ||
+            throw(ArgumentError("$name: TR must hold the MT pulse and ts, TR ≥ tm + ts; image $j: " *
+                                "TR = $(TRv[j]), tm + ts = $(t[j] + tsv[j])"))
+        t[j] > 0 && tsv[j] >= 0 && b[j] >= 0 ||
+            throw(ArgumentError("$name: image $j needs tm > 0, ts ≥ 0 and B1e ≥ 0"))
     end
-    return m
+    return (Float64.(collect(offset)), b, t, tsv, TRv, per(FA, :FA), lineshape)
 end
 
 # An MT pulse's power-equivalent amplitude per degree of its nominal flip angle (µT/degree): its

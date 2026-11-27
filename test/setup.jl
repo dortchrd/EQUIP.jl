@@ -240,6 +240,10 @@ const CASES = [
       Mzf_td0 = 0.0, Mzm_td0 = 0.0)),
     (QMTSPGRYarnykh(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
                                       R1obs = 1.0, B1 = 1.0, B0 = 0.0)),     # R1obs = R1m: the tie gives R1f = 1.0
+    (QMTSPGRRamani(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
+                                     R1obs = 1.0, B1 = 1.0, B0 = 0.0)),
+    (QMTCWHenkelman(offset = [1e3, 2e3, 4e3, 8e3, 16e3, 1e3, 2e3, 4e3, 8e3, 16e3, 0.0], B1cw = [fill(1.5, 5); fill(3.0, 5); 0.0]),
+     (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0, R1obs = 1.0, B1 = 1.0, B0 = 0.0)),
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
     (StickZeppelin(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, Dax = 1.9e-3, theta = 0.7, phi = 0.3)),
     (StickZeppelinBall(; DWI_ACQ...), (S0 = 1000.0, vax = 0.6, viso = 0.1, Dax = 1.9e-3, theta = 0.7, phi = 0.3, Diso = 3.0e-3)),

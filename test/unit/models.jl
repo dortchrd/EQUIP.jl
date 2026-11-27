@@ -286,6 +286,38 @@ end
     @test occursin("TR = 0.01", msg(() -> QMTSPGRYarnykh(; base..., TR = 0.010, B1e = 4.0, tm = 0.012)))
 end
 
+@testset "QMTCWHenkelman and QMTSPGRRamani: Henkelman's closed form, the Bloch steady state, the CWPE" begin
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.0, B1 = 0.95, B0 = 30.0)
+    off, b1 = [0.5e3, 1e3, 2e3, 4e3, 8e3, 16e3, 0.0], [fill(2.0, 6); 0.0]
+    mc = QMTCWHenkelman(offset = off, B1cw = b1)
+    # Henkelman et al. 1993's closed form, R = kmf (M0f = 1), M0B = PSR, R_A = R1f, R_B = R1m, its
+    # free-pool term (ω1/2πΔ)²/(R_A·T2A) the Lorentzian rate far from resonance, here in full
+    # (Wf/R1f); the irradiation scaled by B1, the offsets moved by B0
+    function henkelman(o, b)
+        ω1² = (2π * 42.577478518 * 0.95 * b)^2
+        Δ = o - 30.0
+        Wf, Wm = π * ω1² * lorentzian(0.04, Δ), π * ω1² * superlorentzian(12e-6, Δ)
+        q = 20.0 * 0.15 / 1.2                                     # R·M0B/R_A
+        b == 0 && return 1.0
+        return (1.0 * q + Wm + 1.0 + 20.0) / (q * (1.0 + Wm) + (1 + Wf / 1.2) * (Wm + 1.0 + 20.0))
+    end
+    @test signal(mc, θ) ≈ henkelman.(off, b1) rtol = 1e-12
+    # the free pool alone (PSR = 0): the Bloch equations' steady state under CW irradiation,
+    # Mz/M0 = (1 + (ΔωT2)²)/(1 + (ΔωT2)² + ω1²·T1·T2)
+    ω1², Δω = (2π * 42.577478518 * 0.95 * 2.0)^2, 2π * (1e3 - 30.0)
+    @test signal(mc, merge(θ, (PSR = 0.0,)))[2] ≈ (1 + (Δω * 0.04)^2) / (1 + (Δω * 0.04)^2 + ω1² * 0.04 / 1.2) rtol = 1e-12
+    # Ramani's: Henkelman's steady state at the continuous-wave power equivalent, ω1² = (tm/TR)·ω1e²
+    # (the MT pulse's power over TR), its acquisition QMTSPGRYarnykh's; ts and FA not used
+    mr = QMTSPGRRamani(; SPGR_ACQ...)
+    s = sqrt(SPGR_ACQ.tm / SPGR_ACQ.TR)
+    @test signal(mr, θ) ≈ signal(QMTCWHenkelman(offset = SPGR_ACQ.offset, B1cw = s .* SPGR_ACQ.B1e), θ) rtol = 1e-14
+    @test signal(QMTSPGRRamani(; SPGR_ACQ..., FA = 30, ts = 0.004), θ) == signal(mr, θ)
+    @test keys(parameters(mr)) == keys(parameters(QMTSPGRYarnykh)) == keys(parameters(mc))
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    @test occursin("QMTSPGRRamani: TR", msg(() -> QMTSPGRRamani(; SPGR_ACQ..., TR = 0.010)))
+    @test occursin("B1cw has 2", msg(() -> QMTCWHenkelman(offset = [1e3, 2e3, 0.0], B1cw = [1.0, 2.0])))
+end
+
 @testset "signal needs every value; defaults(m) are merged in explicitly" begin
     m = QMTSIR(TI = [0.01, 0.1, 1.0], TD = 2.5)
     @test defaults(m) == (kmf = 12.5, R1m = :R1f, Sm = 0.83, Mzf_td0 = 0.0, Mzm_td0 = 0.0)

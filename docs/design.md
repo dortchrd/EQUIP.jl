@@ -6361,6 +6361,39 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        13 images, one signal 1.67 → 1.36 µs, one voxel's fit 43.3 → 32.7 µs, a whole brain
        3.2 → 2.2 s; 25 images, 2.57 → 2.27 µs, 70.7 → 44.6 µs, 5.7 → 3.9 s (the fits gain more than
        the plain signal: the exponentials are dearer on dual numbers).
+     - **Built: Henkelman's continuous-wave model and Ramani's approximation** (the owner,
+       2026-11-27: "Ramani's continuous-wave approx model, and henkelman model for cw - which are
+       more or less the same"; branch `cwmt-proto`, src/models/qmt/qmt_cw.jl). One formula, the
+       steady state under constant saturation (twopool.jl's `_saturatedsteadystate`):
+       `QMTCWHenkelman(; offset, B1cw)` for CW irradiation (Henkelman et al., MRM 1993),
+       `QMTSPGRRamani` for pulsed SPGR with the MT pulse's power averaged over TR (the CWPE,
+       ω1² = (tm/TR)·ω1e²) and the excitations left out (Ramani et al., MRI 2002;20:721), its
+       keywords `QMTSPGRYarnykh`'s (a shared constructor, `_pulsedspgr`) so the two compare on
+       one acquisition; the parameters `QMTSPGRYarnykh`'s for both. The free pool's saturation by
+       its Lorentzian in full: Henkelman's term, (ω1/2πΔ)²/(R_A·T2A), is its value far from
+       resonance, and for the free pool alone the Lorentzian rate gives the Bloch equations' own
+       steady state exactly (exchange acts on Mz alone, so with two pools too). Checked: against
+       Henkelman's closed form written out (1e-12), the Bloch steady state at PSR = 0 (1e-12), and
+       Ramani's as Henkelman's at the CWPE amplitude. Measured (bench/qmt/ramani.jl), Ramani's
+       fitted to Yarnykh's noise-free signals, white matter, the 13-image protocol:
+
+       | excitation | kmf | PSR bias | kmf bias | T2m bias | T2f bias |
+       |---|---:|---:|---:|---:|---:|
+       | 10° | 10 | −28.1% | +0.2% | +0.3% | +39.6% |
+       | 10° | 20 | −29.2% | −2.2% | +0.3% | +41.0% |
+       | 10° | 40 | −29.8% | −7.5% | +0.4% | +42.6% |
+       | 5° | 10 | −8.1% | −2.2% | +0.3% | +8.9% |
+       | 5° | 20 | −8.4% | −4.5% | +0.3% | +9.8% |
+       | 5° | 40 | −8.5% | −9.7% | +0.4% | +10.5% |
+
+       The excitation left out is the error: it acts on the free pool as a loss of about
+       −ln(cos α)/TR (0.51 s⁻¹ at 10°, TR 30 ms, against R1f ≈ 1.1; 0.13 at 5°). With it in, as a
+       rate (Yarnykh's simplified form, bench/qmt/averaged.jl, above), the bias was +1.5 to +1.8% in
+       PSR. Precision, the same image noise (MT-off SNR 100; Ramani's images lack the sin α
+       factor, so its snr is 100 where Yarnykh's is 800): PSR SD 6.8% against 6.9%, kmf 13.6%
+       against 14.3%. Speed: one signal 0.59 against 1.17 µs, one voxel's fit 9.5 against 29.1 µs,
+       a whole brain 0.8 against 2.4 s (4 threads; 8.3 and 8.1 iterations). In the precompile
+       workload and the test cases (noise-free recovery, no allocation, both precisions).
      - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
        "would it be more efficient for lineshape to take all deltas at same time and calc once",
        then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about

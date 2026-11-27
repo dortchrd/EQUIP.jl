@@ -339,6 +339,8 @@ start. It costs about 1 µs per voxel; giving T1 (or R1) a start, `T1 = Free(sta
 | qMT | `QMTSIR(TI = ..., TD = ..., magnitude = true)` | selective inversion recovery, two-pool qMT (Li et al., MRM 2010; Dortch et al., MRM 2018); TD one number or one per TI | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), R1m = R1f, Sm = 0.83, Mzf_td0 = Mzm_td0 = 0 (both pools saturated at the start of TD) |
 | | `QMTSIREqualR1(TI = ..., TD = ..., magnitude = true)` | `QMTSIR` with its two assumptions built in (R1m = R1f, both pools saturated at the start of TD), so the signal is one line: M0f·{1 + E_i·[(1 − E_d)·(a + b·E_k) − 1]}, with E_i = e^(−R1f·TI), E_d = e^(−R1f·TD), E_k = e^(−k·TI), k = kmf·(1 + PSR), a = (Sf + PSR·Sm)/(1 + PSR), b = PSR·(Sf − Sm)/(1 + PSR). Inversion recovery whose inversion efficiency, a + b·E_k, relaxes during TI from Sf toward the pools' weighted mean a at the exchange rate k; TD carries no exchange. The same fits as `QMTSIR`'s defaults in 0.6–0.75 of the time; defined at kmf = 0; the SIR protocols apply | PSR, R1f, Sf, M0f | kmf = 12.5 (≥ 0 when estimated), Sm = 0.83 |
 | | `QMTSPGRYarnykh(offset = ..., B1e = ..., tm = ..., ts = ..., TR = ..., FA = ...)`, or the MT pulse as `mtpulse = RFPulse(...)`, `mtflip = ...` | pulsed MT with a spoiled gradient echo, Yarnykh's two-pool model (MRM 2002; Yarnykh & Yuan, NeuroImage 2004): each TR an excitation (FA, degrees; the free pool only), free recovery, then an off-resonance MT pulse (`offset`, Hz) of power-equivalent amplitude `B1e` (µT) over `tm`, saturating each pool at π·ω1²·g (the free pool's Lorentzian; the macromolecular pool's `lineshape`, `superlorentzian` by default), `ts` before the next excitation; the steady state in closed form; S = M0f·sin α·Mzf. Include an image without the MT pulse (`B1e = 0`): it is fitted with the others, not divided into them. R1f by default from an observed R1 map, `R1obs = r1map`, so the pools' slower recovery rate is R1obs (or `R1f = Free(start = 1.0)` with images at several flip angles); `B1` scales the excitation and the MT pulse, `B0` (Hz) moves every offset | PSR, kmf, T2f, T2m, M0f | R1m = 1, R1f tied to R1obs = 1.0, B1 = 1, B0 = 0 |
+| | `QMTSPGRRamani(...)`, the same keywords as `QMTSPGRYarnykh` | pulsed MT with SPGR, Ramani et al.'s approximation (MRI 2002): the MT pulse replaced by continuous-wave saturation of its power averaged over TR (ω1² = (tm/TR)·(γ·B1·B1e)²), the excitations neglected, so Henkelman's CW steady state, S = M0f·Mzf: a 2×2 solve an image, 3× faster than `QMTSPGRYarnykh`; `ts` and `FA` taken and unused, the images at one flip angle and TR (no VFA images in the same fit). Biased on data the pulsed model describes: PSR −29% at 10°, −8% at 5° (white matter; bench/qmt/ramani.jl) | as `QMTSPGRYarnykh` | as `QMTSPGRYarnykh` |
+| | `QMTCWHenkelman(offset = ..., B1cw = ...)` | two-pool qMT under continuous-wave off-resonance irradiation at its steady state (Henkelman et al., MRM 1993): S = M0f·Mzf, Henkelman's closed form (the free pool's Lorentzian in full); `B1cw` the irradiation's amplitude (µT), 0 for the reference image | as `QMTSPGRYarnykh` | as `QMTSPGRYarnykh` |
 
 ### SIR's Sf and Sm from the inversion pulse
 
@@ -410,6 +412,16 @@ TRs are allowed). The MT pulse is given either by its power-equivalent amplitude
 √(∫B1²dt/tm) in µT, and `tm`, or by its shape and nominal flip angle per image: `mtpulse =
 RFPulse(...)` (pulses.jl's segments; its duration is tm) and `mtflip` (degrees), from which EQUIP
 works out B1e. The macromolecular pool's `lineshape` is any function `(T2, Δ) -> g`.
+
+**Ramani's approximation.** `QMTSPGRRamani` takes the same acquisition and replaces the pulsed
+sequence by continuous-wave saturation of the MT pulse's power averaged over TR, leaving out the
+excitations (Ramani et al., MRI 2002): three times faster (a whole brain in 0.8 s against 2.4 s,
+4 threads), and as precise on its own data, but biased where the excitations matter. Fitted to
+signals `QMTSPGRYarnykh` describes (white matter, the protocol above), PSR comes out 28–30% low at
+10° and 8% low at 5°, T2f 40% and 9% high (bench/qmt/ramani.jl): the excitation acts on the free
+pool as an extra loss of about −ln(cos α)/TR, 0.5 s⁻¹ at 10° and TR 30 ms, against R1f ≈ 1 s⁻¹.
+Use it for small flip angles, or to compare with work done with it. `QMTCWHenkelman` is the
+continuous-wave experiment itself (irradiation until the steady state, then the readout).
 
 **T1 and qMT together.** Variable-flip-angle images are SPGR images without the MT pulse, so they
 go in the same acquisition (`B1e = 0` at their flip angles and TR) and the fit takes R1f from

@@ -61,7 +61,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   `gaussian`, `superlorentzian` (g(Δ), the saturation rate π·ω1²·g); pulses.jl, `RFPulse`,
   `blockpulse`, `inversionefficiency` (SIR's Sf) and `saturationefficiency` (Sm); twopool.jl, the two pools on
   static 2×2 matrices (A, its exponential in closed form, the saturated steady state); qmt_spgr.jl,
-  `QMTSPGRYarnykh` (pulsed MT with SPGR, Yarnykh 2002); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
+  `QMTSPGRYarnykh` (pulsed MT with SPGR, Yarnykh 2002); qmt_cw.jl, `QMTCWHenkelman` (CW
+  saturation, Henkelman 1993) and `QMTSPGRRamani` (pulsed SPGR by its CW power equivalent, Ramani
+  2002); src/models/diffusion/directions.jl: `fiberdirection`, which with `inner` gives a
   directional compartment its view ξ = inner(g[j], n); `directionset`, N gradient directions spread
   evenly, to simulate a scheme; `DiffusionDirections`, the type of a directional model's `g`, and
   `checkencoding(b, g)`, the check every directional model's inner constructor makes, the ones
