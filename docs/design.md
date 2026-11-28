@@ -2,6 +2,133 @@
 
 The design decisions, recorded so the code and the discussion share one reference.
 
+## How to read this file (index, 2026-11-28)
+
+This file is the decision log and the roadmap, written as things were decided since 2026-10:
+about 9,300 lines, not meant to be read whole. Its sections keep the headings they had when
+written, so several say "proposed" or "the plan" for what has since been built: the status
+below is the current one. For the code as it is now read [architecture.md](architecture.md);
+for where the work stands (branches, next steps, what waits on the owner),
+[status.md](status.md). Search this file by a section's heading or by "item N" (the roadmap's
+numbers, which are labels, not an order).
+
+Status words: **built** (in `main`), **unmerged** (built on a branch, named), **partly**
+(built, with parts planned), **planned**, **on hold** (waiting on a decision or the lab), **not
+adopted** (tried, measured, and left out), **undone** (built, then removed).
+
+### The sections
+
+| section | what it holds | status |
+|---|---|---|
+| Inputs: where each kind of information lives | model, parameters, fit configuration, data, settings: their Julia forms | built |
+| Writing a model; Parameter roles | the interface (`parameters`, `signal!`, `Free`, `Fixed`, ties, maps, starts) | built |
+| Fitting pipeline; Status codes; FitResult | setup → init → voxel → dataset; the codes; the result | built |
+| Simulation | `simulate`, `TISSUES`, `nominal` | built |
+| Package structure and name | the layout; the name (EQUIP, from VoxelFit) | built |
+| Performance notes | what made the code fast, measured; and what did not help (geodesic acceleration, stopping rules, batching, a written-out Jacobian, poor masks) | reference |
+| Variable projection (VarPro): proposed design | a design for separable models | planned; its prototype was not faster (not adopted, archived) |
+| Simulation, CRLB and protocol design: proposed design | crlb, montecarlo, diagnostics, `ProtocolDesign`, the search | built; data-driven design planned |
+| Weighted fits: the plan | `weights` per observation | built; GLS and per-voxel weights planned |
+| The command line and the data reader: the plan | `equip`, `readdata`, `writemaps` | built |
+| MRImages | the image package, DICOM through dcm2niix | built; its own repository planned (item 9) |
+| Peripheral nerve SMT | the lab's protocol questions | on hold: waits on the lab's values (item 18) |
+| Building blocks | diffusion compartments; one-equation model families | compartments built; families undone (2026-11-06, at the owner's request) |
+| Scope so far | the scope as of 2026-10-31 | historical: architecture.md has today's |
+| The prerelease | what shipped as 0.3.0 (2026-11-08) | built |
+| Tier 2, bias from noise at low SNR | Rician fits, crlb for them, second-order bias, `propagate`, uncertain inputs, validation | built; step 3 (estimating σ) on hold |
+| Roadmap | the priorities (agreed 2026-11-08) and items 1–31 | below |
+
+### The roadmap items
+
+| item | subject | status |
+|---|---|---|
+| 1 | one result type, `FitResult` | built; standard-error maps with item 19 |
+| 2 | simulation, phantoms, benchmarks | `simulate` built; phantoms and BrainWeb planned |
+| 3 | uncertainty: crlb, its objective, design | built; IRWLS, sensitivity–efficiency plots, the worst case in a box planned |
+| 4 | starting values and outliers | the baseline built; the dictionary start on hold (`bestof-proto`); plausible ranges per model planned (priority 6) |
+| 5 | MTR, MTsat, B1 and B0 maps | MTR unmerged (`mtr`, `mamt-proto`); MTsat, B1, B0 planned; `equip mtr` planned |
+| 6 | more qMT models, approximate to exact | QMTSIREqualR1, lineshapes and pulses, Yarnykh, Ramani, Henkelman built; Portnoy (MAMT) unmerged (`mamt-proto`); Sled & Pike, single-point MPF, bSSFP, the excitation's bound-pool saturation planned |
+| 7 | NODDI and SMT | built (four NODDIs, three SMTs); Bingham–NODDI faster planned |
+| 8 | custom models, coming from other fitters | `@mrimodel`, `newmodel` built; the LsqFit bridge and a "coming from" page planned |
+| 9 | data I/O | built; protocol files, more formats, MRImages' own repository planned |
+| 10 | front ends | the command line and MATLAB built; Python, an installer, a server planned |
+| 11 | solver backends, large problems | planned |
+| 12 | later: GPU, more models | planned |
+| 13 | Rician-likelihood fitting | built |
+| 14 | a protocol design from a number of points | planned (priority 3) |
+| 15 | Bayesian estimation | planned, not a priority |
+| 16 | error propagation (derived, uncertain inputs, second order) | built; propagation by draws planned |
+| 17 | directional diffusion (DTI, DKI, stick–zeppelin) | built; the B-matrix, `rotinv`, cylinders, spheres, N sticks, DKI's constraints imposed planned |
+| 18 | the spherical mean's pipeline errors | undone 2026-11-06 (code at a9c7be4); to restore with the nerve work (on hold) |
+| 19 | derived quantities, the `derived` hook | built; standard-error maps, `compare` and `vary` for them, V1's angular error planned |
+| 20 | Rician fitting for every model | built; DKI in CSF open |
+| 21 | tests and benchmarks | groups and the validation group built; consolidation and a benchmark framework with a baseline planned |
+| 22 | preprocessing (MP-PCA, masks, Gibbs) | planned |
+| 23 | a units switch for what users see | planned |
+| 24 | a review of the exported names | partly (`design`, `readdata`, `noise = :rician` done) |
+| 25 | SAGE (R2* and R2) | prototyped and measured; decisions waiting on the owner |
+| 26 | a branch-free `exp` | measured (1.39× on 16-point SIR, none on 4-point); later |
+| 27 | gradient directions after `g` | built; scanner coordinates planned |
+| 28 | preparing per-fit work once | measured (NODDI 9%); kept at low priority |
+| 29 | SMI, the Standard Model | planned |
+| 30 | gᵀDg's weights; `inner` | built |
+| 31 | joint models, several scans as one | planned (SIR with a two-pool VFA first) |
+
+### Tried and not adopted
+
+Each was built or prototyped and measured; the code of most is kept on the `experiments` branch
+(its README says how to get one back). Before proposing one of these again, read why it was left.
+
+| what | outcome, and why | where |
+|---|---|---|
+| VarPro on the biexponential cases (`varpro-proto`) | not faster as prototyped; the design is kept | "Variable projection (VarPro)"; `experiments` |
+| step-control variants for LM (`step-proto`) | today's step control kept | Performance notes; `experiments` |
+| `sensitivity` maps (`sens-proto`) | removed: Eq. 6 is `jacobian ./ √t` | "Diagnostics"; `experiments` |
+| solver options for steps toward bounds | superseded by the dead-zone rule, `_lost_influence` | Performance notes; `experiments` |
+| statistical and calibrated stopping rules (`stopping-proto`) | 6–37% faster; too complicated for the benefit (the owner) | "Stopping tolerances against the noise"; `experiments` |
+| geodesic acceleration | slower in every model, not more robust | "Geodesic acceleration, prototyped"; `experiments` |
+| lineshapes once per distinct MT offset (`lineshape-cache`) | about 10% a brain where offsets repeat; specialized code for a marginal gain (the owner) | item 6; `experiments` |
+| one-equation model families with parts switched off (`blocks-proto`) | undone at the owner's request; the compartments kept | "Building blocks" |
+| the dictionary start, `BestOf` over several parameters (`bestof-proto`) | about 25% off a fit on the owner's scan; on hold with item 4 | item 4, "Voxels a poor mask lets in"; branch `bestof-proto` |
+| batching voxels or observations per instruction | Julia's `exp` does not vectorize; 4-point SIR gains nothing, 16-point 1.39× with a branch-free exp | "Batching"; item 26 |
+| LoopVectorization's `@turbo` | no dual numbers; unmaintained | item 26 |
+| a written-out Jacobian | 6–13% for SIR; DKI perhaps 1.5×, later | "A written-out Jacobian" |
+| QMTSIR's rearranged signal (six coefficients) | 1.05–1.6× faster, harder to check against the paper | Performance notes |
+| Henkelman's formula with three divisions | 1.5× slower on duals than one; the one-division form kept | item 6 |
+| helpers shared between qMT models | inlined: each model self-contained (the owner, 2026-11-27) | item 6; CLAUDE.md, Style |
+| LinearAlgebra's `⋅` (and re-exporting it) | 1.75–3× slower on duals of many partials; `inner` instead | item 30 |
+| the 8-shell cache for NODDI | replaced by the kₗ table (NODDI 18.0 → 11.1 s a brain) | item 7 |
+| DKI in the precompile workload | its fit 20–70% slower from the package image | Performance notes |
+| MRIgeneralizedBloch.jl for MAMT | rectangular pulses only, its own derivatives, heavy dependencies | item 6 |
+| mirroring qMRLab's core (parallel vectors, settings on the model) | its vocabulary taken, not its structure: unsafe across threads | item 8 |
+| preparing per-fit work once (`prepare-proto`) | NODDI 9%, DKI nothing; low priority | item 28 |
+
+### Decisions that constrain new work
+
+The ones a new change most often runs into (the reasons where named):
+
+- **A model is its acquisition plus `parameters` and `signal!`**; roles change by keyword, never
+  by editing the model ("Inputs", "Parameter roles"). Not qMRLab's core (item 8).
+- **Forward models self-contained**, equations in the paper's notation in their own `signal!`;
+  helpers only for what is genuinely shared (CLAUDE.md, Style; item 6).
+- **Fractions 0 to 1 everywhere** (MTR, PSR, MPF, volume fractions), never percent (CLAUDE.md).
+- **Units inside: s, 1/s, s/mm², mm²/s, degrees, Hz, µT**; a units switch for users is item 23.
+- **Bounds by physics**: T2 ≤ 2.5 s and R2 ≥ 0.4 s⁻¹, T1 ≤ 5 s and R1 ≥ 0.2 s⁻¹, diffusivities
+  0 to 4e-3 mm²/s, in every model (tier 2, "Decisions"; the prerelease).
+- **Noise**: `snr` relative to the scale parameter (M0, S0, M0f), Dortch 2018's SNR at thermal
+  equilibrium; `likelihood = :rician` for magnitude fits; σ given by the user (estimating it is
+  on hold) (tier 2).
+- **MTR is a calculation, not a model** (the owner, 2026-11-27; item 5).
+- **qMT: Henkelman's CW model holds the family's parameters**, R1m = 1 s⁻¹ fixed and R1f tied
+  to an observed R1 by default; the pulsed models delegate to it (item 6).
+- **qMT names**: PSR, kmf (k from m to f), MPF = PSR/(1 + PSR) derived; other conventions'
+  names give hints (item 6, "Names across the field").
+- **Data in through MRImages**, DICOM by dcm2niix, maps as BIDS-named NIfTI (gzipped as the
+  data) with a provenance sidecar per map ("MRImages", item 9).
+- **Dot products as `inner`** (item 30).
+- **Prototypes on their own branch until the owner accepts them**; merges by the owner's word
+  (CLAUDE.md, Working agreements).
+
 ## Inputs: where each kind of information lives
 
 | input | varies across voxels? | Julia form | example |
@@ -4583,6 +4710,8 @@ code perspective". Tried on two families: the T2 decays (six models) and SMT (th
 
 ## Scope so far
 
+(Historical: the scope as of 2026-10-31. Today's is in architecture.md.)
+
 In: the interface above (with `:scale`, `:data` and `BestOf` starts, `datastart` and `relabel`), seventeen models: relaxometry (T1IR, R1IR, T1IRTD,
 R1IRTD, T1SR, R1SR, T1MFA, R1MFA, T2Decay, R2Decay, T2DecayOffset, R2DecayOffset, T2BiexpDecay, R2BiexpDecay), diffusion (ADCDecay, ADCKurtosis), qMT (QMTSIR), `fit` for one voxel or a dataset returning a
 `FitResult` (with `fitted`, `residuals` and a summary display), Float64/Float32, bounds, masks, per-voxel maps, ties,
@@ -5661,7 +5790,8 @@ structure with L, after step 4. σ fitted per voxel (`σ = Free()`). MP-PCA's σ
 **Priorities** (agreed with the owner, 2026-11-08: "converge and tighten this into a priority
 list"; it keeps the earlier order, the prerelease, then Rician fitting, then a protocol from a
 number of points, and places everything else in it). The items keep their numbers; the numbers
-are not an order. The same list, with each tier's loose ends, is in docs/status.md.
+are not an order. What is left in each tier is in docs/status.md; what each built, in
+docs/history.md.
 
 1. **Finish the prerelease** ("The prerelease", above): done on branch `prerelease`
    (2026-11-08; "The prerelease: what was done"): the T2Decay guard, `equip fit DTI` and `DKI`,
@@ -6776,7 +6906,8 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        their definitions instead (docs/guide.md, "qMT's names").
    - **Henkelman's continuous-wave steady state** (Henkelman et al., MRM 1993): the two-pool
      Bloch–McConnell equations under constant off-resonance saturation, in closed form. The
-     reference model, and the building block of the pulsed approximations.
+     reference model, and the building block of the pulsed approximations. (Built:
+     `QMTCWHenkelman`, above.)
    - **Pulsed MT with SPGR**, the models of qMRLab's `qmt_spgr` (inputs: the MT data, R1, B1 and
      B0 maps, a mask):
      - Sled & Pike (J Magn Reson 2000): rectangular-pulse (`SledPikeRP`) and continuous-wave
@@ -6788,11 +6919,15 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        parameters constrained, so one parameter per voxel (the "exact data start" pattern of
        item 5).
      - Also in qMRLab: qMT with bSSFP (Gloor et al.), a later candidate.
+     (Built: Yarnykh's and Ramani's, above. Not built: Sled & Pike's, the single-point MPF,
+     bSSFP.)
    - **MAMT** (Stanisz group): the MT pulse cut into pieces of constant RF amplitude, each solved
      exactly (the constant-amplitude solution) and propagated through the sequence to the steady
-     state. (Reference to confirm; as I recall, Portnoy & Stanisz, MRM 2007, compared models of
-     pulsed MT.)
-   - **The full coupled equations, without approximations**: the two-pool Bloch–McConnell
+     state. (Built on `mamt-proto`, 2026-11-27: `QMTSPGRPortnoy`, above, from Portnoy & Stanisz,
+     Magn Reson Med 2007;58:144-155.)
+   - **The full coupled equations, without approximations** (MAMT, above, is these with ideal
+     spoiling and the excitation acting on the free pool alone; what is left: the excitation's
+     saturation of the bound pool, real spoiling): the two-pool Bloch–McConnell
      equations through the actual sequence (shaped MT pulses, excitations, spoiling) to the steady
      state, by piecewise-constant propagators (static matrix exponentials) or an ODE solver. The
      steady state needs no simulation over many TRs: it is the fixed point of one TR's affine map,

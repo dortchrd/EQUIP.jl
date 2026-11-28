@@ -1,0 +1,450 @@
+# EQUIP's history: merges, branches and what each tier built
+
+Moved here from docs/status.md on 2026-11-28, unchanged: the record of what was merged into
+`main` and when, which branches were deleted or archived, and what each priority tier built, as
+it was written at the time. For where the work stands now read [status.md](status.md); for the
+code as it is, [architecture.md](architecture.md); for the reasons, [design.md](design.md).
+Statements here such as "the branch is to delete" or "next" were true when written; status.md
+says what is current.
+
+## Branches
+
+Four branches are kept (the owner, 2026-11-08: "we will be left with 4 manageable branches";
+again 2026-11-17, after deleting the finished ones: "kept rest"):
+
+| branch | what it is |
+|---|---|
+| `main` | the work. GitHub's default branch; on 2026-11-08 moved from the first version to `lean`'s fae57ba (a fast-forward), so the repository's front page shows EQUIP. New work starts here; prototypes on a branch of their own, made from `main`. |
+| `lean` | kept for now, at fae57ba, where `main` started; it holds nothing `main` does not. Its history is below. Whether to delete it: the owner, later. |
+| `claude-oneshot` | the first version (VoxelFit, 2026-10-14, bd6f278): what `main` was until 2026-11-08. |
+| `experiments` | the prototypes never merged, kept: an archive commit per archiving whose parents are their last commits, so every commit of each is kept (2026-11-08, bc996fe: varpro-proto, step-proto, sens-proto, prototype/solver-deadzone; 2026-11-23, 4b47226, with bc996fe its first parent: stopping-proto, geodesic-proto, combined-proto; 2026-11-27, 02e5f22, with 4b47226 its first parent: lineshape-cache). Its only file is a README: what each tried, its outcome, and how to get one back (`git switch -c stopping-proto experiments^2`). |
+
+Merged into `main` (fast-forward, 2026-11-27, the owner: "merge into main once tests and CI pass"): `pulsedmt-proto` (from 2026-11-26; MT, step 1 of 3, the owner: "lets move on to mt",
+then the lab's `absorptionLineShape.m` and `yarnykh_pulseMT.m`, "dont take as gospel"): the
+lineshapes (`lorentzian`, `gaussian`, `superlorentzian`, the last from a table of one variable,
+45 ns a value, within 1e-13 of the quadrature), the pulses (`RFPulse`, `blockpulse`), SIR's Sf
+(`inversionefficiency`) and Sm (`saturationefficiency`, Gaussian on resonance: "We do Gaussian for now");
+the quintic table shared with Watson's (src/tables.jl; NODDI bit for bit, speed unchanged). Step 2:
+`QMTSPGRYarnykh`, pulsed MT with SPGR (the owner: the MT pulse in "Both" forms, B1e and tm or its
+shape and flip angle; the name; R1m = 1 fixed), equal to the lab's MATLAB to 7e-15 (two bugs found
+in it, design.md item 6), in the precompile workload. Step 3, the names: `MPF` = PSR/(1 + PSR) derived for
+the three MT models (QMTSIR's maps and crlb tables gain it; kfm also until 2026-11-27, the owner:
+MPF alone), `nominal(m; MPF)`, hints for other conventions' names (F, f, kf, kr, R, T2r, ...); the guide's "qMT's names" by definitions
+(a per-paper table needs the papers: the owner). QMTSIR's results now carry MPF after the
+parameters (maps, crlb's and montecarlo's tables, the command line's TSVs), as DTI's carry FA: a sum
+over all of crlb's `relrmse` (Eq. 5 by hand) now needs the parameters picked; `ProtocolDesign` is
+unchanged (Table 2's 0.243395). Passing: unit (1720), integration (1761), validation (76), the
+command line's (189), the full `Pkg.test` (3481, after a last fix in roles.jl), CI (7707af4, all six jobs, with the precompile workload).  Since: Er and Es shared across images (the owner: "Yes"; a brain 3.2 → 2.2 s at 13 images),
+the time-averaged form measured (bench/qmt/averaged.jl), and how B1, B0 and R1obs errors propagate
+(bench/qmt/maperrors.jl; design.md item 6): the full `Pkg.test` passes (3482). Then (the owner: "Do 1 and 2"): SIR with its pulse
+(`QMTSIR(...; pulse)`: Sm made from it, B1, B0 and T2m as parameters), correlated uncertain inputs
+(`R1obs = (sd, B1 = slope)`), and T1 and qMT fitted together measured (bench/qmt/joint_r1.jl: PSR's
+RMSE 6.4% against 14.6% with an R1 map); joint models across sequences on the roadmap. Names
+(the owner): `MPF` the one derived quantity, `saturationefficiency` for Sm. Checked before the merge:
+the full `Pkg.test` (3507), the command line's (189), the validation group (76), CI (5603e14). The
+branch is to delete (`git push origin --delete pulsedmt-proto`).
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `tensor-names`, `_tensor` written by
+name, as the matrix (`(; Dxx, …, Dyz) = p; @SMatrix [Dxx Dxy Dxz; …]`), not by index from
+`_tensorvector`, which stays for the signals, where D's order must match the weights' (docs/design.md,
+item 30). The same matrix bit for bit; the full `Pkg.test` (3391) first. Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "yes"): `weights-arg`, `_tensorweights(g[j])` and
+`_kurtosisweights(g[j])` taking the direction itself; DTI and DKI unpacking `(; S0) = p` and their
+vectors by one helper each (`_tensorvector(p)`, `_kurtosisvector(p)`: each list of names written once),
+`_tensor` built from `_tensorvector`, DKI's `fromderived` reusing it. Results bit for bit as before;
+the full `Pkg.test` (3391) first. Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "ok - merge?"): `tensorweights`,
+`_tensorweights` for gᵀDg as DKI's kurtosis weights, and `inner(a, b)`, EQUIP's own dot product
+(in order, inlined, no allocation; StaticArrays' ⋅ was 1.75–3× slower on dual numbers of many
+partials, a non-inlined call per term), for every dot product in EQUIP, `⋅` no longer exported: DKI's
+fit 27% faster, DTI's crlb 23%; results unchanged to rounding (docs/design.md, item 30). Checked
+first: the full `Pkg.test` (3391), the command line's (189), the validation group (76). Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-26, the owner: "Yes merge"): `gradients-io`, `readdata(paths;
+bval, bvec, scaleb)` (the files named in place of those beside the data); each direction map's sidecar
+says its frame (`"DirectionFrame": "bvec"`), the guide explains it, scanner coordinates on the roadmap
+(item 27); `watson(κ, μ)` and `w(g[j])`, as Bingham's view; `scaleb` (b-values set by the vectors'
+lengths, as MRtrix's), `--scaleb yes`. Checked first: the full `Pkg.test` (3384), the command line's
+(189), CI (466a7b3, all six jobs). Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-25, the owner: "put on roadmap"): `prepare-proto`, a bench
+only (bench/prepare/prepare.jl) and its measurements in roadmap item 28: preparing the work that does not
+depend on the fitted parameters once per fit gains NODDI 9% (9.8 s a brain against 10.8), DKI nothing in a
+fit; kept on the roadmap at low priority. No code in src/. Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-25, the owner: "I would merge once CI passes"):
+`shells-proto`, the Watson stick's kₗ from a table in β (quintic Hermite of kₗ, k′ₗ, k″ₗ, with
+its own derivative rule; read-only; exact outside [0, 12.85)), in place of the 8-shell cache:
+NODDI on scanner-written b-values 18.0 → 11.1 s a whole brain, NODDIConvolved 109 → 21.5 s;
+exact shells 9.8 → 10.9 s (the owner: "an acceptable trade-off") and 22.9 → 21.5 s; Jacobians
+within 4e-13 and Hessians 1.4e-8 of the original, crlb 4e-12, Float32 fits identical. Checked
+first: the full `Pkg.test` (3372), the second-order validation, CI (9fbf235, all six jobs). Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "merge into main"):
+`gvector-proto`, with `noddi-file` in it. The four NODDIs in one file (noddi.jl) and dot products
+written `a ⋅ b` throughout; the gradient directions as one field, `g`, an SVector{3} per image, in
+place of gx, gy, gz, in every directional model, `diffusionencoding` → (b, g), `readdata`, and the
+command line's `--bval FILE` and `--bvec FILE`; `g` typed `DiffusionDirections` and checked by each
+directional model's inner constructor, `checkencoding` (a direction per b-value, unit vectors
+where b > 50), also written by `@mrimodel` and `newmodel` for an acquisition `b`, `g`. Results
+identical (DKI to rounding), speed unchanged (docs/design.md, "Directions per image", revised a
+third time). Checked first: the full `Pkg.test` (3367), the command line's (188), the examples, the
+second-order validation and CI (5e126ba, all six jobs). Their branches deleted on GitHub (2026-11-26).
+
+Merged into `main` (fast-forward, 2026-11-25, at the owner's request: "Merge into main"):
+`stickzeppelinball-proto`, `StickZeppelinBall`: StickZeppelin with a CSF ball (Diso fixed at
+3.0e-3), NODDI at ODI → 0 with Dax fitted; a brain in 2.3 s on 4 threads. Checked first: the full
+`Pkg.test` (3356), the command line's (184) and CI (4bfa84f). Its branch deleted on GitHub (2026-11-26).
+
+Merged into `main` (2026-11-24, at the owner's request: "Merge"): `bingham-proto` (a merge), the
+dispersed views `watson(κ)` and `bingham(κ, β, μ, μβ)` for the compartments (src/models/diffusion/
+dispersion.jl), NODDI written with them, `NODDIConvolved` (the zeppelin's signal averaged; the
+owner: "add both variants"), `BinghamNODDI` (Tariq 2016; dmipy's parameterization: ODI,
+betafraction, the fan's angle psi) and `BinghamNODDIConvolved`, with Tariq's indices (ODIP, ODItot,
+DAB, DAT) checked against the paper's Table 1. Whole brain on 4 threads: NODDI 12–15 s,
+NODDIConvolved 38 s, BinghamNODDI 85 s, BinghamNODDIConvolved 177 s. Checked first: the full
+`Pkg.test` on the merge (3327), the command line's (184), and CI on the branch's last code commit. Its branch deleted on GitHub (2026-11-26). Not yet tried on the owner's data.
+
+Merged into `main` (fast-forward, 2026-11-23, at the owner's request: "merge into main"):
+`models-proto`, four built-in diffusion models: `StickZeppelin` and `BallStick` (multi-compartment,
+src/models/diffusion/multicompartment.jl: the direction from the voxel's own tensor, reported with
+z ≥ 0), `NODDI` (Watson-dispersed sticks and zeppelin with a ball; the sticks by their Jacobi series
+to b·D∥ = 12.75 and quadrature above; a whole brain in 12–15 s on 4 threads) and `IVIM` (the
+segmented start), in the command line and both precompile workloads. Checked first: the full
+`Pkg.test` (3143), the command line's (180), and CI on the last code commit, 51d0ed8 (all six jobs).
+Not yet tried on the owner's data.
+
+Merged into `main` (2026-11-23, at the owner's request: "merge both into main"): `nii-default`
+(a fast-forward), maps gzipped as the data are (`.nii` maps for `.nii` data, `.nii.gz` for
+`.nii.gz`; `compress`, `--compress yes/no`, `'compress'` choose), and `nifti-units` (a merge),
+MRImages reading headers whose units are unknown (taken as mm, as FSL and ITK do; `equip info`
+had failed on the owner's SIR data). Checked first: CI on each branch's last commit (all six
+jobs), and each branch's tests locally (the full `Pkg.test`, 3013, and the command line's, 170;
+MRImages', 109); and the merged tree, after the push: the full `Pkg.test` (3015), the command
+line's (170), MRImages' (109).
+
+Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge"): `freed-bounds`,
+`Fixed(value; lower, upper)`, the bounds a fixed parameter gets when a fit frees it: QMTSIR's and
+QMTSIREqualR1's kmf ≥ 0 (before, 10 to 82 voxels in 10,000 ended at a negative exchange rate with
+`kmf = Free()`), T1MFA's B1 ≥ 0, SMTFreeWater's Diso. Checked first: the full `Pkg.test` with the
+precompile workload (its two failures, the test's own `@mrimodel` copy of QMTSIR, then fixed), the
+command line's (167), the validation group (76), and CI on the branch's last commit, 0ca3ef4 (all
+six jobs).
+
+Merged into `main` (fast-forward, 2026-11-21, at the owner's request: "merge into main once CI
+passes"): `qmtsir-simple`, `QMTSIREqualR1`, SIR with R1m = R1f and both pools saturated at the
+start of TD, its signal in one line (named by the owner: "rename it QMTSIREqualR1"; the branch
+kept its name). Checked first: the full `Pkg.test` with the precompile workload (EQUIP 3002), the
+command line's (166), and CI on the branch's last commit, a26ffee (all six jobs).
+
+**Deleted on GitHub by the owner, 2026-11-26**, each merged into `main` first: `bingham-proto`,
+`stickzeppelinball-proto`, `noddi-file`, `gvector-proto`, `shells-proto`, `prepare-proto`,
+`gradients-io`, `tensorweights`, `weights-arg`, `tensor-names`. Kept: `main`, `lean`, `claude-oneshot`,
+`bestof-proto` (on hold), `experiments`.
+
+**Deleted on GitHub by the owner, 2026-11-23**, each first merged into `main` or archived in
+`experiments` (checked commit by commit): `models-proto`, `nii-default`, `nifti-units`,
+`qmtsir-simple`, `freed-bounds` (in `main`); `stopping-proto`, `geodesic-proto`, `combined-proto`
+(in `experiments`, 4b47226). Kept: `main`, `lean`, `claude-oneshot` (the owner: "keep lean and
+oneshot"), `bestof-proto` (on hold), `experiments`.
+
+**Deleted on GitHub by the owner, 2026-11-17**, each merged into `main` first (every commit is in
+`main`'s history, checked on the full history): `rician` (tier 2), `matlab` (the MATLAB
+functions), `sidecar-roles` (every parameter in the maps' sidecar), `matlab-fixes`. Work goes on
+`main`, or on a branch of its own for a prototype, deleted once merged. (This session's GitHub
+access cannot delete branches: the owner deletes them, `git push origin --delete NAME`.)
+
+Merged into `main` (fast-forward, 2026-11-12, at the owner's request: "yes, run the full tests
+and merge"): `rician`, 17 commits: tier 2 steps 0, 1, 2 and 4, 5 (the Rician fits, and crlb,
+montecarlo and sweeps for them), the diffusivity, T1 and DTI/DKI-diagonal bounds, `design` (was
+`optimize_protocol`), crlb's `noise = :rician`, `readdata`/`readmap`/`writemaps`, the
+`:loglinear` warning and src/fit/loglinear.jl, the docstrings attached. Checked first: the full
+`Pkg.test` (EQUIP 2497), the command line's (139), and CI on the merged commit, 1c38e11 (all six
+jobs: EQUIP, the command line and MRImages on Julia 1.11 and 1). The branch can carry the rest
+of tier 2 (steps 6 to 9; step 3, estimating σ, is on hold: the owner, 2026-11-12, "let's hold
+off on different ways to estimate noise sd", σ given by the user meanwhile) or be deleted. (It
+carried them, and was deleted on 2026-11-17, merged.)
+
+Merged into `main` (fast-forward, 2026-11-17, at the owner's request: "merge matlab-fixes into
+main once CI passes"): `matlab-fixes`, `equip fit|crlb|montecarlo|design --help` without a model,
+MATLAB's output without terminal codes and Julia's binary called directly; and a test made honest
+(directionset's second moment near I/3, 1e-4, not 1e-6: it failed on Julia 1.11.9 once
+ForwardDiff 1.5.0 changed what was compiled; the set moves with rounding at that level). CI on the
+branch, all six jobs. Billing fixed (2026-11-17): CI runs again.
+
+Merged into `main` (fast-forward, 2026-11-15, at the owner's request: "yes run it and merge
+into main"): `sidecar-roles`, the maps' sidecar recording every parameter as the fit used it
+("Parameters", "ParameterNames"; the model's defaults included), and `equip_fit` printing them and
+returning `info.parameters` and `info.sidecar`. Checked first: the full `Pkg.test` (EQUIP 2574),
+the command line's (160), Octave. CI could not run: GitHub refused to start its jobs ("recent
+account payments have failed or your spending limit needs to be increased": the month's Actions
+minutes for a private repository), so it waits for the billing; by CLAUDE.md's rule the change
+(writemaps, MATLAB) did not need CI first.
+
+Merged into `main` (fast-forward, 2026-11-14, at the owner's request: "yes merge into main"):
+`matlab` at 37d5759, the MATLAB functions over the command line (matlab/: `equip_fit`,
+`equip_setup`, `equip`, README.md for a user without Julia) and `equip fit --format`, for the
+first user's test with SIR data. Checked first: the command line's tests (160), the functions in
+GNU Octave 8.4 (not MATLAB, not Windows), CI on the branch (all six jobs).
+
+Merged into `main` (fast-forward, 2026-11-14, at the owner's request: "merge rician to main"):
+`rician` at 3dea513, the Rician fit's second-order bias (Cox and Snell, `secondorder = true`
+with `likelihood = :rician`). Checked first: the full `Pkg.test` (EQUIP 2569), CI on the branch
+(all six jobs), and the validation group (rician_fits 52, secondorder and agreement 24).
+
+Merged into `main` (fast-forward, 2026-11-13, at the owner's request: "merge into main, then
+do the cox snell bias"): `rician` at bf79d5f, tier 2 steps 6 to 9 (the validation group, run
+nightly in CI; `propagate`; `secondorder`; uncertain inputs) and the values-by-name rule. Checked
+first: the full `Pkg.test` (EQUIP 2547), CI on the branch (all six jobs) and the validation job
+run by hand on it (63 tests, 1 m 55 s, with the precompile workload). `rician` carries on with the
+Rician fit's second-order bias (Cox and Snell; design.md item 16).
+
+Merged into `main` (fast-forward, 2026-11-08, at the owner's request): `prerelease`, tier 1 below;
+its branch is safe to delete on GitHub.
+
+Merged into `main` (fast-forward, 2026-11-09, at the owner's request: "yes to both"): `t2-bounds`,
+T2 ≤ 2.5 s and R2 ≥ 0.4 s⁻¹ in every T2 model, `onbound` fixed for Float32, and the presets
+`DKI_GM`, `DKI_WM` (Maiter et al. 2021) and `DKI_CSF`; its branch is safe to delete on GitHub.
+
+Merged into `main` (fast-forward, 2026-11-08, at the owner's request: "looks good"): `test-structure`,
+the tests split into groups (test/unit, test/integration, test/validation), CLAUDE.md's rules for
+tests, the audit's items on the roadmap (design.md item 21); its branch is safe to delete on GitHub.
+
+The four in `experiments` (their outcomes are in design.md):
+
+| parent | was branch | outcome |
+|---|---|---|
+| 1 | `varpro-proto` | VarPro on the biexponential cases: not faster as prototyped; a design for later ("Variable projection (VarPro): proposed design") |
+| 2 | `step-proto` | step-control variants for the solver: today's step control kept |
+| 3 | `sens-proto` | `sensitivity` maps: built, then removed (Eq. 6 is `jacobian ./ √t`; its plot on the roadmap) |
+| 4 | `prototype/solver-deadzone` | steps toward bounds: superseded by the solver's dead-zone rule (`_lost_influence`) |
+
+**Deleted on GitHub by the owner, 2026-11-08** (every commit on them is in `main` or in
+`experiments`): 45 branches. The four experiments, now in `experiments`: `varpro-proto`
+`step-proto` `sens-proto` `prototype/solver-deadzone`. The chain merged into `lean` (below):
+`smt-proto` `nerve-smt` `blocks-proto` `directions-proto` `loglinear-proto` `noinline-proto`
+`derived-errors` `derived-truths` `derived-sweeps` `loglinear-time` `roadmap-priorities`. And
+the older ones: `aicc-fix` `analysis-proto` `api-v0.2` `averaging`
+`claude/sweet-thompson-ctbc4v` `cli-plan` `cli-proto` `crlb-proto` `design-proto` `diag-proto`
+`float32-ftz` `kwargs-proto` `leakage-proto` `mrimages-proto` `mrimodel-proto` `names-proto`
+`newmodel-proto` `nobs-proto` `noise-choice` `noise-proto` `org-proto` `result-proto`
+`scen-proto` `scenario-proto` `set-proto` `sim-precision` `simulate-fast` `stats-proto`
+`trim-proto` `weights-proto`. A branch named in this file or in design.md is in `main`'s history,
+or, for the four experiments, in `experiments`'s; any commit hash there still works (`git switch -c
+name <hash>`).
+
+**Proposed, for the owner (not adopted):** one working branch at a time, made from `main`,
+merged into `main` when the owner has seen it, then deleted; no more chains.
+
+### How `lean` (now `main`) got here
+
+`lean` was fast-forwarded on 2026-11-07, at the owner's request, from 5414c60 (2026-11-03) to the
+tip of the chain below, `derived-sweeps`. (Earlier the same day the chain had been merged into
+`lean` without the owner asking, and `lean` was reset to 5414c60; that merge commit, f3fd99d, is
+in the history the fast-forward brought.)
+
+What came in, oldest first (each branch built on the one before):
+
+| branch | what it added |
+|---|---|
+| `smt-proto` | SMT, SMTFreeWater, SMTT2 |
+| `nerve-smt` | Rician noise (`ricianmean`, `RicianMean`, `riciannoise`, `ricianbound`), `directionset`; the spherical mean's pipeline errors and the floor studies (taken out again on `directions-proto`, at the owner's request: roadmap item 18) |
+| `blocks-proto` | the diffusion compartments; one-equation model families (undone on `directions-proto`, at the owner's request) |
+| `directions-proto` | `diffusionencoding`, `fiberdirection`, `readbvec`; every model back in the standard format; the built-in `DTI` |
+| `loglinear-proto` | `Free(start = :loglinear)`; the built-in `DKI` with MK, AK, RK, MKT as DIPY's; the `derived` hook |
+| `noinline-proto` | crlb at many parameters (DKI's 22) |
+| `derived-errors` | derived quantities in crlb and montecarlo (`c.sd.FA`) |
+| `derived-truths` | `fromderived` and `nominal(DTI; MD, FA, direction)`; eigen derivatives at equal eigenvalues |
+| `derived-sweeps` | tissue presets by derived quantities (`DKI_...`, Lätt et al. 2013); the truth by derived quantities in `Scenario`, `simulate`, `crlb`, `montecarlo`; sweeps over one (`vary = :FA => ...`) |
+
+Then, fast-forwards on 2026-11-08 at the owner's request: `loglinear-time` (T2Decay on the shared
+log-linear start, no `datastart` of its own; `:loglinear` for time constants; the start's first
+pass made once per fit; the voxel fit called as a function above 8 free parameters: DTI −16%,
+DKI −29%, T2Decay +14–28% at typical T2, converging everywhere) and `roadmap-priorities` (docs
+only: the priority list below). Last full runs: EQUIP 2341, CLI 124, MRImages 103.
+
+## The priorities' progress, as recorded to 2026-11-27 (agreed with the owner, 2026-11-08)
+
+In order. The reasons, measurements and plans are in design.md (roadmap items by number; its
+"Priorities" paragraph has the same list).
+
+**1. Finish the prerelease**: done (2026-11-08, branch `prerelease`, merged into `main`;
+design.md, "The prerelease: what was done", has the measurements)
+- T2Decay's T2 at most 2.5 s (the owner): voxels with no decay end on the bound, flagged by
+  `onbound`, instead of "converged" at about 1e10 s; tissue and CSF at 32 echoes unchanged.
+  Extended (2026-11-09, branch `t2-bounds`): T2 ≤ 2.5 s in every T2 model and R2 ≥ 0.4 s⁻¹ in
+  every R2 model, both forms alike; and `onbound` fixed for Float32 fits.
+- `equip fit DTI` and `equip fit DKI`: the directions from the `.bval` and `.bvec` beside the
+  data; the derived maps written.
+- The precompile workload: DTI, crlb, montecarlo, a design (their first calls 1–3 s → under
+  0.3 s; precompiling 46 → 65 s). DKI left out: from the package image its fit ran 20–70%
+  slower. Open: QMTSIR, precompiled since before, measured 12–27% slower the same way.
+- MIT license; versions EQUIP 0.3.0, EQUIPCLI and MRImages 0.1.0; CI (.github/workflows).
+- An example per part (fit_maps, crlb, montecarlo, protocol_design); the README a front page,
+  its full text in docs/guide.md.
+- Shipped without pulsed qMT and NODDI (the owner); `python/` was not in the repository.
+- Full runs: EQUIP 2347, CLI 139, MRImages 103. CI's first run: MRImages and the CLI pass on
+  Julia 1.11 and 1.13; EQUIP failed on both, from older causes in two tests, both fixed: the
+  flush test's probe (a lock), and on 1.11 the zero-allocation checks under the bounds checks
+  1.11's `Pkg.test` forces (`fit!` allocates nothing on 1.11 as users run it; the checks are
+  skipped when bounds checks are forced, `@test_noalloc`).
+
+**2. Bias from noise at low SNR** (items 13, 16, 20). Built (2026-11-09 to 14, in `main`) but
+step 3, estimating σ (on hold): design.md, "Tier 2, bias from noise at low SNR: the plan", ten
+steps, each with how it is judged; left from it, DKI in CSF (item 20), `:wmean`'s second-order
+bias, and propagation by draws (item 16). Decided
+(the owner, 2026-11-09): the keyword is `likelihood`; MP-PCA waits, with the other
+preprocessing (item 22); the diffusivity cap, 4e-3 mm²/s, in every fit ("cap everywhere").
+Done on branch `rician` (2026-11-09 to 12; merged into `main` 2026-11-12): step 0, the baseline (bench/rician_baseline.jl;
+design.md, "Step 0, measured"), and the cap (ADCDecay, ADCKurtosis, DTI's and DKI's diagonal;
+Gaussian fits in tissue unchanged; the Rician fit in CSF 98–100% converged with it, 70–94%
+without). What step 0 found: the Rician mean removes the floor's bias in tissue from SNR 10;
+weighting it gains under 2.4% of SD, so it is not the gap; the gaps are the bias at SNR ≤ 10 and
+in DKI's MKT (overcorrected, −13% at SNR 10), convergence where there is no information, and
+speed (4–80× the Gaussian fit). Then (the owner: "make T1 cap 5 sec"): T1 ≤ 5 s and R1 ≥ 0.2
+s⁻¹ in every T1 model (T1IR in CSF had run off, +290% at SNR 10); DTI's and DKI's diagonal
+from 0 (a diffusivity is not negative: the Rician fits of DKI in CSF no longer run negative). Step 1 (the owner: "do step
+1"): the Rician functions fast, in src/models/rician.jl (Chebyshev Bessel functions fitted to
+`besselix` at precompile time, their exact derivatives on dual numbers, R(s) tabulated): a fit
+of the Rician mean 6.5–28× faster, now 1–4× the Gaussian fit's cost; results unchanged (Float64
+to 1e-8, Float32 within its own tolerance); `RicianMean` gives the model's derived quantities.
+Then steps 2 and 4 together (the owner: "both now, ML the default"): `fit(m, data; likelihood
+= :rician, σ, method = :ml | :mean | :wmean)`, σ a number or a map; least-squares fits
+unchanged value for value. Measured (design.md, "Steps 2 and 4, built and measured"): the three
+methods agree where the data hold information and remove the floor's bias from SNR 10; `:ml`
+converges best where fits are hard, at `:mean`'s cost; at SNR 5 the Rician fits trade bias for
+variance; DKI's MKT overcorrection is not the noise model's (every method alike). Step 5 (the
+owner: "do 5"): crlb, montecarlo and sweeps take `likelihood = :rician` and `method` (a
+Scenario carries them) and predict or measure that fit; each method is, to first order, a
+least-squares fit crlb's kernel already computes (`:ml` the magnitude weighted by the Rician
+information: `ricianbound` when nothing is wrong). Checked against montecarlo (T2 decay at SNR
+20; the 5-point SIR with kmf wrong at SNR 200). Not yet: a protocol design for these fits,
+`leakage`, `weights`, averages. The command line: `equip fit --likelihood rician --sigma SD`
+(a number or a map) `[--method ml|mean|wmean]`, 2026-11-12. Step 9, uncertain inputs (2026-11-12):
+`crlb(m, θ; snr, B1 = 1.05, uncertain = (B1 = 0.03,))` adds a measured fixed value's SD through
+leakage's slope; montecarlo draws each copy's value (T1's SD 0.0572 s predicted, 0.0577 ± 0.0003
+measured); `equip crlb` and `equip montecarlo` take `--uncertain B1=0.03`. 2026-11-13: values by
+name are named tuples everywhere (`vary` no longer takes pairs; one check, `_byname`, with a
+message for the missing comma); design's `weights` (per parameter) against everyone else's
+(per observation) is on the names review (item 24). Step 8 (2026-11-13): `crlb(m, θ; snr,
+secondorder = true)`, the noise's own bias to second order (Box 1971, with the residual's term
+when something fixed is wrong), parameters and derived quantities; montecarlo within 1 standard
+error in every case measured; the validation group's first file, test/validation/secondorder.jl.
+Step 7 (2026-11-13): `propagate(c, p -> 1 / p.T1)`, crlb's errors for any function of the
+parameters (the derived path's numbers for DTI's FA and MD; montecarlo for PSR/(1 + PSR)).
+Step 6 (2026-11-13, branch `rician`): the validation group filled and run nightly in CI
+(test/validation/: rician_fits.jl, the Rician fits per model; agreement.jl, bench/agreement.jl
+moved and asserted, with `secondorder`; secondorder.jl). Measured (design.md, "Step 6, built
+and measured"): the Rician fit removes the floor's bias in tissue (T2 +0.76% against least
+squares' +41.2% at SNR 10) at the Rician bound's SD; not better than least squares where the
+floor is not the main error (T1IR in WM, DKI's MKT −12.6%); without information, converged on
+the caps; DKI in CSF does not converge (2–5%). Two roadmap items from it: the Rician fit's
+second-order bias (item 16; built the same day, below) and DKI in CSF (item 20). The Rician
+fit's second-order bias (2026-11-13, the owner: "do the cox snell bias"; branch `rician`):
+`crlb(m, θ; snr, likelihood = :rician, secondorder = true)`, Cox and Snell's, predicts the
+maximum-likelihood fit's remaining bias (T2 +0.78% at SNR 10, montecarlo +0.83 ± 0.10; T1IR
++2.26%, +2.51 ± 0.12; MKT from SNR 20), so crlb tells before scanning whether maximum
+likelihood or least squares is less biased. DKI's MK is not predicted: not the fit's bias but
+MK's own curvature, too strong for the delta method (its SD 1.5× the delta method's at SNR
+20); the parameters drawn from crlb's normal distribution give montecarlo's MK, with no fits:
+a roadmap item (item 16, propagation by draws). Design.md, "The Rician fit's second-order
+bias". Found while answering the owner (2026-11-09): least squares on the
+Rician mean weighted by 1/Var is within 4.5% of the Rician bound's SD at any SNR
+(asymptotically), so maximum likelihood (step 4) is to be decided on the measurements.
+2026-11-12 (names, item 24): crlb takes `noise = :rician` for least squares on magnitude data
+(`riciannoise` removed); `readdata`, `readmap`, `writemaps` (were `loaddata`, `loadmap`,
+`savemaps`); `:loglinear` kept, and `init` warns (once) where ln S is not linear in those
+parameters, so the start is not the log-linear fit. Full runs on the branch: EQUIP 2496, CLI 139
+(MRImages unchanged, not rerun).
+- Rician fitting for every model (items 13 and 20, one item): `fit(m, data; likelihood
+  = :ricianmean or :rician, σ)` (least squares on E|y|, then maximum likelihood), the Gaussian
+  fit first, σ a fixed parameter so a map works as B1's does. Measured for DTI and DKI (MD 11%
+  low at SNR 10).
+- crlb's second-order noise bias, both terms, opt-in, tested against montecarlo: Box's bias of
+  the parameters, and a derived quantity's ½ tr(∇²g·C).
+- `propagate(c, g)` for any function of the parameters (the `derived` hook covers a model's
+  own).
+- Uncertain inputs: a measured B1 map's SD added to the covariance.
+- With it, from the test audit (design.md item 21): the missing independent checks (the T1
+  signals' analytic values, invariances, every model's Jacobian and DKI's index gradients against
+  central differences, edge cases). (test/validation/ filled and run nightly in CI: step 6,
+  done 2026-11-13.)
+- Still to do from tier 2 (design.md): DKI in CSF with the Rician fit (item 20: bounds on the
+  kurtosis, or a convergence test for a flat likelihood); the second-order bias for `:wmean`.
+
+**MATLAB, for a first user's test** (2026-11-14, in `main`; item 10): `equip_fit` over
+the command line, `equip_setup`, `equip`, matlab/README.md for a user without Julia; `equip fit
+--format nifti|mat|both`. Tested in Octave 8.4, not in MATLAB or on Windows (design.md, item 10,
+"First version built"). The first user tests it with SIR data.
+
+**3. Protocol design** (items 3, 14, 19)
+- A protocol from a number of points (item 14).
+- An objective on a derived quantity (`ProtocolDesign` for MK's SD, not W1111's).
+- The search's crlb and leakage from one kernel; the worst case inside a box.
+
+**4. Finish derived quantities** (item 19)
+- Standard-error maps from the fit's own covariance (`writemaps` writing `FA_SE`).
+- `compare` (a dataset fit against truth maps) for derived quantities.
+- An angular error for the principal direction (the cone of uncertainty) in place of V1's
+  components, whose statistics break near the hemisphere's fold.
+- `vary` over derived quantities in `scenarios()` (sweeps already take them).
+- Derived quantities for the other models: qMT's kfm = kmf·PSR, T1 from R1, SMT's D⊥.
+
+**5. Models** (items 5, 6, 7, 17)
+- First, in this order (the owner): stick–zeppelin (examples/directional_models.jl has it by
+  hand), ball–stick (one stick; N sticks later), IVIM (the segmented fit as its `datastart`). Built 2026-11-23 (branch `models-proto`).
+  The two directional ones start from DTI's principal direction.
+- Then: MTR, MTsat, B1 and B0 maps (item 5); pulsed qMT (item 6); NODDI (item 7); free-water
+  DTI; DKI's constraints (K ≥ 0 in every direction) imposed, not only checked.
+- Pulsed MT's lineshapes once per distinct offset: measured on `lineshape-cache` (about 10% a brain
+  where offsets repeat), not adopted (specialized code for a marginal gain), archived in
+  `experiments` (02e5f22); the branch is to delete (`git push origin --delete lineshape-cache`).
+- Merged into `main` (fast-forward, 2026-11-27, the owner: "merge once tests and CI pass"):
+  `cwmt-proto`, `QMTCWHenkelman` (Henkelman's closed form in the code, divided once) and
+  `QMTSPGRRamani` (Ramani's CWPE; 3× faster, biased where the excitation matters: PSR −29% at 10°,
+  −8% at 5°), and the qMT forward models self-contained (helpers inlined, the rule in CLAUDE.md's
+  Style; bit for bit, speed unchanged); design.md item 6. Checked first: the full `Pkg.test`
+  (3548), the command line's (189), the validation group (76), CI (4979f04). The branch is to
+  delete (`git push origin --delete cwmt-proto`).
+- On `mtr` (2026-11-27): MTR, steps 1 and 2 of 4: `mtr(S, Sref)` from two matched arrays, and
+  `mtr(m, θ)`, `mtr(m, data)` with a qMT acquisition (references found and paired), written by
+  `writemaps` as one `MTRmap` (each volume's offset, power and references in its sidecar);
+  decided with the owner: MTR a calculation (not a model), fractions everywhere, the reference
+  rules. Steps 3 and 4 too: MTR's errors from the images, `propagate(m, θ, g)` and
+  `montecarlo(m, θ, g)` for any function of the images; `design(f, m)` for an objective of your
+  own (examples/mtr_design.jl: MTR's CNR per √s, +21% over a common protocol). Before merging:
+  the full Pkg.test, and CI first (the precompile workload runs `design`). Next: `equip mtr`;
+  then MTsat (a model or not: the owner's to decide), B1 and B0 maps (design.md item 5). `qmt-family` merged (18974d4); the
+  branch is to delete (`git push origin --delete qmt-family`).
+- Joint models, several scans fitted as one (item 31, 2026-11-27): first SIR with a two-pool
+  VFA. Pulsed qMT (item 6): `QMTSPGRYarnykh` built (2026-11-26), its VFA images already joint.
+- SAGE (item 25, 2026-11-20): R2* and R2 from spin- and gradient-echo data (Keeling et al.,
+  MRI 2024), the paper's Eq. 1 with δ = S0ᴵ/S0ᴵᴵ (three- or four-parameter as δ fixed or free),
+  fixed starts. Prototyped and measured (design.md item 25); to decide: rates/times, R2* ≥ R2,
+  the DSC file layout.
+
+**6. Starts, across all models** (item 4; after the models, the owner: "let's build all models
+first")
+- Plausible ranges per model, from the presets and the literature.
+- Every model's start tested over its plausible range, both precisions; outside it, tested only
+  for failing safely (flagged, never "converged" at nonsense).
+- The dictionary start: `BestOf` over several parameters, the candidate signals made once per
+  fit (the shared first pass is already that for models linear in ln S).
+- An example `datastart` (DESPOT1's linearization, IVIM's segmented fit).
+
+**7. Nerve SMT, when the lab sends its values** (item 18; below)
+- The protocol evaluator and the search (steps 3 and 4).
+- The spherical mean's pipeline errors: taken out of the code on 2026-11-06; the code, tests and
+  floor studies are in `main`'s history at commit a9c7be4 (`nerve-smt`'s last), to restore
+  when this resumes.
+
+## Other records moved from status.md (2026-11-28)
+
+- Done (2026-11-09): `DKI_GM` and `DKI_WM` with AK (Maiter et al., Sci Rep 2021;11:8857, found
+  at the owner's request) and `DKI_CSF` as free water; Lätt's regional presets still take AK in
+  the call.
+- Remote branches listed "to delete" on 2026-11-27 (`cwmt-proto`, `lineshape-cache`,
+  `pulsedmt-proto`, `qmt-family`): gone from GitHub by 2026-11-28, each merged into `main` or
+  archived in `experiments`.

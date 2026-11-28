@@ -45,7 +45,7 @@ julia --project=cli -e 'using Pkg; Pkg.instantiate(); Pkg.test()'   # the comman
 Start Julia with threads (`julia -t auto`) so fitting a dataset uses all cores.
 
 The first `using EQUIP` after installing (or after a change to its code) takes about a minute:
-EQUIP compiles the common cases (a fit of every built-in model, crlb, montecarlo, a protocol
+EQUIP compiles the common cases (a fit of most built-in models, crlb, montecarlo, a protocol
 design) and saves them, so that in every new session they run at once. Other combinations
 compile on first use, a second or two (DKI's fit about 6 s, left out on purpose:
 docs/design.md, "The prerelease"). When developing EQUIP, switch that step off with a
@@ -121,26 +121,30 @@ Pkg.instantiate()'` once).
 - [docs/design.md](docs/design.md): the decision log, with the measurements behind each choice,
   and the roadmap.
 - [docs/status.md](docs/status.md): where the work stands.
+- [docs/architecture.md](docs/architecture.md): the code as it is: where each part lives, its
+  accuracy and its speed.
 - [MRImages](MRImages/): MRI images in and out of files (NIfTI, BIDS sidecars, `.bval`/`.bvec`,
   MATLAB), a package of its own in this repository.
 
 ## Roadmap
 
-In order of priority (agreed 2026-11-08; docs/design.md has each item):
+In order of priority (agreed 2026-11-08; docs/design.md has each item, docs/status.md what is
+left):
 
-1. **The prerelease** (this version).
-2. **Bias from noise at low SNR**: Rician fitting for every model (magnitude data sit on a
-   floor of about 1.25σ where the signal approaches the noise, and least squares reads it as
-   signal: DTI's MD is 11% low at SNR 10); crlb's second-order noise bias (the fit's own, Box
-   1971, and a derived quantity's), opt-in and checked against montecarlo; error propagation
-   for any function of the parameters, and from uncertain inputs such as a measured B1 map.
+1. **The prerelease** (0.3.0): done.
+2. **Bias from noise at low SNR**: done: Rician fitting for every model (magnitude data sit on
+   a floor of about 1.25σ where the signal approaches the noise, and least squares reads it as
+   signal: DTI's MD is 11% low at SNR 10); crlb's second-order noise bias, checked against
+   montecarlo; error propagation for any function of the parameters, and from uncertain inputs
+   such as a measured B1 map. Left: estimating σ, DKI in CSF.
 3. **Protocol design**: a protocol from a number of points; objectives on derived quantities
    (a DKI protocol for MK); the worst case inside a box of true values.
 4. **Derived quantities, finished**: standard-error maps (`FA_SE`), `compare` for derived
    quantities, an angular error for the principal direction, derived quantities for the
    other models.
-5. **Models**: stick–zeppelin, ball–stick, IVIM and NODDI (built, 2026-11-23); then MTR, MTsat, B1 and B0 maps,
-   pulsed qMT (Yarnykh, Ramani), free-water DTI, DKI with its constraints imposed.
+5. **Models**: stick–zeppelin, ball–stick, IVIM, NODDI and pulsed qMT (Yarnykh, Ramani,
+   Henkelman's CW) built; MTR and the exact pulsed model (Portnoy & Stanisz's MAMT) on branches;
+   then MTsat, B1 and B0 maps, free-water DTI, DKI with its constraints imposed.
 6. **Starts, tested across all models**: plausible ranges per model, every start tested over
    them, a dictionary start (`BestOf` over several parameters, the signals made once per fit),
    and an example `datastart`.
@@ -148,7 +152,7 @@ In order of priority (agreed 2026-11-08; docs/design.md has each item):
 
 Recorded for later: DKI's RTK, KFA and Kmax; Bayesian estimation; variable projection and log
 coordinates; solver backends and GPU; digital phantoms; formats and MRImages as a package of its
-own; Python and MATLAB front ends.
+own; a Python front end (MATLAB's is built, over the command line).
 
 ## License
 

@@ -463,7 +463,7 @@ image's edge), negative or not finite, and outside `mask`. Nothing is clamped: i
 no MT effect (CSF), noise makes MTR negative about half the time, and keeping those values keeps
 a region's mean unbiased.
 
-With a qMT acquisition (`QMTSPGRYarnykh`, `QMTSPGRRamani`, `QMTCWHenkelman`), `mtr` finds the
+With a qMT acquisition (`QMTSPGRYarnykh`, `QMTSPGRRamani`, `QMTSPGRPortnoy`, `QMTCWHenkelman`), `mtr` finds the
 references and gives one MTR for every MT image, from data (the images along the last dimension,
 as for `fit`) or predicted for a tissue from the model's noise-free signals:
 
@@ -1258,7 +1258,9 @@ r = design(p -> -cnrefficiency(p), m;                 # a maximum, searched as a
 examples/mtr_design.jl runs it (illustrative tissues; 3 s): 2 kHz, 6.5 µT, TR 20 ms, 13°, at
 the SAR limit, a CNR per √s of 31.0 against 25.6 for 2 kHz, 6 µT, TR 30 ms, 10°. The offset and
 TR end on their lower bounds; allowed down to 1 kHz the search goes there (32.1), where
-Yarnykh's model is least exact. The objective is called from several threads at once (a start
+Yarnykh's model is least exact: at 1-2 kHz its signal is 5-79% above `QMTSPGRPortnoy`'s (the
+two-pool Bloch equations), so these optima are to be checked with that model before they are
+relied on. The objective is called from several threads at once (a start
 each): it must not share buffers between calls.
 
 ## Data files
