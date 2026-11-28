@@ -3,8 +3,10 @@
 # `datastart`, a probe for subnormal flushing, @mrimodel versions of built-in models, a
 # directional model written by hand), the zero-allocation check `@test_noalloc`, the shared
 # cases (CASES: every built-in model with true values for every parameter) and protocols, and
-# two independent references: SIR's matrix form (Dortch et al., MRM 2018, Eq. 1) and
-# Gauss–Legendre nodes for spherical means. Included once, by test/runtests.jl.
+# the independent references: SIR's matrix form (Dortch et al., MRM 2018, Eq. 1), pulsed-MT SPGR
+# played TR by TR (Yarnykh's model) and by an RK4 integration of the two-pool Bloch equations
+# (Portnoy & Stanisz's MAMT), and Gauss–Legendre nodes for spherical means. Included once, by
+# test/runtests.jl.
 # =================================================================================================
 using EQUIP
 using EQUIP: setup, freenames      # internal functions that the tests inspect
@@ -242,6 +244,8 @@ const CASES = [
                                       R1obs = 1.0, B1 = 1.0, B0 = 0.0)),     # R1obs = R1m: the tie gives R1f = 1.0
     (QMTSPGRRamani(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
                                      R1obs = 1.0, B1 = 1.0, B0 = 0.0)),
+    (QMTSPGRPortnoy(; SPGR_ACQ...), (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0,
+                                      R1obs = 1.0, B1 = 1.0, B0 = 0.0)),
     (QMTCWHenkelman(offset = [1e3, 2e3, 4e3, 8e3, 16e3, 1e3, 2e3, 4e3, 8e3, 16e3, 0.0], B1cw = [fill(1.5, 5); fill(3.0, 5); 0.0]),
      (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1000.0, R1f = 1.0, R1m = 1.0, R1obs = 1.0, B1 = 1.0, B0 = 0.0)),
     (IVIM(b = [0.0, 10, 20, 30, 50, 80, 100, 150, 200, 300, 400, 600, 800]), (S0 = 1000.0, f = 0.1, Dstar = 0.02, D = 1.0e-3)),
@@ -281,6 +285,61 @@ function spgr_bruteforce(; offset, B1e, tm, ts, TR, FA, lineshape, PSR, kmf, T2f
         M = free(M, ts)
     end
     return M[1]
+end
+
+# Pulsed-MT SPGR by the two-pool Bloch equations (QMTSPGRPortnoy's independent reference):
+# Portnoy & Stanisz's Eqs. 1a-1d (Magn Reson Med 2007;58:144) integrated by fourth-order
+# Runge–Kutta, with no matrix exponential, from the model's acquisition (its offsets, B1e, timings
+# and MT pulse shape) and θ, every parameter by name:
+#   dMx/dt  = −Δω·My − Mx/T2f                     dMzf/dt = ω1·My + R1f·(1 − Mzf) − kfm·Mzf + kmf·Mzm
+#   dMy/dt  =  Δω·Mx − ω1·Mzf − My/T2f            dMzm/dt = R1m·(PSR − Mzm) − (Wm + kmf)·Mzm + kfm·Mzf
+# with Wm = π·ω1²·g(Δ), Δω = 2π·Δ, Δ = offset − B0. One TR as played: the excitation (the free pool's
+# Mz times cos α) and spoiling, free recovery, the MT pulse segment by segment (dt = 2.5e-7 s),
+# spoiled, free recovery for ts. The TR is an affine map of (Mzf, Mzm), found from three starting
+# states, and the steady state is its fixed point (not the model's 2×2 formula). Returns the
+# signals, M0f·sin α·Mzf. About 0.1 s for seven images. Against the model (a block pulse at 1 to
+# 5 kHz; measured 2026-11-28): 9.1e-8, 5.7e-9 and 3.6e-10 at dt = 1, 0.5 and 0.25 µs, 16 times
+# smaller per halving, RK4's fourth order, so what is left is the integration's own error.
+function mamt_rk4(m, θ; dt = 2.5e-7)
+    (; PSR, kmf, T2f, T2m, M0f, R1f, R1m, B1, B0) = θ
+    kfm = kmf * PSR
+    out = zeros(length(m.offset))
+    for j in eachindex(out)
+        α, Δ = B1 * deg2rad(m.FA[j]), m.offset[j] - B0
+        Δω, gm = 2π * Δ, m.lineshape(T2m, Δ)
+        f(x, ω1) = (Wm = m.B1e[j] == 0 ? 0.0 : π * ω1^2 * gm;
+                    SVector(-Δω * x[2] - x[1] / T2f, Δω * x[1] - ω1 * x[3] - x[2] / T2f,
+                            ω1 * x[2] + R1f * (1 - x[3]) - kfm * x[3] + kmf * x[4],
+                            R1m * (PSR - x[4]) - (Wm + kmf) * x[4] + kfm * x[3]))
+        function run(x, ω1, T, h)
+            n = max(1, round(Int, T / h)); h = T / n
+            for _ in 1:n
+                k1 = f(x, ω1); k2 = f(x + h / 2 * k1, ω1); k3 = f(x + h / 2 * k2, ω1); k4 = f(x + h * k3, ω1)
+                x += h / 6 * (k1 + 2k2 + 2k3 + k4)
+            end
+            return x
+        end
+        # segment k's amplitude: B1e (the pulse's root mean square) times its flip over the
+        # shape's root mean square, signed by its phase (0 or 180°)
+        K = length(m.mtshape.flip); τ = m.tm[j] / K
+        amp(k) = m.mtshape.flip[k] * cosd(m.mtshape.phase[k]) / sqrt(sum(abs2, m.mtshape.flip) / K)
+        ω1e = 2π * 42.577478518 * B1 * m.B1e[j]
+        function trmap(z)
+            x = SVector(0.0, 0.0, cos(α) * z[1], z[2])                 # excitation, spoiled
+            x = run(x, 0.0, m.TR[j] - m.tm[j] - m.ts[j], 1e-5)        # free recovery
+            for k in 1:K
+                x = run(x, ω1e * amp(k), τ, dt)                       # the MT pulse, segment by segment
+            end
+            x = SVector(0.0, 0.0, x[3], x[4])                         # spoiled
+            x = run(x, 0.0, m.ts[j], 1e-5)
+            return SVector(x[3], x[4])
+        end
+        z0 = trmap(SVector(0.0, 0.0))
+        P = hcat(trmap(SVector(1.0, 0.0)) - z0, trmap(SVector(0.0, 1.0)) - z0)
+        z = (I - P) \ z0
+        out[j] = M0f * sin(α) * z[1]
+    end
+    return out
 end
 
 # SIR signal straight from the matrix form (Dortch et al., MRM 2018, Eq. 1), with matrix

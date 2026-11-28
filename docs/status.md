@@ -45,9 +45,12 @@ objectives as recipes on what exists.
 
 **Next, in order** (each small):
 
-1. Tests for `QMTSPGRPortnoy` in test/unit/models.jl: the RK4 reference (bench/qmt/mamt_rk4.jl's
-   `rk4_signal` into test/setup.jl), Yarnykh's far from resonance, MT-off images equal,
-   derivatives against central differences, Float32; a guide row.
+1. Tests for `QMTSPGRPortnoy`: **done** (2026-11-28; design.md item 6, "Tested"): RK4
+   (`mamt_rk4` in test/setup.jl) with a block and an asymmetric shape with a 180° lobe, the CW
+   limit (Henkelman's closed form, 2e-13), Yarnykh's far from resonance (second order in ω1/Δω),
+   MT-off images, `mtpulse` with a negative lobe, the Jacobian (central differences need steps of
+   1e-4: the 5×5 exponential's rounding), in CASES (both precisions, `fit!` allocation-free);
+   `mtshape` with `mtpulse` now refused; a guide row. Not yet merged, not yet the full Pkg.test.
 2. Its speed against Yarnykh's (a block: one exponential an image; a shape: one a segment).
 3. examples/mtr_design.jl again with `QMTSPGRPortnoy`: do the 1-2 kHz optima hold?
 4. The owner's objectives as recipes on `propagate` (no new API): MTR's SNR, ∂MTR/∂PSR, per

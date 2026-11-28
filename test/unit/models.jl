@@ -286,6 +286,70 @@ end
     @test occursin("TR = 0.01", msg(() -> QMTSPGRYarnykh(; base..., TR = 0.010, B1e = 4.0, tm = 0.012)))
 end
 
+@testset "QMTSPGRPortnoy (MAMT): the Bloch equations by RK4, the CW and far-off-resonance limits, the pulse forms" begin
+    θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.1, B1 = 0.95, B0 = 30.0)
+    off, b1e = [1e3, 2e3, 5e3, 1e3, 2e3, 5e3, 0.0], [fill(4.0, 3); fill(8.0, 3); 0.0]
+    # Portnoy & Stanisz's Eqs. 1a-1d integrated by RK4 (test/setup.jl: no matrix exponential, the
+    # steady state as the TR's fixed point) near resonance, where the free pool's rotation matters,
+    # with B1 and B0 away from nominal: a block pulse, and a shape that is asymmetric with a
+    # negative lobe (phase 180°), so the segments' order and sign count (played in reverse, the
+    # signal changes by up to 13%; with the lobe made positive, up to 6 times, its sharp edge
+    # broadening the pulse's spectrum). 3.6e-10 and 3.2e-10 measured, the largest of the images
+    mb = QMTSPGRPortnoy(offset = off, B1e = b1e, tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    @test signal(mb, θ) ≈ mamt_rk4(mb, θ) rtol = 1e-9
+    a = [range(0.2, 1.0; length = 12); 0.6; 0.4; 0.3; 0.2]
+    shape = RFPulse(10 .* a, [fill(0, 12); fill(180, 4)], 0.010)
+    ma = QMTSPGRPortnoy(offset = off, B1e = b1e, tm = 0.010, ts = 0.002, TR = 0.030, FA = 10, mtshape = shape)
+    @test signal(ma, θ) ≈ mamt_rk4(ma, θ) rtol = 1e-9
+    # the continuous-wave limit: a block filling TR (ts = 0), long against T1, at a small flip
+    # angle, is Henkelman's steady state (QMTCWHenkelman, its closed form checked against the
+    # linear system), near resonance too: for CW the free pool's transverse steady state makes its
+    # saturation exactly the Lorentzian rate, which the pulsed approximations take everywhere
+    # (2e-13 measured)
+    o, b = [200.0, 1e3, 2e3, 5e3, 0.0], [2.0, 2.0, 4.0, 4.0, 0.0]
+    mcw = QMTSPGRPortnoy(offset = o, B1e = b, tm = 20.0, ts = 0.0, TR = 20.0, FA = 1)
+    @test signal(mcw, θ) ./ sind(0.95) ≈ signal(QMTCWHenkelman(offset = o, B1cw = b), θ) rtol = 1e-11
+    # far from resonance, Yarnykh's model (the free pool's saturation as a rate, right where the
+    # offset is large against ω1 and 1/T2f): above MAMT by a difference second order in ω1/Δω,
+    # quadrupled when the offset halves (3.99 and 3.94 measured), under 3e-4 at 100 kHz
+    d(o) = (acq = (offset = [o, o], B1e = [4.0, 8.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10);
+            signal(QMTSPGRYarnykh(; acq...), θ) ./ signal(QMTSPGRPortnoy(; acq...), θ) .- 1)
+    @test all(0 .< d(100e3) .< 3e-4)
+    @test d(50e3) ./ d(100e3) ≈ [4, 4] rtol = 0.03
+    # the images without the MT pulse: Yarnykh's (the two pools' SPGR steady state, which the
+    # sequence played TR by TR checks), at several flip angles and TRs (VFA images in one acquisition)
+    v = (offset = [2e3, 0, 0, 0], B1e = [6.0, 0, 0, 0], tm = 0.012, ts = 0.002, TR = [0.030, 0.030, 0.015, 0.015], FA = [10, 10, 3, 20])
+    @test signal(QMTSPGRPortnoy(; v...), θ)[2:4] ≈ signal(QMTSPGRYarnykh(; v...), θ)[2:4] rtol = 1e-13
+    # the MT pulse as its shape and flip angle (`mtpulse`, `mtflip`): played as given, scaled by
+    # mtflip over its net flip angle (the negative lobe subtracted), so at twice its net flip, the
+    # shape above at twice its own root-mean-square amplitude, √(mean ω1ₖ²) with ω1ₖ = αₖ/τₖ
+    net = 10 * (sum(a[1:12]) - sum(a[13:16]))
+    ω1rms = sqrt(sum(abs2, deg2rad.(10 .* a) ./ (0.010 / 16)) / 16)
+    mp = QMTSPGRPortnoy(offset = off[1:3], mtpulse = shape, mtflip = 2 * net, ts = 0.002, TR = 0.030, FA = 10)
+    @test signal(mp, θ) ≈ signal(QMTSPGRPortnoy(offset = off[1:3], mtshape = shape, B1e = 2 * ω1rms / (2π * 42.577478518),
+                                                 tm = 0.010, ts = 0.002, TR = 0.030, FA = 10), θ) rtol = 1e-13
+    # the fit's derivatives (dual numbers through the 5×5 exponentials) against central
+    # differences, B1 and B0 freed too (B0 through the rotation's Δω); steps of 1e-4 of each value,
+    # since the exponentials' rounding (2.5e-13 at 100 kHz, against BigFloat) swamps smaller ones'
+    # differences (1e-6 gave up to 1e-5); 2e-7 measured
+    m = QMTSPGRPortnoy(; SPGR_ACQ...)
+    J = jacobian(m, θ; B1 = Free(), B0 = Free())
+    for (k, name) in enumerate((:PSR, :kmf, :T2f, :T2m, :M0f, :B1, :B0))
+        h = 1e-4 * θ[name]
+        up, dn = signal(m, merge(θ, NamedTuple{(name,)}((θ[name] + h,)))), signal(m, merge(θ, NamedTuple{(name,)}((θ[name] - h,))))
+        @test J[:, k] ≈ (up .- dn) ./ 2h rtol = 1e-6
+    end
+    # the shape's checks, and one pulse form: one per error path
+    msg(f) = try f(); "" catch e; sprint(showerror, e) end
+    base = (offset = [1e3, 0.0], B1e = [4.0, 0.0], tm = 0.012, ts = 0.002, TR = 0.030, FA = 10)
+    @test occursin("Vector{Int64}", msg(() -> QMTSPGRPortnoy(; base..., mtshape = [1, 2, 3])))
+    @test occursin("equal duration", msg(() -> QMTSPGRPortnoy(; base..., mtshape = RFPulse([10, 20], [0, 0], [1e-3, 2e-3]))))
+    @test occursin("phases", msg(() -> QMTSPGRPortnoy(; base..., mtshape = RFPulse([10, 20], [0, 90], 2e-3))))
+    @test occursin("zero", msg(() -> QMTSPGRPortnoy(; base..., mtshape = RFPulse([0, 0], [0, 0], 2e-3))))
+    @test occursin("`mtshape`", msg(() -> QMTSPGRPortnoy(offset = [1e3, 0.0], mtpulse = shape, mtflip = [500, 0], mtshape = shape,
+                                                         ts = 0.002, TR = 0.030, FA = 10)))
+end
+
 @testset "QMTCWHenkelman and QMTSPGRRamani: Henkelman's closed form, the Bloch steady state, the CWPE" begin
     θ = (PSR = 0.15, kmf = 20.0, T2f = 0.04, T2m = 12e-6, M0f = 1.0, R1f = 1.2, R1m = 1.0, R1obs = 1.0, B1 = 0.95, B0 = 30.0)
     off, b1 = [0.5e3, 1e3, 2e3, 4e3, 8e3, 16e3, 0.0], [fill(2.0, 6); 0.0]

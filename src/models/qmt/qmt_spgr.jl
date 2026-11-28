@@ -301,6 +301,9 @@ struct QMTSPGRPortnoy{A<:AbstractVector,L} <: MRIModel
     lineshape::L        # the macromolecular pool's lineshape, (T2, Δ) -> g
 end
 function QMTSPGRPortnoy(; mtshape = nothing, mtpulse = nothing, kw...)
+    # a shape goes with B1e and tm; `mtpulse` is its own shape (given both, one would be ignored)
+    mtshape === nothing || mtpulse === nothing ||
+        throw(ArgumentError("QMTSPGRPortnoy: `mtshape` goes with `B1e` and `tm`; with `mtpulse`, its own shape, leave it out"))
     f = _pulsedspgr(QMTSPGRPortnoy; mtpulse, kw...)
     shape = mtpulse !== nothing ? mtpulse : mtshape === nothing ? blockpulse(90, 1e-3) : mtshape
     shape isa RFPulse || throw(ArgumentError("QMTSPGRPortnoy: `mtshape` is an RFPulse (its segments), got $(typeof(shape))"))

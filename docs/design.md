@@ -6583,7 +6583,25 @@ Gaussian noise when it fitted), then **a protocol design from a number of points
        the MT-off images equal. So the MTR design's optima at 1-2 kHz (item 5) were found where
        Yarnykh's model is wrong: to redo with this model. The excitation's saturation of the
        bound pool is neglected, as in Yarnykh's (open: it matters at high flip angles and short
-       TR).
+       TR). **Tested** (2026-11-28, test/unit/models.jl; the RK4 integration moved to test/setup.jl,
+       `mamt_rk4`, which the bench now includes): against RK4 at 1-5 kHz with B1 0.95 and B0 30 Hz,
+       a block (3.6e-10) and an asymmetric 16-segment shape with a 180° lobe (3.2e-10; the
+       Gaussian is symmetric, so it could not see the segments' order: reversed, this shape's
+       signal changes by up to 13%, its lobe made positive up to 6×); RK4's difference falls 16×
+       per halving of its step (9.1e-8, 5.7e-9, 3.6e-10 at 1, 0.5, 0.25 µs), its own fourth-order
+       error. Two limits independent of the equations' transcription: the continuous-wave limit (a
+       20-s block filling TR, 1°) is Henkelman's closed form within 2e-13 from 200 Hz to 5 kHz
+       (for CW the free pool's transverse steady state makes its saturation exactly the Lorentzian
+       rate); and far from resonance Yarnykh's model is above it by a difference second order in
+       ω1/Δω (×3.99 and ×3.94 from 100 to 50 kHz at 4 and 8 µT; 7e-5 and 2.8e-4 at 100 kHz). The
+       MT-off images equal Yarnykh's at several flip angles and TRs (1e-13); `mtpulse` with a
+       negative lobe scaled by its signed net flip; the Jacobian (7 columns, B1 and B0 freed)
+       against central differences within 2e-7, with steps of 1e-4 of each value: at 1e-6 the
+       signal's rounding gave up to 1e-5, since the 5×5 exponential at |Hτ| ≈ 7600 (100 kHz) is
+       within 2.5e-13 of a BigFloat one, not 1e-15 (5e-15 at 1 kHz). In CASES, so fitted noise-free
+       in both precisions (Float32's signal within 1.5e-6 of Float64's) and `fit!` checked
+       allocation-free. Found with the tests: `mtshape` given with `mtpulse` was silently ignored;
+       now refused, as `mtflip` with `B1e` is.
      - **The lineshapes once per distinct offset: measured, not adopted** (the owner, 2026-11-27:
        "would it be more efficient for lineshape to take all deltas at same time and calc once",
        then "benchmark the cache offset idea on a new branch", then, seeing the code, "worry about

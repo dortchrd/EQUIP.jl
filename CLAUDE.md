@@ -211,7 +211,9 @@ StaticArrays. The owner is an MRI physicist learning Julia.
   values (compare fields); arrays with NaN compare with `isequal`; EQUIP does not export
   `sidecarpath` (`EQUIP.MRImages.sidecarpath`); every vector field of a model must have one value
   per image (a pulse shape is held as an `RFPulse`, as QMTSIR's pulse); a new qMT model joins the
-  unions `_MTMODELS` (mtnames.jl) and `_MTRMODELS` (mtr.jl).
+  unions `_MTMODELS` (mtnames.jl) and `_MTRMODELS` (mtr.jl); central differences on a signal made
+  by large matrix exponentials (QMTSPGRPortnoy's) need steps of about 1e-4 of the value, not
+  1e-6: the exponential's rounding (2.5e-13 at 100 kHz) swamps a smaller step's differences.
 - Run the file or group being changed while developing (`julia -t auto --project=test
   test/runtests.jl <file or group>`); the full suite (Pkg.test) before committing to a branch to
   be merged; the validation group before merging into `main` when the change touches what it
